@@ -3,6 +3,7 @@ export interface DailyMetric {
   id: string;
   user_id: string;
   campaign_id: string;
+  google_account_id?: string | null;
   date: string; // yyyy-mm-dd
   spend: number;
   clicks: number;
@@ -18,6 +19,7 @@ export interface DailyMetric {
 export interface Campaign {
   id: string;
   user_id: string;
+  google_account_id?: string | null;
   campaign_id: string;
   name: string;
   status: string;
@@ -30,6 +32,7 @@ export interface Placement {
   id: string;
   user_id: string;
   campaign_id: string | null;
+  site_id?: string | null;
   placement_key: string;
   site: string | null;
   ad_unit: string | null;
@@ -73,11 +76,53 @@ export interface AutomationAction {
   created_at: string;
 }
 
+// --- Contas e Sites ---
+
+export interface GoogleAccount {
+  id: string;
+  user_id: string;
+  customer_id: string;
+  login_customer_id: string | null;
+  account_name: string | null;
+  is_mcc: boolean;
+  status: string;
+  refresh_token?: string | null;
+  last_synced_at?: string | null;
+}
+
+export interface GamAccount {
+  id: string;
+  user_id: string;
+  network_code: string;
+  account_name: string | null;
+  service_account_email: string | null;
+  status: string;
+  last_synced_at?: string | null;
+}
+
+export interface Site {
+  id: string;
+  user_id: string;
+  name: string;
+  domain: string;
+  network_code: string;
+  gam_account_id?: string | null;
+  status: string;
+}
+
+export interface AccountSiteLink {
+  id: string;
+  user_id: string;
+  google_account_id: string;
+  site_id: string;
+}
+
 // Agregação por campanha (para tabela e rankings)
 export interface CampaignAggregate {
   campaign_id: string;
   name: string;
   status: string;
+  google_account_id?: string | null;
   spend: number;
   revenue: number;
   profit: number;
