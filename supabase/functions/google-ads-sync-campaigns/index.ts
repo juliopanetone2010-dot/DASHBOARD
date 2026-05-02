@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
     // Busca todas as contas conectadas (MCCs e contas diretas)
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, is_mcc, account_name")
+      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id")
       .eq("user_id", userId)
       .not("refresh_token", "is", null);
 
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
                 "login-customer-id": root.customer_id,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ query: cq, pageSize: 1000 }),
+              body: JSON.stringify({ query: cq }),
             },
           );
           const cJson = await cRes.json();
@@ -144,8 +144,8 @@ Deno.serve(async (req) => {
           leafAccounts = [{
             id: root.id,
             customer_id: root.customer_id,
-            login_customer_id: null,
-            name: root.account_name ?? root.customer_id,
+            login_customer_id: root.login_customer_id ?? null,
+                name: root.account_name ?? root.descriptive_name ?? root.customer_id,
           }];
         }
 
@@ -186,7 +186,7 @@ Deno.serve(async (req) => {
               {
                 method: "POST",
                 headers,
-                body: JSON.stringify({ query: campaignQuery, pageSize: 10000 }),
+                body: JSON.stringify({ query: campaignQuery }),
               },
             );
             const camJson = await camRes.json();

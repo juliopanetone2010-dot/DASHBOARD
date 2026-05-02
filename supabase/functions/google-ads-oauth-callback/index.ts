@@ -89,18 +89,19 @@ Deno.serve(async (req) => {
       loginCustomerId: string | null;
     }> = [];
 
-    const gaqlSearch = async (loginCid: string, targetCid: string, query: string) => {
+    const gaqlSearch = async (loginCid: string | null, targetCid: string, query: string) => {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${tokens.access_token}`,
+        "developer-token": devToken,
+        "Content-Type": "application/json",
+      };
+      if (loginCid) headers["login-customer-id"] = loginCid;
       const r = await fetch(
         `https://googleads.googleapis.com/v21/customers/${targetCid}/googleAds:search`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${tokens.access_token}`,
-            "developer-token": devToken,
-            "login-customer-id": loginCid,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ query, pageSize: 1000 }),
+          headers,
+          body: JSON.stringify({ query }),
         },
       );
       const j = await r.json();
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
     for (const cid of customerIds) {
       // detalhe da própria conta acessível (geralmente MCC)
       const det = await gaqlSearch(
-        cid,
+        null,
         cid,
         "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer",
       );
@@ -121,13 +122,23 @@ Deno.serve(async (req) => {
       const selfName = row?.descriptiveName ?? `Conta ${cid}`;
       const selfCurrency = row?.currencyCode ?? null;
       const selfIsMcc = !!row?.manager;
-      enriched.push({
-        cid,
-        name: selfName,
-        currency: selfCurrency,
-        isMcc: selfIsMcc,
-        loginCustomerId: null,
-      });
+      if (selfIsMcc) {
+        enriched.push({
+          cid,
+          name: selfName,
+          currency: selfCurrency,
+          isMcc: true,
+          loginCustomerId: null,
+        });
+      } else {
+        enriched.push({
+          cid,
+          name: selfName,
+          currency: selfCurrency,
+          isMcc: false,
+          loginCustomerId: null,
+        });
+      }
       console.log(`[oauth-callback] self ${cid}: name="${selfName}" mcc=${selfIsMcc} currency=${selfCurrency}`);
 
       // Se for MCC, expande sub-contas via customer_client
@@ -135,13 +146,13 @@ Deno.serve(async (req) => {
         const exp = await gaqlSearch(
           cid,
           cid,
-          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED' AND customer_client.manager = FALSE`,
         );
         const results = exp.json?.results ?? [];
         console.log(`[oauth-callback] mcc ${cid} expanded -> ${results.length} clients`);
         for (const r of results) {
           const cc = r.customerClient;
-          if (!cc) continue;
+          if (!cc || cc.manager) continue;
           const subId = String(cc.id);
           if (subId === cid) continue;
           enriched.push({
@@ -174,7 +185,7 @@ Deno.serve(async (req) => {
               currency: c.currency,
               is_mcc: c.isMcc,
               login_customer_id: c.loginCustomerId,
-              manager_account_id: c.loginCustomerId,
+              manager_account_id: null,
               refresh_token: tokens.refresh_token,
               status: "connected",
               last_synced_at: new Date().toISOString(),

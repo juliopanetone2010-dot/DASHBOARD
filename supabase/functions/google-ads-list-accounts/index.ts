@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
               "login-customer-id": mgr.customer_id,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ query, pageSize: 1000 }),
+            body: JSON.stringify({ query }),
           },
         );
         const searchJson = await searchRes.json();
