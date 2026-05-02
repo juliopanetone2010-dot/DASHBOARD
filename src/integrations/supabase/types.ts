@@ -263,11 +263,14 @@ export type Database = {
         Row: {
           account_name: string | null
           created_at: string
+          currency: string | null
           customer_id: string
+          descriptive_name: string | null
           id: string
           is_mcc: boolean
           last_synced_at: string | null
           login_customer_id: string | null
+          manager_account_id: string | null
           refresh_token: string | null
           status: string
           user_id: string
@@ -275,11 +278,14 @@ export type Database = {
         Insert: {
           account_name?: string | null
           created_at?: string
+          currency?: string | null
           customer_id: string
+          descriptive_name?: string | null
           id?: string
           is_mcc?: boolean
           last_synced_at?: string | null
           login_customer_id?: string | null
+          manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
           user_id: string
@@ -287,11 +293,14 @@ export type Database = {
         Update: {
           account_name?: string | null
           created_at?: string
+          currency?: string | null
           customer_id?: string
+          descriptive_name?: string | null
           id?: string
           is_mcc?: boolean
           last_synced_at?: string | null
           login_customer_id?: string | null
+          manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
           user_id?: string

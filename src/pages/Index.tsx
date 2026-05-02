@@ -265,6 +265,7 @@ const Index = () => {
               onRemoveSite={data.removeSite}
               onAddLink={data.addLink}
               onRemoveLink={data.removeLink}
+              onRefresh={data.refresh}
             />
           </TabsContent>
 

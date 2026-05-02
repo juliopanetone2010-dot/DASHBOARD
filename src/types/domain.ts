@@ -84,6 +84,9 @@ export interface GoogleAccount {
   customer_id: string;
   login_customer_id: string | null;
   account_name: string | null;
+  descriptive_name?: string | null;
+  currency?: string | null;
+  manager_account_id?: string | null;
   is_mcc: boolean;
   status: string;
   refresh_token?: string | null;
