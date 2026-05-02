@@ -122,13 +122,23 @@ Deno.serve(async (req) => {
       const selfName = row?.descriptiveName ?? `Conta ${cid}`;
       const selfCurrency = row?.currencyCode ?? null;
       const selfIsMcc = !!row?.manager;
-      enriched.push({
-        cid,
-        name: selfName,
-        currency: selfCurrency,
-        isMcc: selfIsMcc,
-        loginCustomerId: null,
-      });
+      if (selfIsMcc) {
+        enriched.push({
+          cid,
+          name: selfName,
+          currency: selfCurrency,
+          isMcc: true,
+          loginCustomerId: null,
+        });
+      } else {
+        enriched.push({
+          cid,
+          name: selfName,
+          currency: selfCurrency,
+          isMcc: false,
+          loginCustomerId: null,
+        });
+      }
       console.log(`[oauth-callback] self ${cid}: name="${selfName}" mcc=${selfIsMcc} currency=${selfCurrency}`);
 
       // Se for MCC, expande sub-contas via customer_client
@@ -142,7 +152,7 @@ Deno.serve(async (req) => {
         console.log(`[oauth-callback] mcc ${cid} expanded -> ${results.length} clients`);
         for (const r of results) {
           const cc = r.customerClient;
-          if (!cc) continue;
+          if (!cc || cc.manager) continue;
           const subId = String(cc.id);
           if (subId === cid) continue;
           enriched.push({
