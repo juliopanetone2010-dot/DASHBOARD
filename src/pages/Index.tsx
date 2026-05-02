@@ -170,6 +170,19 @@ const Index = () => {
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
+              onPresetApply={async (_key, gaql) => {
+                toast({ title: "Sincronizando", description: `Período: ${gaql.replace(/_/g, " ")}` });
+                const { data: resp, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+                  "google-ads-sync-campaigns",
+                  { body: { date_preset: gaql } },
+                );
+                if (error || resp?.error) {
+                  toast({ title: "Erro ao sincronizar", description: resp?.error ?? error?.message ?? "Falha", variant: "destructive" });
+                  return;
+                }
+                toast({ title: "Dados atualizados" });
+                await data.refresh();
+              }}
             />
 
             {/* Métricas */}
