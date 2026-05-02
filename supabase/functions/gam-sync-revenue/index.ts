@@ -213,6 +213,7 @@ async function runReport(
   accessToken: string,
   datePreset: string,
   groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
+  usdBrlRate: number,
   debug: string[],
 ): Promise<ReportRow[]> {
   // 1) cria report
@@ -315,8 +316,9 @@ async function runReport(
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // Métricas MONEY da REST API beta já vêm na unidade da moeda da rede.
-      const revenue = num(m[1]) + num(m[3]) + num(m[5]);
+      // O GAM desta conta retorna MONEY em USD; o dashboard trabalha em BRL.
+      const revenueUsd = num(m[1]) + num(m[3]) + num(m[5]);
+      const revenue = revenueUsd * usdBrlRate;
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
