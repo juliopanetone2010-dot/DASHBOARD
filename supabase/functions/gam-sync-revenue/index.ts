@@ -75,9 +75,14 @@ Deno.serve(async (req) => {
         const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
         const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
 
-        const totals = {
-          revenue: 0, impressions: 0,
-        };
+        const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
+        const totals = canonicalRows.reduce(
+          (acc, r) => ({
+            revenue: acc.revenue + r.revenue,
+            impressions: acc.impressions + r.impressions,
+          }),
+          { revenue: 0, impressions: 0 },
+        );
         const today = new Date().toISOString().slice(0, 10);
 
         // Persiste rows como placements (uma linha por dia x dimensão)
@@ -86,9 +91,6 @@ Deno.serve(async (req) => {
             const revenue = r.revenue;
             const impressions = r.impressions;
             const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
-            totals.revenue += revenue;
-            totals.impressions += impressions;
-
             const siteForRow = networkSites[0]; // GAM não retorna domínio; usa 1º site da network
             const placementKey = `${kind}:${networkCode}:${r.name}`;
 
@@ -111,6 +113,7 @@ Deno.serve(async (req) => {
 
         await persistRows(adUnitRows, "ad_unit");
         await persistRows(placementRows, "placement");
+        await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, debug);
 
         summary.push({
           network_code: networkCode,
@@ -141,6 +144,65 @@ Deno.serve(async (req) => {
 });
 
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
+
+async function distributeGamRevenueToCampaigns(
+  admin: any,
+  userId: string,
+  siteId: string | undefined,
+  rows: ReportRow[],
+  debug: string[],
+) {
+  if (!siteId || rows.length === 0) return;
+
+  const totalsByDate = new Map<string, { revenue: number; impressions: number }>();
+  const today = new Date().toISOString().slice(0, 10);
+  for (const r of rows) {
+    const date = r.date ?? today;
+    const cur = totalsByDate.get(date) ?? { revenue: 0, impressions: 0 };
+    cur.revenue += r.revenue;
+    cur.impressions += r.impressions;
+    totalsByDate.set(date, cur);
+  }
+
+  const { data: links, error: linksErr } = await admin
+    .from("account_site_links")
+    .select("google_account_id")
+    .eq("user_id", userId)
+    .eq("site_id", siteId);
+  if (linksErr || !links?.length) {
+    debug.push(`[daily_metrics] sem vínculo Ads↔site para distribuir receita GAM`);
+    return;
+  }
+
+  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  for (const [date, totals] of totalsByDate) {
+    const { data: metrics, error: metricsErr } = await admin
+      .from("daily_metrics")
+      .select("id, campaign_id, spend, impressions")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("google_account_id", accountIds);
+    if (metricsErr || !metrics?.length) {
+      debug.push(`[daily_metrics] sem campanhas Ads em ${date} para distribuir receita GAM`);
+      continue;
+    }
+
+    const totalWeight = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
+    for (const m of metrics as any[]) {
+      const weight = totalWeight === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
+      const share = weight / totalWeight;
+      const revenue = totals.revenue * share;
+      const spend = Number(m.spend ?? 0);
+      const impressions = Number(m.impressions ?? 0);
+      const profit = revenue - spend;
+      const roi = spend > 0 ? (profit / spend) * 100 : 0;
+      const roas = spend > 0 ? revenue / spend : 0;
+      const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
+      await admin.from("daily_metrics").update({ revenue, profit, roi, roas, ecpm }).eq("id", m.id);
+    }
+    debug.push(`[daily_metrics] receita GAM ${totals.revenue.toFixed(6)} distribuída em ${metrics.length} campanha(s) de ${date}`);
+  }
+}
 
 async function runReport(
   networkCode: string,
@@ -243,21 +305,27 @@ async function runReport(
 
     for (const r of rows) {
       const dims = r.dimensionValues ?? [];
-      const date = dims[0]?.stringValue ?? null;
+      const date = parseGamDate(dims[0]);
       const name = dims[1]?.stringValue ?? "(unknown)";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // Receita: TODAS as métricas de revenue do GAM vêm em micros (1 USD = 1.000.000)
-      const revenueMicros = num(m[1]) + num(m[3]) + num(m[5]);
-      const revenue = revenueMicros / 1_000_000;
+      // Métricas MONEY da REST API beta já vêm na unidade da moeda da rede.
+      const revenue = num(m[1]) + num(m[3]) + num(m[5]);
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
   return allRows;
+}
+
+function parseGamDate(value: any): string | null {
+  const raw = String(value?.stringValue ?? value?.intValue ?? "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  return null;
 }
 
 async function parseJsonResponse(
