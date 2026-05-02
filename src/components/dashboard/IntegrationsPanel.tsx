@@ -151,7 +151,7 @@ export function IntegrationsPanel(props: Props) {
             </div>
             <div>
               <h3 className="font-semibold">Google Ad Manager (Service Account)</h3>
-              <p className="text-xs text-muted-foreground">Network code + chave JSON</p>
+              <p className="text-xs text-muted-foreground">Network code + chave JSON (configurada no backend)</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -168,13 +168,23 @@ export function IntegrationsPanel(props: Props) {
             <Label className="text-xs">Service account email</Label>
             <Input value={gamEmail} onChange={(e) => setGamEmail(e.target.value)} placeholder="acc@projeto.iam.gserviceaccount.com" />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Chave JSON (será salva como secret na Fase 2)</Label>
-            <Textarea value={gamKey} onChange={(e) => setGamKey(e.target.value)}
-              placeholder="Cole aqui o JSON da Service Account (não envie pelo chat — peça para configurar como secret)"
-              className="h-20 font-mono text-xs" />
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button type="submit" size="sm">Salvar GAM</Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={syncingGam}
+              onClick={handleSyncGam}
+              className="gap-1.5"
+            >
+              {syncingGam ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sincronizar receita GAM
+            </Button>
           </div>
-          <Button type="submit" size="sm">Salvar GAM</Button>
+          <p className="text-[11px] text-muted-foreground">
+            A chave JSON da service account é armazenada como secret no backend (não digite aqui).
+          </p>
         </form>
       </div>
 
