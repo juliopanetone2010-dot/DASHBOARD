@@ -56,13 +56,29 @@ export function IntegrationsPanel(props: Props) {
       });
       return;
     }
-    const totalRev = (data?.summary ?? []).reduce(
-      (acc: number, s: any) => acc + (Number(s.total_revenue) || 0), 0,
+    const summary = (data?.summary ?? []) as any[];
+    const totalRev = summary.reduce((acc, s) => acc + (Number(s.total_revenue) || 0), 0);
+    const totalRows = summary.reduce(
+      (acc, s) => acc + (Number(s.ad_unit_rows) || 0) + (Number(s.placement_rows) || 0), 0,
     );
-    toast({
-      title: "Receita GAM sincronizada",
-      description: `Total: R$ ${totalRev.toFixed(2)} (últimos 7 dias)`,
-    });
+    const errs = summary.filter((s) => s.error).map((s) => `${s.network_code}: ${s.error}`);
+    if (errs.length > 0) {
+      toast({
+        title: "GAM retornou erro",
+        description: errs.join(" | ").slice(0, 300),
+        variant: "destructive",
+      });
+    } else if (totalRows === 0) {
+      toast({
+        title: "Sincronizado, mas sem dados",
+        description: "GAM autenticou mas não retornou linhas. Verifique permissão da Service Account (função 'Ver/Executar relatórios') e se há receita no período.",
+      });
+    } else {
+      toast({
+        title: "Receita GAM sincronizada",
+        description: `R$ ${totalRev.toFixed(2)} • ${totalRows} linha(s) (últimos 7 dias)`,
+      });
+    }
     await props.onRefresh();
   };
 
