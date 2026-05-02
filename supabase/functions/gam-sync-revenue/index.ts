@@ -151,10 +151,11 @@ async function runReport(
   const reportBody = {
     visibility: "DRAFT",
     reportDefinition: {
+      reportType: "HISTORICAL",
       dimensions: ["DATE", groupDim],
       metrics: [
-        "TOTAL_IMPRESSIONS",
-        "TOTAL_CPM_AND_CPC_REVENUE",
+        "AD_SERVER_IMPRESSIONS",
+        "AD_SERVER_REVENUE",
       ],
       dateRange: { relativeDateRange: datePreset },
     },
@@ -213,9 +214,8 @@ async function runReport(
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
     const rowsRes = await fetch(url.toString(), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     const rowsJson = await rowsRes.json();
     if (!rowsRes.ok) throw new Error(`fetchRows failed: ${JSON.stringify(rowsJson)}`);
