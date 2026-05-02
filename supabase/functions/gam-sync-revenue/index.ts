@@ -191,7 +191,7 @@ async function runReport(
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  const runJson = await runRes.json();
+  const runJson = await parseJsonResponse(runRes, "run report", networkCode, groupDim);
   debug.push(`[${networkCode}/${groupDim}] run status=${runRes.status}`);
   if (!runRes.ok) throw new Error(`run failed: ${JSON.stringify(runJson)}`);
   const opName: string = runJson.name; // operations/...
@@ -203,11 +203,13 @@ async function runReport(
     const opRes = await fetch(`${GAM_BASE}/${opName}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const opJson = await opRes.json();
+    const opJson = await parseJsonResponse(opRes, "poll operation", networkCode, groupDim);
     if (opJson.done) {
       if (opJson.error) throw new Error(`op error: ${JSON.stringify(opJson.error)}`);
-      resultName = opJson.response?.name ?? opJson.metadata?.report;
+      resultName = opJson.response?.reportResult?.name ?? opJson.response?.reportResult ?? opJson.response?.name;
+      if (!resultName) throw new Error(`report done sem reportResult: ${JSON.stringify(opJson.response ?? opJson)}`);
       debug.push(`[${networkCode}/${groupDim}] done after ${(i + 1) * 2}s`);
+      debug.push(`[${networkCode}/${groupDim}] result=${resultName}`);
       break;
     }
   }
@@ -224,7 +226,8 @@ async function runReport(
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const rowsJson = await rowsRes.json();
+    debug.push(`[${networkCode}/${groupDim}] fetchRows status=${rowsRes.status}`);
+    const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", networkCode, groupDim);
     if (!rowsRes.ok) throw new Error(`fetchRows failed: ${JSON.stringify(rowsJson)}`);
 
     const rows = (rowsJson.rows ?? []) as Array<{
@@ -249,6 +252,23 @@ async function runReport(
   } while (pageToken);
 
   return allRows;
+}
+
+async function parseJsonResponse(
+  res: Response,
+  step: string,
+  networkCode: string,
+  groupDim: string,
+) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const preview = text.replace(/\s+/g, " ").slice(0, 300);
+    throw new Error(
+      `[${networkCode}/${groupDim}] ${step} retornou resposta não-JSON (status ${res.status}, content-type ${res.headers.get("content-type") ?? "sem content-type"}): ${preview}`,
+    );
+  }
 }
 
 // JWT auth para service account
