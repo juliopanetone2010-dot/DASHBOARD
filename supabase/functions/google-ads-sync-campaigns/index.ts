@@ -110,6 +110,7 @@ Deno.serve(async (req) => {
           customer_id: string;
           login_customer_id: string | null;
           name: string;
+          currency: string | null;
         }> = [];
 
         if (root.is_mcc) {
