@@ -283,7 +283,8 @@ Deno.serve(async (req) => {
 
             // Upsert métricas diárias
             for (const r of results) {
-              const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
+              const spendNative = Number(r.metrics.costMicros ?? 0) / 1_000_000;
+              const spend = toUsd(spendNative, leaf.currency, usdBrlRate); // padroniza em USD
               const revenue = Number(r.metrics.conversionsValue ?? 0);
               const clicks = Number(r.metrics.clicks ?? 0);
               const impressions = Number(r.metrics.impressions ?? 0);
