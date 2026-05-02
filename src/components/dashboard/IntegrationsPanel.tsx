@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ExternalLink, Lock, Plug, ShieldCheck } from "lucide-react";
+import { ExternalLink, Plug, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/AuthContext";
 import { AccountsPanel } from "./AccountsPanel";
 import { SitesPanel } from "./SitesPanel";
 import { LinksPanel } from "./LinksPanel";
