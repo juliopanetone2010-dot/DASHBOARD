@@ -14,7 +14,398 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alerts: {
+        Row: {
+          acknowledged: boolean
+          campaign_id: string | null
+          category: string
+          created_at: string
+          id: string
+          message: string | null
+          metric_snapshot: Json | null
+          placement_key: string | null
+          severity: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          acknowledged?: boolean
+          campaign_id?: string | null
+          category: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          metric_snapshot?: Json | null
+          placement_key?: string | null
+          severity?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          acknowledged?: boolean
+          campaign_id?: string | null
+          category?: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          metric_snapshot?: Json | null
+          placement_key?: string | null
+          severity?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      automation_actions: {
+        Row: {
+          action_type: string
+          campaign_id: string
+          created_at: string
+          error: string | null
+          executed_at: string | null
+          id: string
+          payload: Json | null
+          reason: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          campaign_id: string
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          payload?: Json | null
+          reason?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          campaign_id?: string
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          payload?: Json | null
+          reason?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      campaigns: {
+        Row: {
+          budget_micros: number | null
+          campaign_id: string
+          channel_type: string | null
+          created_at: string
+          google_account_id: string | null
+          id: string
+          name: string
+          status: string
+          target_cpa_micros: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          budget_micros?: number | null
+          campaign_id: string
+          channel_type?: string | null
+          created_at?: string
+          google_account_id?: string | null
+          id?: string
+          name: string
+          status?: string
+          target_cpa_micros?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          budget_micros?: number | null
+          campaign_id?: string
+          channel_type?: string | null
+          created_at?: string
+          google_account_id?: string | null
+          id?: string
+          name?: string
+          status?: string
+          target_cpa_micros?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_google_account_id_fkey"
+            columns: ["google_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_metrics: {
+        Row: {
+          campaign_id: string
+          clicks: number
+          conversions: number
+          created_at: string
+          date: string
+          ecpm: number
+          id: string
+          impressions: number
+          profit: number
+          revenue: number
+          roas: number
+          roi: number
+          spend: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          clicks?: number
+          conversions?: number
+          created_at?: string
+          date: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          profit?: number
+          revenue?: number
+          roas?: number
+          roi?: number
+          spend?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          clicks?: number
+          conversions?: number
+          created_at?: string
+          date?: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          profit?: number
+          revenue?: number
+          roas?: number
+          roi?: number
+          spend?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      gam_accounts: {
+        Row: {
+          account_name: string | null
+          created_at: string
+          id: string
+          last_synced_at: string | null
+          network_code: string
+          service_account_email: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          account_name?: string | null
+          created_at?: string
+          id?: string
+          last_synced_at?: string | null
+          network_code: string
+          service_account_email?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          account_name?: string | null
+          created_at?: string
+          id?: string
+          last_synced_at?: string | null
+          network_code?: string
+          service_account_email?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      google_accounts: {
+        Row: {
+          account_name: string | null
+          created_at: string
+          customer_id: string
+          id: string
+          is_mcc: boolean
+          last_synced_at: string | null
+          login_customer_id: string | null
+          refresh_token: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          account_name?: string | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          is_mcc?: boolean
+          last_synced_at?: string | null
+          login_customer_id?: string | null
+          refresh_token?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          account_name?: string | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          is_mcc?: boolean
+          last_synced_at?: string | null
+          login_customer_id?: string | null
+          refresh_token?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      placements: {
+        Row: {
+          ad_unit: string | null
+          campaign_id: string | null
+          created_at: string
+          date: string
+          ecpm: number
+          id: string
+          impressions: number
+          placement_key: string
+          revenue: number
+          site: string | null
+          user_id: string
+        }
+        Insert: {
+          ad_unit?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          date: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          placement_key: string
+          revenue?: number
+          site?: string | null
+          user_id: string
+        }
+        Update: {
+          ad_unit?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          date?: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          placement_key?: string
+          revenue?: number
+          site?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rules_config: {
+        Row: {
+          analysis_days: number
+          auto_boost_enabled: boolean
+          auto_pause_enabled: boolean
+          boost_roi_pct: number
+          budget_increase_pct: number
+          max_loss_roi_pct: number
+          min_roi_pct: number
+          min_spend_threshold: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          analysis_days?: number
+          auto_boost_enabled?: boolean
+          auto_pause_enabled?: boolean
+          boost_roi_pct?: number
+          budget_increase_pct?: number
+          max_loss_roi_pct?: number
+          min_roi_pct?: number
+          min_spend_threshold?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          analysis_days?: number
+          auto_boost_enabled?: boolean
+          auto_pause_enabled?: boolean
+          boost_roi_pct?: number
+          budget_increase_pct?: number
+          max_loss_roi_pct?: number
+          min_roi_pct?: number
+          min_spend_threshold?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sync_logs: {
+        Row: {
+          error: string | null
+          finished_at: string | null
+          id: string
+          records_processed: number | null
+          source: string
+          started_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          records_processed?: number | null
+          source: string
+          started_at?: string
+          status: string
+          user_id: string
+        }
+        Update: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          records_processed?: number | null
+          source?: string
+          started_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
