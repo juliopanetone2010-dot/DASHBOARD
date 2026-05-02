@@ -36,7 +36,7 @@ export function CampaignsRanking({ campaigns, variant }: CampaignsRankProps) {
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{c.name}</p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      {fmtCurrency(c.spend)} → {fmtCurrency(c.revenue)}
+                      {fmtCurrency(c.spend)} → {fmtUSD(c.revenue)}
                     </p>
                   </div>
                 </div>
