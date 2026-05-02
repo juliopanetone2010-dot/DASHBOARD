@@ -146,7 +146,7 @@ export function AccountSiteMappingPanel({
           {childAccounts.map((acc) => {
             const selected = draft[acc.id] ?? NONE;
             const linked = selected !== NONE;
-            const blockedSites = siteUsageByOthers(acc.id);
+            const currentCount = selected !== NONE ? (siteUsageCount.get(selected) ?? 0) : 0;
             return (
               <article
                 key={acc.id}
@@ -192,15 +192,20 @@ export function AccountSiteMappingPanel({
                   <SelectContent>
                     <SelectItem value={NONE}>— Nenhum —</SelectItem>
                     {sites.map((s) => {
-                      const blocked = blockedSites.has(s.id);
+                      const count = siteUsageCount.get(s.id) ?? 0;
                       return (
-                        <SelectItem key={s.id} value={s.id} disabled={blocked}>
-                          {s.name} {blocked ? "(em uso)" : ""}
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} {count > 0 ? `(${count} conta${count > 1 ? "s" : ""})` : ""}
                         </SelectItem>
                       );
                     })}
                   </SelectContent>
                 </Select>
+                {currentCount > 1 && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Compartilhado com outras {currentCount - 1} conta(s) — receita será atribuída via UTM.
+                  </p>
+                )}
 
                 {sites.length === 0 && (
                   <p className="text-[11px] text-muted-foreground mt-2">
