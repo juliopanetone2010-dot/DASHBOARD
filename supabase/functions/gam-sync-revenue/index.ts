@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
+    const usdBrlRate = await getUsdBrlRate(debug);
 
     // Agrupa sites por network_code
     const byNetwork = new Map<string, typeof sites>();
@@ -72,8 +73,8 @@ Deno.serve(async (req) => {
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         // Roda dois reports: por AD_UNIT_NAME e por PLACEMENT_NAME
-        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
-        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
+        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", usdBrlRate, debug);
+        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", usdBrlRate, debug);
 
         const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
         const totals = canonicalRows.reduce(
@@ -120,6 +121,9 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
+          source_currency: "USD",
+          revenue_currency: "BRL",
+          usd_brl_rate: usdBrlRate,
           total_revenue: totals.revenue,
           total_impressions: totals.impressions,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
@@ -144,6 +148,21 @@ Deno.serve(async (req) => {
 });
 
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
+
+async function getUsdBrlRate(debug: string[]) {
+  try {
+    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+    const data = await res.json();
+    const rate = Number(data?.USDBRL?.bid);
+    if (Number.isFinite(rate) && rate > 0) {
+      debug.push(`[currency] USD→BRL ${rate}`);
+      return rate;
+    }
+  } catch (e) {
+    debug.push(`[currency] falha ao buscar cotação, usando fallback: ${String(e)}`);
+  }
+  return 5.5;
+}
 
 async function distributeGamRevenueToCampaigns(
   admin: any,
@@ -209,6 +228,7 @@ async function runReport(
   accessToken: string,
   datePreset: string,
   groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
+  usdBrlRate: number,
   debug: string[],
 ): Promise<ReportRow[]> {
   // 1) cria report
@@ -311,8 +331,9 @@ async function runReport(
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // Métricas MONEY da REST API beta já vêm na unidade da moeda da rede.
-      const revenue = num(m[1]) + num(m[3]) + num(m[5]);
+      // O GAM desta conta retorna MONEY em USD; o dashboard trabalha em BRL.
+      const revenueUsd = num(m[1]) + num(m[3]) + num(m[5]);
+      const revenue = revenueUsd * usdBrlRate;
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
