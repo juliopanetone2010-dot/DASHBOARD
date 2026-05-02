@@ -157,7 +157,7 @@ async function runReport(
         "AD_SERVER_IMPRESSIONS",
         "AD_SERVER_REVENUE",
       ],
-      dateRange: { relativeDateRange: datePreset },
+      dateRange: { relative: datePreset },
     },
   };
   const createRes = await fetch(
