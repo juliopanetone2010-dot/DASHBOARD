@@ -1,6 +1,6 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtPercent } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent } from "@/lib/format";
 import type { CampaignAggregate } from "@/types/domain";
 import type { PlacementAggregate } from "@/engine/rules";
 
