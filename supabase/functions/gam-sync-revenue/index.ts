@@ -248,9 +248,13 @@ async function runReport(
       const date = dims[0]?.stringValue ?? null;
       const name = dims[1]?.stringValue ?? "(unknown)";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
-      const impressions = Number(m[0]?.intValue ?? 0);
-      // Revenue em micros (GAM retorna em micros para dinheiro)
-      const revenueMicros = Number(m[1]?.intValue ?? m[1]?.doubleValue ?? 0);
+      // Soma todas as fontes: AdServer + AdExchange + AdSense (índices 0..5).
+      // TOTAL_* (índices 6/7) já vem somado pelo GAM — usamos se vier preenchido.
+      const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
+      const totalImp = num(m[6]);
+      const totalRev = num(m[7]);
+      const impressions = totalImp || (num(m[0]) + num(m[2]) + num(m[4]));
+      const revenueMicros = totalRev || (num(m[1]) + num(m[3]) + num(m[5]));
       const revenue = revenueMicros / 1_000_000;
       allRows.push({ date, name, impressions, revenue });
     }
