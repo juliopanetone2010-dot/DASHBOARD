@@ -51,9 +51,10 @@ interface Props {
   googleAccounts: GoogleAccount[];
   sites: Site[];
   campaigns: Campaign[];
+  onPresetApply?: (preset: DatePresetKey, gaql: string) => void;
 }
 
-export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns }: Props) {
+export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, onPresetApply }: Props) {
   const set = <K extends keyof DashboardFilters>(k: K, v: DashboardFilters[K]) =>
     onChange({ ...filters, [k]: v });
 
@@ -71,6 +72,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns 
     if (!preset) return;
     const r = preset.range();
     onChange({ ...filters, fromDate: r.from, toDate: r.to });
+    onPresetApply?.(key, preset.gaql);
   };
 
   return (
