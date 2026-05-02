@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
