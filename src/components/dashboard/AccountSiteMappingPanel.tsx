@@ -42,14 +42,14 @@ export function AccountSiteMappingPanel({
     return Object.keys({ ...initial, ...draft }).some((k) => initial[k] !== draft[k]);
   }, [initial, draft]);
 
-  // Sites já usados por OUTRA conta (regra 1:1) — para desabilitar nas outras dropdowns
-  const siteUsageByOthers = (currentAccId: string) => {
-    const used = new Set<string>();
-    for (const [accId, siteId] of Object.entries(draft)) {
-      if (accId !== currentAccId && siteId && siteId !== NONE) used.add(siteId);
+  // N:1 permitido — várias contas Ads podem apontar para o mesmo site.
+  const siteUsageCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const siteId of Object.values(draft)) {
+      if (siteId && siteId !== NONE) m.set(siteId, (m.get(siteId) ?? 0) + 1);
     }
-    return used;
-  };
+    return m;
+  }, [draft]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -146,7 +146,7 @@ export function AccountSiteMappingPanel({
           {childAccounts.map((acc) => {
             const selected = draft[acc.id] ?? NONE;
             const linked = selected !== NONE;
-            const blockedSites = siteUsageByOthers(acc.id);
+            const currentCount = selected !== NONE ? (siteUsageCount.get(selected) ?? 0) : 0;
             return (
               <article
                 key={acc.id}
@@ -192,15 +192,20 @@ export function AccountSiteMappingPanel({
                   <SelectContent>
                     <SelectItem value={NONE}>— Nenhum —</SelectItem>
                     {sites.map((s) => {
-                      const blocked = blockedSites.has(s.id);
+                      const count = siteUsageCount.get(s.id) ?? 0;
                       return (
-                        <SelectItem key={s.id} value={s.id} disabled={blocked}>
-                          {s.name} {blocked ? "(em uso)" : ""}
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} {count > 0 ? `(${count} conta${count > 1 ? "s" : ""})` : ""}
                         </SelectItem>
                       );
                     })}
                   </SelectContent>
                 </Select>
+                {currentCount > 1 && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Compartilhado com outras {currentCount - 1} conta(s) — receita será atribuída via UTM.
+                  </p>
+                )}
 
                 {sites.length === 0 && (
                   <p className="text-[11px] text-muted-foreground mt-2">
