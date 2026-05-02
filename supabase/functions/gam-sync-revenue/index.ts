@@ -145,6 +145,65 @@ Deno.serve(async (req) => {
 
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
 
+async function distributeGamRevenueToCampaigns(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  siteId: string | undefined,
+  rows: ReportRow[],
+  debug: string[],
+) {
+  if (!siteId || rows.length === 0) return;
+
+  const totalsByDate = new Map<string, { revenue: number; impressions: number }>();
+  const today = new Date().toISOString().slice(0, 10);
+  for (const r of rows) {
+    const date = r.date ?? today;
+    const cur = totalsByDate.get(date) ?? { revenue: 0, impressions: 0 };
+    cur.revenue += r.revenue;
+    cur.impressions += r.impressions;
+    totalsByDate.set(date, cur);
+  }
+
+  const { data: links, error: linksErr } = await admin
+    .from("account_site_links")
+    .select("google_account_id")
+    .eq("user_id", userId)
+    .eq("site_id", siteId);
+  if (linksErr || !links?.length) {
+    debug.push(`[daily_metrics] sem vínculo Ads↔site para distribuir receita GAM`);
+    return;
+  }
+
+  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  for (const [date, totals] of totalsByDate) {
+    const { data: metrics, error: metricsErr } = await admin
+      .from("daily_metrics")
+      .select("id, campaign_id, spend, impressions")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("google_account_id", accountIds);
+    if (metricsErr || !metrics?.length) {
+      debug.push(`[daily_metrics] sem campanhas Ads em ${date} para distribuir receita GAM`);
+      continue;
+    }
+
+    const totalWeight = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
+    for (const m of metrics as any[]) {
+      const weight = totalWeight === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
+      const share = weight / totalWeight;
+      const revenue = totals.revenue * share;
+      const spend = Number(m.spend ?? 0);
+      const impressions = Number(m.impressions ?? 0);
+      const profit = revenue - spend;
+      const roi = spend > 0 ? (profit / spend) * 100 : 0;
+      const roas = spend > 0 ? revenue / spend : 0;
+      const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
+      await admin.from("daily_metrics").update({ revenue, profit, roi, roas, ecpm }).eq("id", m.id);
+    }
+    debug.push(`[daily_metrics] receita GAM ${totals.revenue.toFixed(6)} distribuída em ${metrics.length} campanha(s) de ${date}`);
+  }
+}
+
 async function runReport(
   networkCode: string,
   accessToken: string,
