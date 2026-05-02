@@ -158,6 +158,12 @@ async function runReport(
       metrics: [
         "AD_SERVER_IMPRESSIONS",
         "AD_SERVER_REVENUE",
+        "AD_EXCHANGE_IMPRESSIONS",
+        "AD_EXCHANGE_REVENUE",
+        "ADSENSE_IMPRESSIONS",
+        "ADSENSE_REVENUE",
+        "TOTAL_IMPRESSIONS",
+        "TOTAL_REVENUE",
       ],
       dateRange: { relative: datePreset },
     },
