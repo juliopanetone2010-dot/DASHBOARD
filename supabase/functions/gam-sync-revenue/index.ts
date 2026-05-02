@@ -149,6 +149,21 @@ Deno.serve(async (req) => {
 
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
 
+async function getUsdBrlRate(debug: string[]) {
+  try {
+    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+    const data = await res.json();
+    const rate = Number(data?.USDBRL?.bid);
+    if (Number.isFinite(rate) && rate > 0) {
+      debug.push(`[currency] USD→BRL ${rate}`);
+      return rate;
+    }
+  } catch (e) {
+    debug.push(`[currency] falha ao buscar cotação, usando fallback: ${String(e)}`);
+  }
+  return 5.5;
+}
+
 async function distributeGamRevenueToCampaigns(
   admin: any,
   userId: string,
