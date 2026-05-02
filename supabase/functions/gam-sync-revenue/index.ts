@@ -247,8 +247,9 @@ async function runReport(
       const name = dims[1]?.stringValue ?? "(unknown)";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      // Soma AdServer + AdExchange + AdSense
+      // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
+      // Receita: TODAS as métricas de revenue do GAM vêm em micros (1 USD = 1.000.000)
       const revenueMicros = num(m[1]) + num(m[3]) + num(m[5]);
       const revenue = revenueMicros / 1_000_000;
       allRows.push({ date, name, impressions, revenue });
