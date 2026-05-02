@@ -64,8 +64,35 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns 
     filters.fromDate !== "" ||
     filters.toDate !== "";
 
+  const activePreset = presetFromRange(filters.fromDate, filters.toDate);
+
+  const applyPreset = (key: DatePresetKey) => {
+    const preset = DATE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    const r = preset.range();
+    onChange({ ...filters, fromDate: r.from, toDate: r.to });
+  };
+
   return (
-    <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
+    <div className="rounded-xl border border-border bg-card p-3 shadow-elegant space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-1">
+          <Zap className="h-3.5 w-3.5" /> Período
+        </div>
+        {DATE_PRESETS.map((p) => (
+          <Button
+            key={p.key}
+            type="button"
+            size="sm"
+            variant={activePreset === p.key ? "default" : "outline"}
+            onClick={() => applyPreset(p.key)}
+            className="h-8"
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pb-1.5 pr-1">
           <Filter className="h-3.5 w-3.5" /> Filtros
