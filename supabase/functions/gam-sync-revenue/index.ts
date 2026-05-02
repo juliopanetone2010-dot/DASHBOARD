@@ -239,7 +239,6 @@ async function runReport(
   accessToken: string,
   datePreset: string,
   groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
-  usdBrlRate: number,
   debug: string[],
 ): Promise<ReportRow[]> {
   // 1) cria report
