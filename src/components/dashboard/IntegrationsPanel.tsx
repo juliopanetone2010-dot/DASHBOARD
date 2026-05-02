@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { ExternalLink, Plug, ShieldCheck } from "lucide-react";
+import { ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { SitesPanel } from "./SitesPanel";
 import { AccountSiteMappingPanel } from "./AccountSiteMappingPanel";
 import type {
@@ -33,9 +34,33 @@ export function IntegrationsPanel(props: Props) {
   const [gamNetwork, setGamNetwork] = useState("");
   const [gamEmail, setGamEmail] = useState("");
   const [gamKey, setGamKey] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const handleConnectAds = () => {
     window.location.href = "/settings";
+  };
+
+  const handleSyncCampaigns = async () => {
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke<{
+      ok?: boolean; error?: string; summary?: unknown[]; debug?: string[];
+    }>("google-ads-sync-campaigns", { body: {} });
+    setSyncing(false);
+    console.log("[sync-campaigns] response", data, error);
+    if (error || data?.error) {
+      toast({
+        title: "Erro ao sincronizar",
+        description: data?.error ?? error?.message ?? "Falha desconhecida",
+        variant: "destructive",
+      });
+      return;
+    }
+    const total = (data?.summary ?? []).reduce((acc: number, s) => {
+      const x = s as { total_campaigns_synced?: number };
+      return acc + (x.total_campaigns_synced ?? 0);
+    }, 0);
+    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s).` });
+    await props.onRefresh();
   };
 
   const handleAddGam = async (e: React.FormEvent) => {
@@ -80,6 +105,10 @@ export function IntegrationsPanel(props: Props) {
           <div className="flex flex-wrap gap-2">
             <Button onClick={handleConnectAds} size="sm" className="gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Conectar MCC
+            </Button>
+            <Button onClick={handleSyncCampaigns} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sincronizar contas e campanhas
             </Button>
             <Button variant="outline" size="sm" asChild>
               <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">
