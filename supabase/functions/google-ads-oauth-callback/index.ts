@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
               currency: c.currency,
               is_mcc: c.isMcc,
               login_customer_id: c.loginCustomerId,
-              manager_account_id: c.loginCustomerId,
+              manager_account_id: null,
               refresh_token: tokens.refresh_token,
               status: "connected",
               last_synced_at: new Date().toISOString(),
