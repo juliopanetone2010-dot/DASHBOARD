@@ -5,14 +5,12 @@ import { BarChart3, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 const emailSchema = z.string().trim().email("E-mail inválido").max(255);
 const pwSchema = z.string().min(8, "Mínimo 8 caracteres").max(72);
-const nameSchema = z.string().trim().min(1).max(80);
 
 const Auth = () => {
   const { session, loading: authLoading } = useAuth();
