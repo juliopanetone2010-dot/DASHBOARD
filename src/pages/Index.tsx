@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, LogIn, LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { evaluate } from "@/engine/rules";
 import { fmtCurrency, fmtPercent } from "@/lib/format";
@@ -16,20 +18,71 @@ import { RoiChart } from "@/components/dashboard/RoiChart";
 import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
+import { FilterBar, EMPTY_FILTERS, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
+import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
+  const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+
+  // Aplica filtros aos dados crus antes de mandar para a engine
+  const filtered = useMemo(() => {
+    const accountCampaignIds = new Set(
+      filters.googleAccountId === "all"
+        ? data.campaigns.map((c) => c.campaign_id)
+        : data.campaigns
+            .filter((c) => c.google_account_id === filters.googleAccountId)
+            .map((c) => c.campaign_id),
+    );
+
+    const siteCampaignIds = new Set(
+      filters.siteId === "all"
+        ? data.campaigns.map((c) => c.campaign_id)
+        : (() => {
+            const linkedAccIds = data.links
+              .filter((l) => l.site_id === filters.siteId)
+              .map((l) => l.google_account_id);
+            return data.campaigns
+              .filter((c) => linkedAccIds.includes(c.google_account_id ?? ""))
+              .map((c) => c.campaign_id);
+          })(),
+    );
+
+    const matchCampaign = (cid: string) =>
+      (filters.campaignId === "all" || filters.campaignId === cid) &&
+      accountCampaignIds.has(cid) && siteCampaignIds.has(cid);
+
+    const inDateRange = (date: string) =>
+      (!filters.fromDate || date >= filters.fromDate) &&
+      (!filters.toDate || date <= filters.toDate);
+
+    const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id));
+    const metrics: DailyMetric[] = data.metrics.filter(
+      (m) => matchCampaign(m.campaign_id) && inDateRange(m.date),
+    );
+    const placements: Placement[] = data.placements.filter((p) => {
+      const cidOk = !p.campaign_id || matchCampaign(p.campaign_id);
+      const siteOk = filters.siteId === "all" || p.site_id === filters.siteId
+        || data.sites.find((s) => s.id === filters.siteId)?.name === p.site;
+      return cidOk && siteOk && inDateRange(p.date);
+    });
+
+    return { campaigns, metrics, placements };
+  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters]);
 
   const engine = useMemo(() => {
     if (!data.rules) return null;
     return evaluate({
-      campaigns: data.campaigns,
-      metrics: data.metrics,
-      placements: data.placements,
+      campaigns: filtered.campaigns,
+      metrics: filtered.metrics,
+      placements: filtered.placements,
       rules: data.rules,
     });
-  }, [data.campaigns, data.metrics, data.placements, data.rules]);
+  }, [filtered, data.rules]);
 
   // Persiste alertas gerados pela engine (só os novos, sem duplicar por título)
   useEffect(() => {
@@ -52,21 +105,19 @@ const Index = () => {
     await data.acknowledgeAlert(id);
   };
 
-  // Pause / Boost: registram a ação como pending e refazem fetch
   const queueAction = async (
     campaignId: string, action: "pause" | "increase_budget", reason: string,
   ) => {
     await data.queueAction(campaignId, action, reason);
     toast({
       title: action === "pause" ? "Pausa enfileirada" : "Aumento sugerido",
-      description: "Ação registrada como pendente. Execução real entra na Fase 4.",
+      description: "Ação registrada como pendente. Execução real entra na próxima fase.",
     });
   };
 
-  // Insere dados de teste para o usuário ver a engine viva
   const insertSampleData = async () => {
     await data.insertSampleData();
-    toast({ title: "Dados de teste inseridos", description: "A engine vai gerar alertas em seguida." });
+    toast({ title: "Dados de teste inseridos", description: "Inclui contas, sites e vínculos." });
   };
 
   const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
@@ -83,9 +134,8 @@ const Index = () => {
             <div>
               <h1 className="text-lg font-bold tracking-tight">Arbitrage Engine</h1>
               <p className="text-xs text-muted-foreground">
-                {data.isGuest ? "modo livre" : "conta conectada"} • {data.lastSyncedAt
-                  ? `sync ${data.lastSyncedAt.toLocaleTimeString("pt-BR")}`
-                  : "—"}
+                {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`} •{" "}
+                {data.lastSyncedAt ? `sync ${data.lastSyncedAt.toLocaleTimeString("pt-BR")}` : "—"}
               </p>
             </div>
           </div>
@@ -97,6 +147,15 @@ const Index = () => {
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Atualizar
             </Button>
+            {data.isGuest ? (
+              <Button variant="default" size="sm" onClick={() => navigate("/auth")} className="gap-2">
+                <LogIn className="h-4 w-4" /> Entrar
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
+                <LogOut className="h-4 w-4" /> Sair
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -116,6 +175,14 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              googleAccounts={data.googleAccounts}
+              sites={data.sites}
+              campaigns={data.campaigns}
+            />
+
             {/* Métricas */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
@@ -148,7 +215,7 @@ const Index = () => {
             {/* Linha 2: gráfico + alertas */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
-                <RoiChart metrics={data.metrics} />
+                <RoiChart metrics={filtered.metrics} />
               </div>
               <AlertsPanel alerts={data.alerts} onAcknowledge={handleAcknowledge} />
             </section>
@@ -160,7 +227,23 @@ const Index = () => {
               <PlacementsRanking placements={engine?.placementAggregates ?? []} />
             </section>
 
-            {/* Tabela */}
+            {/* Visão por segmento */}
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Análise por segmento
+              </h2>
+              <SegmentTabs
+                aggregates={engine?.aggregates ?? []}
+                placements={engine?.placementAggregates ?? []}
+                metrics={filtered.metrics}
+                rawPlacements={filtered.placements}
+                googleAccounts={data.googleAccounts}
+                sites={data.sites}
+                links={data.links}
+              />
+            </section>
+
+            {/* Tabela de campanhas */}
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -179,7 +262,21 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="integrations" className="mt-6">
-            <IntegrationsPanel />
+            <IntegrationsPanel
+              googleAccounts={data.googleAccounts}
+              gamAccounts={data.gamAccounts}
+              sites={data.sites}
+              links={data.links}
+              isGuest={data.isGuest}
+              onAddGoogleAccount={data.addGoogleAccount}
+              onRemoveGoogleAccount={data.removeGoogleAccount}
+              onAddGamAccount={data.addGamAccount}
+              onRemoveGamAccount={data.removeGamAccount}
+              onAddSite={data.addSite}
+              onRemoveSite={data.removeSite}
+              onAddLink={data.addLink}
+              onRemoveLink={data.removeLink}
+            />
           </TabsContent>
 
           <TabsContent value="rules" className="mt-6">

@@ -80,6 +80,7 @@ export function aggregateByCampaign(
       campaign_id: c.campaign_id,
       name: c.name,
       status: c.status,
+      google_account_id: c.google_account_id ?? null,
       spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0,
       clicks: 0, conversions: 0, impressions: 0, ecpm: 0,
       days: 0,
@@ -93,11 +94,15 @@ export function aggregateByCampaign(
         campaign_id: m.campaign_id,
         name: m.campaign_id,
         status: "unknown",
+        google_account_id: m.google_account_id ?? null,
         spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0,
         clicks: 0, conversions: 0, impressions: 0, ecpm: 0,
         days: 0,
       };
       byId.set(m.campaign_id, agg);
+    }
+    if (!agg.google_account_id && m.google_account_id) {
+      agg.google_account_id = m.google_account_id;
     }
     agg.spend += Number(m.spend);
     agg.revenue += Number(m.revenue);
