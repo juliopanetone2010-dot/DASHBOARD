@@ -35,9 +35,35 @@ export function IntegrationsPanel(props: Props) {
   const [gamEmail, setGamEmail] = useState("");
   const [gamKey, setGamKey] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [syncingGam, setSyncingGam] = useState(false);
 
   const handleConnectAds = () => {
     window.location.href = "/settings";
+  };
+
+  const handleSyncGam = async () => {
+    setSyncingGam(true);
+    const { data, error } = await supabase.functions.invoke<{
+      ok?: boolean; error?: string; summary?: any[]; debug?: string[];
+    }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS" } });
+    setSyncingGam(false);
+    console.log("[gam-sync-revenue] response", data, error);
+    if (error || data?.error) {
+      toast({
+        title: "Erro ao sincronizar GAM",
+        description: data?.error ?? error?.message ?? "Falha desconhecida",
+        variant: "destructive",
+      });
+      return;
+    }
+    const totalRev = (data?.summary ?? []).reduce(
+      (acc: number, s: any) => acc + (Number(s.total_revenue) || 0), 0,
+    );
+    toast({
+      title: "Receita GAM sincronizada",
+      description: `Total: R$ ${totalRev.toFixed(2)} (últimos 7 dias)`,
+    });
+    await props.onRefresh();
   };
 
   const handleSyncCampaigns = async () => {
