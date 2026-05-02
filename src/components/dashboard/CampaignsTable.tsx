@@ -82,7 +82,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost }: Props) {
                     </span>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {c.roas.toFixed(2)}x
+                    {(Number(c.roas) || 0).toFixed(2)}x
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
