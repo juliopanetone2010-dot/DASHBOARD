@@ -80,43 +80,78 @@ Deno.serve(async (req) => {
       userId = claims?.claims?.sub ?? null;
     }
 
-    // 4) Para cada customer acessível, busca nome, moeda e manager via GAQL
+    // 4) Para cada customer acessível: pega detalhes e, se for MCC, expande sub-contas
     const enriched: Array<{
       cid: string;
       name: string;
       currency: string | null;
       isMcc: boolean;
+      loginCustomerId: string | null;
     }> = [];
 
-    for (const cid of customerIds) {
-      try {
-        const detRes = await fetch(
-          `https://googleads.googleapis.com/v21/customers/${cid}/googleAds:search`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${tokens.access_token}`,
-              "developer-token": devToken,
-              "login-customer-id": cid,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              query: "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer LIMIT 1",
-            }),
+    const gaqlSearch = async (loginCid: string, targetCid: string, query: string) => {
+      const r = await fetch(
+        `https://googleads.googleapis.com/v21/customers/${targetCid}/googleAds:search`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tokens.access_token}`,
+            "developer-token": devToken,
+            "login-customer-id": loginCid,
+            "Content-Type": "application/json",
           },
-        );
-        const detJson = await detRes.json();
-        console.log(`[oauth-callback] detail ${cid} status`, detRes.status);
-        const row = detJson?.results?.[0]?.customer;
-        enriched.push({
+          body: JSON.stringify({ query, pageSize: 1000 }),
+        },
+      );
+      const j = await r.json();
+      if (!r.ok) {
+        console.error(`[gaql] ${targetCid} (login=${loginCid}) failed`, r.status, JSON.stringify(j));
+      }
+      return { ok: r.ok, status: r.status, json: j };
+    };
+
+    for (const cid of customerIds) {
+      // detalhe da própria conta acessível (geralmente MCC)
+      const det = await gaqlSearch(
+        cid,
+        cid,
+        "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer",
+      );
+      const row = det.json?.results?.[0]?.customer;
+      const selfName = row?.descriptiveName ?? `Conta ${cid}`;
+      const selfCurrency = row?.currencyCode ?? null;
+      const selfIsMcc = !!row?.manager;
+      enriched.push({
+        cid,
+        name: selfName,
+        currency: selfCurrency,
+        isMcc: selfIsMcc,
+        loginCustomerId: null,
+      });
+      console.log(`[oauth-callback] self ${cid}: name="${selfName}" mcc=${selfIsMcc} currency=${selfCurrency}`);
+
+      // Se for MCC, expande sub-contas via customer_client
+      if (selfIsMcc) {
+        const exp = await gaqlSearch(
           cid,
-          name: row?.descriptiveName ?? `Conta ${cid}`,
-          currency: row?.currencyCode ?? null,
-          isMcc: !!row?.manager,
-        });
-      } catch (e) {
-        console.error(`[oauth-callback] detail ${cid} error`, e);
-        enriched.push({ cid, name: `Conta ${cid}`, currency: null, isMcc: false });
+          cid,
+          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+        );
+        const results = exp.json?.results ?? [];
+        console.log(`[oauth-callback] mcc ${cid} expanded -> ${results.length} clients`);
+        for (const r of results) {
+          const cc = r.customerClient;
+          if (!cc) continue;
+          const subId = String(cc.id);
+          if (subId === cid) continue;
+          enriched.push({
+            cid: subId,
+            name: cc.descriptiveName ?? `Conta ${subId}`,
+            currency: cc.currencyCode ?? null,
+            isMcc: !!cc.manager,
+            loginCustomerId: cid,
+          });
+        }
       }
     }
 
@@ -138,6 +173,8 @@ Deno.serve(async (req) => {
               descriptive_name: c.name,
               currency: c.currency,
               is_mcc: c.isMcc,
+              login_customer_id: c.loginCustomerId,
+              manager_account_id: c.loginCustomerId,
               refresh_token: tokens.refresh_token,
               status: "connected",
               last_synced_at: new Date().toISOString(),
