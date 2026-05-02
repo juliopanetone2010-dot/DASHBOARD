@@ -116,7 +116,8 @@ Deno.serve(async (req) => {
         : "Token recebido, mas é preciso estar logado para salvar.",
     });
   } catch (e) {
-    return json({ error: String(e) }, 500);
+    console.error("[oauth-callback] uncaught error", e);
+    return json({ error: String(e) });
   }
 });
 
