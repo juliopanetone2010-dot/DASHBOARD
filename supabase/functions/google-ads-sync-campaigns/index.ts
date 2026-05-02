@@ -1,8 +1,26 @@
 // Sincroniza:
 // 1) Sub-contas (customer_client) de cada MCC
 // 2) Campanhas + métricas (YESTERDAY) de cada conta não-manager
+// Moeda padrão do sistema = USD. Convertemos spend (BRL/etc) para USD usando cotação em tempo real.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+
+async function getUsdBrlRate(): Promise<number> {
+  try {
+    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+    const data = await res.json();
+    const rate = Number(data?.USDBRL?.bid);
+    if (Number.isFinite(rate) && rate > 0) return rate;
+  } catch (_) { /* */ }
+  return 5.5;
+}
+
+function toUsd(amount: number, currency: string | null | undefined, usdBrl: number): number {
+  const cur = (currency ?? "USD").toUpperCase();
+  if (cur === "USD") return amount;
+  if (cur === "BRL") return usdBrl > 0 ? amount / usdBrl : amount;
+  return amount;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
