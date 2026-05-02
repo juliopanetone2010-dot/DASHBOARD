@@ -93,7 +93,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtCurrency(c.revenue)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtUSD(c.revenue)}</TableCell>
                   <TableCell
                     className={cn(
                       "text-right font-semibold tabular-nums",
