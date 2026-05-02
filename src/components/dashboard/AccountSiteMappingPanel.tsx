@@ -42,14 +42,14 @@ export function AccountSiteMappingPanel({
     return Object.keys({ ...initial, ...draft }).some((k) => initial[k] !== draft[k]);
   }, [initial, draft]);
 
-  // Sites já usados por OUTRA conta (regra 1:1) — para desabilitar nas outras dropdowns
-  const siteUsageByOthers = (currentAccId: string) => {
-    const used = new Set<string>();
-    for (const [accId, siteId] of Object.entries(draft)) {
-      if (accId !== currentAccId && siteId && siteId !== NONE) used.add(siteId);
+  // N:1 permitido — várias contas Ads podem apontar para o mesmo site.
+  const siteUsageCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const siteId of Object.values(draft)) {
+      if (siteId && siteId !== NONE) m.set(siteId, (m.get(siteId) ?? 0) + 1);
     }
-    return used;
-  };
+    return m;
+  }, [draft]);
 
   const handleSave = async () => {
     setSaving(true);
