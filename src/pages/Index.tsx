@@ -52,7 +52,7 @@ const Index = () => {
         placement_key: a.placement_key,
         title: a.title,
         message: a.message,
-        metric_snapshot: a.metric_snapshot ?? null,
+        metric_snapshot: (a.metric_snapshot ?? null) as never,
       })))
       .then(() => setEvaluating(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
