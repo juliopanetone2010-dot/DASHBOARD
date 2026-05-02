@@ -20,6 +20,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, EMPTY_FILTERS, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const { user } = useAuth();
