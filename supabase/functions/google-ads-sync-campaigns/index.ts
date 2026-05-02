@@ -101,6 +101,10 @@ Deno.serve(async (req) => {
       return j.access_token as string;
     };
 
+    // Cotação USD↔BRL para conversão de spend para USD (moeda padrão do sistema)
+    const usdBrlRate = await getUsdBrlRate();
+    debugLogs.push(`fx USD/BRL=${usdBrlRate}`);
+
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
       try {
