@@ -305,7 +305,7 @@ async function runReport(
 
     for (const r of rows) {
       const dims = r.dimensionValues ?? [];
-      const date = dims[0]?.stringValue ?? null;
+      const date = parseGamDate(dims[0]);
       const name = dims[1]?.stringValue ?? "(unknown)";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
@@ -319,6 +319,13 @@ async function runReport(
   } while (pageToken);
 
   return allRows;
+}
+
+function parseGamDate(value: any): string | null {
+  const raw = String(value?.stringValue ?? value?.intValue ?? "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  return null;
 }
 
 async function parseJsonResponse(
