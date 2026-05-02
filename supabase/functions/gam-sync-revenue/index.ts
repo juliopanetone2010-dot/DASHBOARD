@@ -75,9 +75,14 @@ Deno.serve(async (req) => {
         const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
         const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
 
-        const totals = {
-          revenue: 0, impressions: 0,
-        };
+        const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
+        const totals = canonicalRows.reduce(
+          (acc, r) => ({
+            revenue: acc.revenue + r.revenue,
+            impressions: acc.impressions + r.impressions,
+          }),
+          { revenue: 0, impressions: 0 },
+        );
         const today = new Date().toISOString().slice(0, 10);
 
         // Persiste rows como placements (uma linha por dia x dimensão)
@@ -86,9 +91,6 @@ Deno.serve(async (req) => {
             const revenue = r.revenue;
             const impressions = r.impressions;
             const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
-            totals.revenue += revenue;
-            totals.impressions += impressions;
-
             const siteForRow = networkSites[0]; // GAM não retorna domínio; usa 1º site da network
             const placementKey = `${kind}:${networkCode}:${r.name}`;
 
@@ -111,6 +113,7 @@ Deno.serve(async (req) => {
 
         await persistRows(adUnitRows, "ad_unit");
         await persistRows(placementRows, "placement");
+        await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, debug);
 
         summary.push({
           network_code: networkCode,
