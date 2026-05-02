@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { evaluate } from "@/engine/rules";
-import { fmtCurrency, fmtPercent } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent } from "@/lib/format";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { CampaignsRanking, PlacementsRanking } from "@/components/dashboard/Rankings";
