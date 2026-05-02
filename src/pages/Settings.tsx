@@ -17,9 +17,6 @@ interface StatusResp {
 export default function Settings() {
   const [status, setStatus] = useState<StatusResp | null>(null);
   const [loading, setLoading] = useState(false);
-  const [accountName, setAccountName] = useState("");
-  const [customerId, setCustomerId] = useState("");
-  const [loginCustomerId, setLoginCustomerId] = useState("");
 
   const fetchStatus = async () => {
     const { data, error } = await supabase.functions.invoke<StatusResp>("google-ads-oauth-status");
@@ -30,15 +27,10 @@ export default function Settings() {
   useEffect(() => { fetchStatus(); }, []);
 
   const handleConnect = async () => {
-    if (!customerId.trim()) {
-      toast({ title: "Informe o customer_id", description: "Necessário para vincular a conta após o OAuth.", variant: "destructive" });
-      return;
-    }
     setLoading(true);
     const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
-    sessionStorage.setItem("oauth_pending", JSON.stringify({
-      account_name: accountName, customer_id: customerId, login_customer_id: loginCustomerId,
-    }));
+    // Sem inputs manuais — o callback descobre os customer_ids via API.
+    sessionStorage.setItem("oauth_pending", JSON.stringify({ account_name: "MCC" }));
     try {
       const projectId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_SUPABASE_PROJECT_ID;
       const fnUrl = `https://${projectId}.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}`;
@@ -93,7 +85,7 @@ export default function Settings() {
             </div>
             <div>
               <h2 className="font-semibold">Credenciais (armazenadas como secrets)</h2>
-              <p className="text-xs text-muted-foreground">Nunca expostas no frontend. Edite via Lovable Cloud.</p>
+              <p className="text-xs text-muted-foreground">Nunca expostas no frontend.</p>
             </div>
           </div>
 
@@ -117,9 +109,6 @@ export default function Settings() {
               <Input type="password" value={status?.google_ads_developer_token ? "••••••••••••" : ""} readOnly placeholder="não configurado" />
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-3">
-            Para alterar, peça à Lovable: "atualize os secrets do Google Ads". Os valores nunca chegam ao navegador.
-          </p>
         </section>
 
         <section className="rounded-xl border border-border bg-card p-6 shadow-elegant">
@@ -128,29 +117,22 @@ export default function Settings() {
               <Plug className="h-4 w-4 text-accent-foreground" />
             </div>
             <div>
-              <h2 className="font-semibold">Conectar conta Google Ads</h2>
-              <p className="text-xs text-muted-foreground">Fluxo OAuth real. O refresh_token é salvo no backend.</p>
+              <h2 className="font-semibold">Conectar MCC Google Ads</h2>
+              <p className="text-xs text-muted-foreground">
+                Sem digitar Customer ID. Após autorizar, o sistema descobre as contas automaticamente.
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-            <div className="space-y-1">
-              <Label className="text-xs">Nome (opcional)</Label>
-              <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Conta principal" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Customer ID *</Label>
-              <Input value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="1234567890" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Login Customer ID (MCC)</Label>
-              <Input value={loginCustomerId} onChange={(e) => setLoginCustomerId(e.target.value)} placeholder="opcional" />
-            </div>
-          </div>
+          <ol className="text-xs text-muted-foreground space-y-1 mb-4 list-decimal list-inside">
+            <li>Você é redirecionado para o Google e autoriza acesso ao MCC.</li>
+            <li>O backend troca o code por um <code>refresh_token</code> e salva no MCC.</li>
+            <li>Em seguida, em <strong>Integrações</strong>, clique em <em>Sincronizar contas do MCC</em> para importar as sub-contas.</li>
+          </ol>
 
           <div className="flex flex-wrap gap-2 items-center">
             <Button onClick={handleConnect} disabled={loading || !status?.configured} className="gap-1.5">
-              <Plug className="h-3.5 w-3.5" /> Conectar Google Ads
+              <Plug className="h-3.5 w-3.5" /> Conectar Google Ads (MCC)
             </Button>
             <Button variant="outline" size="sm" asChild>
               <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">
@@ -163,7 +145,6 @@ export default function Settings() {
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">
             Redirect URI: <code className="font-mono">{typeof window !== "undefined" ? `${window.location.origin}/oauth/google-ads/callback` : ""}</code>
-            <br />Adicione esta URL nas "Authorized redirect URIs" do seu OAuth client no Google Cloud Console.
           </p>
         </section>
       </main>
