@@ -1,6 +1,6 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtPercent } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent } from "@/lib/format";
 import type { CampaignAggregate } from "@/types/domain";
 import type { PlacementAggregate } from "@/engine/rules";
 
@@ -36,7 +36,7 @@ export function CampaignsRanking({ campaigns, variant }: CampaignsRankProps) {
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{c.name}</p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      {fmtCurrency(c.spend)} → {fmtCurrency(c.revenue)}
+                      {fmtCurrency(c.spend)} → {fmtUSD(c.revenue)}
                     </p>
                   </div>
                 </div>
@@ -80,7 +80,7 @@ export function PlacementsRanking({ placements }: { placements: PlacementAggrega
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-sm font-bold tabular-nums">{fmtCurrency(p.revenue)}</p>
+                <p className="text-sm font-bold tabular-nums">{fmtUSD(p.revenue)}</p>
                 <p className="text-xs text-muted-foreground tabular-nums">
                   eCPM {p.ecpm.toFixed(2)}
                 </p>

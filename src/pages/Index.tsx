@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { evaluate } from "@/engine/rules";
-import { fmtCurrency, fmtPercent } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent } from "@/lib/format";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { CampaignsRanking, PlacementsRanking } from "@/components/dashboard/Rankings";
@@ -192,19 +192,21 @@ const Index = () => {
                 label="Gasto (Google Ads)"
                 value={fmtCurrency(totals.spend)}
                 icon={Wallet}
-                hint={`${engine?.aggregates.length ?? 0} campanha(s)`}
+                hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtCurrency(totals.revenue)}
+                value={fmtUSD(totals.revenue)}
                 icon={DollarSign}
                 variant="primary"
+                hint="USD nativo"
               />
               <MetricCard
                 label="Lucro"
                 value={fmtCurrency(totals.profit)}
                 icon={profitPositive ? TrendingUp : TrendingDown}
                 variant={profitPositive ? "success" : "danger"}
+                hint="BRL (receita convertida)"
               />
               <MetricCard
                 label="ROI / ROAS"

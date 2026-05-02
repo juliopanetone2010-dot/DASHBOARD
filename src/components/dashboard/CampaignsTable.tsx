@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
@@ -93,7 +93,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtCurrency(c.revenue)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtUSD(c.revenue)}</TableCell>
                   <TableCell
                     className={cn(
                       "text-right font-semibold tabular-nums",

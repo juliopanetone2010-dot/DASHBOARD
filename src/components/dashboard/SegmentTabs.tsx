@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   CampaignAggregate, GoogleAccount, Site,
@@ -57,7 +57,7 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
                 <TableRow key={r.key}>
                   <TableCell className="font-medium">{r.label}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(r.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtCurrency(r.revenue)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtUSD(r.revenue)}</TableCell>
                   <TableCell className={cn("text-right font-semibold tabular-nums", positive ? "text-success" : "text-danger")}>
                     {fmtCurrency(r.profit)}
                   </TableCell>
