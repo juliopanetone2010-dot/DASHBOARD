@@ -77,10 +77,8 @@ const Auth = () => {
       toast({ title: "Falha no cadastro", description: error.message, variant: "destructive" });
       return;
     }
-    toast({
-      title: "Conta criada",
-      description: "Verifique seu e-mail para confirmar antes de entrar.",
-    });
+    toast({ title: "Conta criada", description: "Bem-vindo!" });
+    navigate("/", { replace: true });
   };
 
   return (
