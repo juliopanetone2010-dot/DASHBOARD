@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
           leafAccounts = [{
             id: root.id,
             customer_id: root.customer_id,
-            login_customer_id: null,
+            login_customer_id: root.login_customer_id ?? null,
                 name: root.account_name ?? root.descriptive_name ?? root.customer_id,
           }];
         }
