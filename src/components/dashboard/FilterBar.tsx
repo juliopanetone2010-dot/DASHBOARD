@@ -1,8 +1,33 @@
-import { Filter, X } from "lucide-react";
+import { Filter, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Campaign, GoogleAccount, Site } from "@/types/domain";
+
+const toISO = (d: Date) => d.toISOString().slice(0, 10);
+const daysAgo = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
+};
+
+export type DatePresetKey = "today" | "yesterday" | "last_3_days" | "last_7_days" | "last_30_days";
+
+export const DATE_PRESETS: Array<{ key: DatePresetKey; label: string; gaql: string; range: () => { from: string; to: string } }> = [
+  { key: "today", label: "Hoje", gaql: "TODAY", range: () => ({ from: toISO(new Date()), to: toISO(new Date()) }) },
+  { key: "yesterday", label: "Ontem", gaql: "YESTERDAY", range: () => ({ from: toISO(daysAgo(1)), to: toISO(daysAgo(1)) }) },
+  { key: "last_3_days", label: "Últimos 3 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(2)), to: toISO(new Date()) }) },
+  { key: "last_7_days", label: "Últimos 7 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(6)), to: toISO(new Date()) }) },
+  { key: "last_30_days", label: "Últimos 30 dias", gaql: "LAST_30_DAYS", range: () => ({ from: toISO(daysAgo(29)), to: toISO(new Date()) }) },
+];
+
+export function presetFromRange(from: string, to: string): DatePresetKey | null {
+  for (const p of DATE_PRESETS) {
+    const r = p.range();
+    if (r.from === from && r.to === to) return p.key;
+  }
+  return null;
+}
 
 export interface DashboardFilters {
   googleAccountId: string; // "all" or id
