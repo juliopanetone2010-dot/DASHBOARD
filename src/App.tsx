@@ -8,6 +8,8 @@ import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Settings from "./pages/Settings.tsx";
 import OAuthCallback from "./pages/OAuthCallback.tsx";
+import Auth from "./pages/Auth.tsx";
+import { RequireAuth } from "@/components/auth/RequireAuth";
 
 const queryClient = new QueryClient();
 
@@ -19,10 +21,10 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/auth" element={<Navigate to="/" replace />} />
-            <Route path="/" element={<Index />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/auth" element={<Auth />} />
             <Route path="/oauth/google-ads/callback" element={<OAuthCallback />} />
+            <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
+            <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
