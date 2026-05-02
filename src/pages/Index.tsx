@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  BarChart3, DollarSign, LogOut, Plus, RefreshCw, TrendingDown,
+  BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
   TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { evaluate } from "@/engine/rules";
 import { fmtCurrency, fmtPercent } from "@/lib/format";
@@ -20,7 +18,6 @@ import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 
 const Index = () => {
-  const { user, signOut } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
 
@@ -36,27 +33,15 @@ const Index = () => {
 
   // Persiste alertas gerados pela engine (só os novos, sem duplicar por título)
   useEffect(() => {
-    if (!engine || !user) return;
+    if (!engine) return;
     const existingTitles = new Set(data.alerts.filter((a) => !a.acknowledged).map((a) => a.title));
     const newOnes = engine.alerts.filter((a) => !existingTitles.has(a.title));
     if (newOnes.length === 0) return;
 
     setEvaluating(true);
-    supabase
-      .from("alerts")
-      .insert(newOnes.map((a) => ({
-        user_id: user.id,
-        severity: a.severity,
-        category: a.category,
-        campaign_id: a.campaign_id,
-        placement_key: a.placement_key,
-        title: a.title,
-        message: a.message,
-        metric_snapshot: (a.metric_snapshot ?? null) as never,
-      })))
-      .then(() => setEvaluating(false));
+    data.persistEngineAlerts(newOnes).finally(() => setEvaluating(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine?.alerts.length, user?.id]);
+  }, [engine?.alerts.length]);
 
   const handleRefresh = async () => {
     await data.refresh();
@@ -64,22 +49,14 @@ const Index = () => {
   };
 
   const handleAcknowledge = async (id: string) => {
-    await supabase.from("alerts").update({ acknowledged: true }).eq("id", id);
-    data.refresh();
+    await data.acknowledgeAlert(id);
   };
 
   // Pause / Boost: registram a ação como pending e refazem fetch
   const queueAction = async (
     campaignId: string, action: "pause" | "increase_budget", reason: string,
   ) => {
-    if (!user) return;
-    await supabase.from("automation_actions").insert({
-      user_id: user.id,
-      campaign_id: campaignId,
-      action_type: action,
-      reason,
-      status: "pending",
-    });
+    await data.queueAction(campaignId, action, reason);
     toast({
       title: action === "pause" ? "Pausa enfileirada" : "Aumento sugerido",
       description: "Ação registrada como pendente. Execução real entra na Fase 4.",
@@ -88,57 +65,8 @@ const Index = () => {
 
   // Insere dados de teste para o usuário ver a engine viva
   const insertSampleData = async () => {
-    if (!user) return;
-    const today = new Date();
-    const dayOf = (offset: number) => {
-      const d = new Date(today); d.setDate(d.getDate() - offset);
-      return d.toISOString().slice(0, 10);
-    };
-    const samples = [
-      { id: "C-1001", name: "Display - Notícias BR",   spend: 320, revenue: 540 },
-      { id: "C-1002", name: "Display - Esportes",      spend: 480, revenue: 720 },
-      { id: "C-1003", name: "Display - Lifestyle",     spend: 290, revenue: 95  }, // ROI ruim → alerta
-      { id: "C-1004", name: "Display - Tech YT",       spend: 660, revenue: 1240 },
-      { id: "C-1005", name: "Display - Finanças",      spend: 220, revenue: 712 }, // ROI alto → boost
-    ];
-
-    await supabase.from("campaigns").upsert(
-      samples.map((s) => ({
-        user_id: user.id, campaign_id: s.id, name: s.name,
-        status: "enabled", channel_type: "DISPLAY",
-      })),
-      { onConflict: "user_id,campaign_id" },
-    );
-
-    const rows = [];
-    for (const s of samples) {
-      for (let d = 0; d < 3; d++) {
-        const spend = s.spend / 3;
-        const revenue = s.revenue / 3;
-        rows.push({
-          user_id: user.id, campaign_id: s.id, date: dayOf(d),
-          spend, revenue,
-          profit: revenue - spend,
-          roi: spend > 0 ? ((revenue - spend) / spend) * 100 : 0,
-          roas: spend > 0 ? revenue / spend : 0,
-          clicks: Math.round(spend * 8),
-          conversions: Math.round(revenue / 30),
-          impressions: Math.round(spend * 320),
-          ecpm: spend > 0 ? (revenue / (spend * 320)) * 1000 : 0,
-        });
-      }
-    }
-    await supabase.from("daily_metrics").upsert(rows, { onConflict: "user_id,campaign_id,date" });
-
-    // Placements de teste
-    await supabase.from("placements").upsert([
-      { user_id: user.id, placement_key: "site-a/box-300x250", campaign_id: "C-1001", site: "Notícias BR", ad_unit: "box-300x250", date: dayOf(0), impressions: 25000, revenue: 180, ecpm: 7.2 },
-      { user_id: user.id, placement_key: "site-b/sticky-728",  campaign_id: "C-1004", site: "Tech YT",     ad_unit: "sticky-728",  date: dayOf(0), impressions: 41000, revenue: 410, ecpm: 10.0 },
-      { user_id: user.id, placement_key: "site-c/footer",      campaign_id: "C-1003", site: "Lifestyle",   ad_unit: "footer",      date: dayOf(0), impressions: 18000, revenue: 1.6, ecpm: 0.09 },
-    ], { onConflict: "user_id,placement_key,date" });
-
+    await data.insertSampleData();
     toast({ title: "Dados de teste inseridos", description: "A engine vai gerar alertas em seguida." });
-    data.refresh();
   };
 
   const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
@@ -155,7 +83,7 @@ const Index = () => {
             <div>
               <h1 className="text-lg font-bold tracking-tight">Arbitrage Engine</h1>
               <p className="text-xs text-muted-foreground">
-                {user?.email} • {data.lastSyncedAt
+                {data.isGuest ? "modo livre" : "conta conectada"} • {data.lastSyncedAt
                   ? `sync ${data.lastSyncedAt.toLocaleTimeString("pt-BR")}`
                   : "—"}
               </p>
@@ -168,9 +96,6 @@ const Index = () => {
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={data.loading} className="gap-2">
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Atualizar
-            </Button>
-            <Button variant="ghost" size="icon" onClick={signOut} title="Sair">
-              <LogOut className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -258,7 +183,7 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="rules" className="mt-6">
-            <RulesPanel rules={data.rules} onSaved={data.refresh} />
+            <RulesPanel rules={data.rules} onSave={data.saveRules} />
           </TabsContent>
         </Tabs>
       </main>

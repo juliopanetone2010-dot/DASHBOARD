@@ -6,39 +6,35 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import type { RulesConfig } from "@/types/domain";
 
 interface Props {
   rules: RulesConfig | null;
-  onSaved: () => void;
+  onSave: (rules: RulesConfig) => Promise<void>;
 }
 
-export function RulesPanel({ rules, onSaved }: Props) {
-  const { user } = useAuth();
+export function RulesPanel({ rules, onSave }: Props) {
   const [form, setForm] = useState<RulesConfig | null>(rules);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => setForm(rules), [rules]);
 
-  if (!form || !user) return null;
+  if (!form) return null;
 
   const set = <K extends keyof RulesConfig>(key: K, value: RulesConfig[K]) =>
     setForm({ ...form, [key]: value });
 
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase
-      .from("rules_config")
-      .upsert({ ...form, user_id: user.id }, { onConflict: "user_id" });
-    setSaving(false);
-    if (error) {
-      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
-      return;
+    try {
+      await onSave(form);
+      toast({ title: "Configurações salvas", description: "O algoritmo já está usando as novas regras." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Tente novamente.";
+      toast({ title: "Erro ao salvar", description: message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    toast({ title: "Configurações salvas", description: "O algoritmo já está usando as novas regras." });
-    onSaved();
   };
 
   return (
