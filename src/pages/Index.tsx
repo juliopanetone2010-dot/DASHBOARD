@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, LogIn, LogOut,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,8 +22,7 @@ import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 
 const Index = () => {
-  const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
@@ -147,11 +145,6 @@ const Index = () => {
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Atualizar
             </Button>
-            {!data.isGuest && (
-              <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
-                <LogOut className="h-4 w-4" /> Sair
-              </Button>
-            )}
           </div>
         </div>
       </header>
