@@ -80,7 +80,7 @@ export function PlacementsRanking({ placements }: { placements: PlacementAggrega
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-sm font-bold tabular-nums">{fmtCurrency(p.revenue)}</p>
+                <p className="text-sm font-bold tabular-nums">{fmtUSD(p.revenue)}</p>
                 <p className="text-xs text-muted-foreground tabular-nums">
                   eCPM {p.ecpm.toFixed(2)}
                 </p>
