@@ -477,15 +477,19 @@ export function useDashboardData(): DashboardData {
   const addLink = async (googleAccountId: string, siteId: string) => {
     if (!user) {
       const store = loadGuestStore();
-      if (store.links.some((l) => l.google_account_id === googleAccountId && l.site_id === siteId)) return;
+      // Regra 1:1 — remove qualquer vínculo existente desta conta antes de criar o novo
+      const filtered = store.links.filter((l) => l.google_account_id !== googleAccountId);
       const created: AccountSiteLink = {
         id: uid(), user_id: GUEST_USER_ID,
         google_account_id: googleAccountId, site_id: siteId,
       };
-      saveGuestStore({ ...store, links: [...store.links, created] });
-      setLinks((prev) => [...prev, created]);
+      const next = [...filtered, created];
+      saveGuestStore({ ...store, links: next });
+      setLinks(next);
       return;
     }
+    // Backend: apaga o link existente desta conta (1:1) e insere o novo
+    await supabase.from("account_site_links").delete().eq("google_account_id", googleAccountId);
     await supabase.from("account_site_links").insert({
       user_id: user.id, google_account_id: googleAccountId, site_id: siteId,
     });
