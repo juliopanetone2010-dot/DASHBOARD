@@ -34,9 +34,33 @@ export function IntegrationsPanel(props: Props) {
   const [gamNetwork, setGamNetwork] = useState("");
   const [gamEmail, setGamEmail] = useState("");
   const [gamKey, setGamKey] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const handleConnectAds = () => {
     window.location.href = "/settings";
+  };
+
+  const handleSyncCampaigns = async () => {
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke<{
+      ok?: boolean; error?: string; summary?: unknown[]; debug?: string[];
+    }>("google-ads-sync-campaigns", { body: {} });
+    setSyncing(false);
+    console.log("[sync-campaigns] response", data, error);
+    if (error || data?.error) {
+      toast({
+        title: "Erro ao sincronizar",
+        description: data?.error ?? error?.message ?? "Falha desconhecida",
+        variant: "destructive",
+      });
+      return;
+    }
+    const total = (data?.summary ?? []).reduce((acc: number, s) => {
+      const x = s as { total_campaigns_synced?: number };
+      return acc + (x.total_campaigns_synced ?? 0);
+    }, 0);
+    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s).` });
+    await props.onRefresh();
   };
 
   const handleAddGam = async (e: React.FormEvent) => {
