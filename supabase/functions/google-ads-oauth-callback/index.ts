@@ -9,18 +9,19 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { code, redirect_uri, account_name } = body ?? {};
+    console.log("[oauth-callback] received", { hasCode: !!code, redirect_uri });
 
     if (!code || !redirect_uri) {
-      return json({ error: "code e redirect_uri obrigatórios" }, 400);
+      return json({ error: "code e redirect_uri obrigatórios" });
     }
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN");
     if (!clientId || !clientSecret || !devToken) {
-      return json({ error: "Secrets OAuth/Ads não configurados" }, 500);
+      return json({ error: "Secrets OAuth/Ads não configurados" });
     }
 
     // 1) Troca authorization code por tokens
@@ -36,8 +37,13 @@ Deno.serve(async (req) => {
       }),
     });
     const tokens = await tokenRes.json();
+    console.log("[oauth-callback] token exchange status", tokenRes.status, "ok:", tokenRes.ok);
     if (!tokenRes.ok || !tokens.refresh_token || !tokens.access_token) {
-      return json({ error: "OAuth falhou", detail: tokens }, 400);
+      console.error("[oauth-callback] token exchange failed", tokens);
+      return json({
+        error: `OAuth falhou: ${tokens?.error ?? "?"} - ${tokens?.error_description ?? JSON.stringify(tokens)}`,
+        detail: tokens,
+      });
     }
 
     // 2) Descobre quais customer IDs o usuário liberou
@@ -51,8 +57,13 @@ Deno.serve(async (req) => {
       },
     );
     const listJson = await listRes.json();
+    console.log("[oauth-callback] listAccessibleCustomers status", listRes.status);
     if (!listRes.ok) {
-      return json({ error: "Falhou ao listar customers", detail: listJson }, 400);
+      console.error("[oauth-callback] list failed", listJson);
+      return json({
+        error: `Falhou ao listar customers: ${listJson?.error?.message ?? JSON.stringify(listJson)}`,
+        detail: listJson,
+      });
     }
     const resourceNames: string[] = listJson.resourceNames ?? [];
     const customerIds = resourceNames.map((r) => r.split("/")[1]);
