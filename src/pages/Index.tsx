@@ -147,11 +147,7 @@ const Index = () => {
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Atualizar
             </Button>
-            {data.isGuest ? (
-              <Button variant="default" size="sm" onClick={() => navigate("/auth")} className="gap-2">
-                <LogIn className="h-4 w-4" /> Entrar
-              </Button>
-            ) : (
+            {!data.isGuest && (
               <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
                 <LogOut className="h-4 w-4" /> Sair
               </Button>
