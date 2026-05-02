@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
 
 async function distributeGamRevenueToCampaigns(
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   userId: string,
   siteId: string | undefined,
   rows: ReportRow[],
