@@ -149,19 +149,29 @@ Deno.serve(async (req) => {
 
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
 
-async function getUsdBrlRate(debug: string[]) {
+interface FxRates { usdBrl: number; }
+
+async function getFxRates(debug: string[]): Promise<FxRates> {
   try {
     const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
     const data = await res.json();
     const rate = Number(data?.USDBRL?.bid);
     if (Number.isFinite(rate) && rate > 0) {
       debug.push(`[currency] USD→BRL ${rate}`);
-      return rate;
+      return { usdBrl: rate };
     }
   } catch (e) {
-    debug.push(`[currency] falha ao buscar cotação, usando fallback: ${String(e)}`);
+    debug.push(`[currency] falha cotação, fallback 5.5: ${String(e)}`);
   }
-  return 5.5;
+  return { usdBrl: 5.5 };
+}
+
+// Converte um valor da moeda original para USD
+function toUsd(amount: number, currency: string | null | undefined, fx: FxRates): number {
+  const cur = (currency ?? "USD").toUpperCase();
+  if (cur === "USD") return amount;
+  if (cur === "BRL") return fx.usdBrl > 0 ? amount / fx.usdBrl : amount;
+  return amount;
 }
 
 async function distributeGamRevenueToCampaigns(
