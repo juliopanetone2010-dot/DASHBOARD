@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { ExternalLink, Plug, ShieldCheck } from "lucide-react";
+import { ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { SitesPanel } from "./SitesPanel";
 import { AccountSiteMappingPanel } from "./AccountSiteMappingPanel";
 import type {
