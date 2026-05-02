@@ -27,7 +27,12 @@ export function MetricCard({ label, value, icon: Icon, variant = "default", hint
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1.5 min-w-0">
-          <p className={cn("text-xs font-medium uppercase tracking-wider", isColored ? "opacity-90" : "text-muted-foreground")}>
+          <p
+            className={cn(
+              "text-xs font-medium uppercase tracking-wider",
+              isColored ? "opacity-90" : "text-muted-foreground",
+            )}
+          >
             {label}
           </p>
           <p className="text-2xl md:text-3xl font-bold tracking-tight truncate">{value}</p>
