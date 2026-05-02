@@ -1,8 +1,26 @@
 // Sincroniza:
 // 1) Sub-contas (customer_client) de cada MCC
 // 2) Campanhas + métricas (YESTERDAY) de cada conta não-manager
+// Moeda padrão do sistema = USD. Convertemos spend (BRL/etc) para USD usando cotação em tempo real.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+
+async function getUsdBrlRate(): Promise<number> {
+  try {
+    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+    const data = await res.json();
+    const rate = Number(data?.USDBRL?.bid);
+    if (Number.isFinite(rate) && rate > 0) return rate;
+  } catch (_) { /* */ }
+  return 5.5;
+}
+
+function toUsd(amount: number, currency: string | null | undefined, usdBrl: number): number {
+  const cur = (currency ?? "USD").toUpperCase();
+  if (cur === "USD") return amount;
+  if (cur === "BRL") return usdBrl > 0 ? amount / usdBrl : amount;
+  return amount;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -83,6 +101,10 @@ Deno.serve(async (req) => {
       return j.access_token as string;
     };
 
+    // Cotação USD↔BRL para conversão de spend para USD (moeda padrão do sistema)
+    const usdBrlRate = await getUsdBrlRate();
+    debugLogs.push(`fx USD/BRL=${usdBrlRate}`);
+
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
       try {
@@ -92,6 +114,7 @@ Deno.serve(async (req) => {
           customer_id: string;
           login_customer_id: string | null;
           name: string;
+          currency: string | null;
         }> = [];
 
         if (root.is_mcc) {
@@ -157,6 +180,7 @@ Deno.serve(async (req) => {
                 customer_id: childCid,
                 login_customer_id: root.customer_id,
                 name,
+                currency: r.customerClient.currencyCode ?? null,
               });
             }
           }
@@ -166,7 +190,8 @@ Deno.serve(async (req) => {
             id: root.id,
             customer_id: root.customer_id,
             login_customer_id: root.login_customer_id ?? null,
-                name: root.account_name ?? root.descriptive_name ?? root.customer_id,
+            name: root.account_name ?? root.descriptive_name ?? root.customer_id,
+            currency: root.currency ?? null,
           }];
         }
 
@@ -258,7 +283,8 @@ Deno.serve(async (req) => {
 
             // Upsert métricas diárias
             for (const r of results) {
-              const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
+              const spendNative = Number(r.metrics.costMicros ?? 0) / 1_000_000;
+              const spend = toUsd(spendNative, leaf.currency, usdBrlRate); // padroniza em USD
               const revenue = Number(r.metrics.conversionsValue ?? 0);
               const clicks = Number(r.metrics.clicks ?? 0);
               const impressions = Number(r.metrics.impressions ?? 0);
