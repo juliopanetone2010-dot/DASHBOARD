@@ -39,25 +39,21 @@ export default function Settings() {
     sessionStorage.setItem("oauth_pending", JSON.stringify({
       account_name: accountName, customer_id: customerId, login_customer_id: loginCustomerId,
     }));
-    const { data, error } = await supabase.functions.invoke<{ auth_url?: string; error?: string }>(
-      "google-ads-oauth-start",
-      { body: null, method: "GET" } as never,
-    );
-    // fallback: build URL via GET query string
-    const url = new URL(`${supabase.functions.url ?? ""}`);
-    setLoading(false);
-
-    if (error || !data?.auth_url) {
-      // direct fetch fallback (functions.invoke only does POST)
-      const projectId = (import.meta as { env: Record<string, string> }).env.VITE_SUPABASE_PROJECT_ID;
+    try {
+      const projectId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_SUPABASE_PROJECT_ID;
       const fnUrl = `https://${projectId}.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}`;
       const res = await fetch(fnUrl);
       const j = await res.json();
-      if (!j.auth_url) { toast({ title: "Configuração incompleta", description: j.error ?? "Falhou", variant: "destructive" }); return; }
+      if (!j.auth_url) {
+        toast({ title: "Configuração incompleta", description: j.error ?? "Falhou", variant: "destructive" });
+        setLoading(false);
+        return;
+      }
       window.location.href = j.auth_url;
-      return;
+    } catch (e) {
+      toast({ title: "Erro ao iniciar OAuth", description: String(e), variant: "destructive" });
+      setLoading(false);
     }
-    window.location.href = data.auth_url;
   };
 
   const Row = ({ ok, label }: { ok: boolean; label: string }) => (
