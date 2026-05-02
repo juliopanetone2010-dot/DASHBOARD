@@ -68,7 +68,7 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Logado como <span className="font-mono">{user.email}</span> — dados isolados via RLS.
+        Modo livre — credenciais armazenadas localmente neste navegador.
       </div>
 
       {/* Botões OAuth */}
