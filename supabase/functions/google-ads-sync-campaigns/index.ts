@@ -13,6 +13,27 @@ Deno.serve(async (req) => {
       return json({ error: "Login obrigatório" });
     }
 
+    // Date filter from request body
+    let datePreset: string | null = null;
+    let dateFrom: string | null = null;
+    let dateTo: string | null = null;
+    try {
+      const body = await req.json().catch(() => ({}));
+      if (body && typeof body === "object") {
+        datePreset = (body as any).date_preset ?? null;
+        dateFrom = (body as any).from ?? null;
+        dateTo = (body as any).to ?? null;
+      }
+    } catch (_) { /* no body */ }
+
+    const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
+    let dateClause = "segments.date DURING LAST_7_DAYS";
+    if (datePreset && ALLOWED_PRESETS.has(String(datePreset).toUpperCase())) {
+      dateClause = `segments.date DURING ${String(datePreset).toUpperCase()}`;
+    } else if (dateFrom && dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      dateClause = `segments.date BETWEEN '${dateFrom}' AND '${dateTo}'`;
+    }
+
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
@@ -149,7 +170,7 @@ Deno.serve(async (req) => {
           }];
         }
 
-        // Para cada conta-folha, busca campanhas + métricas (últimos 7 dias)
+        // Para cada conta-folha, busca campanhas + métricas (período selecionado)
         const campaignQuery = `
           SELECT
             campaign.id,
@@ -163,7 +184,7 @@ Deno.serve(async (req) => {
             metrics.conversions_value,
             segments.date
           FROM campaign
-          WHERE segments.date DURING LAST_7_DAYS
+          WHERE ${dateClause}
         `;
 
         let totalCampaigns = 0;

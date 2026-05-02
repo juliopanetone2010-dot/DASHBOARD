@@ -20,6 +20,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, EMPTY_FILTERS, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const { user } = useAuth();
@@ -170,6 +171,19 @@ const Index = () => {
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
+              onPresetApply={async (_key, gaql) => {
+                toast({ title: "Sincronizando", description: `Período: ${gaql.replace(/_/g, " ")}` });
+                const { data: resp, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+                  "google-ads-sync-campaigns",
+                  { body: { date_preset: gaql } },
+                );
+                if (error || resp?.error) {
+                  toast({ title: "Erro ao sincronizar", description: resp?.error ?? error?.message ?? "Falha", variant: "destructive" });
+                  return;
+                }
+                toast({ title: "Dados atualizados" });
+                await data.refresh();
+              }}
             />
 
             {/* Métricas */}

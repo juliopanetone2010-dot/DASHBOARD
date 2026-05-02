@@ -1,8 +1,33 @@
-import { Filter, X } from "lucide-react";
+import { Filter, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Campaign, GoogleAccount, Site } from "@/types/domain";
+
+const toISO = (d: Date) => d.toISOString().slice(0, 10);
+const daysAgo = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
+};
+
+export type DatePresetKey = "today" | "yesterday" | "last_3_days" | "last_7_days" | "last_30_days";
+
+export const DATE_PRESETS: Array<{ key: DatePresetKey; label: string; gaql: string; range: () => { from: string; to: string } }> = [
+  { key: "today", label: "Hoje", gaql: "TODAY", range: () => ({ from: toISO(new Date()), to: toISO(new Date()) }) },
+  { key: "yesterday", label: "Ontem", gaql: "YESTERDAY", range: () => ({ from: toISO(daysAgo(1)), to: toISO(daysAgo(1)) }) },
+  { key: "last_3_days", label: "Últimos 3 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(2)), to: toISO(new Date()) }) },
+  { key: "last_7_days", label: "Últimos 7 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(6)), to: toISO(new Date()) }) },
+  { key: "last_30_days", label: "Últimos 30 dias", gaql: "LAST_30_DAYS", range: () => ({ from: toISO(daysAgo(29)), to: toISO(new Date()) }) },
+];
+
+export function presetFromRange(from: string, to: string): DatePresetKey | null {
+  for (const p of DATE_PRESETS) {
+    const r = p.range();
+    if (r.from === from && r.to === to) return p.key;
+  }
+  return null;
+}
 
 export interface DashboardFilters {
   googleAccountId: string; // "all" or id
@@ -26,9 +51,10 @@ interface Props {
   googleAccounts: GoogleAccount[];
   sites: Site[];
   campaigns: Campaign[];
+  onPresetApply?: (preset: DatePresetKey, gaql: string) => void;
 }
 
-export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns }: Props) {
+export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, onPresetApply }: Props) {
   const set = <K extends keyof DashboardFilters>(k: K, v: DashboardFilters[K]) =>
     onChange({ ...filters, [k]: v });
 
@@ -39,8 +65,36 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns 
     filters.fromDate !== "" ||
     filters.toDate !== "";
 
+  const activePreset = presetFromRange(filters.fromDate, filters.toDate);
+
+  const applyPreset = (key: DatePresetKey) => {
+    const preset = DATE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    const r = preset.range();
+    onChange({ ...filters, fromDate: r.from, toDate: r.to });
+    onPresetApply?.(key, preset.gaql);
+  };
+
   return (
-    <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
+    <div className="rounded-xl border border-border bg-card p-3 shadow-elegant space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-1">
+          <Zap className="h-3.5 w-3.5" /> Período
+        </div>
+        {DATE_PRESETS.map((p) => (
+          <Button
+            key={p.key}
+            type="button"
+            size="sm"
+            variant={activePreset === p.key ? "default" : "outline"}
+            onClick={() => applyPreset(p.key)}
+            className="h-8"
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pb-1.5 pr-1">
           <Filter className="h-3.5 w-3.5" /> Filtros
