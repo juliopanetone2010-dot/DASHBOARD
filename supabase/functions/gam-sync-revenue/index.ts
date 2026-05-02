@@ -153,8 +153,8 @@ async function runReport(
     reportDefinition: {
       dimensions: ["DATE", groupDim],
       metrics: [
-        "TOTAL_LINE_ITEM_LEVEL_IMPRESSIONS",
-        "TOTAL_LINE_ITEM_LEVEL_CPM_AND_CPC_REVENUE",
+        "TOTAL_IMPRESSIONS",
+        "TOTAL_CPM_AND_CPC_REVENUE",
       ],
       dateRange: { relativeDateRange: datePreset },
     },
