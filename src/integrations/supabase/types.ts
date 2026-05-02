@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_site_links: {
+        Row: {
+          created_at: string
+          google_account_id: string
+          id: string
+          site_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          google_account_id: string
+          id?: string
+          site_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          google_account_id?: string
+          id?: string
+          site_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           acknowledged: boolean
@@ -153,6 +177,7 @@ export type Database = {
           created_at: string
           date: string
           ecpm: number
+          google_account_id: string | null
           id: string
           impressions: number
           profit: number
@@ -170,6 +195,7 @@ export type Database = {
           created_at?: string
           date: string
           ecpm?: number
+          google_account_id?: string | null
           id?: string
           impressions?: number
           profit?: number
@@ -187,6 +213,7 @@ export type Database = {
           created_at?: string
           date?: string
           ecpm?: number
+          google_account_id?: string | null
           id?: string
           impressions?: number
           profit?: number
@@ -283,6 +310,7 @@ export type Database = {
           placement_key: string
           revenue: number
           site: string | null
+          site_id: string | null
           user_id: string
         }
         Insert: {
@@ -296,6 +324,7 @@ export type Database = {
           placement_key: string
           revenue?: number
           site?: string | null
+          site_id?: string | null
           user_id: string
         }
         Update: {
@@ -309,6 +338,7 @@ export type Database = {
           placement_key?: string
           revenue?: number
           site?: string | null
+          site_id?: string | null
           user_id?: string
         }
         Relationships: []
@@ -368,6 +398,42 @@ export type Database = {
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sites: {
+        Row: {
+          created_at: string
+          domain: string
+          gam_account_id: string | null
+          id: string
+          name: string
+          network_code: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+          gam_account_id?: string | null
+          id?: string
+          name: string
+          network_code: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+          gam_account_id?: string | null
+          id?: string
+          name?: string
+          network_code?: string
+          status?: string
           updated_at?: string
           user_id?: string
         }
