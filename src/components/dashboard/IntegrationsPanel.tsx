@@ -34,11 +34,8 @@ export function IntegrationsPanel(props: Props) {
   const [gamEmail, setGamEmail] = useState("");
   const [gamKey, setGamKey] = useState("");
 
-  const handleConnectAds = async () => {
-    toast({
-      title: "OAuth Google Ads",
-      description: "Para ativar o fluxo OAuth real, eu preciso configurar GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e GOOGLE_ADS_DEVELOPER_TOKEN. Me peça para fazer isso e eu pulo a edge function de callback.",
-    });
+  const handleConnectAds = () => {
+    window.location.href = "/settings";
   };
 
   const handleAddGam = async (e: React.FormEvent) => {
