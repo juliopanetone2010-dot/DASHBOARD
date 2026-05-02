@@ -80,39 +80,82 @@ Deno.serve(async (req) => {
       userId = claims?.claims?.sub ?? null;
     }
 
-    // 4) Salva cada customer como MCC candidate (com refresh_token)
+    // 4) Para cada customer acessível, busca nome, moeda e manager via GAQL
+    const enriched: Array<{
+      cid: string;
+      name: string;
+      currency: string | null;
+      isMcc: boolean;
+    }> = [];
+
+    for (const cid of customerIds) {
+      try {
+        const detRes = await fetch(
+          `https://googleads.googleapis.com/v21/customers/${cid}/googleAds:search`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${tokens.access_token}`,
+              "developer-token": devToken,
+              "login-customer-id": cid,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              query: "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer LIMIT 1",
+            }),
+          },
+        );
+        const detJson = await detRes.json();
+        console.log(`[oauth-callback] detail ${cid} status`, detRes.status);
+        const row = detJson?.results?.[0]?.customer;
+        enriched.push({
+          cid,
+          name: row?.descriptiveName ?? `Conta ${cid}`,
+          currency: row?.currencyCode ?? null,
+          isMcc: !!row?.manager,
+        });
+      } catch (e) {
+        console.error(`[oauth-callback] detail ${cid} error`, e);
+        enriched.push({ cid, name: `Conta ${cid}`, currency: null, isMcc: false });
+      }
+    }
+
+    // 5) Salva no banco
     let savedCount = 0;
-    if (userId && customerIds.length > 0) {
+    if (userId && enriched.length > 0) {
       const admin = createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       );
-      for (const cid of customerIds) {
+      for (const c of enriched) {
         const { error } = await admin
           .from("google_accounts")
           .upsert(
             {
               user_id: userId,
-              customer_id: cid,
-              account_name: account_name ?? `MCC ${cid}`,
-              is_mcc: true,
+              customer_id: c.cid,
+              account_name: c.name,
+              descriptive_name: c.name,
+              currency: c.currency,
+              is_mcc: c.isMcc,
               refresh_token: tokens.refresh_token,
               status: "connected",
               last_synced_at: new Date().toISOString(),
             },
             { onConflict: "user_id,customer_id" },
           );
-        if (!error) savedCount++;
+        if (error) console.error("[oauth-callback] upsert error", error);
+        else savedCount++;
       }
     }
 
     return json({
       ok: true,
-      accessible_customers: customerIds,
+      accessible_customers: enriched,
       saved_count: savedCount,
       requires_login: !userId,
       message: userId
-        ? `Conectado. ${savedCount} conta(s) MCC salva(s). Use 'Sincronizar contas' para puxar as contas filhas.`
+        ? `Conectado. ${savedCount} conta(s) salva(s). Agora clique em "Sincronizar campanhas".`
         : "Token recebido, mas é preciso estar logado para salvar.",
     });
   } catch (e) {
