@@ -162,8 +162,6 @@ async function runReport(
         "AD_EXCHANGE_REVENUE",
         "ADSENSE_IMPRESSIONS",
         "ADSENSE_REVENUE",
-        "TOTAL_IMPRESSIONS",
-        "TOTAL_REVENUE",
       ],
       dateRange: { relative: datePreset },
     },
