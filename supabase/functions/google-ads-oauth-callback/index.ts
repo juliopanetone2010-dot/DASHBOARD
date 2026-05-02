@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
 
     // 2) Descobre quais customer IDs o usuário liberou
     const listRes = await fetch(
-      "https://googleads.googleapis.com/v17/customers:listAccessibleCustomers",
+      "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
       {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
