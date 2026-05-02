@@ -74,8 +74,8 @@ Deno.serve(async (req) => {
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         // Roda dois reports: por AD_UNIT_NAME e por PLACEMENT_NAME
-        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", usdBrlRate, debug);
-        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", usdBrlRate, debug);
+        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
+        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
 
         const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
         const totals = canonicalRows.reduce(
@@ -115,17 +115,16 @@ Deno.serve(async (req) => {
 
         await persistRows(adUnitRows, "ad_unit");
         await persistRows(placementRows, "placement");
-        await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, debug);
+        await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug);
 
         summary.push({
           network_code: networkCode,
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
-          source_currency: "USD",
-          revenue_currency: "BRL",
-          usd_brl_rate: usdBrlRate,
-          total_revenue: totals.revenue,
+          currency: "USD",
+          usd_brl_rate: fxRates.usdBrl,
+          total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
