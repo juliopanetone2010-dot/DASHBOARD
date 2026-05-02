@@ -30,40 +30,11 @@ interface Props {
   onRemoveLink: (id: string) => Promise<void>;
 }
 
-function LoginGate() {
-  const navigate = useNavigate();
-  return (
-    <div className="rounded-xl border border-border bg-card p-8 shadow-elegant">
-      <div className="flex flex-col items-center text-center max-w-md mx-auto space-y-4">
-        <div className="h-12 w-12 rounded-lg bg-accent flex items-center justify-center">
-          <Lock className="h-5 w-5 text-accent-foreground" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold">Integrações exigem login</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            Credenciais OAuth do Google Ads e a chave de Service Account do Ad Manager
-            são informações sensíveis. Para garantir que apenas você acesse suas contas,
-            essa área exige uma conta protegida por senha.
-          </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            O dashboard continua funcionando em modo livre — só as integrações reais ficam aqui.
-          </p>
-        </div>
-        <Button onClick={() => navigate("/auth")}>Entrar / Criar conta</Button>
-      </div>
-    </div>
-  );
-}
-
 export function IntegrationsPanel(props: Props) {
-  const { user, loading } = useAuth();
   const [gamName, setGamName] = useState("");
   const [gamNetwork, setGamNetwork] = useState("");
   const [gamEmail, setGamEmail] = useState("");
   const [gamKey, setGamKey] = useState("");
-
-  if (loading) return null;
-  if (!user) return <LoginGate />;
 
   const handleConnectAds = async () => {
     toast({
