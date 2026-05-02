@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
           }];
         }
 
-        // Para cada conta-folha, busca campanhas + métricas (últimos 7 dias)
+        // Para cada conta-folha, busca campanhas + métricas (período selecionado)
         const campaignQuery = `
           SELECT
             campaign.id,
@@ -184,7 +184,7 @@ Deno.serve(async (req) => {
             metrics.conversions_value,
             segments.date
           FROM campaign
-          WHERE segments.date DURING LAST_7_DAYS
+          WHERE ${dateClause}
         `;
 
         let totalCampaigns = 0;
