@@ -179,6 +179,7 @@ async function distributeGamRevenueToCampaigns(
   userId: string,
   siteId: string | undefined,
   rows: ReportRow[],
+  _fx: FxRates,
   debug: string[],
 ) {
   if (!siteId || rows.length === 0) return;
