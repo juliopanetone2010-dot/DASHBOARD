@@ -297,6 +297,14 @@ function pemToArrayBuffer(pem: string) {
   return buf.buffer;
 }
 
+function formatGamError(status: number, payload: any) {
+  const reason = payload?.error?.details?.find((d: any) => d?.reason)?.reason;
+  if (status === 401 || reason === "AUTH_ERROR_AUTHENTICATION_FAILED") {
+    return "GAM não autenticou a Service Account. No Google Ad Manager, adicione o email da Service Account como usuário da rede e libere permissão para ver/executar relatórios; se estiver pendente, aprove o usuário antes de sincronizar.";
+  }
+  return `create report failed: ${JSON.stringify(payload)}`;
+}
+
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {
     status: 200,
