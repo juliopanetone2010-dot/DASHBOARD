@@ -126,9 +126,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Atualiza last_synced_at
+    const hasErrors = summary.some((s) => typeof s.error === "string");
+
+    // Atualiza last_synced_at/status sem marcar como conectado quando o GAM recusou a chamada
     await admin.from("gam_accounts")
-      .update({ last_synced_at: new Date().toISOString(), status: "connected" })
+      .update({ last_synced_at: new Date().toISOString(), status: hasErrors ? "pending" : "connected" })
       .eq("user_id", userId);
 
     return json({ ok: true, date_preset: datePreset, summary, debug });
@@ -173,9 +175,7 @@ async function runReport(
   );
   const createJson = await createRes.json();
   debug.push(`[${networkCode}/${groupDim}] create status=${createRes.status}`);
-  if (!createRes.ok) {
-    throw new Error(`create report failed: ${JSON.stringify(createJson)}`);
-  }
+  if (!createRes.ok) throw new Error(formatGamError(createRes.status, createJson));
   const reportName: string = createJson.name; // networks/X/reports/Y
 
   // 2) run report (LRO)
