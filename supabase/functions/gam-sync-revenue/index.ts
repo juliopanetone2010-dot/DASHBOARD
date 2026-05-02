@@ -58,7 +58,8 @@ Deno.serve(async (req) => {
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
-    const usdBrlRate = await getUsdBrlRate(debug);
+    // Sistema padronizado em USD. Receita do GAM já vem em USD; gasto do Ads (BRL) é convertido para USD na distribuição.
+    const fxRates = await getFxRates(debug);
 
     // Agrupa sites por network_code
     const byNetwork = new Map<string, typeof sites>();
