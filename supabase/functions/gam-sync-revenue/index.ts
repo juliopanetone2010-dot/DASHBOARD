@@ -311,9 +311,8 @@ async function runReport(
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // Receita: TODAS as métricas de revenue do GAM vêm em micros (1 USD = 1.000.000)
-      const revenueMicros = num(m[1]) + num(m[3]) + num(m[5]);
-      const revenue = revenueMicros / 1_000_000;
+      // Métricas MONEY da REST API beta já vêm na unidade da moeda da rede.
+      const revenue = num(m[1]) + num(m[3]) + num(m[5]);
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
