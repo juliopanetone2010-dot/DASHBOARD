@@ -106,6 +106,10 @@ export function IntegrationsPanel(props: Props) {
             <Button onClick={handleConnectAds} size="sm" className="gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Conectar MCC
             </Button>
+            <Button onClick={handleSyncCampaigns} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sincronizar contas e campanhas
+            </Button>
             <Button variant="outline" size="sm" asChild>
               <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">
                 Docs <ExternalLink className="h-3 w-3 ml-1.5" />
