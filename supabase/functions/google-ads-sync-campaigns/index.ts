@@ -175,6 +175,7 @@ Deno.serve(async (req) => {
                 customer_id: childCid,
                 login_customer_id: root.customer_id,
                 name,
+                currency: r.customerClient.currencyCode ?? null,
               });
             }
           }
@@ -184,7 +185,8 @@ Deno.serve(async (req) => {
             id: root.id,
             customer_id: root.customer_id,
             login_customer_id: root.login_customer_id ?? null,
-                name: root.account_name ?? root.descriptive_name ?? root.customer_id,
+            name: root.account_name ?? root.descriptive_name ?? root.customer_id,
+            currency: root.currency ?? null,
           }];
         }
 
