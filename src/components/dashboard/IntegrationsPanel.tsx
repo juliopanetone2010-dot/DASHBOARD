@@ -61,7 +61,7 @@ export function IntegrationsPanel(props: Props) {
     const totalRows = summary.reduce(
       (acc, s) => acc + (Number(s.ad_unit_rows) || 0) + (Number(s.placement_rows) || 0), 0,
     );
-    const errs = summary.filter((s) => s.error).map((s) => `${s.network_code}: ${s.error}`);
+    const errs = summary.filter((s) => s.error).map((s) => `${s.network_code}: ${String(s.error).replace(/^Error:\s*/, "")}`);
     if (errs.length > 0) {
       toast({
         title: "GAM retornou erro",
