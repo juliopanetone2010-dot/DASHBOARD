@@ -158,6 +158,10 @@ async function runReport(
       metrics: [
         "AD_SERVER_IMPRESSIONS",
         "AD_SERVER_REVENUE",
+        "AD_EXCHANGE_IMPRESSIONS",
+        "AD_EXCHANGE_REVENUE",
+        "ADSENSE_IMPRESSIONS",
+        "ADSENSE_REVENUE",
       ],
       dateRange: { relative: datePreset },
     },
@@ -242,9 +246,11 @@ async function runReport(
       const date = dims[0]?.stringValue ?? null;
       const name = dims[1]?.stringValue ?? "(unknown)";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
-      const impressions = Number(m[0]?.intValue ?? 0);
-      // Revenue em micros (GAM retorna em micros para dinheiro)
-      const revenueMicros = Number(m[1]?.intValue ?? m[1]?.doubleValue ?? 0);
+      const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
+      // Impressões: AdServer + AdExchange + AdSense
+      const impressions = num(m[0]) + num(m[2]) + num(m[4]);
+      // Receita: TODAS as métricas de revenue do GAM vêm em micros (1 USD = 1.000.000)
+      const revenueMicros = num(m[1]) + num(m[3]) + num(m[5]);
       const revenue = revenueMicros / 1_000_000;
       allRows.push({ date, name, impressions, revenue });
     }
