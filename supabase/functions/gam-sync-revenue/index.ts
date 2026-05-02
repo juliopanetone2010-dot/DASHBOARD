@@ -173,8 +173,15 @@ async function runReport(
       body: JSON.stringify(reportBody),
     },
   );
-  const createJson = await createRes.json();
+  const createText = await createRes.text();
   debug.push(`[${networkCode}/${groupDim}] create status=${createRes.status}`);
+  let createJson: any;
+  try { createJson = JSON.parse(createText); }
+  catch {
+    throw new Error(
+      "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE. Depois aguarde ~1 min e sincronize novamente."
+    );
+  }
   if (!createRes.ok) throw new Error(formatGamError(createRes.status, createJson));
   const reportName: string = createJson.name; // networks/X/reports/Y
 
