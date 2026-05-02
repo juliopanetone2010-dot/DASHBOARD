@@ -260,6 +260,7 @@ const Index = () => {
                 campaigns={engine?.aggregates ?? []}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
+                onRefresh={data.refresh}
               />
             </section>
           </TabsContent>
