@@ -57,8 +57,9 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [lookback, setLookback] = useState(30);
+  const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoIntervalDays, setAutoIntervalDays] = useState(15);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<AccountOpt[]>([]);
