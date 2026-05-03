@@ -277,14 +277,7 @@ function dateObj(iso: string) {
 // Extrai (utm_source, campaign_id, placement) do nome/key-value do GAM.
 // Padrão Google: utm_source=google + utm_placement={campaignid}_{placement}
 // Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
-function extractCampaignIdFromName(name: string): string | null {
-  return parseGamPlacementName(name)?.cid ?? null;
-}
-
-function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
-  const parsed = parseGamAttribution(name);
-  return parsed ? { cid: parsed.cid, placement: parsed.placement } : null;
-}
+// (parseGamAttribution abaixo cobre extração de cid/placement/source)
 
 function parseGamAttribution(name: string): { source: string | null; cid: string | null; placement: string | null } | null {
   if (!name) return null;
