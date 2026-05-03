@@ -78,7 +78,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     })();
   }, []);
 
-  const persistConfig = async (patch: Record<string, unknown>) => {
+  const persistConfig = async (patch: Partial<{
+    placement_auto_cleanup_enabled: boolean;
+    placement_cleanup_min_days: number;
+    placement_cleanup_max_roi_pct: number;
+    placement_cleanup_min_cost_brl: number;
+    placement_cleanup_min_clicks: number;
+  }>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     await supabase.from("rules_config").update(patch).eq("user_id", u.user.id);
