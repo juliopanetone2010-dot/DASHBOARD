@@ -162,9 +162,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       return n;
     });
   };
+  const matchesAccount = (i: PreviewItem) =>
+    accountFilter === "all" || i.campaigns.some((c) => c.google_account_id === accountFilter);
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter(canExclude).map(itemKey)));
+    setSelected(new Set(items.filter((i) => canExclude(i) && matchesAccount(i)).map(itemKey)));
   };
 
   const runApply = async () => {
