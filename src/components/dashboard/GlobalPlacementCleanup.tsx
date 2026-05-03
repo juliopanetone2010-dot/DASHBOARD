@@ -203,8 +203,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
-  const grandCost = stats?.grand_cost_brl ?? 0;
-  const grandProfit = stats?.grand_profit_brl ?? 0;
 
   // filtra items pela conta selecionada
   const filteredItems = accountFilter === "all"
