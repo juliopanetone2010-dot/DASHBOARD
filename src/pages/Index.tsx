@@ -499,6 +499,10 @@ const IndexInner = () => {
             />
           </TabsContent>
 
+          <TabsContent value="countries" className="mt-6">
+            <CountriesTab fxUsdBrl={usdBrl} />
+          </TabsContent>
+
           <TabsContent value="retention" className="mt-6">
             <RetentionTab campaigns={data.campaigns} />
           </TabsContent>
