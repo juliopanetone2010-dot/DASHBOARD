@@ -387,6 +387,69 @@ async function collectUtmAttribution(args: {
   };
 }
 
+async function runUtmPairCandidates(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  sourceKeyId: string,
+  valueKeyId: string,
+  sourceName: string,
+  valueName: "utm_campaign" | "utm_placement",
+  debug: string[],
+): Promise<Array<{ label: string; rows: AttributedRow[] }>> {
+  const candidates = [
+    { label: `EKV_DIMENSION (${sourceName}+${valueName})`, dims: ["DATE", "EKV_DIMENSION_0_VALUE", "EKV_DIMENSION_1_VALUE"], field: "ekvDimensionKeyIds" as const },
+    { label: `CUSTOM_DIMENSION (${sourceName}+${valueName})`, dims: ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"], field: "customDimensionKeyIds" as const },
+  ];
+  const out: Array<{ label: string; rows: AttributedRow[] }> = [];
+  for (const c of candidates) {
+    try {
+      const reportRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: c.dims, dimensionKeyIdsField: c.field, dimensionKeyIds: [sourceKeyId, valueKeyId], debug })
+      ))).flat();
+      const rows = reportRows.map((r) => {
+        const sourceRaw = r.dims[1] || "";
+        const valueRaw = r.dims[2] || "";
+        const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+        const cid = valueName === "utm_campaign" ? extractCampaignId(valueRaw) : extractCampaignId(valueRaw);
+        const placement = valueName === "utm_placement" && isRealValue(valueRaw) ? extractPlacementValue(valueRaw, cid) : null;
+        return { date: r.date, impressions: r.impressions, revenue: r.revenue, source, cid, placement, raw: `${c.label}|utm_source_raw=${sourceRaw}|${valueName}_raw=${valueRaw}` };
+      });
+      debugUtmCandidate(networkCode, c.label, valueName, rows, debug);
+      out.push({ label: c.label, rows });
+    } catch (e) {
+      debug.push(`[${networkCode}/${c.label}] erro=${String(e).slice(0, 500)}`);
+    }
+  }
+  return out;
+}
+
+function debugUtmCandidate(networkCode: string, label: string, valueName: string, rows: AttributedRow[], debug: string[]) {
+  const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number; rawOk: number }>, r) => {
+    const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0, rawOk: 0 };
+    s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++; if (!r.raw.includes("(not applicable)")) s.rawOk++;
+    acc[r.source] = s; return acc;
+  }, {});
+  const sample = rows.slice(0, 8).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}|placement=${r.placement}`);
+  debug.push(`[${networkCode}/${label}] ${valueName}: linhas=${rows.length}; por_source=${JSON.stringify(sourceStats)}; raw_sample=${JSON.stringify(sample)}`);
+}
+
+async function debugKeyValuesName(networkCode: string, accessToken: string, ranges: GamRange[], debug: string[]) {
+  try {
+    const rows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "KEY_VALUES_NAME"], debug })
+    ))).flat();
+    const parsed = rows.map((r) => {
+      const kv = parseKeyValueDimension(r.dims[1]);
+      return { r, kv };
+    }).filter(({ kv }) => kv.utm_source || kv.utm_campaign || kv.utm_placement);
+    const sample = parsed.slice(0, 10).map(({ r, kv }) => `utm_source=${kv.utm_source ?? "null"}|utm_campaign=${kv.utm_campaign ?? "null"}|utm_placement=${kv.utm_placement ?? "null"}|dim=KEY_VALUES_NAME|raw=${r.dims[1]}|rev=${r.revenue}`);
+    debug.push(`[${networkCode}/KEY_VALUES_NAME debug] linhas=${rows.length}; linhas_com_utm=${parsed.length}; sample=${JSON.stringify(sample)}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/KEY_VALUES_NAME debug] erro=${String(e).slice(0, 500)}`);
+  }
+}
+
 async function persistCampaignSourceRevenueFromUtm(
   admin: any,
   userId: string,
