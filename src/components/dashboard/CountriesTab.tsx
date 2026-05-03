@@ -279,8 +279,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           <TableHeader>
             <TableRow className="bg-muted/40">
               <TableHead className="w-10"></TableHead>
-              <TableHead>País</TableHead>
-              <TableHead className="text-right">Campanhas</TableHead>
+              <TableHead>{view === "country" ? "País" : "Campanha"}</TableHead>
+              <TableHead className="text-right">{view === "country" ? "Campanhas" : "Países"}</TableHead>
               <SortHead k="cost" label="Custo" />
               <SortHead k="revenue" label="Receita" />
               <TableHead className="text-right">Lucro</TableHead>
@@ -293,12 +293,13 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             {loading && (
               <TableRow><TableCell colSpan={9} className="text-center py-8"><Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...</TableCell></TableRow>
             )}
-            {!loading && sorted.length === 0 && (
+            {!loading && (view === "country" ? sorted.length === 0 : byCampaign.length === 0) && (
               <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                 Nenhum dado. Clique em <b>Sincronizar</b> para puxar do Google Ads.
               </TableCell></TableRow>
             )}
-            {sorted.map((c) => {
+
+            {view === "country" && sorted.map((c) => {
               const isOpen = expanded.has(c.code);
               const cmap = campaignsByCountry.get(c.code);
               const camps = cmap ? [...cmap.values()].sort((a, b) => b.cost - a.cost) : [];
@@ -333,12 +334,14 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                             <TableHead className="text-right">Receita</TableHead>
                             <TableHead className="text-right">Lucro</TableHead>
                             <TableHead className="text-right">ROI</TableHead>
+                            <TableHead className="text-right w-32">Ação</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {camps.map((cp) => {
                             const profit = cp.revenue_brl - cp.cost;
                             const roi = cp.cost > 0 ? (profit / cp.cost) * 100 : 0;
+                            const key = `${cp.campaign_id}|${cp.country_criterion_id ?? ""}`;
                             return (
                               <TableRow key={cp.campaign_id}>
                                 <TableCell className="text-sm">{cp.name}</TableCell>
@@ -346,6 +349,80 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className="text-right tabular-nums">{fmtBRL(cp.revenue_brl)}</TableCell>
                                 <TableCell className={cn("text-right tabular-nums", profit < 0 && "text-danger")}>{fmtBRL(profit)}</TableCell>
                                 <TableCell className={cn("text-right tabular-nums font-semibold", roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(roi)}</TableCell>
+                                <TableCell className="text-right">
+                                  <ExcludeButton
+                                    busy={excluding === key}
+                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name)}
+                                    label={`Excluir ${c.name} desta campanha`}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableCell></TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
+
+            {view === "campaign" && byCampaign.map((cp) => {
+              const isOpen = expanded.has(cp.campaign_id);
+              const list = countriesByCampaign.get(cp.campaign_id) ?? [];
+              return (
+                <Fragment key={cp.campaign_id}>
+                  <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
+                    <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
+                    <TableCell className="font-medium text-sm">{cp.name}</TableCell>
+                    <TableCell className="text-right tabular-nums">{cp.countries.size}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.cost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.revenue_brl)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums font-semibold", cp.profit < 0 ? "text-danger" : "text-success")}>{fmtBRL(cp.profit)}</TableCell>
+                    <TableCell className="text-right">
+                      <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
+                        cp.roi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
+                        {fmtPercent(cp.roi)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.clicks)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.impressions)}</TableCell>
+                  </TableRow>
+                  {isOpen && (
+                    <TableRow><TableCell colSpan={9} className="bg-muted/10 p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>País</TableHead>
+                            <TableHead className="text-right">Custo</TableHead>
+                            <TableHead className="text-right">Receita</TableHead>
+                            <TableHead className="text-right">Lucro</TableHead>
+                            <TableHead className="text-right">ROI</TableHead>
+                            <TableHead className="text-right w-32">Ação</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {list.map((co) => {
+                            const profit = co.revenue_brl - co.cost;
+                            const roi = co.cost > 0 ? (profit / co.cost) * 100 : 0;
+                            const key = `${cp.campaign_id}|${co.criterion_id ?? ""}`;
+                            return (
+                              <TableRow key={co.code}>
+                                <TableCell className="text-sm">
+                                  <span className="font-mono text-xs text-muted-foreground mr-2">{co.code}</span>
+                                  {co.name}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{fmtBRL(co.cost)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{fmtBRL(co.revenue_brl)}</TableCell>
+                                <TableCell className={cn("text-right tabular-nums", profit < 0 && "text-danger")}>{fmtBRL(profit)}</TableCell>
+                                <TableCell className={cn("text-right tabular-nums font-semibold", roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(roi)}</TableCell>
+                                <TableCell className="text-right">
+                                  <ExcludeButton
+                                    busy={excluding === key}
+                                    onConfirm={() => handleExclude(cp.campaign_id, co.criterion_id, co.name)}
+                                    label={`Excluir ${co.name} desta campanha`}
+                                  />
+                                </TableCell>
                               </TableRow>
                             );
                           })}
