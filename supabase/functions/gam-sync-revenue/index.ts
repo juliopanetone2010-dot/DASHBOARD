@@ -255,21 +255,34 @@ function dateObj(iso: string) {
   return { year, month, day };
 }
 
-// Extrai (campaign_id, placement) do nome do ad unit/placement do GAM.
-// Padrão UTM: utm_placement={campaignid}_{placement}
+// Extrai (utm_source, campaign_id, placement) do nome/key-value do GAM.
+// Padrão Google: utm_source=google + utm_placement={campaignid}_{placement}
 // Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
 function extractCampaignIdFromName(name: string): string | null {
   return parseGamPlacementName(name)?.cid ?? null;
 }
 
 function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
+  const parsed = parseGamAttribution(name);
+  return parsed ? { cid: parsed.cid, placement: parsed.placement } : null;
+}
+
+function parseGamAttribution(name: string): { source: string | null; cid: string; placement: string } | null {
   if (!name) return null;
   const decoded = safeDecode(String(name).trim());
-  const utm = decoded.match(/(?:^|[\s,;|])utm_placement[=~*]*([^\s,;|]+)/i);
+  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
+  const source = sourceMatch?.[1]?.toLowerCase() ?? null;
+  const utm = decoded.match(/(?:^|[\s,;&|])utm_placement[=~:]*([^\s,;&|]+)/i);
   const candidate = utm?.[1] ?? decoded;
   const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
   if (!m) return null;
-  return { cid: m[1], placement: normalizePlacement(m[2]) };
+  return { source, cid: m[1], placement: normalizePlacement(m[2]) };
+}
+
+function parseUtmSource(name: string): string | null {
+  const decoded = safeDecode(String(name || "").trim());
+  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
+  return sourceMatch?.[1]?.toLowerCase() ?? null;
 }
 
 function safeDecode(s: string): string {
