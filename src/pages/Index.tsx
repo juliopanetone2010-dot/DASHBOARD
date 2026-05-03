@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, EMPTY_FILTERS, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
+import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
@@ -198,6 +199,9 @@ const Index = () => {
             <TabsTrigger value="integrations" className="gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Integrações
             </TabsTrigger>
+            <TabsTrigger value="placements" className="gap-1.5">
+              <MapPin className="h-3.5 w-3.5" /> Placements
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
@@ -340,6 +344,14 @@ const Index = () => {
               onAddLink={data.addLink}
               onRemoveLink={data.removeLink}
               onRefresh={data.refresh}
+            />
+          </TabsContent>
+
+          <TabsContent value="placements" className="mt-6">
+            <PlacementsTab
+              campaigns={data.campaigns}
+              googleAccounts={data.googleAccounts}
+              rawPlacements={data.placements}
             />
           </TabsContent>
 
