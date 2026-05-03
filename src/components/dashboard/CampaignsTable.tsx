@@ -180,16 +180,16 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                     {fmtNumber(Math.round(c.conversions))}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-end gap-1">
                       {loading ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : (
                         <>
                           <Button
-                            size="icon"
+                            size="sm"
                             variant="ghost"
                             className={cn(
-                              "h-8 w-8",
+                              "h-8 px-2",
                               isPaused ? "text-success hover:text-success" : "text-warning hover:text-warning",
                             )}
                             title={isPaused ? "Ativar campanha" : "Pausar campanha"}
@@ -204,58 +204,50 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
 
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-primary hover:text-primary"
-                                title="Ajustar Target CPA"
-                              >
-                                <ChevronUp className="h-3.5 w-3.5" />
+                              <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1">
+                                CPA <ChevronDown className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuLabel className="text-xs">Target CPA (ad groups)</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                              <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
                                 <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
 
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-success hover:text-success"
-                                title="Ajustar orçamento"
-                              >
-                                <TrendingUp className="h-3.5 w-3.5" />
+                              <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1">
+                                Orçamento <ChevronDown className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel className="text-xs">Ajustar Orçamento</DropdownMenuLabel>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuLabel className="text-xs">Orçamento da campanha</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
                                 <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
                               </DropdownMenuItem>
                               {onBoost && (
                                 <>
