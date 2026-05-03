@@ -38,22 +38,35 @@ Deno.serve(async (req) => {
     const accessToken = await getAccessToken(sa);
 
     const networks = Array.from(new Set(sites.map((s) => s.network_code)));
-    let maxHour = -1;
-    let totalImpr = 0;
+    // Cruzamento HOUR + IMPRESSIONS — soma impressões por hora entre todas as redes
+    const hourMap = new Map<number, number>();
+    const debugRows: any[] = [];
 
     for (const networkCode of networks) {
       try {
         const rows = await runHourReport(networkCode, accessToken, date);
+        debugRows.push({
+          networkCode,
+          rowCount: rows.length,
+          rows: rows.map((r) => ({ h: r.hour, impr: r.impressions })),
+        });
         for (const r of rows) {
+          if (!Number.isFinite(r.hour) || r.hour < 0 || r.hour > 23) continue;
           if (r.impressions > 0) {
-            totalImpr += r.impressions;
-            if (r.hour > maxHour) maxHour = r.hour;
+            hourMap.set(r.hour, (hourMap.get(r.hour) ?? 0) + r.impressions);
           }
         }
       } catch (e) {
         console.error("[gam-last-hour]", networkCode, String(e));
+        debugRows.push({ networkCode, error: String(e) });
       }
     }
+
+    const hours = [...hourMap.entries()]
+      .map(([hour, impressions]) => ({ hour, impressions }))
+      .sort((a, b) => a.hour - b.hour);
+    const maxHour = hours.length > 0 ? Math.max(...hours.map((h) => h.hour)) : -1;
+    const totalImpr = hours.reduce((s, h) => s + h.impressions, 0);
 
     const today = new Date().toISOString().slice(0, 10);
     const isToday = date === today;
@@ -71,7 +84,17 @@ Deno.serve(async (req) => {
       label = `Ad Manager atualizado até: ${String(maxHour).padStart(2, "0")}:59`;
     }
 
-    return json({ ok: true, date, lastHour: maxHour >= 0 ? maxHour : null, totalImpressions: totalImpr, label, isToday, isYesterday });
+    return json({
+      ok: true,
+      date,
+      lastHour: maxHour >= 0 ? maxHour : null,
+      totalImpressions: totalImpr,
+      hours,
+      label,
+      isToday,
+      isYesterday,
+      debug: debugRows,
+    });
   } catch (e) {
     console.error("[gam-last-hour] uncaught", e);
     return json({ error: String(e) });
