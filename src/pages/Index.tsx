@@ -77,9 +77,9 @@ const IndexInner = () => {
     staleTime: 60 * 60 * 1000,
   });
 
-  // Última atualização real dos dados (timestamps de update no banco)
-  const freshnessQuery = useQuery({
-    queryKey: ["data-freshness", filters.siteId, filters.googleAccountIds.join("|")],
+  // Google Ads: usa o updated_at do banco (último sync)
+  const adsFreshnessQuery = useQuery({
+    queryKey: ["ads-freshness", filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let adsQ = supabase
         .from("daily_metrics")
@@ -87,22 +87,27 @@ const IndexInner = () => {
         .order("updated_at", { ascending: false })
         .limit(1);
       if (filters.googleAccountIds.length > 0) adsQ = adsQ.in("google_account_id", filters.googleAccountIds);
-
-      let gamQ = supabase
-        .from("gam_campaign_source_revenue")
-        .select("created_at")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (filters.siteId !== "all") gamQ = gamQ.eq("site_id", filters.siteId);
-
-      const [ads, gam] = await Promise.all([adsQ, gamQ]);
-      return {
-        ads: ads.data?.[0]?.updated_at ?? null,
-        gam: gam.data?.[0]?.created_at ?? null,
-      };
+      const { data } = await adsQ;
+      return data?.[0]?.updated_at ?? null;
     },
     staleTime: 15_000,
     refetchInterval: 60_000,
+  });
+
+  // GAM: hora REAL baseada na última hora com impressão > 0 no relatório do dia.
+  const gamLastHourQuery = useQuery({
+    queryKey: ["gam-last-hour", filters.siteId, filters.toDate],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const date = filters.toDate || today;
+      const { data, error } = await supabase.functions.invoke("gam-last-hour", {
+        body: { date, site_id: filters.siteId === "all" ? null : filters.siteId },
+      });
+      if (error) throw error;
+      return data as { lastHour: number | null; label: string; isToday: boolean; isYesterday: boolean; date: string };
+    },
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
