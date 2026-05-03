@@ -56,6 +56,7 @@ export type Database = {
           id: string
           impressions: number
           placement: string
+          placement_clean: string | null
           placement_type: string | null
           target_url: string | null
           updated_at: string
@@ -78,6 +79,7 @@ export type Database = {
           id?: string
           impressions?: number
           placement: string
+          placement_clean?: string | null
           placement_type?: string | null
           target_url?: string | null
           updated_at?: string
@@ -100,6 +102,7 @@ export type Database = {
           id?: string
           impressions?: number
           placement?: string
+          placement_clean?: string | null
           placement_type?: string | null
           target_url?: string | null
           updated_at?: string
@@ -324,6 +327,45 @@ export type Database = {
           network_code?: string
           service_account_email?: string | null
           status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      gam_placement_revenue: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          date: string
+          id: string
+          impressions: number
+          placement: string
+          revenue_usd: number
+          site_id: string | null
+          source: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          date: string
+          id?: string
+          impressions?: number
+          placement: string
+          revenue_usd?: number
+          site_id?: string | null
+          source?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          date?: string
+          id?: string
+          impressions?: number
+          placement?: string
+          revenue_usd?: number
+          site_id?: string | null
+          source?: string | null
           user_id?: string
         }
         Relationships: []
