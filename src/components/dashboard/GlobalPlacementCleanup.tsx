@@ -343,6 +343,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
+                                  const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
                                     <TableRow key={itemKey(i)} className={cn(isApp && "opacity-60")}>
