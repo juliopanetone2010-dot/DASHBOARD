@@ -595,9 +595,45 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         });
         continue;
       }
-      applied += g.placements.length;
-      details.push({ campaign_id: g.campaign_id, count: g.placements.length, partial: j?.partialFailureError ?? null });
-      const inserts = g.placements.map((p) => ({
+
+      // Detecta partialFailureError: cada operação que falhou vem com um índice.
+      const partial = j?.partialFailureError;
+      const failedIdx = new Set<number>();
+      if (partial?.details?.length) {
+        for (const d of partial.details) {
+          for (const err of d?.errors ?? []) {
+            const path = err?.location?.fieldPathElements ?? [];
+            for (const p of path) if (typeof p?.index === "number") failedIdx.add(p.index);
+          }
+        }
+        // se tem erro mas não conseguimos mapear índice, marca tudo como falha
+        if (failedIdx.size === 0) for (let i = 0; i < g.placements.length; i++) failedIdx.add(i);
+      }
+      // results pode vir vazio em createResource quando partial failure ocorre
+      const results = j?.results ?? [];
+      const okPlacements: typeof g.placements = [];
+      const failPlacements: { p: typeof g.placements[number]; reason: string }[] = [];
+      g.placements.forEach((p, idx) => {
+        if (failedIdx.has(idx) || (results.length === g.placements.length && !results[idx]?.resourceName)) {
+          const reason = partial?.message ?? "partial_failure";
+          failPlacements.push({ p, reason });
+        } else {
+          okPlacements.push(p);
+        }
+      });
+
+      applied += okPlacements.length;
+      failed += failPlacements.length;
+      details.push({
+        campaign_id: g.campaign_id,
+        count: okPlacements.length,
+        failed_count: failPlacements.length,
+        partial_message: partial?.message ?? null,
+        partial_errors: partial?.details ?? null,
+      });
+      if (failPlacements.length) console.error("[placements-cleanup] partial failures", JSON.stringify({ campaign: g.campaign_id, failures: failPlacements, partial }));
+
+      const inserts = okPlacements.map((p) => ({
         user_id: userId,
         campaign_id: g.campaign_id,
         placement: p.placement,
@@ -609,8 +645,9 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         user_id: userId,
         campaign_id: g.campaign_id,
         action_type: "negative_placement",
-        payload: { placements: g.placements, partial: j?.partialFailureError ?? null },
-        status: "executed",
+        payload: { placements: g.placements, ok: okPlacements.map((p) => p.placement), failed: failPlacements.map((f) => ({ placement: f.p.placement, reason: f.reason })), partial: partial ?? null },
+        status: failPlacements.length === g.placements.length ? "failed" : (failPlacements.length ? "partial" : "executed"),
+        error: partial ? JSON.stringify(partial).slice(0, 2000) : null,
         executed_at: new Date().toISOString(),
       });
     } catch (e) {
