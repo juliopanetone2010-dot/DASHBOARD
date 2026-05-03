@@ -336,8 +336,16 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Período</label>
-            <Select value={preset} onValueChange={(v) => setPreset(v as DatePresetKey)}>
+            <label className="text-xs text-muted-foreground">Período (global)</label>
+            <Select
+              value={preset}
+              onValueChange={(v) => {
+                const key = v as DatePresetKey;
+                setPreset(key);
+                const r = DATE_PRESETS.find((p) => p.key === key)!.range();
+                useDashboardFiltersSet({ ...globalFilters, fromDate: r.from, toDate: r.to });
+              }}
+            >
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {DATE_PRESETS.map((p) => (
