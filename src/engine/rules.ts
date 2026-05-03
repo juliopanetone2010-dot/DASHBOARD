@@ -65,6 +65,8 @@ export interface PlacementAggregate {
 
 const calcRoi = (revenue: number, spend: number) =>
   spend > 0 ? ((revenue - spend) / spend) * 100 : 0;
+const calcRoiFromProfit = (profit: number, spend: number) =>
+  spend > 0 ? (profit / spend) * 100 : 0;
 const calcRoas = (revenue: number, spend: number) =>
   spend > 0 ? revenue / spend : 0;
 const calcEcpm = (revenue: number, impressions: number) =>
@@ -106,6 +108,7 @@ export function aggregateByCampaign(
     }
     agg.spend += Number(m.spend);
     agg.revenue += Number(m.revenue);
+    agg.profit += Number(m.profit);
     agg.clicks += Number(m.clicks);
     agg.conversions += Number(m.conversions);
     agg.impressions += Number(m.impressions);
@@ -113,9 +116,8 @@ export function aggregateByCampaign(
     dayCount.get(m.campaign_id)!.add(m.date);
   }
   for (const agg of byId.values()) {
-    agg.profit = agg.revenue - agg.spend;
-    agg.roi = calcRoi(agg.revenue, agg.spend);
-    agg.roas = calcRoas(agg.revenue, agg.spend);
+    agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
+    agg.roas = calcRoas(agg.profit + agg.spend, agg.spend);
     agg.ecpm = calcEcpm(agg.revenue, agg.impressions);
     agg.days = dayCount.get(agg.campaign_id)?.size ?? 0;
   }
@@ -238,13 +240,13 @@ export function evaluate(input: EngineInput): EngineOutput {
     (acc, a) => {
       acc.spend += a.spend;
       acc.revenue += a.revenue;
+      acc.profit += a.profit;
       return acc;
     },
     { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 },
   );
-  totals.profit = totals.revenue - totals.spend;
-  totals.roi = calcRoi(totals.revenue, totals.spend);
-  totals.roas = calcRoas(totals.revenue, totals.spend);
+  totals.roi = calcRoiFromProfit(totals.profit, totals.spend);
+  totals.roas = calcRoas(totals.profit + totals.spend, totals.spend);
 
   return { aggregates, placementAggregates, suggestions, alerts, totals };
 }
