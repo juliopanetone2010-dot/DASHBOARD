@@ -172,6 +172,8 @@ interface ReportRow { date: string | null; name: string; impressions: number; re
 
 interface FxRates { usdBrl: number; }
 
+interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
+
 async function getFxRates(debug: string[]): Promise<FxRates> {
   try {
     const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
@@ -187,12 +189,27 @@ async function getFxRates(debug: string[]): Promise<FxRates> {
   return { usdBrl: 5.5 };
 }
 
-// Converte um valor da moeda original para USD
-function toUsd(amount: number, currency: string | null | undefined, fx: FxRates): number {
-  const cur = (currency ?? "USD").toUpperCase();
-  if (cur === "USD") return amount;
-  if (cur === "BRL") return fx.usdBrl > 0 ? amount / fx.usdBrl : amount;
-  return amount;
+function buildGamRanges(datePreset: string, from: string | null, to: string | null, includeYesterdayFallback: boolean): GamRange[] {
+  const valid = (d: string | null) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  const fixed = (start: string, end: string): GamRange => ({
+    dateRange: { fixed: { startDate: dateObj(start), endDate: dateObj(end) } },
+    debugLabel: `${start}..${end}`,
+  });
+  const ranges = valid(from) && valid(to)
+    ? [fixed(from!, to!)]
+    : [{ dateRange: { relative: datePreset }, debugLabel: datePreset }];
+  if (includeYesterdayFallback) {
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const iso = y.toISOString().slice(0, 10);
+    if (!ranges.some((r) => r.debugLabel.includes(iso))) ranges.push(fixed(iso, iso));
+  }
+  return ranges;
+}
+
+function dateObj(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return { year, month, day };
 }
 
 async function distributeGamRevenueToCampaigns(
@@ -202,6 +219,7 @@ async function distributeGamRevenueToCampaigns(
   rows: ReportRow[],
   _fx: FxRates,
   debug: string[],
+  requestedAccountIds: string[] = [],
 ) {
   if (!siteId || rows.length === 0) return;
 
@@ -225,7 +243,14 @@ async function distributeGamRevenueToCampaigns(
     return;
   }
 
-  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  const linkedAccountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  const accountIds = requestedAccountIds.length > 0
+    ? linkedAccountIds.filter((id: string) => requestedAccountIds.includes(id))
+    : linkedAccountIds;
+  if (accountIds.length === 0) {
+    debug.push(`[daily_metrics] nenhuma conta Ads selecionada está vinculada ao site`);
+    return;
+  }
   for (const [date, totals] of totalsByDate) {
     const { data: metrics, error: metricsErr } = await admin
       .from("daily_metrics")
