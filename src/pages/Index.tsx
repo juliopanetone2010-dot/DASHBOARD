@@ -20,6 +20,8 @@ import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
+import { useQuery } from "@tanstack/react-query";
+import { NET_FACTOR } from "@/engine/rules";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
