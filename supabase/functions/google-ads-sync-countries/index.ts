@@ -90,9 +90,10 @@ Deno.serve(async (req) => {
             return json({ error: j?.error?.message ?? "Erro Google Ads" });
           }
           for (const row of j.results ?? []) {
-            const geo = String(row.segments?.geoTargetCountry ?? "");
-            // Formato: "geoTargetConstants/2076" -> id 2076
-            const countryId = geo.split("/").pop() ?? "";
+            const countryId = String(
+              row.geographicView?.countryCriterionId ??
+              (row.geographicView?.resourceName?.split("~").pop() ?? "")
+            );
             all.push({
               campaign_id: String(row.campaign?.id ?? ""),
               date: String(row.segments?.date ?? ""),
