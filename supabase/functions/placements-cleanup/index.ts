@@ -393,7 +393,7 @@ async function fetchLiveAdsPlacements(
         FROM detail_placement_view
         WHERE segments.date BETWEEN '${from}' AND '${to}'
           AND campaign.id IN (${idList})
-          AND metrics.cost_micros > 5000000
+          AND metrics.cost_micros > 0
       `;
 
       let pageToken: string | undefined;
