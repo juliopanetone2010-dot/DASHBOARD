@@ -246,6 +246,19 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, range.from, range.to, version]);
 
+  // Extrai root domain (karwin.com de may.karwin.com). Apps/youtube ficam iguais.
+  const rootDomain = (host: string): string => {
+    if (!host) return host;
+    if (host.includes("/") || !host.includes(".")) return host; // app id ou outro formato
+    const parts = host.split(".");
+    if (parts.length <= 2) return host;
+    // pega últimos 2 (ignora suffixes compostos como .com.br)
+    const last2 = parts.slice(-2).join(".");
+    const ccTLDs = new Set(["com.br", "co.uk", "com.au", "com.mx", "co.jp", "com.ar", "co.in"]);
+    if (ccTLDs.has(last2) && parts.length >= 3) return parts.slice(-3).join(".");
+    return last2;
+  };
+
   // Receita GAM por placement (já agrupada via UTM no backend)
   const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
@@ -265,33 +278,43 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (!agg) {
         agg = {
           placement: key,
+          placementRoot: rootDomain(key),
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
-          impressions: 0, clicks: 0, cost: 0, conversions: 0,
-          revenue: 0, profit: 0, roi: 0, revenueSource: "none", ctr: 0, cpc: 0,
+          impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
+          revenueUsd: 0, revenueUsdNet: 0, revenueBrl: 0, profitBrl: 0, roi: 0,
+          revenueSource: "none", matchedUtm: null, ctr: 0, cpcBrl: 0,
         };
         map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
       agg.clicks += Number(r.clicks);
-      agg.cost += Number(r.cost);
+      agg.costBrl += Number(r.cost); // custo NATIVO (BRL na conta BR)
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
     for (const a of values) {
-      const directUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
-      if (directUsd > 0) {
-        a.revenueSource = "utm";
+      // Match: 1) full normalizado  2) root domain
+      let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
+      let source: AggRow["revenueSource"] = "none";
+      let matchedKey: string | null = null;
+      if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
+      else if (a.placementRoot && a.placementRoot !== a.placement) {
+        const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
+        if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
       }
-      const costUsd = fxUsdBrl > 0 ? a.cost / fxUsdBrl : a.cost;
-      const netUsd = directUsd * (1 - REV_SHARE_PCT);
-      a.cost = costUsd;
-      a.revenue = netUsd;
-      a.profit = netUsd - costUsd;
-      a.roi = costUsd > 0 ? (a.profit / costUsd) * 100 : 0;
+      const usdNet = usd * (1 - REV_SHARE_PCT);
+      const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
+      a.revenueUsd = usd;
+      a.revenueUsdNet = usdNet;
+      a.revenueBrl = revenueBrl;
+      a.profitBrl = revenueBrl - a.costBrl;
+      a.roi = a.costBrl > 0 ? (a.profitBrl / a.costBrl) * 100 : 0;
+      a.revenueSource = source;
+      a.matchedUtm = matchedKey;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
-      a.cpc = a.clicks > 0 ? costUsd / a.clicks : 0;
+      a.cpcBrl = a.clicks > 0 ? a.costBrl / a.clicks : 0;
     }
     return values;
   }, [rows, gamRevenueByPlacement, fxUsdBrl]);
@@ -299,8 +322,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const sorted = useMemo(() => {
     const arr = [...aggregated];
     arr.sort((a, b) => {
-      const va = a[sortKey] ?? 0;
-      const vb = b[sortKey] ?? 0;
+      const va = (a[sortKey] as number) ?? 0;
+      const vb = (b[sortKey] as number) ?? 0;
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return arr;
@@ -314,11 +337,11 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   );
 
   const top = useMemo(
-    () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
+    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
     [aggregated],
   );
   const worst = useMemo(
-    () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => a.roi - b.roi).slice(0, 5),
+    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => a.roi - b.roi).slice(0, 5),
     [aggregated],
   );
 
