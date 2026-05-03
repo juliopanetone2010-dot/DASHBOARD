@@ -45,7 +45,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const from = new Date(today.getTime() - lookback * 86400_000).toISOString().slice(0, 10);
       const { data: m } = await supabase
         .from("campaign_country_metrics")
-        .select("campaign_id, country_code, country_name, cost, clicks, impressions, conversions, revenue_usd")
+        .select("campaign_id, country_code, country_name, country_criterion_id, cost, clicks, impressions, conversions, revenue_usd")
         .gte("date", from)
         .limit(50000);
       setRows((m ?? []) as Row[]);
