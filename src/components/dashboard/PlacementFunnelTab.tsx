@@ -190,17 +190,34 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     } finally { setBusyId(null); }
   };
 
+  // Conjunto efetivo de google_account_ids permitidos pelo filtro (conta + site)
+  const allowedAccountIds = useMemo(() => {
+    let allowed: Set<string> | null = null;
+    if (accountFilter.size > 0) allowed = new Set(accountFilter);
+    if (siteFilter.size > 0) {
+      const fromSites = new Set<string>();
+      for (const s of sites) if (siteFilter.has(s.id)) for (const a of s.account_ids) fromSites.add(a);
+      allowed = allowed ? new Set([...allowed].filter((a) => fromSites.has(a))) : fromSites;
+    }
+    return allowed; // null = sem restrição
+  }, [accountFilter, siteFilter, sites]);
+
+  const accountFiltered = useMemo(() => {
+    if (!allowedAccountIds) return rows;
+    return rows.filter((r) => r.google_account_id && allowedAccountIds.has(r.google_account_id));
+  }, [rows, allowedAccountIds]);
+
   const counts = useMemo(() => {
-    const c = { all: rows.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
-    for (const r of rows) c[r.status]++;
+    const c = { all: accountFiltered.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
+    for (const r of accountFiltered) c[r.status]++;
     return c;
-  }, [rows]);
+  }, [accountFiltered]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return rows.filter((r) => (filter === "all" || r.status === filter) &&
+    return accountFiltered.filter((r) => (filter === "all" || r.status === filter) &&
       (!s || r.placement.toLowerCase().includes(s) || (r.campaign_name ?? "").toLowerCase().includes(s)));
-  }, [rows, filter, search]);
+  }, [accountFiltered, filter, search]);
 
   const daysSince = (iso: string) => {
     const d = (Date.now() - new Date(iso).getTime()) / 86400_000;
