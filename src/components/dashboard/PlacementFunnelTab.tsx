@@ -183,7 +183,19 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Esteira inteligente de placements</div>
           <div className="text-xs text-muted-foreground">
-            Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Bloqueia só quando claramente ruim.
+            Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Só bloqueia quando claramente ruim.
+          </div>
+        </div>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Período
+          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 30))} className="h-7 w-16 text-xs" />
+          <span className="text-[10px]">dias</span>
+        </label>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
+          <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
+          <div className="text-xs">
+            <div className="font-medium">Esteira automática</div>
+            <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={evaluateNow} disabled={evaluating}>
