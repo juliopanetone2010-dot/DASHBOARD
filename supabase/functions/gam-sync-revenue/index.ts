@@ -183,18 +183,33 @@ interface FxRates { usdBrl: number; }
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
 
 async function getFxRates(debug: string[]): Promise<FxRates> {
+  // Fonte primária: open.er-api.com (estável, sem quota agressiva)
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD");
+    const data = await res.json();
+    const rate = Number(data?.rates?.BRL);
+    if (Number.isFinite(rate) && rate > 0) {
+      debug.push(`[currency] USD→BRL ${rate} (open.er-api)`);
+      return { usdBrl: rate };
+    }
+  } catch (e) {
+    debug.push(`[currency] open.er-api falhou: ${String(e)}`);
+  }
+  // Fallback 1: awesomeapi (pode dar 429)
   try {
     const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
     const data = await res.json();
     const rate = Number(data?.USDBRL?.bid);
     if (Number.isFinite(rate) && rate > 0) {
-      debug.push(`[currency] USD→BRL ${rate}`);
+      debug.push(`[currency] USD→BRL ${rate} (awesomeapi)`);
       return { usdBrl: rate };
     }
   } catch (e) {
-    debug.push(`[currency] falha cotação, fallback 5.5: ${String(e)}`);
+    debug.push(`[currency] awesomeapi falhou: ${String(e)}`);
   }
-  return { usdBrl: 5.5 };
+  // Fallback final: cotação aproximada atual
+  debug.push(`[currency] usando fallback hardcoded 4.97`);
+  return { usdBrl: 4.97 };
 }
 
 function buildGamRanges(datePreset: string, from: string | null, to: string | null, includeYesterdayFallback: boolean): GamRange[] {
