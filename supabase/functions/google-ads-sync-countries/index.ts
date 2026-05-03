@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
         const idList = chunk.map((id) => id.replace(/\D/g, "")).filter(Boolean).join(",");
         if (!idList) continue;
         const query = `
-          SELECT campaign.id, segments.date, segments.geo_target_country,
+          SELECT campaign.id, segments.date,
+                 geographic_view.country_criterion_id,
                  metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
           FROM geographic_view
           WHERE segments.date BETWEEN '${from}' AND '${to}'
