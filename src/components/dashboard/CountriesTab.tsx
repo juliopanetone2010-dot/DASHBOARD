@@ -236,6 +236,18 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+            <button
+              className={cn("px-3 py-1", view === "country" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted")}
+              onClick={() => { setView("country"); setExpanded(new Set()); }}>
+              Por país
+            </button>
+            <button
+              className={cn("px-3 py-1 border-l border-border", view === "campaign" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted")}
+              onClick={() => { setView("campaign"); setExpanded(new Set()); }}>
+              Por campanha
+            </button>
+          </div>
           <label className="text-xs text-muted-foreground flex items-center gap-1">
             Janela:
             <select className="h-7 text-xs rounded border border-border bg-background px-2"
