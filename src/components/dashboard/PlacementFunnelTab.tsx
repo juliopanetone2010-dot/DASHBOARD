@@ -246,16 +246,34 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
             Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Só bloqueia quando claramente ruim.
           </div>
         </div>
-        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
-          Período
-          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 30))} className="h-7 w-16 text-xs" />
-          <span className="text-[10px]">dias</span>
-        </label>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">Período:</span>
+          {[
+            { label: "Hoje", v: 1 },
+            { label: "Ontem", v: 2 },
+            { label: "15d", v: 15 },
+            { label: "30d", v: 30 },
+          ].map((p) => (
+            <button key={p.label} onClick={() => setLookback(p.v)}
+              className={cn("text-[11px] rounded-md border px-2 py-1 transition-colors",
+                lookback === p.v ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
+              {p.label}
+            </button>
+          ))}
+          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 15))} className="h-7 w-16 text-xs" />
+          <span className="text-[10px] text-muted-foreground">dias</span>
+        </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
           <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
           <div className="text-xs">
-            <div className="font-medium">Esteira automática</div>
-            <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
+            <div className="font-medium flex items-center gap-1">
+              Esteira automática a cada
+              <Input type="number" value={autoIntervalDays} onChange={(e) => updateAutoInterval(+e.target.value || 15)} className="h-6 w-14 text-xs px-1" />
+              dias
+            </div>
+            <div className="text-muted-foreground text-[10px]">
+              checagem diária • {lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}
+            </div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={evaluateNow} disabled={evaluating}>
