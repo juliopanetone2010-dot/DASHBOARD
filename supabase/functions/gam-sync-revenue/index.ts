@@ -98,15 +98,12 @@ Deno.serve(async (req) => {
           const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
           customCriteriaAvailable = true;
-          googleUtmRows = customCriteriaRows.filter((r) => {
-            const parsed = parseGamAttribution(r.name);
-            return !!parsed && (!parsed.source || parsed.source === "google");
-          });
+          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
           const otherUtmRows = customCriteriaRows.filter((r) => {
             const parsed = parseGamAttribution(r.name);
             return parsed?.source && parsed.source !== "google";
           }).length;
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] google/placement rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm_source=google rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
@@ -153,7 +150,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds);
+          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
         }
 
         summary.push({
