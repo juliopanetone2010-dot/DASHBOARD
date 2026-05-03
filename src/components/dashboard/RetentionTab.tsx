@@ -31,8 +31,18 @@ interface Props {
 }
 
 export function RetentionTab({ campaigns }: Props) {
-  const { range, filters } = useDashboardFilters();
+  const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
+
+  // Override local de período (independente do dashboard)
+  const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
+  const range = localRange ?? globalRange;
+  const activePreset: DatePresetKey | null = presetFromRange(range.from, range.to);
+
+  const applyPreset = (key: DatePresetKey) => {
+    const p = DATE_PRESETS.find((x) => x.key === key);
+    if (p) setLocalRange(p.range());
+  };
 
   const queryKey = useMemo(
     () => ["retention", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
