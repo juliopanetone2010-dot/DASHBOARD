@@ -391,7 +391,7 @@ async function distributeGamRevenueToCampaigns(
     return;
   }
 
-  const allDates = new Set<string>([...directByDateCid.keys(), ...unmatchedByDate.keys()]);
+  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...unmatchedByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics, error: metricsErr } = await admin
       .from("daily_metrics")
