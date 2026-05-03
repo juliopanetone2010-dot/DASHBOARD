@@ -1,26 +1,9 @@
 // Sincroniza:
 // 1) Sub-contas (customer_client) de cada MCC
-// 2) Campanhas + métricas (YESTERDAY) de cada conta não-manager
-// Moeda padrão do sistema = USD. Convertemos spend (BRL/etc) para USD usando cotação em tempo real.
+// 2) Campanhas + métricas de cada conta não-manager
+// Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-
-async function getUsdBrlRate(): Promise<number> {
-  try {
-    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
-    const data = await res.json();
-    const rate = Number(data?.USDBRL?.bid);
-    if (Number.isFinite(rate) && rate > 0) return rate;
-  } catch (_) { /* */ }
-  return 5.5;
-}
-
-function toUsd(amount: number, currency: string | null | undefined, usdBrl: number): number {
-  const cur = (currency ?? "USD").toUpperCase();
-  if (cur === "USD") return amount;
-  if (cur === "BRL") return usdBrl > 0 ? amount / usdBrl : amount;
-  return amount;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -35,12 +18,16 @@ Deno.serve(async (req) => {
     let datePreset: string | null = null;
     let dateFrom: string | null = null;
     let dateTo: string | null = null;
+    let accountIds: string[] = [];
     try {
       const body = await req.json().catch(() => ({}));
       if (body && typeof body === "object") {
         datePreset = (body as any).date_preset ?? null;
         dateFrom = (body as any).from ?? null;
         dateTo = (body as any).to ?? null;
+        accountIds = Array.isArray((body as any).account_ids)
+          ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
+          : [];
       }
     } catch (_) { /* no body */ }
 
