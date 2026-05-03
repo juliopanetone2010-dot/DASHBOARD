@@ -446,7 +446,7 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
                   <TableCell className="text-right tabular-nums">{fmtBRL(g.cost)}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmtBRL(g.rev)}</TableCell>
                   <TableCell className={cn("text-right tabular-nums", g.profit < 0 && "text-danger")}>{fmtBRL(g.profit)}</TableCell>
-                  <TableCell className={cn("text-right tabular-nums font-semibold", g.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(g.roi)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums font-semibold", g.cost === 0 ? "text-muted-foreground" : g.roi < 0 ? "text-danger" : "text-success")}>{g.cost === 0 ? "—" : fmtPercent(g.roi)}</TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex gap-1">
                       {g.good > 0 && <Badge className="bg-success-soft text-success border-success/20">{g.good} bom</Badge>}
