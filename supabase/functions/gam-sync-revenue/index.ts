@@ -462,12 +462,14 @@ async function persistCampaignSourceRevenueFromUtm(
   const today = new Date().toISOString().slice(0, 10);
   const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number }>();
   for (const r of rows) {
-    if (!r.cid) continue;
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
-    const key = `${r.cid}|${date}|${source}`;
+    // Quando não conseguimos extrair campaign_id (utm_campaign=(not applicable)),
+    // ainda agregamos a receita por source com cid sintético para alimentar a aba Retenção/Push.
+    const cid = r.cid ?? "__aggregate__";
+    const key = `${cid}|${date}|${source}`;
     const cur = buckets.get(key) ?? {
-      user_id: userId, site_id: siteId, campaign_id: r.cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+      user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
     };
     cur.revenue_usd += r.revenue; cur.impressions += r.impressions;
     buckets.set(key, cur);
@@ -484,7 +486,8 @@ async function persistCampaignSourceRevenueFromUtm(
   const sources = arr.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s); receita por source=${JSON.stringify(sources)}`);
+  const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${aggregated} agregadas sem cid); receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
