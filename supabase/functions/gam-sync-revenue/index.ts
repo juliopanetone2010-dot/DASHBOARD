@@ -92,8 +92,17 @@ Deno.serve(async (req) => {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
         const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
+        let customCriteriaRows: ReportRow[] = [];
+        try {
+          customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "CUSTOM_CRITERIA", debug))))
+            .flat()
+            .filter((r) => !!parseGamPlacementName(r.name));
+          debug.push(`[${networkCode}/CUSTOM_CRITERIA] utm rows=${customCriteriaRows.length}`);
+        } catch (e) {
+          debug.push(`[${networkCode}/CUSTOM_CRITERIA] indisponível: ${String(e)}`);
+        }
 
-        const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
+        const canonicalRows = customCriteriaRows.length > 0 ? customCriteriaRows : (adUnitRows.length > 0 ? adUnitRows : placementRows);
         const totals = canonicalRows.reduce(
           (acc, r) => ({
             revenue: acc.revenue + r.revenue,
@@ -141,6 +150,7 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
+          custom_criteria_rows: customCriteriaRows.length,
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
