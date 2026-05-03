@@ -601,7 +601,7 @@ function RankingCard({ title, rows, variant, hasRevenue }: { title: string; rows
               hasRevenue ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground",
             )}>
               <Icon className="h-3 w-3" />
-              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtCurrency(r.cost)} gasto`}
+              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtUSD(r.cost)} gasto`}
             </span>
           </li>
         ))}
