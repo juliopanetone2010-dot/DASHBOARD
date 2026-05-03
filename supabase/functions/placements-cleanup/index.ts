@@ -415,6 +415,7 @@ async function fetchLiveAdsPlacements(
             placement: placementRaw,
             placement_clean: cleanPlacement(placementRaw, targetUrl, type),
             placement_type: type,
+            app_id: extractAppId(placementRaw, type),
             cost: Number(r.metrics?.costMicros ?? 0) / 1_000_000,
             clicks: Number(r.metrics?.clicks ?? 0),
             impressions: Number(r.metrics?.impressions ?? 0),
