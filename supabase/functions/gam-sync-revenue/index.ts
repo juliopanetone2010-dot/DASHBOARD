@@ -478,117 +478,99 @@ async function applyGoogleUtmRevenue(
   }
 }
 
-async function runReport(
-  networkCode: string,
-  accessToken: string,
-  range: GamRange,
-  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME" | "AD_REQUEST_CUSTOM_CRITERIA",
-  debug: string[],
-): Promise<ReportRow[]> {
-  // 1) cria report
-  const reportBody = {
-    visibility: "DRAFT",
-    reportDefinition: {
-      reportType: "HISTORICAL",
-      dimensions: ["DATE", groupDim],
-      metrics: [
-        "AD_SERVER_IMPRESSIONS",
-        "AD_SERVER_REVENUE",
-        "AD_EXCHANGE_IMPRESSIONS",
-        "AD_EXCHANGE_REVENUE",
-        "ADSENSE_IMPRESSIONS",
-        "ADSENSE_REVENUE",
-      ],
-      dateRange: range.dateRange,
-    },
+interface RunReportArgs {
+  networkCode: string;
+  accessToken: string;
+  range: GamRange;
+  dimensions: string[];
+  customDimensionKeyIds?: string[];
+  debug: string[];
+}
+
+async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
+  const { networkCode, accessToken, range, dimensions, customDimensionKeyIds, debug } = args;
+  const tag = `${networkCode}/${dimensions.join("+")}`;
+
+  const reportDefinition: any = {
+    reportType: "HISTORICAL",
+    dimensions,
+    metrics: [
+      "AD_SERVER_IMPRESSIONS",
+      "AD_SERVER_REVENUE",
+      "AD_EXCHANGE_IMPRESSIONS",
+      "AD_EXCHANGE_REVENUE",
+      "ADSENSE_IMPRESSIONS",
+      "ADSENSE_REVENUE",
+    ],
+    dateRange: range.dateRange,
   };
-  const createRes = await fetch(
-    `${GAM_BASE}/networks/${networkCode}/reports`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(reportBody),
-    },
-  );
+  if (customDimensionKeyIds?.length) reportDefinition.customDimensionKeyIds = customDimensionKeyIds;
+
+  const reportBody = { visibility: "DRAFT", reportDefinition };
+  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(reportBody),
+  });
   const createText = await createRes.text();
-  debug.push(`[${networkCode}/${groupDim}] create status=${createRes.status}`);
+  debug.push(`[${tag}] create status=${createRes.status}`);
   let createJson: any;
   try { createJson = JSON.parse(createText); }
   catch {
     throw new Error(
-      "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE. Depois aguarde ~1 min e sincronize novamente."
+      "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) throw new Error(formatGamError(createRes.status, createJson));
-  const reportName: string = createJson.name; // networks/X/reports/Y
+  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+  const reportName: string = createJson.name;
 
-  // 2) run report (LRO)
   const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  const runJson = await parseJsonResponse(runRes, "run report", networkCode, groupDim);
-  debug.push(`[${networkCode}/${groupDim}] run status=${runRes.status}`);
-  if (!runRes.ok) throw new Error(`run failed: ${JSON.stringify(runJson)}`);
-  const opName: string = runJson.name; // operations/...
+  const runJson = await parseJsonResponse(runRes, "run report", tag);
+  if (!runRes.ok) throw new Error(`[${tag}] run failed: ${JSON.stringify(runJson)}`);
+  const opName: string = runJson.name;
 
-  // 3) poll operation até done
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    const opRes = await fetch(`${GAM_BASE}/${opName}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const opJson = await parseJsonResponse(opRes, "poll operation", networkCode, groupDim);
+    const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const opJson = await parseJsonResponse(opRes, "poll", tag);
     if (opJson.done) {
-      if (opJson.error) throw new Error(`op error: ${JSON.stringify(opJson.error)}`);
+      if (opJson.error) throw new Error(`[${tag}] op error: ${JSON.stringify(opJson.error)}`);
       resultName = opJson.response?.reportResult?.name ?? opJson.response?.reportResult ?? opJson.response?.name;
-      if (!resultName) throw new Error(`report done sem reportResult: ${JSON.stringify(opJson.response ?? opJson)}`);
-      debug.push(`[${networkCode}/${groupDim}] done after ${(i + 1) * 2}s`);
-      debug.push(`[${networkCode}/${groupDim}] result=${resultName}`);
+      if (!resultName) throw new Error(`[${tag}] report done sem reportResult`);
+      debug.push(`[${tag}] done after ${(i + 1) * 2}s`);
       break;
     }
   }
-  if (!resultName) throw new Error("report timeout");
+  if (!resultName) throw new Error(`[${tag}] report timeout`);
 
-  // 4) fetch result rows
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
-    const rowsRes = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    debug.push(`[${networkCode}/${groupDim}] fetchRows status=${rowsRes.status}`);
-    const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", networkCode, groupDim);
-    if (!rowsRes.ok) throw new Error(`fetchRows failed: ${JSON.stringify(rowsJson)}`);
+    const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", tag);
+    if (!rowsRes.ok) throw new Error(`[${tag}] fetchRows failed: ${JSON.stringify(rowsJson)}`);
 
     const rows = (rowsJson.rows ?? []) as Array<{
       dimensionValues?: Array<{ stringValue?: string; intValue?: string }>;
-      metricValueGroups?: Array<{
-        primaryValues?: Array<{ intValue?: string; doubleValue?: number }>;
-      }>;
+      metricValueGroups?: Array<{ primaryValues?: Array<{ intValue?: string; doubleValue?: number }> }>;
     }>;
-
     for (const r of rows) {
-      const dims = r.dimensionValues ?? [];
-      const date = parseGamDate(dims[0]);
-      const name = dims[1]?.stringValue ?? "(unknown)";
+      const dimsVals = r.dimensionValues ?? [];
+      const date = parseGamDate(dimsVals[0]);
+      const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // A API nova do GAM pode retornar receita já em decimal USD ou em micros,
-      // dependendo do backend/metric. Normalizamos sem dividir duas vezes.
       const revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
-      allRows.push({ date, name, impressions, revenue });
+      allRows.push({ date, dims: dimStrings, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
