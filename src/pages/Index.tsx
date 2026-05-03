@@ -126,10 +126,14 @@ const IndexInner = () => {
     if (import.meta.env.DEV) {
       console.info("[dashboard-sync] request", { filter: nextFilters, appliedDate: { from, to }, queryKeys: { dashboard: ["dashboard", user?.id ?? "guest", from, to], retention: ["retention", from, to] } });
     }
-    const [adsRes, gamRes] = await Promise.all([
-      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
-      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
-    ]);
+    const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>(
+      "google-ads-sync-campaigns",
+      { body },
+    );
+    const gamRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>(
+      "gam-sync-revenue",
+      { body },
+    );
 
     if (import.meta.env.DEV) {
       console.info("[dashboard-sync] Google Ads", adsRes.data ?? adsRes.error);
