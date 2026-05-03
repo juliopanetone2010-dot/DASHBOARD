@@ -521,6 +521,80 @@ async function distributeGamRevenueToCampaigns(
   }
 }
 
+// Fallback quando GAM não expõe dimensão de UTM:
+// distribui a receita total do GAM entre as campanhas Ads vinculadas ao site,
+// proporcional ao gasto de cada campanha no dia. NÃO grava em
+// gam_campaign_source_revenue (sem origem confiável), apenas atualiza daily_metrics
+// para que Dashboard volte a mostrar receita/ROI.
+async function distributeGamTotalsBySpend(
+  admin: any,
+  userId: string,
+  siteId: string | undefined,
+  placementRows: ReportRow[],
+  fx: FxRates,
+  debug: string[],
+  syncDates: string[] = [],
+) {
+  if (!siteId) return;
+  const { data: links } = await admin
+    .from("account_site_links")
+    .select("google_account_id")
+    .eq("user_id", userId)
+    .eq("site_id", siteId);
+  const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
+  if (accountIds.length === 0) {
+    debug.push(`[fallback] sem vínculo Ads↔site`);
+    return;
+  }
+
+  // Receita total por dia (USD) somando todos os placement rows do GAM
+  const revByDate = new Map<string, number>();
+  for (const r of placementRows) {
+    if (!r.date) continue;
+    revByDate.set(r.date, (revByDate.get(r.date) ?? 0) + r.revenue);
+  }
+  const allDates = new Set<string>([...syncDates, ...revByDate.keys()]);
+
+  for (const date of allDates) {
+    const totalUsd = revByDate.get(date) ?? 0;
+    const { data: metrics } = await admin
+      .from("daily_metrics")
+      .select("id, spend, impressions")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("google_account_id", accountIds);
+    if (!metrics?.length) continue;
+    const totalSpend = (metrics as any[]).reduce((acc, m) => acc + Number(m.spend ?? 0), 0);
+    const totalImpr = (metrics as any[]).reduce((acc, m) => acc + Number(m.impressions ?? 0), 0);
+    const updates: any[] = [];
+    for (const m of metrics as any[]) {
+      const spend = Number(m.spend ?? 0);
+      const impr = Number(m.impressions ?? 0);
+      const weight = totalSpend > 0
+        ? spend / totalSpend
+        : (totalImpr > 0 ? impr / totalImpr : 0);
+      const revenueUsd = totalUsd * weight;
+      const revenueBrl = revenueUsd * fx.usdBrl;
+      const profit = revenueBrl - spend;
+      const roi = spend > 0 ? (profit / spend) * 100 : 0;
+      const roas = spend > 0 ? revenueBrl / spend : 0;
+      const ecpm = impr > 0 ? (revenueBrl / impr) * 1000 : 0;
+      updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
+    }
+    const CHUNK = 25;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+      await Promise.all(
+        updates.slice(i, i + CHUNK).map((u) =>
+          admin.from("daily_metrics").update({
+            revenue: u.revenue, profit: u.profit, roi: u.roi, roas: u.roas, ecpm: u.ecpm,
+          }).eq("id", u.id)
+        ),
+      );
+    }
+    debug.push(`[fallback] ${date}: ${updates.length} campanha(s) atualizada(s) com share de gasto sobre ${totalUsd.toFixed(2)} USD`);
+  }
+}
+
 async function runReport(
   networkCode: string,
   accessToken: string,
