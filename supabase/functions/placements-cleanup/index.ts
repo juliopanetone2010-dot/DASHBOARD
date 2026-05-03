@@ -344,16 +344,6 @@ Deno.serve(async (req) => {
           })),
         }));
 
-      const now = new Date().toISOString();
-      const logs = selected.flatMap((i) => i.campaigns.map((c) => ({
-        user_id: userId,
-        campaign_id: c.campaign_id,
-        placement: i.placement,
-        action: "blacklist_preview",
-        note: `date=${now} roi=${i.roi_pct ?? c.roi_pct ?? "n/a"}% cost=${i.cost_brl ?? c.cost_brl ?? "n/a"} revenue=${i.revenue_brl ?? i.revenue_usd ?? "n/a"} reason=${i.reason ?? "selected"}`,
-      })));
-      if (logs.length) await admin.from("placement_actions").insert(logs);
-
       const result = await applyNegativePlacements(admin, userId, selected);
       return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats });
     }
