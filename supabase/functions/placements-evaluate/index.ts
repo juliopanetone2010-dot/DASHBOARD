@@ -1,0 +1,355 @@
+// Avaliador inteligente de placements (esteira de decisão).
+// - Lê custo do Google Ads (ads_placements) e receita do GAM (gam_placement_revenue)
+//   pelos últimos N dias (lookback_days, padrão 30).
+// - Aplica funil de status (test → learning → good/bad → blocked) usando os
+//   limiares definidos em rules_config.funnel_*.
+// - Atualiza placement_status, registra placement_status_history e protege
+//   placements novos / com pouco volume / com conversão recente.
+// - Quando mode = "apply", chama placements-cleanup para apenas os placements
+//   recém-marcados como 'blocked'.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+
+const REV_SHARE_NET = 0.68;
+const KEY_SEP = "\u0001";
+
+type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
+type Status = "test" | "learning" | "good" | "bad" | "blocked";
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SR = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(SUPABASE_URL, SR);
+
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const isService = authHeader.includes(SR);
+    const body = await req.json().catch(() => ({}));
+    const mode: "preview" | "apply" = body?.mode ?? "preview";
+    const lookbackDays = Math.max(1, Math.min(180, Number(body?.lookback_days ?? 30)));
+    const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
+    const targetUserId: string | undefined = body?.user_id;
+
+    let userId: string | null = null;
+    if (isService && targetUserId) userId = targetUserId;
+    else {
+      if (!authHeader.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
+      const userClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
+      userId = claims?.claims?.sub ?? null;
+      if (!userId) return json({ error: "Token inválido" });
+    }
+
+    // Carrega regras
+    const { data: rules } = await admin.from("rules_config")
+      .select("funnel_test_max_cost, funnel_learning_max_cost, funnel_learning_min_roi, funnel_decision_good_roi, funnel_decision_bad_roi, funnel_block_min_cost, funnel_block_max_roi, funnel_scale_min_roi, funnel_protect_min_clicks, funnel_protect_recent_conv_days")
+      .eq("user_id", userId).maybeSingle();
+    const R = {
+      testMaxCost: Number(rules?.funnel_test_max_cost ?? 30),
+      learningMaxCost: Number(rules?.funnel_learning_max_cost ?? 100),
+      learningMinRoi: Number(rules?.funnel_learning_min_roi ?? -40),
+      goodRoi: Number(rules?.funnel_decision_good_roi ?? 20),
+      badRoi: Number(rules?.funnel_decision_bad_roi ?? -20),
+      blockMinCost: Number(rules?.funnel_block_min_cost ?? 150),
+      blockMaxRoi: Number(rules?.funnel_block_max_roi ?? -30),
+      scaleMinRoi: Number(rules?.funnel_scale_min_roi ?? 30),
+      protectMinClicks: Number(rules?.funnel_protect_min_clicks ?? 10),
+      protectRecentConvDays: Number(rules?.funnel_protect_recent_conv_days ?? 3),
+    };
+
+    const today = new Date();
+    const toDate = new Date(today.getTime() - 86400_000);
+    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
+    const recentConvCutoff = new Date(today.getTime() - R.protectRecentConvDays * 86400_000);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const from = iso(fromDate), to = iso(toDate), recentCut = iso(recentConvCutoff);
+
+    // Campanhas (todas, não só enabled — para manter histórico)
+    const { data: camps } = await admin.from("campaigns")
+      .select("campaign_id, name, google_account_id, status")
+      .eq("user_id", userId);
+    const campMap = new Map<string, { name: string; google_account_id: string | null; status: string }>();
+    for (const c of camps ?? []) campMap.set(String(c.campaign_id), { name: c.name, google_account_id: c.google_account_id, status: c.status });
+
+    // ads_placements (custo + cliques + conversões + datas)
+    type AdsRow = { campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string };
+    const ads: AdsRow[] = [];
+    let s = 0;
+    for (;;) {
+      const { data, error } = await admin.from("ads_placements")
+        .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
+        .eq("user_id", userId).gte("date", from).lte("date", to)
+        .range(s, s + 999);
+      if (error) return json({ error: error.message });
+      const rows = (data ?? []) as AdsRow[];
+      ads.push(...rows);
+      if (rows.length < 1000) break;
+      s += 1000;
+    }
+
+    // gam_placement_revenue
+    type GamRow = { campaign_id: string; placement: string; revenue_usd: number; date: string };
+    const gam: GamRow[] = [];
+    s = 0;
+    for (;;) {
+      const { data, error } = await admin.from("gam_placement_revenue")
+        .select("campaign_id, placement, revenue_usd, date")
+        .eq("user_id", userId).gte("date", from).lte("date", to)
+        .range(s, s + 999);
+      if (error) return json({ error: error.message });
+      const rows = (data ?? []) as GamRow[];
+      gam.push(...rows);
+      if (rows.length < 1000) break;
+      s += 1000;
+    }
+
+    const revByKey = new Map<string, number>();
+    for (const g of gam) {
+      const placement = normalize(g.placement);
+      if (!placement) continue;
+      const key = cpKey(String(g.campaign_id), placement);
+      revByKey.set(key, (revByKey.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+    }
+
+    interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
+    const agg = new Map<string, Agg>();
+    for (const r of ads) {
+      const placement = normalize(r.placement_clean || r.placement, r.placement_type);
+      if (!placement) continue;
+      const k = cpKey(r.campaign_id, placement);
+      let a = agg.get(k);
+      if (!a) {
+        a = { campaign_id: r.campaign_id, placement, type: r.placement_type ?? "—", cost: 0, clicks: 0, impressions: 0, conversions: 0, lastConvDate: null, firstDate: r.date };
+        agg.set(k, a);
+      }
+      a.cost += Number(r.cost) || 0;
+      a.clicks += Number(r.clicks) || 0;
+      a.impressions += Number(r.impressions) || 0;
+      const conv = Number(r.conversions) || 0;
+      a.conversions += conv;
+      if (conv > 0) a.lastConvDate = a.lastConvDate && a.lastConvDate > r.date ? a.lastConvDate : r.date;
+      if (r.date < a.firstDate) a.firstDate = r.date;
+    }
+
+    // Carrega status atuais
+    const { data: existing } = await admin.from("placement_status")
+      .select("id, campaign_id, placement, status, manual_override, prev_roi_pct, roi_pct, first_seen_at")
+      .eq("user_id", userId);
+    const existMap = new Map<string, any>();
+    for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
+
+    const upserts: any[] = [];
+    const histInserts: any[] = [];
+    const newlyBlocked: Array<{ campaign_id: string; placement: string; placement_type: string; cost_brl: number; revenue_brl: number; roi_pct: number; google_account_id: string | null; campaign_name: string }> = [];
+    const summary = { total: 0, test: 0, learning: 0, good: 0, bad: 0, blocked: 0, protected: 0, scaled: 0, transitions: 0 };
+
+    for (const a of agg.values()) {
+      const meta = campMap.get(a.campaign_id);
+      if (!meta) continue;
+      const k = cpKey(a.campaign_id, a.placement);
+      const usd = revByKey.get(k) ?? 0;
+      const revenue_brl = usd * REV_SHARE_NET * fxUsdBrl;
+      const profit = revenue_brl - a.cost;
+      const roi = a.cost > 0 ? (profit / a.cost) * 100 : 0;
+
+      const ex = existMap.get(k);
+      const prevStatus: Status | null = ex?.status ?? null;
+      const prevRoi: number | null = ex?.prev_roi_pct ?? ex?.roi_pct ?? null;
+      const isManual = !!ex?.manual_override;
+
+      // Proteção: pouco volume OU conversão recente
+      const lowVolume = a.clicks < R.protectMinClicks;
+      const hasRecentConv = !!a.lastConvDate && a.lastConvDate >= recentCut;
+      const protectedNow = lowVolume || hasRecentConv;
+
+      // Funil
+      let phase: Phase = "phase1_test";
+      let status: Status = "test";
+      let reason = "";
+      let priority = false;
+
+      if (a.cost < R.testMaxCost) {
+        phase = "phase1_test"; status = "test";
+        reason = `custo ${a.cost.toFixed(2)} < ${R.testMaxCost}`;
+      } else if (a.cost < R.learningMaxCost) {
+        phase = "phase2_learning";
+        if (roi > R.learningMinRoi) { status = "learning"; reason = `learning: roi ${roi.toFixed(1)}% > ${R.learningMinRoi}%`; }
+        else { status = "bad"; reason = `bad early: roi ${roi.toFixed(1)}% <= ${R.learningMinRoi}%`; }
+      } else {
+        phase = "phase3_decision";
+        if (roi >= R.goodRoi) {
+          status = "good"; reason = `good: roi ${roi.toFixed(1)}% >= ${R.goodRoi}%`;
+          if (roi >= R.scaleMinRoi && a.cost >= R.learningMaxCost) priority = true;
+        } else if (roi <= R.badRoi) {
+          status = "bad"; reason = `bad: roi ${roi.toFixed(1)}% <= ${R.badRoi}%`;
+        } else {
+          status = "learning"; reason = `learning grey zone: roi ${roi.toFixed(1)}%`;
+        }
+
+        // Fase 4 — bloqueio definitivo
+        if (status === "bad" && a.cost >= R.blockMinCost && roi <= R.blockMaxRoi) {
+          phase = "phase4_block"; status = "blocked";
+          reason = `BLOCK: cost ${a.cost.toFixed(2)} >= ${R.blockMinCost} && roi ${roi.toFixed(1)}% <= ${R.blockMaxRoi}%`;
+        }
+      }
+
+      // Segunda chance: se era bad e ROI subiu (>5pp) → learning
+      if (prevStatus === "bad" && prevRoi !== null && roi - prevRoi > 5 && status === "bad" && phase !== "phase4_block") {
+        status = "learning";
+        reason = `2nd chance: roi subiu ${(roi - prevRoi).toFixed(1)}pp (${prevRoi.toFixed(1)}→${roi.toFixed(1)}) - voltou pra learning`;
+      }
+
+      // Proteção sobrepõe bloqueio automático (mas não sobrepõe override manual)
+      if (protectedNow && status === "blocked" && !isManual) {
+        status = "bad"; phase = "phase3_decision";
+        reason = `protegido (${lowVolume ? "low_volume" : ""}${lowVolume && hasRecentConv ? "+" : ""}${hasRecentConv ? "recent_conv" : ""}): bloqueio adiado`;
+      }
+
+      // Override manual ganha de tudo
+      if (isManual && prevStatus) status = prevStatus;
+
+      summary.total++;
+      summary[status]++;
+      if (protectedNow) summary.protected++;
+      if (priority) summary.scaled++;
+
+      const statusChanged = prevStatus !== status;
+      if (statusChanged) summary.transitions++;
+
+      const row: any = {
+        user_id: userId,
+        google_account_id: meta.google_account_id,
+        campaign_id: a.campaign_id,
+        campaign_name: meta.name,
+        placement: a.placement,
+        placement_type: a.type,
+        status, phase, reason,
+        priority,
+        cost_total: round(a.cost),
+        revenue_total: round(revenue_brl),
+        profit_total: round(profit),
+        roi_pct: round(roi),
+        clicks_total: a.clicks,
+        impressions_total: a.impressions,
+        conversions_total: a.conversions,
+        prev_roi_pct: ex?.roi_pct ?? null,
+        last_evaluated_at: new Date().toISOString(),
+      };
+      if (!ex) {
+        row.first_seen_at = new Date(a.firstDate).toISOString();
+        row.last_status_change_at = new Date().toISOString();
+      } else if (statusChanged) {
+        row.last_status_change_at = new Date().toISOString();
+        if (status === "blocked") row.blocked_at = new Date().toISOString();
+      }
+      upserts.push(row);
+
+      if (statusChanged) {
+        histInserts.push({
+          user_id: userId,
+          placement_status_id: ex?.id ?? null,
+          campaign_id: a.campaign_id,
+          placement: a.placement,
+          from_status: prevStatus,
+          to_status: status,
+          reason,
+          cost_total: round(a.cost),
+          revenue_total: round(revenue_brl),
+          roi_pct: round(roi),
+          triggered_by: "auto",
+        });
+      }
+
+      if (status === "blocked" && (!ex || ex.status !== "blocked")) {
+        newlyBlocked.push({
+          campaign_id: a.campaign_id,
+          placement: a.placement,
+          placement_type: a.type,
+          cost_brl: round(a.cost),
+          revenue_brl: round(revenue_brl),
+          roi_pct: round(roi),
+          google_account_id: meta.google_account_id,
+          campaign_name: meta.name,
+        });
+      }
+    }
+
+    // Upsert (em chunks)
+    for (const chunk of chunkArr(upserts, 500)) {
+      const { error } = await admin.from("placement_status")
+        .upsert(chunk, { onConflict: "user_id,campaign_id,placement" });
+      if (error) return json({ error: error.message });
+    }
+    // Backfill placement_status_id no histórico (após upsert)
+    if (histInserts.length) {
+      const keys = histInserts.map((h) => [h.campaign_id, h.placement]);
+      const { data: ids } = await admin.from("placement_status")
+        .select("id, campaign_id, placement")
+        .eq("user_id", userId)
+        .in("campaign_id", [...new Set(keys.map((k) => k[0]))]);
+      const idMap = new Map<string, string>();
+      for (const i of ids ?? []) idMap.set(cpKey(i.campaign_id, i.placement), i.id);
+      for (const h of histInserts) {
+        h.placement_status_id = idMap.get(cpKey(h.campaign_id, h.placement)) ?? null;
+      }
+      const valid = histInserts.filter((h) => h.placement_status_id);
+      for (const chunk of chunkArr(valid, 500)) {
+        await admin.from("placement_status_history").insert(chunk);
+      }
+    }
+
+    let blockResult: any = null;
+    if (mode === "apply" && newlyBlocked.length > 0) {
+      const items = newlyBlocked.map((b) => ({
+        placement: b.placement,
+        type: b.placement_type,
+        cost_brl: b.cost_brl,
+        revenue_brl: b.revenue_brl,
+        roi_pct: b.roi_pct,
+        reason: "funnel_block",
+        campaigns: [{ campaign_id: b.campaign_id, google_account_id: b.google_account_id ?? "", cost_brl: b.cost_brl, roi_pct: b.roi_pct }],
+      }));
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/placements-cleanup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
+        body: JSON.stringify({ mode: "apply", user_id: userId, items, min_cost_brl: 0, min_days: 0 }),
+      });
+      blockResult = await r.json().catch(() => ({}));
+    }
+
+    return json({
+      ok: true, mode, period: { from, to }, summary,
+      newly_blocked: newlyBlocked.length,
+      block_apply: blockResult,
+    });
+  } catch (e) {
+    console.error("[placements-evaluate]", e);
+    return json({ error: String(e instanceof Error ? e.message : e) });
+  }
+});
+
+function cpKey(cid: string, placement: string) { return `${cid}${KEY_SEP}${placement}`; }
+function chunkArr<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
+}
+function round(n: number) { return Math.round(n * 100) / 100; }
+function normalize(value: string, type?: string | null): string {
+  const raw = (value || "").trim().toLowerCase();
+  if (!raw) return "";
+  const m = raw.match(/mobileapp::\d+-(.+)$/i);
+  if (m) return m[1].replace(/^www\./, "");
+  if (type === "MOBILE_APPLICATION") {
+    const n = raw.match(/^\d+-(.+)$/);
+    if (n) return n[1].replace(/^www\./, "");
+  }
+  try {
+    const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return raw.replace(/^www\./, "");
+  }
+}
+function json(p: unknown) {
+  return new Response(JSON.stringify(p), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
