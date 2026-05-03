@@ -1,16 +1,21 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap } from "lucide-react";
 import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
+import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface SourceRow {
   id: string;
@@ -26,8 +31,18 @@ interface Props {
 }
 
 export function RetentionTab({ campaigns }: Props) {
-  const { range, filters } = useDashboardFilters();
+  const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
+
+  // Override local de período (independente do dashboard)
+  const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
+  const range = localRange ?? globalRange;
+  const activePreset: DatePresetKey | null = presetFromRange(range.from, range.to);
+
+  const applyPreset = (key: DatePresetKey) => {
+    const p = DATE_PRESETS.find((x) => x.key === key);
+    if (p) setLocalRange(p.range());
+  };
 
   const queryKey = useMemo(
     () => ["retention", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
@@ -107,6 +122,9 @@ export function RetentionTab({ campaigns }: Props) {
 
   const net = (usd: number) => usd * (1 - REV_SHARE_PCT) * usdBrl;
 
+  const fromDate = range.from ? new Date(range.from + "T00:00:00") : undefined;
+  const toDate = range.to ? new Date(range.to + "T00:00:00") : undefined;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -120,10 +138,70 @@ export function RetentionTab({ campaigns }: Props) {
           <Badge variant="outline" className="font-mono text-xs">
             Período: {range.from} → {range.to}
           </Badge>
+          {localRange && (
+            <Button size="sm" variant="ghost" onClick={() => setLocalRange(null)} className="h-8 text-xs">
+              Usar período do dashboard
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Atualizar
           </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-1">
+            <Zap className="h-3.5 w-3.5" /> Período
+          </div>
+          {DATE_PRESETS.map((p) => (
+            <Button
+              key={p.key}
+              type="button"
+              size="sm"
+              variant={activePreset === p.key ? "default" : "outline"}
+              onClick={() => applyPreset(p.key)}
+              className="h-8"
+            >
+              {p.label}
+            </Button>
+          ))}
+          <div className="mx-2 h-6 w-px bg-border" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-8 gap-2", !fromDate && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {fromDate ? format(fromDate, "dd/MM/yy") : "De"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={fromDate}
+                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
+                initialFocus
+                className={cn("p-3 pointer-events-auto")}
+              />
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-8 gap-2", !toDate && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {toDate ? format(toDate, "dd/MM/yy") : "Até"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={toDate}
+                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
+                initialFocus
+                className={cn("p-3 pointer-events-auto")}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 

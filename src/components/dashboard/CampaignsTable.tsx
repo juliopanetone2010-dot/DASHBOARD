@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -14,6 +14,9 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
 
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "clicks" | "conversions";
+type SortDir = "desc" | "asc";
+
 interface Props {
   campaigns: CampaignAggregate[];
   onPause?: (campaignId: string) => void;
@@ -23,6 +26,55 @@ interface Props {
 
 export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
+  // Padrão: ROI DESC. null = sem ordenação (ordem original)
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
+
+  const handleSort = (key: SortKey) => {
+    setSort((cur) => {
+      if (!cur || cur.key !== key) return { key, dir: "desc" };
+      if (cur.dir === "desc") return { key, dir: "asc" };
+      return null; // 3º clique remove ordenação
+    });
+  };
+
+  const sortedCampaigns = useMemo(() => {
+    if (!sort) return campaigns;
+    const arr = [...campaigns];
+    const mult = sort.dir === "desc" ? -1 : 1;
+    arr.sort((a, b) => {
+      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
+      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
+      if (av === bv) return 0;
+      return av < bv ? -1 * mult : 1 * mult;
+    });
+    return arr;
+  }, [campaigns, sort]);
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (!sort || sort.key !== k) return <ChevronsUpDown className="h-3 w-3 opacity-40" />;
+    return sort.dir === "desc"
+      ? <ChevronDown className="h-3 w-3" />
+      : <ChevronUp className="h-3 w-3" />;
+  };
+
+  const SortHead = ({ k, label }: { k: SortKey; label: string }) => {
+    const active = sort?.key === k;
+    return (
+      <TableHead className={cn("text-right", active && "bg-primary/5")}>
+        <button
+          type="button"
+          onClick={() => handleSort(k)}
+          className={cn(
+            "inline-flex items-center gap-1 ml-auto select-none hover:text-foreground transition-colors",
+            active ? "text-foreground font-semibold" : "text-muted-foreground",
+          )}
+        >
+          {label}
+          <SortIcon k={k} />
+        </button>
+      </TableHead>
+    );
+  };
 
   const callMutate = async (label: string, body: Record<string, unknown>, key: string) => {
     setBusy(key);
@@ -55,25 +107,25 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
-              <TableHead className="text-right">Gasto</TableHead>
-              <TableHead className="text-right">Receita</TableHead>
-              <TableHead className="text-right">Lucro</TableHead>
-              <TableHead className="text-right">ROI</TableHead>
-              <TableHead className="text-right">ROAS</TableHead>
-              <TableHead className="text-right">Cliques</TableHead>
-              <TableHead className="text-right">Conv.</TableHead>
+              <SortHead k="spend" label="Gasto" />
+              <SortHead k="revenue" label="Receita" />
+              <SortHead k="profit" label="Lucro" />
+              <SortHead k="roi" label="ROI" />
+              <SortHead k="roas" label="ROAS" />
+              <SortHead k="clicks" label="Cliques" />
+              <SortHead k="conversions" label="Conv." />
               <TableHead className="w-[180px] text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {campaigns.length === 0 && (
+            {sortedCampaigns.length === 0 && (
               <TableRow>
                 <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
             )}
-            {campaigns.map((c) => {
+            {sortedCampaigns.map((c) => {
               const positive = c.profit >= 0;
               const isPaused = c.status === "paused";
               const rowKey = c.campaign_id;
