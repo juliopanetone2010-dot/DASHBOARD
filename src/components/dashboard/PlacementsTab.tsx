@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtNumber, fmtPercent } from "@/lib/format";
+import { fmtCurrency, fmtNumber, fmtPercent, fmtUSD } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
@@ -42,9 +42,9 @@ interface AggRow {
   ad_groups: Set<string>;
   impressions: number;
   clicks: number;
-  cost: number;
+  cost: number;           // USD estimado para comparar com receita GAM
   conversions: number;
-  revenue: number;        // BRL líquido (estimado via GAM)
+  revenue: number;        // USD líquido (GAM após rev share)
   profit: number;
   roi: number;
   revenueSource: "utm" | "none";
@@ -61,6 +61,46 @@ interface Props {
 }
 
 const PAGE_SIZE = 100;
+const QUERY_PAGE_SIZE = 1000;
+
+async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
+  const all: AdsPlacementRow[] = [];
+  for (let start = 0; ; start += QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("ads_placements")
+      .select("*")
+      .eq("campaign_id", cid)
+      .gte("date", from)
+      .lte("date", to)
+      .order("date", { ascending: false })
+      .order("placement", { ascending: true })
+      .range(start, start + QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as AdsPlacementRow[];
+    all.push(...page);
+    if (page.length < QUERY_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string) {
+  const all: GamRevRow[] = [];
+  for (let start = 0; ; start += QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("gam_placement_revenue")
+      .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
+      .eq("campaign_id", cid)
+      .eq("utm_source", "google")
+      .gte("date", from)
+      .lte("date", to)
+      .range(start, start + QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as GamRevRow[];
+    all.push(...page);
+    if (page.length < QUERY_PAGE_SIZE) break;
+  }
+  return all;
+}
 
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
   const { range, version, presetKey, filters: globalFilters, setFilters: setGlobalFilters } = useDashboardFilters();
