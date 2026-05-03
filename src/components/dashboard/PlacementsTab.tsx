@@ -508,6 +508,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
           {/* Aviso GAM + debug */}
           <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="text-xs">
+              Período Ads: {formatIsoDateBR(range.from)}–{formatIsoDateBR(range.to)}
+            </Badge>
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
                 Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · custo BRL (Ads) / receita USD→BRL (GAM)
@@ -525,7 +528,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
               <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
-              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b></div>
+              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b> · mobile com receita=<b>{aggregated.filter(a => isMobileAppPlacement(a.type, a.placement) && a.revenueSource !== "none").length}</b></div>
               <div>custo: vem do Google Ads em <b>BRL nativo</b> (sem conversão) · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
               <div>receita: GAM em USD → convertida p/ BRL via fx <b>{fxUsdBrl}</b> · ROI calculado em BRL</div>
             </div>
