@@ -373,6 +373,9 @@ async function persistCampaignSourceRevenue(
     return acc;
   }, {});
   debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s); receita por source=${JSON.stringify(sources)}`);
+}
+
+async function distributeGamRevenueToCampaigns(
   admin: any,
   userId: string,
   siteId: string | undefined,
