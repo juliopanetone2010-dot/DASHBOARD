@@ -64,6 +64,7 @@ const PAGE_SIZE = 100;
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
+  const [lastAutoSelectedAccount, setLastAutoSelectedAccount] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
@@ -108,6 +109,23 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       .filter((c) => accountIds.length === 0 || (c.google_account_id && accountIds.includes(c.google_account_id)))
       .filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.campaign_id.includes(search));
   }, [campaigns, accountIds, search]);
+
+  useEffect(() => {
+    if (!campaignId) return;
+    const selected = campaigns.find((c) => c.campaign_id === campaignId);
+    if (!selected?.google_account_id || accountIds.includes(selected.google_account_id)) return;
+    if (accountIds.length === 0 || lastAutoSelectedAccount === selected.google_account_id) return;
+    setCampaignId("");
+  }, [accountIds, campaignId, campaigns, lastAutoSelectedAccount]);
+
+  const selectCampaign = (cid: string) => {
+    const selected = campaigns.find((c) => c.campaign_id === cid);
+    if (selected?.google_account_id) {
+      setAccountIds([selected.google_account_id]);
+      setLastAutoSelectedAccount(selected.google_account_id);
+    }
+    setCampaignId(cid);
+  };
 
   const fetchPlacements = async (cid: string) => {
     setLoading(true);
@@ -299,7 +317,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <label className="text-xs text-muted-foreground">Conta Ads</label>
             <Select
               value={accountIds.length === 1 ? accountIds[0] : "all"}
-              onValueChange={(v) => setAccountIds(v === "all" ? [] : [v])}
+              onValueChange={(v) => {
+                setLastAutoSelectedAccount(null);
+                setAccountIds(v === "all" ? [] : [v]);
+              }}
             >
               <SelectTrigger className="h-9"><SelectValue placeholder="Todas" /></SelectTrigger>
               <SelectContent>
@@ -337,7 +358,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         <div>
           <label className="text-xs text-muted-foreground">Campanha (obrigatório)</label>
           <div className="flex gap-2">
-            <Select value={campaignId} onValueChange={setCampaignId}>
+            <Select value={campaignId} onValueChange={selectCampaign}>
               <SelectTrigger className="h-9"><SelectValue placeholder="Selecione uma campanha" /></SelectTrigger>
               <SelectContent className="max-h-[400px]">
                 {visibleCampaigns.length === 0 && (
