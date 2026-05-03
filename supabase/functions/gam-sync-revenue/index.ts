@@ -385,17 +385,17 @@ async function collectUtmAttribution(args: {
   networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
 }): Promise<AttributionResult> {
   const { networkCode, accessToken, ranges, debug } = args;
-  const label = "CUSTOM_CRITERIA";
+  const label = "KEY_VALUES_NAME";
 
-  // Estratégia única e correta: 1 report com DATE + AD_UNIT_NAME + CUSTOM_CRITERIA.
-  // CUSTOM_CRITERIA traz a string crua "utm_source=google;utm_campaign=...;utm_placement=..."
-  // Parseamos por ; e =, sem depender de dimensões resolvidas (que retornam (not applicable)).
+  // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
+  // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
+  // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
     reportRows = (await Promise.all(ranges.map((range) =>
       runReport({
         networkCode, accessToken, range,
-        dimensions: ["DATE", "AD_UNIT_NAME", "CUSTOM_CRITERIA"],
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
         debug,
       })
     ))).flat();
@@ -404,12 +404,16 @@ async function collectUtmAttribution(args: {
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
-  const rows: AttributedRow[] = reportRows.map((r) => {
-    const rawKv = r.dims[2] || ""; // CUSTOM_CRITERIA é o 3º dim (após DATE + AD_UNIT_NAME)
+  const parsedRows = reportRows.map((r) => {
+    const rawKv = r.dims[1] || ""; // KEY_VALUES_NAME é o 2º dim (após DATE)
     const kv = parseKeyValueDimension(rawKv);
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
+    return { r, rawKv, sourceRaw, campaignRaw, placementRaw };
+  });
+
+  const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
     const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
@@ -423,6 +427,46 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw || "null"}|utm_campaign=${campaignRaw || "null"}|utm_placement=${placementRaw || "null"}|raw=${rawKv.slice(0, 200)}`,
     };
   });
+
+  // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
+  // senão a receita duplica. Para ROI usamos utm_campaign; para placements usamos utm_placement; para
+  // Retenção/Push usamos só utm_source.
+  const sourceRows: AttributedRow[] = parsedRows
+    .filter(({ sourceRaw }) => isRealValue(sourceRaw))
+    .map(({ r, rawKv, sourceRaw }) => ({
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source: safeDecode(sourceRaw).toLowerCase().trim() || "unknown",
+      cid: null,
+      placement: null,
+      raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
+    }));
+  const campaignRows: AttributedRow[] = parsedRows
+    .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
+    .map(({ r, rawKv, campaignRaw }) => ({
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source: "google",
+      cid: extractCampaignId(campaignRaw),
+      placement: null,
+      raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+    }));
+  const placementRows: AttributedRow[] = parsedRows
+    .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
+    .map(({ r, rawKv, placementRaw }) => {
+      const cid = extractCampaignId(placementRaw);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid,
+        placement: isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null,
+        raw: `utm_source=google|utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
 
   // Debug agregado por source
   const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; cidOk: number }>, r) => {
