@@ -214,6 +214,59 @@ Deno.serve(async (req) => {
       return json({ ok: true, action, suffix });
     }
 
+    // adjust_budget: ajusta o campaign_budget vinculado à campanha em deltaPct (%)
+    if (action === "adjust_budget") {
+      if (!Number.isFinite(deltaPct) || deltaPct === 0) {
+        return json({ error: "delta_pct inválido" });
+      }
+      // Busca o budget atual da campanha
+      const query = `
+        SELECT campaign.id, campaign.campaign_budget, campaign_budget.id, campaign_budget.amount_micros
+        FROM campaign
+        WHERE campaign.id = ${camp.campaign_id}
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers, body: JSON.stringify({ query }),
+      });
+      const sJson = await sRes.json();
+      if (!sRes.ok) {
+        await logAction("failed", { query }, JSON.stringify(sJson));
+        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+      }
+      const row = (sJson.results ?? [])[0] as { campaignBudget?: { id?: string; amountMicros?: string } } | undefined;
+      const budgetId = row?.campaignBudget?.id;
+      const currentMicros = Number(row?.campaignBudget?.amountMicros ?? 0);
+      if (!budgetId || currentMicros <= 0) {
+        await logAction("skipped", { reason: "Sem budget vinculado" });
+        return json({ error: "Campanha sem orçamento configurado" });
+      }
+      const nextMicros = Math.max(10_000, Math.round(currentMicros * (1 + deltaPct / 100)));
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaignBudgets/${budgetId}`,
+            amountMicros: String(nextMicros),
+          },
+          updateMask: "amount_micros",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaignBudgets:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", { meta: { budgetId, currentMicros, nextMicros }, body: mutateBody }, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("id", camp.id);
+      await logAction("executed", { delta_pct: deltaPct, budget_id: budgetId, from: currentMicros, to: nextMicros });
+      return json({
+        ok: true, action, delta_pct: deltaPct,
+        budget_from: currentMicros / 1_000_000,
+        budget_to: nextMicros / 1_000_000,
+      });
+    }
+
     return json({ error: "unreachable" });
   } catch (e) {
     console.error("[google-ads-mutate] uncaught", e);
