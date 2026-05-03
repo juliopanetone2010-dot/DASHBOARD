@@ -165,7 +165,12 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
                 Todas as contas
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              {googleAccounts.map((a) => (
+              {visibleAccounts.length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Nenhuma conta vinculada a este site. Configure em Integrações → Vínculos.
+                </div>
+              )}
+              {visibleAccounts.map((a) => (
                 <DropdownMenuCheckboxItem
                   key={a.id}
                   checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
@@ -182,7 +187,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Site</label>
-          <Select value={filters.siteId} onValueChange={(v) => set("siteId", v)}>
+          <Select value={filters.siteId} onValueChange={handleSiteChange}>
             <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os sites</SelectItem>
