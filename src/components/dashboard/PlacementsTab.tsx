@@ -13,6 +13,7 @@ import { REV_SHARE_PCT } from "@/engine/rules";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import type { Campaign, GoogleAccount } from "@/types/domain";
+import { GlobalPlacementCleanup } from "@/components/dashboard/GlobalPlacementCleanup";
 
 interface AdsPlacementRow {
   id: string;
@@ -529,6 +530,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           Aplicar UTM {accountIds.length ? "(conta filtrada)" : "em todas"}
         </Button>
       </div>
+
+      <GlobalPlacementCleanup fxUsdBrl={fxUsdBrl} />
 
       {!campaignId && (
         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
