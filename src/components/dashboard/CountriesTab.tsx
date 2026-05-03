@@ -35,6 +35,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const [lookback, setLookback] = useState(30);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "cost", dir: "desc" });
+  const [view, setView] = useState<ViewMode>("country");
+  const [excluding, setExcluding] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
