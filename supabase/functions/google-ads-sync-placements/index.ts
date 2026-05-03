@@ -104,15 +104,6 @@ Deno.serve(async (req) => {
     } while (pageToken);
     console.log("[sync-placements] results", results.length, "pages", page, "campaign", campaignId);
 
-    // Limpa o range para essa campanha antes de re-inserir (snapshot)
-    let delQ = admin.from("ads_placements").delete()
-      .eq("user_id", userId)
-      .eq("campaign_id", campaignId);
-    if (dateFrom && dateTo) {
-      delQ = delQ.gte("date", dateFrom).lte("date", dateTo);
-    }
-    await delQ;
-
     const rows = results.map((r) => {
       const cost = Number(r.metrics?.costMicros ?? 0) / 1_000_000;
       const placement = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
@@ -140,10 +131,21 @@ Deno.serve(async (req) => {
       };
     });
 
+    // Segurança: o Google Ads às vezes retorna 0 temporariamente para detail_placement_view.
+    // Não apagamos o snapshot local nesse caso, para a tela não "sumir" com os placements.
+    if (rows.length === 0) {
+      console.warn("[sync-placements] empty result; keeping existing snapshot", { campaignId, dateFrom, dateTo });
+      return json({ ok: true, inserted: 0, kept_existing: true, campaign_id: campaignId, pages: page });
+    }
+
     const CHUNK = 500;
     for (let i = 0; i < rows.length; i += CHUNK) {
-      await admin.from("ads_placements")
+      const { error: upsertErr } = await admin.from("ads_placements")
         .upsert(rows.slice(i, i + CHUNK), { onConflict: "user_id,google_account_id,campaign_id,ad_group_id,placement,date" });
+      if (upsertErr) {
+        console.error("[sync-placements] upsert error", JSON.stringify(upsertErr));
+        return json({ error: upsertErr.message, inserted: 0, campaign_id: campaignId });
+      }
     }
 
     return json({ ok: true, inserted: rows.length, campaign_id: campaignId, pages: page });

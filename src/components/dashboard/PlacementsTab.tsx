@@ -234,12 +234,19 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (import.meta.env.DEV) {
         console.info("[placements] fetch", { campaign: cid, from, to, accounts: accountIds, version });
       }
-      const { error } = await supabase.functions.invoke("google-ads-sync-placements", {
+      const { data: syncData, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; inserted?: number; kept_existing?: boolean }>("google-ads-sync-placements", {
         body: { campaign_id: cid, from, to },
       });
       if (error) {
         toast({ title: "Erro ao sincronizar", description: error.message, variant: "destructive" });
         return;
+      }
+      if (syncData?.error) {
+        toast({ title: "Erro ao sincronizar", description: syncData.error, variant: "destructive" });
+        return;
+      }
+      if (syncData?.kept_existing) {
+        toast({ title: "Google Ads retornou 0 placements", description: "Mantive os dados já salvos para não zerar a tela." });
       }
       // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
       await supabase.functions.invoke("gam-sync-revenue", {
