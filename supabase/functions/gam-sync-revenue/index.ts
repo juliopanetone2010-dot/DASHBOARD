@@ -457,26 +457,7 @@ async function runKeyValuesNameCandidate(
       const rows = await runReport({ networkCode, accessToken, range, dimensions: ["KEY_VALUES_NAME"], debug });
       return rows.map((r) => ({ ...r, date: r.date ?? date }));
     }))).flat();
-    const rows = reportRows.map((r) => {
-      const rawKv = r.dims[0] || r.dims[1] || "";
-      const kv = parseKeyValueDimension(rawKv);
-      const sourceRaw = kv.utm_source ?? "";
-      const campaignRaw = kv.utm_campaign ?? "";
-      const placementRaw = kv.utm_placement ?? "";
-      const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-      const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
-      const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
-      return {
-        date: r.date,
-        impressions: r.impressions,
-        revenue: r.revenue,
-        source,
-        cid,
-        placement,
-        raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=KEY_VALUES_NAME|raw=${rawKv}`,
-      };
-    });
-    const withUtm = rows.filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
+    const withUtm = rowsFromKeyValueReportRows(reportRows, label);
     debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", withUtm, debug);
     return { label, rows: withUtm };
   } catch (e) {
