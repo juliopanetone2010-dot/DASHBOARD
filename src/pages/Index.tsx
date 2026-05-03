@@ -337,8 +337,8 @@ const IndexInner = () => {
                   ? `hoje ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
                   : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
               };
-              const adsAt = freshnessQuery.data?.ads ?? null;
-              const gamAt = freshnessQuery.data?.gam ?? null;
+              const adsAt = adsFreshnessQuery.data ?? null;
+              const gamInfo = gamLastHourQuery.data;
               return (
                 <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
                   <div className="flex items-center gap-1.5">
@@ -348,8 +348,10 @@ const IndexInner = () => {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-success" />
-                    <span className="text-muted-foreground">Ad Manager atualizado:</span>
-                    <span className="font-mono font-medium">{fmtFresh(gamAt)}</span>
+                    <span className="font-mono font-medium">
+                      {gamLastHourQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
+                    </span>
+                    {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
                 </div>
               );
