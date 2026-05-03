@@ -92,7 +92,7 @@ const normalizePlacementKey = (value: string, type?: string | null): string => {
 };
 
 const isMobileAppPlacement = (type: string, placement: string) =>
-  type === "MOBILE_APPLICATION" || /^[a-z0-9_]+(\.[a-z0-9_-]+){1,}$/i.test(placement);
+  type === "MOBILE_APPLICATION" || /^\d+$/.test(placement);
 
 const findPrefixRevenueKey = (placement: string, keys: string[], usedKeys: Set<string>) => {
   const normalized = placement.replace(/\.$/, "");
