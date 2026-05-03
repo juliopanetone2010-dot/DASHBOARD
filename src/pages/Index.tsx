@@ -28,10 +28,18 @@ import { REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
+  return (
+    <FilterProvider>
+      <IndexInner />
+    </FilterProvider>
+  );
+};
+
+const IndexInner = () => {
   const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
-  const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const { filters, setFilters, version: filtersVersion } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
