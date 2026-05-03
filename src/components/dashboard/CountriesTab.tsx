@@ -439,3 +439,27 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     </div>
   );
 }
+
+function ExcludeButton({ busy, onConfirm, label }: { busy: boolean; onConfirm: () => void; label: string }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-danger hover:bg-danger-soft hover:text-danger" disabled={busy}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Ban className="h-3.5 w-3.5 mr-1" /> Excluir</>}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{label}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Será adicionada uma exclusão de localização (negative geo) na campanha do Google Ads. Os anúncios pararão de servir nesse país nessa campanha.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Excluir país</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
