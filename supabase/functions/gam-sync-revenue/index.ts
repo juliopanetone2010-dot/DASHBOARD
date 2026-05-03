@@ -359,6 +359,7 @@ async function collectUtmAttribution(args: {
     return empty;
   }
 
+  const keyValueCandidate = await runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug);
   const campaignCandidates = utmKeyIds.utm_campaign
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_campaign, "utm_source", "utm_campaign", debug)
     : [];
@@ -366,8 +367,11 @@ async function collectUtmAttribution(args: {
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_placement, "utm_source", "utm_placement", debug)
     : [];
 
-  const campaignPick = campaignCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidates[0];
-  const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
+  const campaignCandidatesWithKv = [keyValueCandidate, ...campaignCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+  const placementCandidatesWithKv = [keyValueCandidate, ...placementCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+
+  const campaignPick = campaignCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidatesWithKv[0];
+  const placementPick = placementCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidatesWithKv[0];
 
   const directCampaignRows = campaignPick?.rows ?? [];
   const placementRowsAll = placementPick?.rows ?? [];
@@ -379,7 +383,6 @@ async function collectUtmAttribution(args: {
     ? directCampaignRows
     : (placementRowsAll.length > 0 ? placementRowsAll : placementRows);
 
-  await debugKeyValuesName(networkCode, accessToken, ranges, debug);
   debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
   return {
     retentionRows,
