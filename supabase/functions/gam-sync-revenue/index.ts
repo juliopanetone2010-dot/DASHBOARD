@@ -113,9 +113,12 @@ Deno.serve(async (req) => {
           ))).flat();
           for (const r of reportRows) {
             const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
-            const campaignRaw = (r.dims[2] || "").trim();
+            const campaignRaw = safeDecode((r.dims[2] || "").trim());
             const placementRaw = (r.dims[3] || "").trim();
-            const cid = /^\d{6,}$/.test(campaignRaw) ? campaignRaw : null;
+            // utm_campaign vem como "{campaignid}" → numérico. Aceita também valores prefixados.
+            let cid: string | null = null;
+            const m1 = campaignRaw.match(/(\d{6,})/);
+            if (m1) cid = m1[1];
             const placement = placementRaw ? extractPlacementValue(placementRaw, cid) : null;
             utmRows.push({
               date: r.date,
@@ -127,10 +130,15 @@ Deno.serve(async (req) => {
               raw: `s=${r.dims[1]}|c=${r.dims[2]}|p=${r.dims[3]}`,
             });
           }
-          const sourceCounts = utmRows.reduce((acc: Record<string, number>, r) => {
-            acc[r.source] = (acc[r.source] ?? 0) + 1; return acc;
+          const sourceStats = utmRows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number }>, r) => {
+            const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0 };
+            s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++;
+            acc[r.source] = s; return acc;
           }, {});
-          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; sources=${JSON.stringify(sourceCounts)}`);
+          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
+          // Sample raw para inspecao
+          const sample = utmRows.slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|impr=${r.impressions}|cid=${r.cid}`);
+          debug.push(`[${networkCode}/UTM] sample=${JSON.stringify(sample)}`);
         } else {
           debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
