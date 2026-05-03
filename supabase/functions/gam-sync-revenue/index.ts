@@ -18,11 +18,23 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
     let datePreset = "LAST_7_DAYS";
+    let dateFrom: string | null = null;
+    let dateTo: string | null = null;
+    let requestedSiteId: string | null = null;
+    let requestedAccountIds: string[] = [];
+    let includeYesterdayFallback = false;
     let testMode = false;
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
+      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
+      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
+      requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
+      requestedAccountIds = Array.isArray((body as any)?.account_ids)
+        ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
+        : [];
+      includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
     } catch (_) { /* */ }
 
@@ -54,7 +66,8 @@ Deno.serve(async (req) => {
     const { data: sites, error: sErr } = await admin
       .from("sites")
       .select("id, name, domain, network_code")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .filter("id", requestedSiteId ? "eq" : "neq", requestedSiteId ?? "00000000-0000-0000-0000-000000000000");
     if (sErr) return json({ error: sErr.message });
     if (!sites || sites.length === 0) return json({ error: "Nenhum site cadastrado" });
 
