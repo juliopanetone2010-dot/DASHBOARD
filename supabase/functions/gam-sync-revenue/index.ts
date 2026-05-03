@@ -155,6 +155,27 @@ Deno.serve(async (req) => {
           debug.push(`[${networkCode}/UTM-A] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
           const sample = utmRows.filter((r) => r.source === "google").slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}`);
           debug.push(`[${networkCode}/UTM google sample]=${JSON.stringify(sample)}`);
+
+          // DIAG: roda um relatório só com utm_campaign (sem cruzar utm_source) para ver se a chave tem valores
+          try {
+            const diag = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
+                customDimensionKeyIds: [utmKeyIds.utm_campaign!], debug,
+              })
+            ))).flat();
+            const cMap = new Map<string, { rev: number; impr: number }>();
+            for (const r of diag) {
+              const v = (r.dims[1] || "(empty)").trim();
+              const cur = cMap.get(v) ?? { rev: 0, impr: 0 };
+              cur.rev += r.revenue; cur.impr += r.impressions;
+              cMap.set(v, cur);
+            }
+            const top = [...cMap.entries()].sort((a, b) => b[1].rev - a[1].rev).slice(0, 10)
+              .map(([k, v]) => `${k}=$${v.rev.toFixed(2)}/${v.impr}imp`);
+            debug.push(`[${networkCode}/DIAG utm_campaign solo] linhas=${diag.length}; top=${JSON.stringify(top)}`);
+          } catch (e) { debug.push(`[DIAG utm_campaign] erro: ${String(e)}`); }
         } else {
           debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
