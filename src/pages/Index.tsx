@@ -157,6 +157,9 @@ const Index = () => {
 
   const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
   const profitPositive = totals.profit >= 0;
+  // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
+  const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
+  const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-background">
