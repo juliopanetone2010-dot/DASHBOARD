@@ -72,6 +72,33 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
   const [showDebug, setShowDebug] = useState(false);
+  const [applyingUtm, setApplyingUtm] = useState(false);
+
+  const applyUtmAll = async () => {
+    if (!confirm("Aplicar UTM padrão (utm_placement={campaignid}_{placement}) no Final URL Suffix de TODAS as campanhas?\n\nIsso é necessário para que o GAM consiga associar receita por placement.")) return;
+    setApplyingUtm(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
+        body: accountIds.length ? { account_ids: accountIds } : {},
+      });
+      if (error) {
+        toast({ title: "Erro ao aplicar UTM", description: error.message, variant: "destructive" });
+        return;
+      }
+      const r = data as any;
+      if (r?.error) {
+        toast({ title: "Erro", description: r.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "UTM aplicado",
+        description: `${r.success}/${r.total} campanhas atualizadas${r.failed ? ` (${r.failed} falha(s))` : ""}.`,
+      });
+    } finally {
+      setApplyingUtm(false);
+    }
+  };
+
 
   const visibleCampaigns = useMemo(() => {
     return campaigns
