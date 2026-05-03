@@ -132,8 +132,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
       const list = data?.items ?? [];
       setItems(list);
+      setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
       setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+      setExpanded(new Set());
       setOpen(true);
       // persiste filtros
       await persistConfig({
