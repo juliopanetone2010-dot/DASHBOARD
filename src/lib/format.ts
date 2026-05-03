@@ -13,7 +13,8 @@ export const fmtUSD = (v: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 2,
+    minimumFractionDigits: Math.abs(v ?? 0) > 0 && Math.abs(v ?? 0) < 0.01 ? 6 : 2,
+    maximumFractionDigits: Math.abs(v ?? 0) > 0 && Math.abs(v ?? 0) < 0.01 ? 6 : 2,
   }).format(v ?? 0);
 
 // Alias retrocompat: gasto/lucro padrão em BRL
