@@ -199,6 +199,9 @@ const Index = () => {
             <TabsTrigger value="integrations" className="gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Integrações
             </TabsTrigger>
+            <TabsTrigger value="placements" className="gap-1.5">
+              <MapPin className="h-3.5 w-3.5" /> Placements
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
