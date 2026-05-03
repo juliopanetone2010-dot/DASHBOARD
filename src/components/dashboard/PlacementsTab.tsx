@@ -32,7 +32,7 @@ interface AdsPlacementRow {
   avg_cpc: number;
 }
 
-interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; }
+interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
 
 interface AggRow {
@@ -46,7 +46,7 @@ interface AggRow {
   revenue: number;        // BRL líquido (estimado via GAM)
   profit: number;
   roi: number;
-  revenueSource: "utm" | "campaign_estimate" | "none";
+  revenueSource: "utm" | "none";
   ctr: number;
   cpc: number;
 }
@@ -157,11 +157,12 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       setRows((data ?? []) as AdsPlacementRow[]);
       setLimit(PAGE_SIZE);
 
-      // Receita do GAM atribuída via UTM (campaign_id + placement)
+      // Receita do GAM atribuída via UTM Google (campaign_id + placement).
       const { data: gamData } = await supabase
         .from("gam_placement_revenue")
-        .select("placement, revenue_usd, impressions, date")
+        .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
         .eq("campaign_id", cid)
+        .eq("utm_source", "google")
         .gte("date", range.from)
         .lte("date", range.to);
       setGamRows((gamData ?? []) as GamRevRow[]);
