@@ -144,6 +144,9 @@ const IndexInner = () => {
       nextFilters.toDate !== filters.toDate ||
       nextFilters.googleAccountIds.join("|") !== filters.googleAccountIds.join("|");
     setFilters(nextFilters);
+    if (import.meta.env.DEV) {
+      console.info("[dashboard] filters change", { from: nextFilters.fromDate, to: nextFilters.toDate, accounts: nextFilters.googleAccountIds, site: nextFilters.siteId, shouldSync });
+    }
     if (shouldSync) void syncDashboardData(nextFilters);
   };
 
