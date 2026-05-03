@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
             // o Dashboard, distribuímos a receita total do GAM (placementRows) por
             // share de gasto entre as campanhas Ads vinculadas ao site.
             debug.push(`[fallback] sem UTM dim disponível (dim=${customCriteriaDimUsed ?? "nenhuma"}). Rateando receita total do GAM por share de gasto.`);
-            await distributeGamTotalsBySpend(admin, userId, networkSites[0]?.id, placementRows, fxRates, debug, expandFixedDates(ranges));
+            await distributeGamTotalsBySpend(admin, userId, networkSites[0]?.id, adUnitRows, fxRates, debug, expandFixedDates(ranges));
           }
         }
 
