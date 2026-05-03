@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
     const deltaPct = Number((body as any)?.delta_pct ?? 0); // e.g. +10 / -10
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
