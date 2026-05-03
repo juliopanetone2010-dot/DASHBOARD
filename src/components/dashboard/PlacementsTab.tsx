@@ -33,6 +33,7 @@ interface AdsPlacementRow {
 }
 
 interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; }
+interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
 
 interface AggRow {
   placement: string;
@@ -45,6 +46,7 @@ interface AggRow {
   revenue: number;        // BRL líquido (estimado via GAM)
   profit: number;
   roi: number;
+  revenueSource: "utm" | "campaign_estimate" | "none";
   ctr: number;
   cpc: number;
 }
@@ -66,6 +68,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
   const [gamRows, setGamRows] = useState<GamRevRow[]>([]);
+  const [campaignMetricRows, setCampaignMetricRows] = useState<CampaignMetricRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -117,6 +120,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         toast({ title: "Erro ao sincronizar", description: error.message, variant: "destructive" });
         return;
       }
+      // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
+      await supabase.functions.invoke("gam-sync-revenue", {
+        body: { from: range.from, to: range.to, account_ids: accountIds },
+      });
       const { data, error: qErr } = await supabase
         .from("ads_placements")
         .select("*")
@@ -140,6 +147,16 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .gte("date", range.from)
         .lte("date", range.to);
       setGamRows((gamData ?? []) as GamRevRow[]);
+
+      // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
+      // já atribuída pelo GAM e distribui pelos placements por cliques/impressões.
+      const { data: metricData } = await supabase
+        .from("daily_metrics")
+        .select("revenue, clicks, impressions, date")
+        .eq("campaign_id", cid)
+        .gte("date", range.from)
+        .lte("date", range.to);
+      setCampaignMetricRows((metricData ?? []) as CampaignMetricRow[]);
 
       // Carrega ações (blacklist/favorite) para os placements desta campanha
       const { data: acts } = await supabase
@@ -181,7 +198,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
           impressions: 0, clicks: 0, cost: 0, conversions: 0,
-          revenue: 0, profit: 0, roi: 0, ctr: 0, cpc: 0,
+          revenue: 0, profit: 0, roi: 0, revenueSource: "none", ctr: 0, cpc: 0,
         };
         map.set(key, agg);
       }
@@ -191,8 +208,31 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       agg.cost += Number(r.cost);
       agg.conversions += Number(r.conversions);
     }
-    for (const a of map.values()) {
-      const grossUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
+    const values = [...map.values()];
+    const campaignGrossUsd = campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0);
+    const directGrossUsd = [...gamRevenueByPlacement.values()].reduce((sum, v) => sum + v, 0);
+    const fallbackGrossUsd = Math.max(campaignGrossUsd - directGrossUsd, 0);
+    const unmatched = values.filter((a) => !gamRevenueByPlacement.has(a.placement));
+    const totalClicks = unmatched.reduce((sum, a) => sum + a.clicks, 0);
+    const totalImpressions = unmatched.reduce((sum, a) => sum + a.impressions, 0);
+    const totalCost = unmatched.reduce((sum, a) => sum + a.cost, 0);
+
+    for (const a of values) {
+      const directUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
+      let grossUsd = directUsd;
+      if (directUsd > 0) {
+        a.revenueSource = "utm";
+      } else if (fallbackGrossUsd > 0 && unmatched.length > 0) {
+        const weight = totalClicks > 0
+          ? a.clicks / totalClicks
+          : totalImpressions > 0
+            ? a.impressions / totalImpressions
+            : totalCost > 0
+              ? a.cost / totalCost
+              : 1 / unmatched.length;
+        grossUsd = fallbackGrossUsd * weight;
+        a.revenueSource = grossUsd > 0 ? "campaign_estimate" : "none";
+      }
       const revBrl = grossUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
       a.revenue = revBrl;
       a.profit = revBrl - a.cost;
@@ -200,8 +240,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
       a.cpc = a.clicks > 0 ? a.cost / a.clicks : 0;
     }
-    return [...map.values()];
-  }, [rows, gamRevenueByPlacement, fxUsdBrl]);
+    return values;
+  }, [rows, gamRevenueByPlacement, campaignMetricRows, fxUsdBrl]);
 
   const sorted = useMemo(() => {
     const arr = [...aggregated];
@@ -214,10 +254,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   }, [aggregated, sortKey, sortDir]);
 
   const visible = sorted.slice(0, limit);
-  const hasGamRevenue = gamRevenueByPlacement.size > 0;
+  const hasGamRevenue = gamRevenueByPlacement.size > 0 || campaignMetricRows.some((m) => Number(m.revenue ?? 0) > 0);
   const matchedCount = useMemo(
-    () => aggregated.filter((a) => gamRevenueByPlacement.has(a.placement)).length,
-    [aggregated, gamRevenueByPlacement],
+    () => aggregated.filter((a) => a.revenueSource !== "none").length,
+    [aggregated],
   );
 
   const top = useMemo(
