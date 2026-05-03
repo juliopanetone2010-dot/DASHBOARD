@@ -430,6 +430,45 @@ async function runUtmPairCandidates(
   return out;
 }
 
+async function runKeyValuesNameCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "KEY_VALUES_NAME (URL params dinâmicos)";
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "KEY_VALUES_NAME"], debug })
+    ))).flat();
+    const rows = reportRows.map((r) => {
+      const rawKv = r.dims[1] || "";
+      const kv = parseKeyValueDimension(rawKv);
+      const sourceRaw = kv.utm_source ?? "";
+      const campaignRaw = kv.utm_campaign ?? "";
+      const placementRaw = kv.utm_placement ?? "";
+      const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+      const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+      const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source,
+        cid,
+        placement,
+        raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=KEY_VALUES_NAME|raw=${rawKv}`,
+      };
+    });
+    const withUtm = rows.filter((r) => r.source !== "unknown" || r.raw.includes("utm_campaign_raw=") || r.raw.includes("utm_placement_raw="));
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", withUtm, debug);
+    return { label, rows: withUtm };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
 function debugUtmCandidate(networkCode: string, label: string, valueName: string, rows: AttributedRow[], debug: string[]) {
   const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number; rawOk: number }>, r) => {
     const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0, rawOk: 0 };
