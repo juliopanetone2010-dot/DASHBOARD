@@ -136,29 +136,41 @@ Deno.serve(async (req) => {
       geoCostByCampDate.set(k, (geoCostByCampDate.get(k) ?? 0) + r.cost);
     }
 
-    // Monta upsert
-    const inserts = all.map((r) => {
+    // Monta upsert (deduplicado por campaign+date+country_code)
+    const dedup = new Map<string, any>();
+    for (const r of all) {
       const k = `${r.campaign_id}|${r.date}`;
       const totalCost = geoCostByCampDate.get(k) || 1;
       const revenueTotal = revByCampDate.get(k) ?? 0;
       const revenueShare = totalCost > 0 ? (r.cost / totalCost) * revenueTotal : 0;
-      const country = COUNTRY_BY_ID[r.country_id] ?? { code: "ZZ", name: "Desconhecido" };
+      const country = COUNTRY_BY_ID[r.country_id] ?? { code: "ZZ", name: `ID ${r.country_id || "?"}` };
       const meta = campMeta.get(r.campaign_id);
-      return {
-        user_id: userId,
-        google_account_id: meta?.google_account_id ?? null,
-        campaign_id: r.campaign_id,
-        date: r.date,
-        country_code: country.code,
-        country_name: country.name,
-        country_criterion_id: r.country_id,
-        cost: r.cost,
-        clicks: r.clicks,
-        impressions: r.impressions,
-        conversions: r.conversions,
-        revenue_usd: revenueShare,
-      };
-    });
+      const dk = `${r.campaign_id}|${r.date}|${country.code}`;
+      const existing = dedup.get(dk);
+      if (existing) {
+        existing.cost += r.cost;
+        existing.clicks += r.clicks;
+        existing.impressions += r.impressions;
+        existing.conversions += r.conversions;
+        existing.revenue_usd += revenueShare;
+      } else {
+        dedup.set(dk, {
+          user_id: userId,
+          google_account_id: meta?.google_account_id ?? null,
+          campaign_id: r.campaign_id,
+          date: r.date,
+          country_code: country.code,
+          country_name: country.name,
+          country_criterion_id: r.country_id,
+          cost: r.cost,
+          clicks: r.clicks,
+          impressions: r.impressions,
+          conversions: r.conversions,
+          revenue_usd: revenueShare,
+        });
+      }
+    }
+    const inserts = [...dedup.values()];
 
     // Limpa janela e re-insere
     if (inserts.length) {
