@@ -98,12 +98,15 @@ Deno.serve(async (req) => {
           const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
           customCriteriaAvailable = true;
-          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
+          googleUtmRows = customCriteriaRows.filter((r) => {
+            const parsed = parseGamAttribution(r.name);
+            return !!parsed && (!parsed.source || parsed.source === "google");
+          });
           const otherUtmRows = customCriteriaRows.filter((r) => {
             const parsed = parseGamAttribution(r.name);
             return parsed?.source && parsed.source !== "google";
           }).length;
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] google utm rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] google/placement rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
