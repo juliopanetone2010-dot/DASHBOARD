@@ -439,11 +439,13 @@ async function runKeyValuesNameCandidate(
 ): Promise<{ label: string; rows: AttributedRow[] }> {
   const label = "KEY_VALUES_NAME (URL params dinâmicos)";
   try {
-    const reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "KEY_VALUES_NAME"], debug })
-    ))).flat();
+    const dailyRanges = expandToDailyGamRanges(ranges);
+    const reportRows = (await Promise.all(dailyRanges.map(async ({ range, date }) => {
+      const rows = await runReport({ networkCode, accessToken, range, dimensions: ["KEY_VALUES_NAME"], debug });
+      return rows.map((r) => ({ ...r, date: r.date ?? date }));
+    }))).flat();
     const rows = reportRows.map((r) => {
-      const rawKv = r.dims[1] || "";
+      const rawKv = r.dims[0] || r.dims[1] || "";
       const kv = parseKeyValueDimension(rawKv);
       const sourceRaw = kv.utm_source ?? "";
       const campaignRaw = kv.utm_campaign ?? "";
