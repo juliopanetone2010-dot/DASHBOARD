@@ -86,13 +86,16 @@ Deno.serve(async (req) => {
 
     const res = await fetch(
       `https://googleads.googleapis.com/v21/customers/${account.customer_id}/googleAds:search`,
-      { method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }) },
+      { method: "POST", headers, body: JSON.stringify({ query }) },
     );
     const data = await res.json();
     if (!res.ok) {
-      return json({ error: data?.error?.message ?? JSON.stringify(data) });
+      console.error("[sync-placements] GAQL error", JSON.stringify(data));
+      const detail = data?.error?.details?.[0]?.errors?.[0] ?? data?.error;
+      return json({ error: data?.error?.message ?? "GAQL error", detail, query });
     }
     const results = (data.results ?? []) as any[];
+    console.log("[sync-placements] results", results.length, "campaign", campaignId);
 
     // Limpa o range para essa campanha antes de re-inserir (snapshot)
     let delQ = admin.from("ads_placements").delete()
