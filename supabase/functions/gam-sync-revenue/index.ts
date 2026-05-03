@@ -320,12 +320,12 @@ async function distributeGamRevenueToCampaigns(
   const today = new Date().toISOString().slice(0, 10);
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
   const unmatchedByDate = new Map<string, { revenue: number; impressions: number }>();
-  // Atribuição por (campaign_id, placement, date) — para a tabela gam_placement_revenue
-  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string }>();
+  // Atribuição por (campaign_id, placement, date) — somente tráfego Google por UTM.
+  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string | null; raw_utm: string }>();
   for (const r of rows) {
     const date = r.date ?? today;
-    const parsed = parseGamPlacementName(r.name);
-    if (parsed) {
+    const parsed = parseGamAttribution(r.name);
+    if (parsed && (!parsed.source || parsed.source === "google")) {
       const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
@@ -336,11 +336,16 @@ async function distributeGamRevenueToCampaigns(
       const key = `${cid}|${parsed.placement}|${date}`;
       const pb = placementBuckets.get(key) ?? {
         user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_name",
+        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
       };
       pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
       placementBuckets.set(key, pb);
     } else {
+      const source = parseUtmSource(r.name);
+      if (source && source !== "google") {
+        debug.push(`[utm ignored] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
+        continue;
+      }
       const cur = unmatchedByDate.get(date) ?? { revenue: 0, impressions: 0 };
       cur.revenue += r.revenue; cur.impressions += r.impressions;
       unmatchedByDate.set(date, cur);
