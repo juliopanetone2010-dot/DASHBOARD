@@ -203,6 +203,9 @@ const Index = () => {
             <TabsTrigger value="placements" className="gap-1.5">
               <MapPin className="h-3.5 w-3.5" /> Placements
             </TabsTrigger>
+            <TabsTrigger value="retention" className="gap-1.5">
+              <Repeat className="h-3.5 w-3.5" /> Retenção / Push
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
