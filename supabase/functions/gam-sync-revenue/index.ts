@@ -335,7 +335,44 @@ function normalizePlacement(s: string): string {
   }
 }
 
-async function distributeGamRevenueToCampaigns(
+// Persiste receita por (campanha, source, data) — separa Google de Push/outros para LTV/Retenção.
+async function persistCampaignSourceRevenue(
+  admin: any,
+  userId: string,
+  siteId: string | undefined,
+  rows: ReportRow[],
+  debug: string[],
+  syncDates: string[] = [],
+) {
+  if (!siteId) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number }>();
+  for (const r of rows) {
+    const parsed = parseGamAttribution(r.name);
+    if (!parsed?.cid) continue;
+    const source = (parsed.source ?? "unknown").toLowerCase();
+    const date = r.date ?? today;
+    const key = `${parsed.cid}|${date}|${source}`;
+    const cur = buckets.get(key) ?? {
+      user_id: userId, site_id: siteId, campaign_id: parsed.cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+    };
+    cur.revenue_usd += r.revenue; cur.impressions += r.impressions;
+    buckets.set(key, cur);
+  }
+  const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
+  if (dates.length === 0) return;
+  await admin.from("gam_campaign_source_revenue")
+    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  const arr = [...buckets.values()];
+  const CHUNK = 500;
+  for (let i = 0; i < arr.length; i += CHUNK) {
+    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+  }
+  const sources = arr.reduce((acc: Record<string, number>, b) => {
+    acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd;
+    return acc;
+  }, {});
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s); receita por source=${JSON.stringify(sources)}`);
   admin: any,
   userId: string,
   siteId: string | undefined,
