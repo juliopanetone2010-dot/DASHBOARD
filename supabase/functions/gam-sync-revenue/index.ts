@@ -260,6 +260,18 @@ function expandFixedDates(ranges: GamRange[]): string[] {
   return dates;
 }
 
+function expandToDailyGamRanges(ranges: GamRange[]): Array<{ date: string | null; range: GamRange }> {
+  const dates = expandFixedDates(ranges);
+  if (dates.length === 0) return ranges.map((range) => ({ date: null, range }));
+  return dates.map((date) => ({
+    date,
+    range: {
+      dateRange: { fixed: { startDate: dateObj(date), endDate: dateObj(date) } },
+      debugLabel: date,
+    },
+  }));
+}
+
 function dateObj(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   return { year, month, day };
