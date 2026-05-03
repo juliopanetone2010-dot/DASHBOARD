@@ -260,6 +260,18 @@ function expandFixedDates(ranges: GamRange[]): string[] {
   return dates;
 }
 
+function expandToDailyGamRanges(ranges: GamRange[]): Array<{ date: string | null; range: GamRange }> {
+  const dates = expandFixedDates(ranges);
+  if (dates.length === 0) return ranges.map((range) => ({ date: null, range }));
+  return dates.map((date) => ({
+    date,
+    range: {
+      dateRange: { fixed: { startDate: dateObj(date), endDate: dateObj(date) } },
+      debugLabel: date,
+    },
+  }));
+}
+
 function dateObj(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   return { year, month, day };
@@ -306,12 +318,26 @@ function isRealValue(raw: string | null | undefined): boolean {
 function parseKeyValueDimension(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   const decoded = safeDecode(String(raw ?? ""));
-  for (const part of decoded.split(",")) {
+  const normalized = decoded.replace(/[\n\r;]+/g, ",").replace(/&/g, ",");
+  for (const part of normalized.split(",")) {
     const m = part.trim().match(/^([^=~|]+)[=~](.+)$/);
     if (!m) continue;
-    const key = m[1].replace(/^\*/, "").trim().toLowerCase();
+    const key = m[1].replace(/^\*/, "").replace(/^custom targeting\s*/i, "").trim().toLowerCase();
     const value = m[2].split("|")[0]?.replace(/^\*/, "").trim() ?? "";
     if (key) out[key] = value;
+  }
+  return out;
+}
+
+function parseUrlParams(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  const value = safeDecode(String(raw ?? ""));
+  const query = value.includes("?") ? value.split("?").slice(1).join("?") : value;
+  for (const part of query.split(/[&#]/)) {
+    const [k, ...rest] = part.split("=");
+    if (!k || rest.length === 0) continue;
+    const key = safeDecode(k).trim().toLowerCase();
+    if (key.startsWith("utm_")) out[key] = safeDecode(rest.join("=")).trim();
   }
   return out;
 }
@@ -359,6 +385,9 @@ async function collectUtmAttribution(args: {
     return empty;
   }
 
+  const customCriteriaCandidate = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
+  const urlNameCandidate = await runUrlNameCandidate(networkCode, accessToken, ranges, debug);
+  const keyValueCandidate = await runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug);
   const campaignCandidates = utmKeyIds.utm_campaign
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_campaign, "utm_source", "utm_campaign", debug)
     : [];
@@ -366,8 +395,11 @@ async function collectUtmAttribution(args: {
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_placement, "utm_source", "utm_placement", debug)
     : [];
 
-  const campaignPick = campaignCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidates[0];
-  const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
+  const campaignCandidatesWithKv = [customCriteriaCandidate, urlNameCandidate, keyValueCandidate, ...campaignCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+  const placementCandidatesWithKv = [customCriteriaCandidate, urlNameCandidate, keyValueCandidate, ...placementCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+
+  const campaignPick = campaignCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidatesWithKv[0];
+  const placementPick = placementCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidatesWithKv[0];
 
   const directCampaignRows = campaignPick?.rows ?? [];
   const placementRowsAll = placementPick?.rows ?? [];
@@ -379,7 +411,6 @@ async function collectUtmAttribution(args: {
     ? directCampaignRows
     : (placementRowsAll.length > 0 ? placementRowsAll : placementRows);
 
-  await debugKeyValuesName(networkCode, accessToken, ranges, debug);
   debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
   return {
     retentionRows,
@@ -425,6 +456,112 @@ async function runUtmPairCandidates(
     }
   }
   return out;
+}
+
+async function runKeyValuesNameCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "KEY_VALUES_NAME (URL params dinâmicos)";
+  try {
+    const dailyRanges = expandToDailyGamRanges(ranges);
+    const reportRows = (await Promise.all(dailyRanges.map(async ({ range, date }) => {
+      const rows = await runReport({ networkCode, accessToken, range, dimensions: ["KEY_VALUES_NAME"], debug });
+      return rows.map((r) => ({ ...r, date: r.date ?? date }));
+    }))).flat();
+    const withUtm = rowsFromKeyValueReportRows(reportRows, label);
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", withUtm, debug);
+    return { label, rows: withUtm };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
+async function runCustomCriteriaCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "CUSTOM_CRITERIA (key-values da requisição)";
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "CUSTOM_CRITERIA"], debug })
+    ))).flat();
+    const rows = rowsFromKeyValueReportRows(reportRows, label);
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", rows, debug);
+    return { label, rows };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
+async function runUrlNameCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "URL_NAME (URL com parâmetros UTM)";
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+    ))).flat();
+    const rows = rowsFromUrlReportRows(reportRows, label);
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", rows, debug);
+    return { label, rows };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
+function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+  return reportRows.map((r) => {
+    const rawUrl = r.dims[1] || r.dims[0] || "";
+    const params = parseUrlParams(rawUrl);
+    const sourceRaw = params.utm_source ?? "";
+    const campaignRaw = params.utm_campaign ?? "";
+    const placementRaw = params.utm_placement ?? "";
+    const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
+    return {
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source,
+      cid,
+      placement,
+      raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=URL_NAME|raw=${rawUrl}`,
+    };
+  }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
+}
+
+function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+  return reportRows.map((r) => {
+    const rawKv = r.dims[1] || r.dims[0] || "";
+    const kv = parseKeyValueDimension(rawKv);
+    const sourceRaw = kv.utm_source ?? "";
+    const campaignRaw = kv.utm_campaign ?? "";
+    const placementRaw = kv.utm_placement ?? "";
+    const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
+    return {
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source,
+      cid,
+      placement,
+      raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=${label}|raw=${rawKv}`,
+    };
+  }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
 }
 
 function debugUtmCandidate(networkCode: string, label: string, valueName: string, rows: AttributedRow[], debug: string[]) {
