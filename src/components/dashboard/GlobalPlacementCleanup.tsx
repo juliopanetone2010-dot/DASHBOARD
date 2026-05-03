@@ -55,6 +55,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [items, setItems] = useState<PreviewItem[]>([]);
+  const [campaignTotals, setCampaignTotals] = useState<CampaignTotal[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
