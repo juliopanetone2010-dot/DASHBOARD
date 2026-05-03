@@ -84,18 +84,25 @@ Deno.serve(async (req) => {
     };
     if (account.login_customer_id) headers["login-customer-id"] = account.login_customer_id;
 
-    const res = await fetch(
-      `https://googleads.googleapis.com/v21/customers/${account.customer_id}/googleAds:search`,
-      { method: "POST", headers, body: JSON.stringify({ query }) },
-    );
-    const data = await res.json();
-    if (!res.ok) {
-      console.error("[sync-placements] GAQL error", JSON.stringify(data));
-      const detail = data?.error?.details?.[0]?.errors?.[0] ?? data?.error;
-      return json({ error: data?.error?.message ?? "GAQL error", detail, query });
-    }
-    const results = (data.results ?? []) as any[];
-    console.log("[sync-placements] results", results.length, "campaign", campaignId);
+    const results: any[] = [];
+    let pageToken: string | undefined;
+    let page = 0;
+    do {
+      const res = await fetch(
+        `https://googleads.googleapis.com/v21/customers/${account.customer_id}/googleAds:search`,
+        { method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000, pageToken }) },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        console.error("[sync-placements] GAQL error", JSON.stringify(data));
+        const detail = data?.error?.details?.[0]?.errors?.[0] ?? data?.error;
+        return json({ error: data?.error?.message ?? "GAQL error", detail, query });
+      }
+      results.push(...((data.results ?? []) as any[]));
+      pageToken = data.nextPageToken || undefined;
+      page += 1;
+    } while (pageToken);
+    console.log("[sync-placements] results", results.length, "pages", page, "campaign", campaignId);
 
     // Limpa o range para essa campanha antes de re-inserir (snapshot)
     let delQ = admin.from("ads_placements").delete()
@@ -139,7 +146,7 @@ Deno.serve(async (req) => {
         .upsert(rows.slice(i, i + CHUNK), { onConflict: "user_id,google_account_id,campaign_id,ad_group_id,placement,date" });
     }
 
-    return json({ ok: true, inserted: rows.length, campaign_id: campaignId });
+    return json({ ok: true, inserted: rows.length, campaign_id: campaignId, pages: page });
   } catch (e) {
     console.error("[sync-placements] uncaught", e);
     return json({ error: String(e) });
