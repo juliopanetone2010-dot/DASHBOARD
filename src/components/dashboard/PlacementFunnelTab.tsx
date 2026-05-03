@@ -259,3 +259,149 @@ function ConfirmBtn({ icon, label, title, desc, onConfirm, busy, variant }: {
     </AlertDialog>
   );
 }
+
+interface FBProps {
+  rows: Row[];
+  loading: boolean;
+  busyId: string | null;
+  daysSince: (iso: string) => string;
+  onBlock: (id: string, placement: string) => void;
+  onSecondChance: (id: string) => void;
+  onReset: (id: string) => void;
+}
+
+function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondChance, onReset }: FBProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const groups = useMemo(() => {
+    const m = new Map<string, { campaign_id: string; name: string; items: Row[] }>();
+    for (const r of rows) {
+      const cid = r.campaign_id;
+      let g = m.get(cid);
+      if (!g) { g = { campaign_id: cid, name: r.campaign_name ?? cid, items: [] }; m.set(cid, g); }
+      g.items.push(r);
+    }
+    const list = [...m.values()].map((g) => {
+      const cost = g.items.reduce((a, x) => a + (x.cost_total || 0), 0);
+      const rev = g.items.reduce((a, x) => a + (x.revenue_total || 0), 0);
+      const profit = rev - cost;
+      const roi = cost > 0 ? (profit / cost) * 100 : 0;
+      const blocked = g.items.filter((x) => x.status === "blocked").length;
+      const bad = g.items.filter((x) => x.status === "bad").length;
+      const good = g.items.filter((x) => x.status === "good").length;
+      return { ...g, cost, rev, profit, roi, blocked, bad, good };
+    });
+    list.sort((a, b) => b.cost - a.cost);
+    return list;
+  }, [rows]);
+
+  const toggle = (cid: string) => setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-muted/40">
+            <TableHead className="w-10"></TableHead>
+            <TableHead>Campanha</TableHead>
+            <TableHead className="text-right">Placements</TableHead>
+            <TableHead className="text-right">Custo</TableHead>
+            <TableHead className="text-right">Receita</TableHead>
+            <TableHead className="text-right">Lucro</TableHead>
+            <TableHead className="text-right">ROI</TableHead>
+            <TableHead className="text-right">Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {loading && (<TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando...</TableCell></TableRow>)}
+          {!loading && groups.length === 0 && (
+            <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhum placement. Clique em <b>Avaliar agora</b>.</TableCell></TableRow>
+          )}
+          {groups.map((g) => {
+            const isOpen = expanded.has(g.campaign_id);
+            return (
+              <Fragment key={g.campaign_id}>
+                <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggle(g.campaign_id)}>
+                  <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
+                  <TableCell className="font-medium text-sm max-w-[320px] truncate" title={g.name}>{g.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{g.items.length}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtBRL(g.cost)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtBRL(g.rev)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums", g.profit < 0 && "text-danger")}>{fmtBRL(g.profit)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums font-semibold", g.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(g.roi)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex gap-1">
+                      {g.good > 0 && <Badge className="bg-success-soft text-success border-success/20">{g.good} bom</Badge>}
+                      {g.bad > 0 && <Badge className="bg-warning/10 text-warning border-warning/30">{g.bad} ruim</Badge>}
+                      {g.blocked > 0 && <Badge className="bg-danger-soft text-danger border-danger/20">{g.blocked} bloq</Badge>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+                {isOpen && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="bg-muted/10 p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Placement</TableHead>
+                            <TableHead className="text-right">Status</TableHead>
+                            <TableHead className="text-right">Tempo</TableHead>
+                            <TableHead className="text-right">Custo</TableHead>
+                            <TableHead className="text-right">Receita</TableHead>
+                            <TableHead className="text-right">ROI</TableHead>
+                            <TableHead className="text-right">Cliques</TableHead>
+                            <TableHead className="text-right w-56">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[...g.items].sort((a, b) => b.cost_total - a.cost_total).map((r) => {
+                            const meta = STATUS_META[r.status];
+                            return (
+                              <TableRow key={r.id}>
+                                <TableCell className="text-sm font-medium max-w-[320px] truncate" title={r.placement}>
+                                  {r.priority && <Sparkles className="h-3 w-3 inline mr-1 text-primary" />}
+                                  {r.placement}
+                                  {r.manual_override && <Badge variant="outline" className="ml-2 text-[10px] py-0">manual</Badge>}
+                                  {r.reason && <div className="text-[10px] text-muted-foreground truncate" title={r.reason}>{r.reason}</div>}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold", meta.cls)}>{meta.label}</span>
+                                </TableCell>
+                                <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{daysSince(r.first_seen_at)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{fmtBRL(r.cost_total)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{fmtBRL(r.revenue_total)}</TableCell>
+                                <TableCell className={cn("text-right tabular-nums font-semibold", r.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(r.roi_pct)}</TableCell>
+                                <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(r.clicks_total)}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="inline-flex gap-1">
+                                    {r.status !== "blocked" && (
+                                      <ConfirmBtn icon={<Ban className="h-3.5 w-3.5" />} label="Forçar bloqueio" variant="danger"
+                                        title={`Bloquear ${r.placement}?`} desc="Marca como blocked e adiciona à blacklist na próxima limpeza."
+                                        busy={busyId === r.id} onConfirm={() => onBlock(r.id, r.placement)} />
+                                    )}
+                                    {(r.status === "bad" || r.status === "blocked") && (
+                                      <ConfirmBtn icon={<Play className="h-3.5 w-3.5" />} label="2ª chance" variant="default"
+                                        title={`Dar segunda chance a ${r.placement}?`} desc="Volta para learning e suspende bloqueio automático."
+                                        busy={busyId === r.id} onConfirm={() => onSecondChance(r.id)} />
+                                    )}
+                                    <ConfirmBtn icon={<RotateCcw className="h-3.5 w-3.5" />} label="Reset" variant="ghost"
+                                      title={`Resetar ${r.placement}?`} desc="Volta para test e desliga override manual."
+                                      busy={busyId === r.id} onConfirm={() => onReset(r.id)} />
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
