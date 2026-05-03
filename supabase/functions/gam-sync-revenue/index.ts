@@ -99,93 +99,13 @@ Deno.serve(async (req) => {
           runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
         ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
 
-        // 1) Descobre IDs dos custom targeting keys utm_source, utm_campaign, utm_placement
+        // 1) Descobre IDs dos targeting keys utm_source, utm_campaign, utm_placement
         const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
-        const haveSourceCampaign = utmKeyIds.utm_source && utmKeyIds.utm_campaign;
-
-        // 2) Reports separados — cruzar 3+ custom dims juntas faz GAM retornar "(not applicable)".
-        //    Report A: utm_source + utm_campaign  → atribuição de receita por campanha (Google Ads)
-        //    Report B: utm_source + utm_placement → debug/inspeção de placements
-        let utmRows: AttributedRow[] = [];
-        if (haveSourceCampaign) {
-          const dimsA = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"];
-          const keyIdsA = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!];
-          const reportRowsA = (await Promise.all(ranges.map((range) =>
-            runReport({ networkCode, accessToken, range, dimensions: dimsA, customDimensionKeyIds: keyIdsA, debug })
-          ))).flat();
-          for (const r of reportRowsA) {
-            const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
-            const campaignRaw = safeDecode((r.dims[2] || "").trim());
-            let cid: string | null = null;
-            const m1 = campaignRaw.match(/(\d{6,})/);
-            if (m1) cid = m1[1];
-            utmRows.push({
-              date: r.date, impressions: r.impressions, revenue: r.revenue,
-              source, cid, placement: null,
-              raw: `s=${r.dims[1]}|c=${r.dims[2]}`,
-            });
-          }
-          if (utmKeyIds.utm_placement) {
-            const reportRowsB = (await Promise.all(ranges.map((range) =>
-              runReport({
-                networkCode, accessToken, range,
-                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"],
-                customDimensionKeyIds: [utmKeyIds.utm_source!, utmKeyIds.utm_placement!], debug,
-              })
-            ))).flat();
-            for (const r of reportRowsB) {
-              const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
-              const placementRaw = (r.dims[2] || "").trim();
-              if (!placementRaw || placementRaw === "(not applicable)") continue;
-              const placement = extractPlacementValue(placementRaw, null);
-              const cidMatch = safeDecode(placementRaw).match(/(\d{6,})/);
-              utmRows.push({
-                date: r.date, impressions: r.impressions, revenue: r.revenue,
-                source, cid: cidMatch ? cidMatch[1] : null, placement,
-                raw: `s=${r.dims[1]}|p=${r.dims[2]}`,
-              });
-            }
-            debug.push(`[${networkCode}/UTM-B placement] linhas=${reportRowsB.length}`);
-          }
-          const sourceStats = utmRows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number }>, r) => {
-            const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0 };
-            s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++;
-            acc[r.source] = s; return acc;
-          }, {});
-          debug.push(`[${networkCode}/UTM-A] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
-          const sample = utmRows.filter((r) => r.source === "google").slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}`);
-          debug.push(`[${networkCode}/UTM google sample]=${JSON.stringify(sample)}`);
-
-          // DIAG: confere se a chave utm_campaign realmente recebe valores no inventário do GAM
-          try {
-            const diag = (await Promise.all(ranges.map((range) =>
-              runReport({
-                networkCode, accessToken, range,
-                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
-                customDimensionKeyIds: [utmKeyIds.utm_campaign!], debug,
-              })
-            ))).flat();
-            const cMap = new Map<string, { rev: number; impr: number }>();
-            for (const r of diag) {
-              const v = (r.dims[1] || "(empty)").trim();
-              const cur = cMap.get(v) ?? { rev: 0, impr: 0 };
-              cur.rev += r.revenue; cur.impr += r.impressions;
-              cMap.set(v, cur);
-            }
-            const top = [...cMap.entries()].sort((a, b) => b[1].rev - a[1].rev).slice(0, 5)
-              .map(([k, v]) => `${k}=$${v.rev.toFixed(2)}/${v.impr}imp`);
-            const realValues = [...cMap.keys()].filter((k) => k && k !== "(not applicable)" && k !== "(empty)").length;
-            debug.push(`[${networkCode}/DIAG utm_campaign solo] valores_reais=${realValues}; top=${JSON.stringify(top)}`);
-            if (realValues === 0) {
-              debug.push(`⚠️ A chave utm_campaign EXISTE no GAM mas o ad tag do site NÃO está enviando esse key-value. Configure googletag.pubads().setTargeting('utm_campaign', getParam('utm_campaign')) no header do site (idem utm_source/utm_placement/utm_adgroup/utm_content).`);
-            }
-          } catch (e) { debug.push(`[DIAG utm_campaign] erro: ${String(e)}`); }
-        } else {
-          debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
-        }
-
-        const googleRows = utmRows.filter((r) => r.source === "google" && r.cid);
-        const totals = googleRows.reduce(
+        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug });
+        const utmRows = attribution.retentionRows;
+        const googleCampaignRows = attribution.googleCampaignRows;
+        const googlePlacementRows = attribution.googlePlacementRows;
+        const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
         );
@@ -214,7 +134,7 @@ Deno.serve(async (req) => {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges));
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleRows, fxRates, debug, expandFixedDates(ranges));
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges));
         }
 
         summary.push({
@@ -224,7 +144,10 @@ Deno.serve(async (req) => {
           placement_rows: placementRows.length,
           utm_rows: utmRows.length,
           utm_keys_found: utmKeyIds,
-          google_rows: googleRows.length,
+          google_rows: googleCampaignRows.length,
+          google_placement_rows: googlePlacementRows.length,
+          attribution_source: attribution.campaignSource,
+          placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
@@ -232,7 +155,7 @@ Deno.serve(async (req) => {
           total_impressions: totals.impressions,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
-          rows_returned: googleRows.length,
+          rows_returned: googleCampaignRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
@@ -264,6 +187,14 @@ Deno.serve(async (req) => {
 interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; }
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
+interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
+interface AttributionResult {
+  retentionRows: AttributedRow[];
+  googleCampaignRows: AttributedRow[];
+  googlePlacementRows: AttributedRow[];
+  campaignSource: string;
+  placementSource: string;
+}
 
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
 
@@ -360,12 +291,37 @@ function extractPlacementValue(raw: string, cid: string | null): string | null {
   return normalizePlacement(decoded);
 }
 
+function extractCampaignId(raw: string | null | undefined): string | null {
+  const decoded = safeDecode(String(raw ?? "").trim());
+  if (!decoded || decoded === "(not applicable)" || decoded === "(empty)") return null;
+  const m = decoded.match(/(\d{6,})/);
+  return m ? m[1] : null;
+}
+
+function isRealValue(raw: string | null | undefined): boolean {
+  const value = String(raw ?? "").trim();
+  return !!value && value !== "(not applicable)" && value !== "(empty)";
+}
+
+function parseKeyValueDimension(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  const decoded = safeDecode(String(raw ?? ""));
+  for (const part of decoded.split(",")) {
+    const m = part.trim().match(/^([^=~|]+)[=~](.+)$/);
+    if (!m) continue;
+    const key = m[1].replace(/^\*/, "").trim().toLowerCase();
+    const value = m[2].split("|")[0]?.replace(/^\*/, "").trim() ?? "";
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
 async function fetchUtmKeyIds(
   networkCode: string,
   accessToken: string,
   debug: string[],
-): Promise<{ utm_source: string | null; utm_campaign: string | null; utm_placement: string | null }> {
+): Promise<UtmKeyIds> {
   const wanted: Record<string, string | null> = { utm_source: null, utm_campaign: null, utm_placement: null };
   let pageToken: string | undefined;
   let pages = 0;
@@ -391,6 +347,107 @@ async function fetchUtmKeyIds(
   } while (pageToken);
   debug.push(`[customTargetingKeys] utm_source=${wanted.utm_source} utm_campaign=${wanted.utm_campaign} utm_placement=${wanted.utm_placement}`);
   return wanted as any;
+}
+
+async function collectUtmAttribution(args: {
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
+}): Promise<AttributionResult> {
+  const { networkCode, accessToken, ranges, utmKeyIds, debug } = args;
+  const empty: AttributionResult = { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+  if (!utmKeyIds.utm_source) {
+    debug.push(`[${networkCode}/UTM] chave utm_source ausente; sem atribuição real por origem`);
+    return empty;
+  }
+
+  const campaignCandidates = utmKeyIds.utm_campaign
+    ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_campaign, "utm_source", "utm_campaign", debug)
+    : [];
+  const placementCandidates = utmKeyIds.utm_placement
+    ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_placement, "utm_source", "utm_placement", debug)
+    : [];
+
+  const campaignPick = campaignCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidates[0];
+  const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
+
+  const directCampaignRows = campaignPick?.rows ?? [];
+  const placementRows = placementPick?.rows.filter((r) => r.placement) ?? [];
+  const directGoogleRows = directCampaignRows.filter((r) => r.source === "google" && r.cid);
+  const placementGoogleRows = placementRows.filter((r) => r.source === "google" && r.cid);
+  const googleCampaignRows = directGoogleRows.length > 0 ? directGoogleRows : placementGoogleRows;
+  const retentionRows = directCampaignRows.some((r) => r.cid) ? directCampaignRows.filter((r) => r.cid) : placementRows.filter((r) => r.cid);
+
+  await debugKeyValuesName(networkCode, accessToken, ranges, debug);
+  debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
+  return {
+    retentionRows,
+    googleCampaignRows,
+    googlePlacementRows: placementGoogleRows,
+    campaignSource: directGoogleRows.length > 0 ? (campaignPick?.label ?? "none") : (placementGoogleRows.length > 0 ? `${placementPick?.label ?? "placement"}→campaign_id_from_utm_placement` : "none"),
+    placementSource: placementPick?.label ?? "none",
+  };
+}
+
+async function runUtmPairCandidates(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  sourceKeyId: string,
+  valueKeyId: string,
+  sourceName: string,
+  valueName: "utm_campaign" | "utm_placement",
+  debug: string[],
+): Promise<Array<{ label: string; rows: AttributedRow[] }>> {
+  const candidates = [
+    { label: `EKV_DIMENSION (${sourceName}+${valueName})`, dims: ["DATE", "EKV_DIMENSION_0_VALUE", "EKV_DIMENSION_1_VALUE"], field: "ekvDimensionKeyIds" as const },
+    { label: `CUSTOM_DIMENSION (${sourceName}+${valueName})`, dims: ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"], field: "customDimensionKeyIds" as const },
+  ];
+  const out: Array<{ label: string; rows: AttributedRow[] }> = [];
+  for (const c of candidates) {
+    try {
+      const reportRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: c.dims, dimensionKeyIdsField: c.field, dimensionKeyIds: [sourceKeyId, valueKeyId], debug })
+      ))).flat();
+      const rows = reportRows.map((r) => {
+        const sourceRaw = r.dims[1] || "";
+        const valueRaw = r.dims[2] || "";
+        const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+        const cid = valueName === "utm_campaign" ? extractCampaignId(valueRaw) : extractCampaignId(valueRaw);
+        const placement = valueName === "utm_placement" && isRealValue(valueRaw) ? extractPlacementValue(valueRaw, cid) : null;
+        return { date: r.date, impressions: r.impressions, revenue: r.revenue, source, cid, placement, raw: `${c.label}|utm_source_raw=${sourceRaw}|${valueName}_raw=${valueRaw}` };
+      });
+      debugUtmCandidate(networkCode, c.label, valueName, rows, debug);
+      out.push({ label: c.label, rows });
+    } catch (e) {
+      debug.push(`[${networkCode}/${c.label}] erro=${String(e).slice(0, 500)}`);
+    }
+  }
+  return out;
+}
+
+function debugUtmCandidate(networkCode: string, label: string, valueName: string, rows: AttributedRow[], debug: string[]) {
+  const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number; rawOk: number }>, r) => {
+    const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0, rawOk: 0 };
+    s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++; if (!r.raw.includes("(not applicable)")) s.rawOk++;
+    acc[r.source] = s; return acc;
+  }, {});
+  const sample = rows.slice(0, 8).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}|placement=${r.placement}`);
+  debug.push(`[${networkCode}/${label}] ${valueName}: linhas=${rows.length}; por_source=${JSON.stringify(sourceStats)}; raw_sample=${JSON.stringify(sample)}`);
+}
+
+async function debugKeyValuesName(networkCode: string, accessToken: string, ranges: GamRange[], debug: string[]) {
+  try {
+    const rows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "KEY_VALUES_NAME"], debug })
+    ))).flat();
+    const parsed = rows.map((r) => {
+      const kv = parseKeyValueDimension(r.dims[1]);
+      return { r, kv };
+    }).filter(({ kv }) => kv.utm_source || kv.utm_campaign || kv.utm_placement);
+    const sample = parsed.slice(0, 10).map(({ r, kv }) => `utm_source=${kv.utm_source ?? "null"}|utm_campaign=${kv.utm_campaign ?? "null"}|utm_placement=${kv.utm_placement ?? "null"}|dim=KEY_VALUES_NAME|raw=${r.dims[1]}|rev=${r.revenue}`);
+    debug.push(`[${networkCode}/KEY_VALUES_NAME debug] linhas=${rows.length}; linhas_com_utm=${parsed.length}; sample=${JSON.stringify(sample)}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/KEY_VALUES_NAME debug] erro=${String(e).slice(0, 500)}`);
+  }
 }
 
 async function persistCampaignSourceRevenueFromUtm(
@@ -434,7 +491,8 @@ async function applyGoogleUtmRevenue(
   admin: any,
   userId: string,
   siteId: string | undefined,
-  googleRows: AttributedRow[],
+  googleCampaignRows: AttributedRow[],
+  googlePlacementRows: AttributedRow[],
   fx: FxRates,
   debug: string[],
   syncDates: string[] = [],
@@ -444,7 +502,7 @@ async function applyGoogleUtmRevenue(
 
   const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
-  for (const r of googleRows) {
+  for (const r of googleCampaignRows) {
     if (!r.cid) continue;
     const date = r.date ?? today;
     if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
@@ -453,15 +511,18 @@ async function applyGoogleUtmRevenue(
     cur.revenue += r.revenue; cur.impressions += r.impressions;
     inner.set(r.cid, cur);
 
-    if (r.placement) {
-      const key = `${r.cid}|${r.placement}|${date}`;
-      const pb = placementBuckets.get(key) ?? {
-        user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
-      };
-      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
-      placementBuckets.set(key, pb);
-    }
+  }
+
+  for (const r of googlePlacementRows) {
+    if (!r.cid || !r.placement) continue;
+    const date = r.date ?? today;
+    const key = `${r.cid}|${r.placement}|${date}`;
+    const pb = placementBuckets.get(key) ?? {
+      user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
+      date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
+    };
+    pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+    placementBuckets.set(key, pb);
   }
 
   const dates = [...new Set([...syncDates, ...[...placementBuckets.values()].map((p) => p.date)])];
@@ -532,12 +593,13 @@ interface RunReportArgs {
   accessToken: string;
   range: GamRange;
   dimensions: string[];
-  customDimensionKeyIds?: string[];
+  dimensionKeyIds?: string[];
+  dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, customDimensionKeyIds, debug } = args;
+  const { networkCode, accessToken, range, dimensions, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
 
   const reportDefinition: any = {
@@ -553,7 +615,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     ],
     dateRange: range.dateRange,
   };
-  if (customDimensionKeyIds?.length) reportDefinition.customDimensionKeyIds = customDimensionKeyIds;
+  if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
   const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
