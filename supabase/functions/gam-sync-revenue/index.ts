@@ -461,7 +461,7 @@ async function runKeyValuesNameCandidate(
         raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=KEY_VALUES_NAME|raw=${rawKv}`,
       };
     });
-    const withUtm = rows.filter((r) => r.source !== "unknown" || r.raw.includes("utm_campaign_raw=") || r.raw.includes("utm_placement_raw="));
+    const withUtm = rows.filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
     debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", withUtm, debug);
     return { label, rows: withUtm };
   } catch (e) {
