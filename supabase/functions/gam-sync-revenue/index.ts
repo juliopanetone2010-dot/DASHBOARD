@@ -555,7 +555,7 @@ async function applyGoogleUtmRevenue(
     return;
   }
 
-  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys()]);
+  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics } = await admin
       .from("daily_metrics")
@@ -567,11 +567,24 @@ async function applyGoogleUtmRevenue(
 
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
+    // Receita Google que NÃO foi atribuída via UTM (utm_campaign=(not applicable))
+    const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
+    let attributedRev = 0;
+    for (const v of directMap.values()) attributedRev += (v as any).revenue;
+    const unattributedRev = Math.max(0, totalGoogle.revenue - attributedRev);
+    // Distribui o restante proporcionalmente ao spend das campanhas Google do dia
+    const totalSpend = (metrics as any[]).reduce((acc, m) => acc + Number(m.spend ?? 0), 0);
+
     const updates: any[] = [];
+    let distributedCount = 0;
     for (const m of metrics as any[]) {
       const direct = directMap.get(String(m.campaign_id));
-      const revenueUsd = direct?.revenue ?? 0;
+      let revenueUsd = direct?.revenue ?? 0;
       if (direct) matchedIds.add(String(m.campaign_id));
+      else if (totalSpend > 0 && unattributedRev > 0) {
+        revenueUsd = unattributedRev * (Number(m.spend ?? 0) / totalSpend);
+        if (revenueUsd > 0) distributedCount++;
+      }
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
@@ -591,7 +604,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match via utm_campaign=campaign_id (Google)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match UTM Google + ${distributedCount} distribuídas por spend (unattrib=$${unattributedRev.toFixed(2)} de total Google=$${totalGoogle.revenue.toFixed(2)})`);
   }
 }
 
