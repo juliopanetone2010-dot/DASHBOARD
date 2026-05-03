@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
+import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
@@ -310,6 +311,9 @@ const IndexInner = () => {
             <TabsTrigger value="placements" className="gap-1.5">
               <MapPin className="h-3.5 w-3.5" /> Placements
             </TabsTrigger>
+            <TabsTrigger value="countries" className="gap-1.5">
+              <Globe className="h-3.5 w-3.5" /> Países
+            </TabsTrigger>
             <TabsTrigger value="retention" className="gap-1.5">
               <Repeat className="h-3.5 w-3.5" /> Retenção / Push
             </TabsTrigger>
@@ -493,6 +497,10 @@ const IndexInner = () => {
               googleAccounts={data.googleAccounts}
               fxUsdBrl={usdBrl}
             />
+          </TabsContent>
+
+          <TabsContent value="countries" className="mt-6">
+            <CountriesTab fxUsdBrl={usdBrl} />
           </TabsContent>
 
           <TabsContent value="retention" className="mt-6">
