@@ -153,6 +153,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
+          await persistCampaignSourceRevenue(admin, userId, networkSites[0]?.id, allUtmRows, debug, expandFixedDates(ranges));
           await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
         }
 
