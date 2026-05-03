@@ -310,6 +310,7 @@ async function distributeGamRevenueToCampaigns(
   _fx: FxRates,
   debug: string[],
   requestedAccountIds: string[] = [],
+  syncDates: string[] = [],
 ) {
   if (!siteId) return;
 
@@ -322,7 +323,7 @@ async function distributeGamRevenueToCampaigns(
   for (const r of rows) {
     const date = r.date ?? today;
     const parsed = parseGamAttribution(r.name);
-    if (parsed && (!parsed.source || parsed.source === "google")) {
+    if (parsed && parsed.source === "google") {
       const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
@@ -339,21 +340,17 @@ async function distributeGamRevenueToCampaigns(
       placementBuckets.set(key, pb);
     } else {
       const source = parseUtmSource(r.name);
-      if (source && source !== "google") {
+      if (source) {
         debug.push(`[utm ignored] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
-        continue;
       }
-      const cur = unmatchedByDate.get(date) ?? { revenue: 0, impressions: 0 };
-      cur.revenue += r.revenue; cur.impressions += r.impressions;
-      unmatchedByDate.set(date, cur);
     }
   }
 
-  // Persiste atribuição por placement (substitui período)
-  if (placementBuckets.size > 0) {
-    const dates = [...new Set([...placementBuckets.values()].map((p) => p.date))];
+  // Persiste atribuição por placement (substitui período mesmo quando zerou, para limpar dado antigo/push misturado)
+  const dates = [...new Set([...syncDates, ...placementBuckets.values()].map((p: any) => typeof p === "string" ? p : p.date).filter(Boolean))];
+  if (dates.length > 0) {
     await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).in("date", dates);
+      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
     const arr = [...placementBuckets.values()];
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
