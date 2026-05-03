@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { EngineAlertDraft } from "@/engine/rules";
@@ -47,6 +48,8 @@ export interface DashboardData {
 
 const GUEST_USER_ID = "guest";
 const GUEST_STORE_KEY = "arbitrage-dashboard-guest-v2";
+
+export const DASHBOARD_QK = ["dashboard"] as const;
 
 const RULES_DEFAULT: RulesConfig = {
   user_id: GUEST_USER_ID,
@@ -110,7 +113,6 @@ const createSampleStore = (userId: string, rules: RulesConfig): GuestStore => {
     return d.toISOString().slice(0, 10);
   };
 
-  // 2 contas Ads + 2 sites GAM + vínculos
   const accA: GoogleAccount = {
     id: uid(), user_id: userId, customer_id: "123-456-7890",
     login_customer_id: null, account_name: "MCC Principal", is_mcc: true,
@@ -207,36 +209,45 @@ const createSampleStore = (userId: string, rules: RulesConfig): GuestStore => {
   };
 };
 
+interface DashboardSnapshot {
+  campaigns: Campaign[];
+  metrics: DailyMetric[];
+  placements: Placement[];
+  rules: RulesConfig | null;
+  alerts: DomainAlert[];
+  googleAccounts: GoogleAccount[];
+  gamAccounts: GamAccount[];
+  sites: Site[];
+  links: AccountSiteLink[];
+  fetchedAt: number;
+}
+
+const emptySnapshot = (): DashboardSnapshot => ({
+  campaigns: [],
+  metrics: [],
+  placements: [],
+  rules: null,
+  alerts: [],
+  googleAccounts: [],
+  gamAccounts: [],
+  sites: [],
+  links: [],
+  fetchedAt: 0,
+});
+
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [metrics, setMetrics] = useState<DailyMetric[]>([]);
-  const [placements, setPlacements] = useState<Placement[]>([]);
-  const [rules, setRules] = useState<RulesConfig | null>(null);
-  const [alerts, setAlerts] = useState<DomainAlert[]>([]);
-  const [googleAccounts, setGoogleAccounts] = useState<GoogleAccount[]>([]);
-  const [gamAccounts, setGamAccounts] = useState<GamAccount[]>([]);
-  const [sites, setSites] = useState<Site[]>([]);
-  const [links, setLinks] = useState<AccountSiteLink[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const queryClient = useQueryClient();
+  const isGuest = !user;
 
-  const refresh = async () => {
-    setLoading(true);
+  const queryKey = useMemo(() => [...DASHBOARD_QK, user?.id ?? "guest"], [user?.id]);
+
+  const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
+    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { user: user?.id ?? "guest" });
+
     if (!user) {
       const store = loadGuestStore();
-      setCampaigns(store.campaigns);
-      setMetrics(store.metrics);
-      setPlacements(store.placements);
-      setRules(store.rules);
-      setAlerts(store.alerts);
-      setGoogleAccounts(store.googleAccounts);
-      setGamAccounts(store.gamAccounts);
-      setSites(store.sites);
-      setLinks(store.links);
-      setLastSyncedAt(new Date());
-      setLoading(false);
-      return;
+      return { ...store, fetchedAt: Date.now() };
     }
 
     const [c, m, p, r, a, ga, gam, s, l] = await Promise.all([
@@ -250,25 +261,44 @@ export function useDashboardData(): DashboardData {
       supabase.from("sites").select("*").order("name"),
       supabase.from("account_site_links").select("*"),
     ]);
-    setCampaigns((c.data ?? []) as Campaign[]);
-    setMetrics((m.data ?? []) as DailyMetric[]);
-    setPlacements((p.data ?? []) as Placement[]);
-    setRules((r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig));
-    setAlerts((a.data ?? []) as DomainAlert[]);
-    setGoogleAccounts((ga.data ?? []) as GoogleAccount[]);
-    setGamAccounts((gam.data ?? []) as GamAccount[]);
-    setSites((s.data ?? []) as Site[]);
-    setLinks((l.data ?? []) as AccountSiteLink[]);
-    setLastSyncedAt(new Date());
-    setLoading(false);
-  };
+
+    return {
+      campaigns: (c.data ?? []) as Campaign[],
+      metrics: (m.data ?? []) as DailyMetric[],
+      placements: (p.data ?? []) as Placement[],
+      rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
+      alerts: (a.data ?? []) as DomainAlert[],
+      googleAccounts: (ga.data ?? []) as GoogleAccount[],
+      gamAccounts: (gam.data ?? []) as GamAccount[],
+      sites: (s.data ?? []) as Site[],
+      links: (l.data ?? []) as AccountSiteLink[],
+      fetchedAt: Date.now(),
+    };
+  }, [user]);
+
+  const query = useQuery<DashboardSnapshot>({
+    queryKey,
+    queryFn: fetchAll,
+    enabled: !authLoading,
+    staleTime: 30_000,
+    placeholderData: emptySnapshot(),
+  });
+
+  const snap = query.data ?? emptySnapshot();
+
+  // Mantém o snapshot local de regras para que saveRules tenha fallback otimista
+  const [rulesLocalOverride] = useState<RulesConfig | null>(null);
+
+  const refresh = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: DASHBOARD_QK });
+  }, [queryClient]);
 
   const saveRules = async (nextRules: RulesConfig) => {
     if (!user) {
       const store = loadGuestStore();
       const next = { ...nextRules, user_id: GUEST_USER_ID };
       saveGuestStore({ ...store, rules: next });
-      setRules(next);
+      await refresh();
       return;
     }
     await supabase.from("rules_config").upsert({ ...nextRules, user_id: user.id }, { onConflict: "user_id" });
@@ -280,7 +310,7 @@ export function useDashboardData(): DashboardData {
       const store = loadGuestStore();
       const updated = store.alerts.map((a) => (a.id === id ? { ...a, acknowledged: true } : a));
       saveGuestStore({ ...store, alerts: updated });
-      setAlerts(updated);
+      await refresh();
       return;
     }
     await supabase.from("alerts").update({ acknowledged: true }).eq("id", id);
@@ -312,14 +342,12 @@ export function useDashboardData(): DashboardData {
   };
 
   const insertSampleData = async () => {
-    const store = createSampleStore(user?.id ?? GUEST_USER_ID, rules ?? RULES_DEFAULT);
+    const store = createSampleStore(user?.id ?? GUEST_USER_ID, snap.rules ?? RULES_DEFAULT);
     if (!user) {
       saveGuestStore(store);
       await refresh();
       return;
     }
-    // Para usuários logados só populamos as campanhas/metrics/placements de exemplo;
-    // contas/sites devem ser criados pelo painel de Integrações para serem reais.
     await supabase.from("campaigns").upsert(
       store.campaigns.map(({ id, google_account_id, ...row }) => row),
       { onConflict: "user_id,campaign_id" },
@@ -356,7 +384,7 @@ export function useDashboardData(): DashboardData {
       if (additions.length === 0) return;
       const updated = [...additions, ...store.alerts];
       saveGuestStore({ ...store, alerts: updated });
-      setAlerts(updated);
+      await refresh();
       return;
     }
     await supabase.from("alerts").insert(drafts.map((a) => ({
@@ -384,11 +412,9 @@ export function useDashboardData(): DashboardData {
     };
     if (!user) {
       const store = loadGuestStore();
-      const created: GoogleAccount = {
-        id: uid(), user_id: GUEST_USER_ID, ...row,
-      } as GoogleAccount;
+      const created: GoogleAccount = { id: uid(), user_id: GUEST_USER_ID, ...row } as GoogleAccount;
       saveGuestStore({ ...store, googleAccounts: [...store.googleAccounts, created] });
-      setGoogleAccounts((prev) => [...prev, created]);
+      await refresh();
       return;
     }
     await supabase.from("google_accounts").insert({ ...row, user_id: user.id });
@@ -398,11 +424,12 @@ export function useDashboardData(): DashboardData {
   const removeGoogleAccount = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      const next = store.googleAccounts.filter((a) => a.id !== id);
-      const linksNext = store.links.filter((l) => l.google_account_id !== id);
-      saveGuestStore({ ...store, googleAccounts: next, links: linksNext });
-      setGoogleAccounts(next);
-      setLinks(linksNext);
+      saveGuestStore({
+        ...store,
+        googleAccounts: store.googleAccounts.filter((a) => a.id !== id),
+        links: store.links.filter((l) => l.google_account_id !== id),
+      });
+      await refresh();
       return;
     }
     await supabase.from("account_site_links").delete().eq("google_account_id", id);
@@ -421,7 +448,7 @@ export function useDashboardData(): DashboardData {
       const store = loadGuestStore();
       const created: GamAccount = { id: uid(), user_id: GUEST_USER_ID, ...row } as GamAccount;
       saveGuestStore({ ...store, gamAccounts: [...store.gamAccounts, created] });
-      setGamAccounts((prev) => [...prev, created]);
+      await refresh();
       return;
     }
     await supabase.from("gam_accounts").insert({ ...row, user_id: user.id });
@@ -431,9 +458,8 @@ export function useDashboardData(): DashboardData {
   const removeGamAccount = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      const next = store.gamAccounts.filter((a) => a.id !== id);
-      saveGuestStore({ ...store, gamAccounts: next });
-      setGamAccounts(next);
+      saveGuestStore({ ...store, gamAccounts: store.gamAccounts.filter((a) => a.id !== id) });
+      await refresh();
       return;
     }
     await supabase.from("gam_accounts").delete().eq("id", id);
@@ -452,7 +478,7 @@ export function useDashboardData(): DashboardData {
       const store = loadGuestStore();
       const created: Site = { id: uid(), user_id: GUEST_USER_ID, ...row } as Site;
       saveGuestStore({ ...store, sites: [...store.sites, created] });
-      setSites((prev) => [...prev, created]);
+      await refresh();
       return;
     }
     await supabase.from("sites").insert({ ...row, user_id: user.id });
@@ -462,11 +488,12 @@ export function useDashboardData(): DashboardData {
   const removeSite = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      const next = store.sites.filter((s) => s.id !== id);
-      const linksNext = store.links.filter((l) => l.site_id !== id);
-      saveGuestStore({ ...store, sites: next, links: linksNext });
-      setSites(next);
-      setLinks(linksNext);
+      saveGuestStore({
+        ...store,
+        sites: store.sites.filter((s) => s.id !== id),
+        links: store.links.filter((l) => l.site_id !== id),
+      });
+      await refresh();
       return;
     }
     await supabase.from("account_site_links").delete().eq("site_id", id);
@@ -477,18 +504,15 @@ export function useDashboardData(): DashboardData {
   const addLink = async (googleAccountId: string, siteId: string) => {
     if (!user) {
       const store = loadGuestStore();
-      // Regra 1:1 — remove qualquer vínculo existente desta conta antes de criar o novo
       const filtered = store.links.filter((l) => l.google_account_id !== googleAccountId);
       const created: AccountSiteLink = {
         id: uid(), user_id: GUEST_USER_ID,
         google_account_id: googleAccountId, site_id: siteId,
       };
-      const next = [...filtered, created];
-      saveGuestStore({ ...store, links: next });
-      setLinks(next);
+      saveGuestStore({ ...store, links: [...filtered, created] });
+      await refresh();
       return;
     }
-    // Backend: apaga o link existente desta conta (1:1) e insere o novo
     await supabase.from("account_site_links").delete().eq("google_account_id", googleAccountId);
     await supabase.from("account_site_links").insert({
       user_id: user.id, google_account_id: googleAccountId, site_id: siteId,
@@ -499,34 +523,28 @@ export function useDashboardData(): DashboardData {
   const removeLink = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      const next = store.links.filter((l) => l.id !== id);
-      saveGuestStore({ ...store, links: next });
-      setLinks(next);
+      saveGuestStore({ ...store, links: store.links.filter((l) => l.id !== id) });
+      await refresh();
       return;
     }
     await supabase.from("account_site_links").delete().eq("id", id);
     await refresh();
   };
 
-  useEffect(() => {
-    if (!authLoading) refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
-
   return {
-    campaigns,
-    metrics,
-    placements,
-    rules,
-    alerts,
-    googleAccounts,
-    gamAccounts,
-    sites,
-    links,
-    loading,
+    campaigns: snap.campaigns,
+    metrics: snap.metrics,
+    placements: snap.placements,
+    rules: rulesLocalOverride ?? snap.rules,
+    alerts: snap.alerts,
+    googleAccounts: snap.googleAccounts,
+    gamAccounts: snap.gamAccounts,
+    sites: snap.sites,
+    links: snap.links,
+    loading: query.isLoading || query.isFetching,
     refresh,
-    lastSyncedAt,
-    isGuest: !user,
+    lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
+    isGuest,
     saveRules,
     acknowledgeAlert,
     queueAction,
