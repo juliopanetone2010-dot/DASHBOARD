@@ -99,7 +99,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       placement_cleanup_min_cost_brl: minCost,
       placement_cleanup_min_clicks: minClicks,
     });
-    toast({ title: on ? "Limpeza automática ativada (24h)" : "Limpeza automática desativada" });
+    toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
   const runPreview = async () => {
