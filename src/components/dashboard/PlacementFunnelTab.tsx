@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Play, Ban, RotateCcw, Sparkles, AlertTriangle, Filter } from "lucide-react";
+import { Loader2, RefreshCw, Play, Ban, RotateCcw, Sparkles, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
@@ -51,6 +52,20 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [lookback, setLookback] = useState(30);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [lastRun, setLastRun] = useState<string | null>(null);
+
+  const loadConfig = async () => {
+    const { data } = await supabase
+      .from("rules_config")
+      .select("placement_auto_cleanup_enabled, placement_cleanup_last_run_at")
+      .maybeSingle();
+    if (data) {
+      setAutoEnabled(!!data.placement_auto_cleanup_enabled);
+      setLastRun(data.placement_cleanup_last_run_at ?? null);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -67,14 +82,22 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadConfig(); }, []);
+
+  const toggleAuto = async (on: boolean) => {
+    setAutoEnabled(on);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.from("rules_config").update({ placement_auto_cleanup_enabled: on }).eq("user_id", u.user.id);
+    toast({ title: on ? "Esteira automática ligada (diária)" : "Esteira automática desligada" });
+  };
 
   const evaluateNow = async () => {
     setEvaluating(true);
     try {
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
-        { body: { mode: "preview", lookback_days: 30, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "preview", lookback_days: lookback, fx_usd_brl: fxUsdBrl } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao avaliar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -82,6 +105,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       }
       toast({ title: "Funil atualizado", description: `${data?.summary?.total ?? 0} placements analisados, ${data?.summary?.transitions ?? 0} mudanças de status` });
       await load();
+      await loadConfig();
     } finally { setEvaluating(false); }
   };
 
@@ -159,7 +183,19 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Esteira inteligente de placements</div>
           <div className="text-xs text-muted-foreground">
-            Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Bloqueia só quando claramente ruim.
+            Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Só bloqueia quando claramente ruim.
+          </div>
+        </div>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Período
+          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 30))} className="h-7 w-16 text-xs" />
+          <span className="text-[10px]">dias</span>
+        </label>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
+          <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
+          <div className="text-xs">
+            <div className="font-medium">Esteira automática</div>
+            <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={evaluateNow} disabled={evaluating}>
