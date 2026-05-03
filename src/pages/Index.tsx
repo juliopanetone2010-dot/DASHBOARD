@@ -358,6 +358,10 @@ const Index = () => {
             />
           </TabsContent>
 
+          <TabsContent value="retention" className="mt-6">
+            <RetentionTab campaigns={data.campaigns} />
+          </TabsContent>
+
           <TabsContent value="rules" className="mt-6">
             <RulesPanel rules={data.rules} onSave={data.saveRules} />
           </TabsContent>
