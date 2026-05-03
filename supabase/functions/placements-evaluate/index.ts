@@ -119,6 +119,20 @@ Deno.serve(async (req) => {
       revByCampaign.set(cid, inner);
     }
 
+    const spendByCampaign = new Map<string, number>();
+    s = 0;
+    for (;;) {
+      const { data, error } = await admin.from("daily_metrics")
+        .select("campaign_id, spend")
+        .eq("user_id", userId).gte("date", from).lte("date", to)
+        .range(s, s + 999);
+      if (error) return json({ error: error.message });
+      const rows = data ?? [];
+      for (const r of rows) spendByCampaign.set(String(r.campaign_id), (spendByCampaign.get(String(r.campaign_id)) ?? 0) + Number(r.spend ?? 0));
+      if (rows.length < 1000) break;
+      s += 1000;
+    }
+
     interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
     const agg = new Map<string, Agg>();
     for (const r of ads) {
@@ -137,6 +151,35 @@ Deno.serve(async (req) => {
       a.conversions += conv;
       if (conv > 0) a.lastConvDate = a.lastConvDate && a.lastConvDate > r.date ? a.lastConvDate : r.date;
       if (r.date < a.firstDate) a.firstDate = r.date;
+    }
+
+    // Fallback: se a campanha tem custo no dashboard, mas não trouxe linhas em
+    // ads_placements no período, distribui o custo pelos placements com receita.
+    // Isso evita campanha/placement zerado quando a sincronização detalhada do Ads
+    // ainda não cobriu aquela campanha.
+    const costByCampaignFromAds = new Map<string, number>();
+    for (const a of agg.values()) costByCampaignFromAds.set(a.campaign_id, (costByCampaignFromAds.get(a.campaign_id) ?? 0) + a.cost);
+    for (const [cid, revMap] of revByCampaign) {
+      if ((costByCampaignFromAds.get(cid) ?? 0) > 0) continue;
+      const spend = spendByCampaign.get(cid) ?? 0;
+      if (spend <= 0 || revMap.size === 0) continue;
+      const totalUsd = [...revMap.values()].reduce((a, b) => a + b, 0);
+      if (totalUsd <= 0) continue;
+      for (const [placement, usd] of revMap) {
+        const k = cpKey(cid, placement);
+        if (agg.has(k)) continue;
+        agg.set(k, {
+          campaign_id: cid,
+          placement,
+          type: "WEBSITE",
+          cost: spend * (usd / totalUsd),
+          clicks: 0,
+          impressions: 0,
+          conversions: 0,
+          lastConvDate: null,
+          firstDate: from,
+        });
+      }
     }
 
     // Carrega status atuais
