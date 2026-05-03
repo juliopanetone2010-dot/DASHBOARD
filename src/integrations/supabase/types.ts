@@ -339,10 +339,12 @@ export type Database = {
           id: string
           impressions: number
           placement: string
+          raw_utm: string | null
           revenue_usd: number
           site_id: string | null
           source: string | null
           user_id: string
+          utm_source: string | null
         }
         Insert: {
           campaign_id: string
@@ -351,10 +353,12 @@ export type Database = {
           id?: string
           impressions?: number
           placement: string
+          raw_utm?: string | null
           revenue_usd?: number
           site_id?: string | null
           source?: string | null
           user_id: string
+          utm_source?: string | null
         }
         Update: {
           campaign_id?: string
@@ -363,10 +367,12 @@ export type Database = {
           id?: string
           impressions?: number
           placement?: string
+          raw_utm?: string | null
           revenue_usd?: number
           site_id?: string | null
           source?: string | null
           user_id?: string
+          utm_source?: string | null
         }
         Relationships: []
       }
