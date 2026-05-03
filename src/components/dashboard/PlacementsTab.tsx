@@ -54,7 +54,6 @@ type SortKey = "roi" | "cost" | "conversions" | "ctr" | "impressions";
 interface Props {
   campaigns: Campaign[];
   googleAccounts: GoogleAccount[];
-  rawPlacements: Placement[];      // GAM (para tentar atribuir receita por domínio)
   fxUsdBrl?: number;               // câmbio aproximado (vem da última sync)
 }
 
