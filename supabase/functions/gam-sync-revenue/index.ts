@@ -505,15 +505,19 @@ async function applyGoogleUtmRevenue(
 
   const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
+  // Total Google por dia (mesmo sem cid resolvido) para distribuir proporcionalmente ao spend.
+  const googleTotalByDate = new Map<string, { revenue: number; impressions: number }>();
   for (const r of googleCampaignRows) {
-    if (!r.cid) continue;
     const date = r.date ?? today;
+    const tot = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
+    tot.revenue += r.revenue; tot.impressions += r.impressions;
+    googleTotalByDate.set(date, tot);
+    if (!r.cid) continue;
     if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
     const inner = directByDateCid.get(date)!;
     const cur = inner.get(r.cid) ?? { revenue: 0, impressions: 0 };
     cur.revenue += r.revenue; cur.impressions += r.impressions;
     inner.set(r.cid, cur);
-
   }
 
   for (const r of googlePlacementRows) {
