@@ -206,7 +206,10 @@ Deno.serve(async (req) => {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
       const k = cpKey(a.campaign_id, a.placement);
-      const usd = revByKey.get(k) ?? 0;
+      const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
+      const root = rootDomain(a.placement);
+      let usd = campaignRevenue.get(a.placement) ?? 0;
+      if (usd <= 0 && root && root !== a.placement) usd = campaignRevenue.get(root) ?? 0;
       const revenue_brl = usd * REV_SHARE_NET * fxUsdBrl;
       const profit = revenue_brl - a.cost;
       const roi = a.cost > 0 ? (profit / a.cost) * 100 : 0;
@@ -304,8 +307,10 @@ Deno.serve(async (req) => {
         prev_roi_pct: ex?.roi_pct ?? null,
         last_evaluated_at: nowIso,
         first_seen_at: firstSeen,
-        last_status_change_at: ex && prevStatus === status ? undefined : nowIso,
+        last_status_change_at: ex?.last_status_change_at ?? nowIso,
+        blocked_at: ex?.blocked_at ?? null,
       };
+      if (statusChanged) row.last_status_change_at = nowIso;
       if (status === "blocked" && (!ex || ex.status !== "blocked")) row.blocked_at = nowIso;
       // remove undefined
       for (const k2 of Object.keys(row)) if (row[k2] === undefined) delete row[k2];
@@ -415,6 +420,15 @@ function normalize(value: string, type?: string | null): string {
   } catch {
     return raw.replace(/^www\./, "");
   }
+}
+function rootDomain(host: string): string {
+  if (!host || host.includes("/") || !host.includes(".")) return host;
+  const parts = host.split(".");
+  if (parts.length <= 2) return host;
+  const last2 = parts.slice(-2).join(".");
+  const cc = new Set(["com.br", "co.uk", "com.au", "com.mx", "co.jp", "com.ar", "co.in"]);
+  if (cc.has(last2) && parts.length >= 3) return parts.slice(-3).join(".");
+  return last2;
 }
 function json(p: unknown) {
   return new Response(JSON.stringify(p), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
