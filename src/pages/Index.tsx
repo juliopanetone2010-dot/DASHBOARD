@@ -204,6 +204,7 @@ const Index = () => {
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
+              links={data.links}
             />
 
             <div className="flex flex-wrap items-center gap-2">

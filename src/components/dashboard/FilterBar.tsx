@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Campaign, GoogleAccount, Site } from "@/types/domain";
+import type { AccountSiteLink, Campaign, GoogleAccount, Site } from "@/types/domain";
 
 // Usa data local (timezone do usuário), não UTC — evita "Hoje" vazio perto da meia-noite
 const toISO = (d: Date) => {
@@ -65,17 +65,26 @@ interface Props {
   googleAccounts: GoogleAccount[];
   sites: Site[];
   campaigns: Campaign[];
+  links?: AccountSiteLink[];
   onPresetApply?: (preset: DatePresetKey, gaql: string) => void;
 }
 
-export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, onPresetApply }: Props) {
+export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, links = [], onPresetApply }: Props) {
   const set = <K extends keyof DashboardFilters>(k: K, v: DashboardFilters[K]) =>
     onChange({ ...filters, [k]: v });
+
+  // Quando um site é selecionado, só listamos contas Ads vinculadas a ele
+  const linkedAccountIdsForSite = filters.siteId === "all"
+    ? null
+    : new Set(links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id));
+  const visibleAccounts = linkedAccountIdsForSite
+    ? googleAccounts.filter((a) => linkedAccountIdsForSite.has(a.id))
+    : googleAccounts;
 
   const selectedAccountIds = filters.googleAccountIds;
   const allAccountsSelected = selectedAccountIds.length === 0;
   const accountLabel = allAccountsSelected
-    ? "Todas as contas"
+    ? linkedAccountIdsForSite ? `Todas as contas do site (${visibleAccounts.length})` : "Todas as contas"
     : selectedAccountIds.length === 1
       ? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.account_name
         ?? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.customer_id
@@ -87,6 +96,17 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
       ? selectedAccountIds.filter((accountId) => accountId !== id)
       : [...selectedAccountIds, id];
     set("googleAccountIds", next);
+  };
+
+  const handleSiteChange = (v: string) => {
+    // Ao trocar site, remove contas que não estão vinculadas a ele
+    if (v === "all") {
+      onChange({ ...filters, siteId: v });
+      return;
+    }
+    const linked = new Set(links.filter((l) => l.site_id === v).map((l) => l.google_account_id));
+    const nextAccounts = filters.googleAccountIds.filter((id) => linked.has(id));
+    onChange({ ...filters, siteId: v, googleAccountIds: nextAccounts });
   };
 
   const isDirty =
@@ -145,7 +165,12 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
                 Todas as contas
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              {googleAccounts.map((a) => (
+              {visibleAccounts.length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Nenhuma conta vinculada a este site. Configure em Integrações → Vínculos.
+                </div>
+              )}
+              {visibleAccounts.map((a) => (
                 <DropdownMenuCheckboxItem
                   key={a.id}
                   checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
@@ -162,7 +187,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Site</label>
-          <Select value={filters.siteId} onValueChange={(v) => set("siteId", v)}>
+          <Select value={filters.siteId} onValueChange={handleSiteChange}>
             <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os sites</SelectItem>
