@@ -165,3 +165,22 @@ function json(payload: unknown) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+// Normaliza placement do Ads para domínio:
+// "https://afrisearch.com/page" → "afrisearch.com"
+// "mobileapp::1-com.foo.bar"   → "com.foo.bar"
+// "youtube.com/channel/UCxx"   → "youtube.com"
+function cleanPlacement(placement: string, targetUrl: string | null): string {
+  const candidate = (placement || targetUrl || "").trim();
+  if (!candidate) return "";
+  // App Android/iOS
+  const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
+  if (appMatch) return appMatch[1].toLowerCase();
+  // URL completa
+  try {
+    const u = new URL(candidate.startsWith("http") ? candidate : `https://${candidate}`);
+    return u.hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return candidate.replace(/^www\./, "").toLowerCase();
+  }
+}
