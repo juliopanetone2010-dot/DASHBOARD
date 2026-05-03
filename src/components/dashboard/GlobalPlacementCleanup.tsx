@@ -28,6 +28,7 @@ interface PreviewItem {
   key?: string;
   placement: string;
   type: string;
+  app_id?: string | null;
   cost_brl: number;
   revenue_brl: number;
   revenue_usd: number;
