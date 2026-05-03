@@ -214,14 +214,30 @@ const Index = () => {
             />
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita: USD nativo (GAM)</Badge>
+              <Badge variant="outline">Receita líquida (rev share {(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline">USD nativo (GAM)</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
-                <Badge variant="secondary">Dados podem atrasar até algumas horas</Badge>
+                <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
               {totals.revenue === 0 && (
-                <Badge variant="secondary">GAM pode atrasar. Mostrando último dado disponível.</Badge>
+                <Badge variant="secondary">Sem receita do GAM no período</Badge>
               )}
+              <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
+                {showDebug ? "Ocultar debug" : "Mostrar debug"}
+              </Button>
             </div>
+
+            {showDebug && (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs font-mono space-y-1">
+                <div>gross_revenue_usd: <b>{grossRevenueUsd.toFixed(6)}</b></div>
+                <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
+                <div>gross_profit_brl : <b>{grossProfitBrl.toFixed(2)}</b></div>
+                <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
+                <div>spend_brl        : <b>{totals.spend.toFixed(2)}</b></div>
+                <div>roi              : <b>{totals.roi.toFixed(2)}%</b> · roas <b>{totals.roas.toFixed(2)}x</b></div>
+                <div>campaigns: {engine?.aggregates.length ?? 0} · metrics rows: {filtered.metrics.length} · placements: {filtered.placements.length}</div>
+              </div>
+            )}
 
             {/* Métricas */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
