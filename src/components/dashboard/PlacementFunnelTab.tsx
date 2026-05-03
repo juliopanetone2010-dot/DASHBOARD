@@ -61,6 +61,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
+  const [accounts, setAccounts] = useState<AccountOpt[]>([]);
+  const [sites, setSites] = useState<SiteOpt[]>([]);
+  const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
+  const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
+
   const loadConfig = async () => {
     const { data } = await supabase
       .from("rules_config")
@@ -70,6 +75,19 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       setAutoEnabled(!!data.placement_auto_cleanup_enabled);
       setLastRun(data.placement_cleanup_last_run_at ?? null);
     }
+    const [{ data: accs }, { data: siteRows }, { data: linkRows }] = await Promise.all([
+      supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id").order("account_name", { ascending: true }),
+      supabase.from("sites").select("id, name").order("name", { ascending: true }),
+      supabase.from("account_site_links").select("site_id, google_account_id"),
+    ]);
+    setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
+    const linksBySite = new Map<string, string[]>();
+    for (const l of linkRows ?? []) {
+      const arr = linksBySite.get(l.site_id) ?? [];
+      arr.push(l.google_account_id);
+      linksBySite.set(l.site_id, arr);
+    }
+    setSites((siteRows ?? []).map((s: any) => ({ id: s.id, name: s.name, account_ids: linksBySite.get(s.id) ?? [] })));
   };
 
   const load = async () => {
