@@ -52,6 +52,20 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [lookback, setLookback] = useState(30);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [lastRun, setLastRun] = useState<string | null>(null);
+
+  const loadConfig = async () => {
+    const { data } = await supabase
+      .from("rules_config")
+      .select("placement_auto_cleanup_enabled, placement_cleanup_last_run_at")
+      .maybeSingle();
+    if (data) {
+      setAutoEnabled(!!data.placement_auto_cleanup_enabled);
+      setLastRun(data.placement_cleanup_last_run_at ?? null);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -68,14 +82,22 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadConfig(); }, []);
+
+  const toggleAuto = async (on: boolean) => {
+    setAutoEnabled(on);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.from("rules_config").update({ placement_auto_cleanup_enabled: on }).eq("user_id", u.user.id);
+    toast({ title: on ? "Esteira automática ligada (diária)" : "Esteira automática desligada" });
+  };
 
   const evaluateNow = async () => {
     setEvaluating(true);
     try {
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
-        { body: { mode: "preview", lookback_days: 30, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "preview", lookback_days: lookback, fx_usd_brl: fxUsdBrl } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao avaliar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -83,6 +105,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       }
       toast({ title: "Funil atualizado", description: `${data?.summary?.total ?? 0} placements analisados, ${data?.summary?.transitions ?? 0} mudanças de status` });
       await load();
+      await loadConfig();
     } finally { setEvaluating(false); }
   };
 
