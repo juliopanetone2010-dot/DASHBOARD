@@ -394,11 +394,11 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           <div className="flex flex-wrap items-center gap-2">
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
-                Receita atribuída via UTM: {matchedCount}/{aggregated.length} placement(s)
+                Receita atribuída: {matchedCount}/{aggregated.length} placement(s)
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
-                Sem receita atribuída — GAM não tem ad units com padrão {`{campaignid}_{placement}`} para esta campanha.
+                Sem receita atribuída — sincronize o GAM ou aplique UTM nas campanhas.
               </Badge>
             )}
             <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
@@ -409,7 +409,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
               <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
-              <div>matched: <b>{matchedCount}</b> · sem match: <b>{aggregated.length - matchedCount}</b></div>
+              <div>receita campanha (fallback): <b>{campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0).toFixed(4)} USD</b></div>
+              <div>matched/com receita: <b>{matchedCount}</b> · sem receita: <b>{aggregated.length - matchedCount}</b></div>
               <div>fx USD→BRL: <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
             </div>
           )}
@@ -454,7 +455,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     </TableCell></TableRow>
                   )}
                   {visible.map((r) => {
-                    const matched = gamRevenueByPlacement.has(r.placement);
+                    const matched = r.revenueSource !== "none";
                     const negative = matched && r.roi < 0;
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.cost > 20 && r.conversions === 0;
@@ -464,7 +465,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {!matched && <Badge variant="outline" className="text-[9px]">sem UTM</Badge>}
+                            {r.revenueSource === "utm" && <Badge variant="outline" className="text-[9px]">UTM</Badge>}
+                            {r.revenueSource === "campaign_estimate" && <Badge variant="secondary" className="text-[9px]">estimado</Badge>}
+                            {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
