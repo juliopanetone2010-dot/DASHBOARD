@@ -93,17 +93,20 @@ Deno.serve(async (req) => {
         const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
         let googleUtmRows: ReportRow[] = [];
+        const allUtmRows: ReportRow[] = [];
         let customCriteriaAvailable = false;
+        const sourceCounts: Record<string, number> = {};
         try {
           const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
           customCriteriaAvailable = true;
-          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
-          const otherUtmRows = customCriteriaRows.filter((r) => {
+          for (const r of customCriteriaRows) {
             const parsed = parseGamAttribution(r.name);
-            return parsed?.source && parsed.source !== "google";
-          }).length;
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm_source=google rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
+            if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
+            if (parsed?.cid) allUtmRows.push(r);
+            if (parsed?.source === "google") googleUtmRows.push(r);
+          }
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
