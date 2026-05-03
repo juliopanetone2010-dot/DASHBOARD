@@ -101,36 +101,85 @@ Deno.serve(async (req) => {
 
         // 1) Descobre IDs dos custom targeting keys utm_source, utm_campaign, utm_placement
         const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
-        const haveAllKeys = utmKeyIds.utm_source && utmKeyIds.utm_campaign && utmKeyIds.utm_placement;
+        const haveSourceCampaign = utmKeyIds.utm_source && utmKeyIds.utm_campaign;
 
-        // 2) Roda report com CUSTOM_DIMENSION_*_VALUE (UTM nativo via key-values do GAM)
+        // 2) Reports separados — cruzar 3+ custom dims juntas faz GAM retornar "(not applicable)".
+        //    Report A: utm_source + utm_campaign  → atribuição de receita por campanha (Google Ads)
+        //    Report B: utm_source + utm_placement → debug/inspeção de placements
         let utmRows: AttributedRow[] = [];
-        if (haveAllKeys) {
-          const customDimensionKeyIds = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!, utmKeyIds.utm_placement!];
-          const dims = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE", "CUSTOM_DIMENSION_2_VALUE"];
-          const reportRows = (await Promise.all(ranges.map((range) =>
-            runReport({ networkCode, accessToken, range, dimensions: dims, customDimensionKeyIds, debug })
+        if (haveSourceCampaign) {
+          const dimsA = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"];
+          const keyIdsA = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!];
+          const reportRowsA = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: dimsA, customDimensionKeyIds: keyIdsA, debug })
           ))).flat();
-          for (const r of reportRows) {
+          for (const r of reportRowsA) {
             const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
-            const campaignRaw = (r.dims[2] || "").trim();
-            const placementRaw = (r.dims[3] || "").trim();
-            const cid = /^\d{6,}$/.test(campaignRaw) ? campaignRaw : null;
-            const placement = placementRaw ? extractPlacementValue(placementRaw, cid) : null;
+            const campaignRaw = safeDecode((r.dims[2] || "").trim());
+            let cid: string | null = null;
+            const m1 = campaignRaw.match(/(\d{6,})/);
+            if (m1) cid = m1[1];
             utmRows.push({
-              date: r.date,
-              impressions: r.impressions,
-              revenue: r.revenue,
-              source,
-              cid,
-              placement,
-              raw: `s=${r.dims[1]}|c=${r.dims[2]}|p=${r.dims[3]}`,
+              date: r.date, impressions: r.impressions, revenue: r.revenue,
+              source, cid, placement: null,
+              raw: `s=${r.dims[1]}|c=${r.dims[2]}`,
             });
           }
-          const sourceCounts = utmRows.reduce((acc: Record<string, number>, r) => {
-            acc[r.source] = (acc[r.source] ?? 0) + 1; return acc;
+          if (utmKeyIds.utm_placement) {
+            const reportRowsB = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"],
+                customDimensionKeyIds: [utmKeyIds.utm_source!, utmKeyIds.utm_placement!], debug,
+              })
+            ))).flat();
+            for (const r of reportRowsB) {
+              const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
+              const placementRaw = (r.dims[2] || "").trim();
+              if (!placementRaw || placementRaw === "(not applicable)") continue;
+              const placement = extractPlacementValue(placementRaw, null);
+              const cidMatch = safeDecode(placementRaw).match(/(\d{6,})/);
+              utmRows.push({
+                date: r.date, impressions: r.impressions, revenue: r.revenue,
+                source, cid: cidMatch ? cidMatch[1] : null, placement,
+                raw: `s=${r.dims[1]}|p=${r.dims[2]}`,
+              });
+            }
+            debug.push(`[${networkCode}/UTM-B placement] linhas=${reportRowsB.length}`);
+          }
+          const sourceStats = utmRows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number }>, r) => {
+            const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0 };
+            s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++;
+            acc[r.source] = s; return acc;
           }, {});
-          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; sources=${JSON.stringify(sourceCounts)}`);
+          debug.push(`[${networkCode}/UTM-A] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
+          const sample = utmRows.filter((r) => r.source === "google").slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}`);
+          debug.push(`[${networkCode}/UTM google sample]=${JSON.stringify(sample)}`);
+
+          // DIAG: confere se a chave utm_campaign realmente recebe valores no inventário do GAM
+          try {
+            const diag = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
+                customDimensionKeyIds: [utmKeyIds.utm_campaign!], debug,
+              })
+            ))).flat();
+            const cMap = new Map<string, { rev: number; impr: number }>();
+            for (const r of diag) {
+              const v = (r.dims[1] || "(empty)").trim();
+              const cur = cMap.get(v) ?? { rev: 0, impr: 0 };
+              cur.rev += r.revenue; cur.impr += r.impressions;
+              cMap.set(v, cur);
+            }
+            const top = [...cMap.entries()].sort((a, b) => b[1].rev - a[1].rev).slice(0, 5)
+              .map(([k, v]) => `${k}=$${v.rev.toFixed(2)}/${v.impr}imp`);
+            const realValues = [...cMap.keys()].filter((k) => k && k !== "(not applicable)" && k !== "(empty)").length;
+            debug.push(`[${networkCode}/DIAG utm_campaign solo] valores_reais=${realValues}; top=${JSON.stringify(top)}`);
+            if (realValues === 0) {
+              debug.push(`⚠️ A chave utm_campaign EXISTE no GAM mas o ad tag do site NÃO está enviando esse key-value. Configure googletag.pubads().setTargeting('utm_campaign', getParam('utm_campaign')) no header do site (idem utm_source/utm_placement/utm_adgroup/utm_content).`);
+            }
+          } catch (e) { debug.push(`[DIAG utm_campaign] erro: ${String(e)}`); }
         } else {
           debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
