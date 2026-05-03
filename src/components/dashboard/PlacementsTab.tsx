@@ -105,6 +105,15 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       setRows((data ?? []) as AdsPlacementRow[]);
       setLimit(PAGE_SIZE);
 
+      // Receita do GAM atribuída via UTM (campaign_id + placement)
+      const { data: gamData } = await supabase
+        .from("gam_placement_revenue")
+        .select("placement, revenue_usd, impressions, date")
+        .eq("campaign_id", cid)
+        .gte("date", range.from)
+        .lte("date", range.to);
+      setGamRows((gamData ?? []) as GamRevRow[]);
+
       // Carrega ações (blacklist/favorite) para os placements desta campanha
       const { data: acts } = await supabase
         .from("placement_actions")
@@ -123,30 +132,31 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, preset]);
 
-  // Tenta achar receita do GAM por placement (match por domínio/host).
-  const gamRevenueByHost = useMemo(() => {
+  // Receita GAM por placement (já agrupada via UTM no backend)
+  const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
-    for (const p of rawPlacements) {
-      const key = (p.site || "").toLowerCase().replace(/^www\./, "");
+    for (const g of gamRows) {
+      const key = (g.placement || "").toLowerCase();
       if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + Number(p.revenue ?? 0));
+      map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
     return map;
-  }, [rawPlacements]);
+  }, [gamRows]);
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
     for (const r of rows) {
-      let agg = map.get(r.placement);
+      const key = r.placement_clean || r.placement;
+      let agg = map.get(key);
       if (!agg) {
         agg = {
-          placement: r.placement,
+          placement: key,
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
           impressions: 0, clicks: 0, cost: 0, conversions: 0,
           revenue: 0, profit: 0, roi: 0, ctr: 0, cpc: 0,
         };
-        map.set(r.placement, agg);
+        map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
@@ -155,8 +165,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       agg.conversions += Number(r.conversions);
     }
     for (const a of map.values()) {
-      const host = a.placement.toLowerCase().replace(/^www\./, "").replace(/^https?:\/\//, "").split("/")[0];
-      const grossUsd = gamRevenueByHost.get(host) ?? 0;
+      const grossUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
       const revBrl = grossUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
       a.revenue = revBrl;
       a.profit = revBrl - a.cost;
@@ -165,7 +174,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.cpc = a.clicks > 0 ? a.cost / a.clicks : 0;
     }
     return [...map.values()];
-  }, [rows, gamRevenueByHost, fxUsdBrl]);
+  }, [rows, gamRevenueByPlacement, fxUsdBrl]);
 
   const sorted = useMemo(() => {
     const arr = [...aggregated];
