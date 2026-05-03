@@ -267,6 +267,32 @@ Deno.serve(async (req) => {
       });
     }
 
+    // exclude_country: adiciona um campaign_criterion negativo de location (geoTargetConstant)
+    if (action === "exclude_country") {
+      const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
+      if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
+
+      const mutateBody = {
+        operations: [{
+          create: {
+            campaign: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            negative: true,
+            location: { geoTargetConstant: `geoTargetConstants/${countryCriterionId}` },
+          },
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaignCriteria:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await logAction("executed", { country_criterion_id: countryCriterionId });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId });
+    }
+
     return json({ error: "unreachable" });
   } catch (e) {
     console.error("[google-ads-mutate] uncaught", e);
