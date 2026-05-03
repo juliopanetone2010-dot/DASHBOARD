@@ -399,13 +399,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtCurrency(r.cost)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {hasGamRevenue ? fmtCurrency(r.revenue) : "—"}
+                          {matched ? fmtCurrency(r.revenue) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-medium", hasGamRevenue ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {hasGamRevenue ? fmtCurrency(r.profit) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtCurrency(r.profit) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-semibold", hasGamRevenue ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {hasGamRevenue ? fmtPercent(r.roi) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtPercent(r.roi) : "—"}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
