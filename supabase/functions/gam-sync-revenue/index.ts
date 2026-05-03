@@ -477,15 +477,15 @@ async function collectUtmAttribution(args: {
   debug.push(`[${networkCode}/${label}] total_rows=${rows.length}; por_source=${JSON.stringify(sourceStats)}`);
 
   // Debug linha-a-linha (até 20 amostras com receita > 0)
-  const samples = rows.filter((r) => r.revenue > 0).slice(0, 20).map((r) =>
+  const samples = [...campaignRows, ...placementRows, ...sourceRows].filter((r) => r.revenue > 0).slice(0, 20).map((r) =>
     `${r.date}|src=${r.source}|cid=${r.cid ?? "-"}|placement=${r.placement ?? "-"}|rev=${r.revenue.toFixed(4)}|${r.raw}`
   );
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
   // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  const googleCampaignRows = rows.filter((r) => r.source === "google" && r.cid);
-  const googlePlacementRows = rows.filter((r) => r.source === "google" && r.cid && r.placement);
-  const retentionRows = rows; // todas — persistCampaignSourceRevenueFromUtm já agrega por source
+  const googleCampaignRows = campaignRows;
+  const googlePlacementRows = placementRows.filter((r) => r.placement);
+  const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
 
