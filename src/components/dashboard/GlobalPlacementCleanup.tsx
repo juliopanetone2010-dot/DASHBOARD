@@ -281,7 +281,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
-                onChange={(e) => setAccountFilter(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAccountFilter(next);
+                  // mantém apenas seleções da conta escolhida
+                  setSelected((s) => {
+                    if (next === "all") return s;
+                    const allowed = new Set(items.filter((i) => i.campaigns.some((c) => c.google_account_id === next)).map(itemKey));
+                    return new Set([...s].filter((k) => allowed.has(k)));
+                  });
+                }}
               >
                 <option value="all">Todas as contas ({accounts.length})</option>
                 {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
