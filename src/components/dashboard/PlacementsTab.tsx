@@ -63,7 +63,7 @@ interface Props {
 const PAGE_SIZE = 100;
 
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
-  const { range, version, presetKey, filters: globalFilters } = useDashboardFilters();
+  const { range, version, presetKey, filters: globalFilters, setFilters: setGlobalFilters } = useDashboardFilters();
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [lastAutoSelectedAccount, setLastAutoSelectedAccount] = useState<string | null>(null);
