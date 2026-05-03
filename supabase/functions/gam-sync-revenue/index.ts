@@ -254,9 +254,16 @@ function extractCampaignIdFromName(name: string): string | null {
 
 function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
   if (!name) return null;
-  const m = name.match(/^(\d{6,})[_\-:](.+)$/);
+  const decoded = safeDecode(String(name).trim());
+  const utm = decoded.match(/(?:^|[\s,;|])utm_placement[=~*]*([^\s,;|]+)/i);
+  const candidate = utm?.[1] ?? decoded;
+  const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
   if (!m) return null;
   return { cid: m[1], placement: normalizePlacement(m[2]) };
+}
+
+function safeDecode(s: string): string {
+  try { return decodeURIComponent(s); } catch { return s; }
 }
 
 function normalizePlacement(s: string): string {
