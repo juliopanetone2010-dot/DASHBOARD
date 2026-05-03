@@ -101,44 +101,60 @@ Deno.serve(async (req) => {
 
         // 1) Descobre IDs dos custom targeting keys utm_source, utm_campaign, utm_placement
         const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
-        const haveAllKeys = utmKeyIds.utm_source && utmKeyIds.utm_campaign && utmKeyIds.utm_placement;
+        const haveSourceCampaign = utmKeyIds.utm_source && utmKeyIds.utm_campaign;
 
-        // 2) Roda report com CUSTOM_DIMENSION_*_VALUE (UTM nativo via key-values do GAM)
+        // 2) Reports separados — cruzar 3+ custom dims juntas faz GAM retornar "(not applicable)".
+        //    Report A: utm_source + utm_campaign  → atribuição de receita por campanha (Google Ads)
+        //    Report B: utm_source + utm_placement → debug/inspeção de placements
         let utmRows: AttributedRow[] = [];
-        if (haveAllKeys) {
-          const customDimensionKeyIds = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!, utmKeyIds.utm_placement!];
-          const dims = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE", "CUSTOM_DIMENSION_2_VALUE"];
-          const reportRows = (await Promise.all(ranges.map((range) =>
-            runReport({ networkCode, accessToken, range, dimensions: dims, customDimensionKeyIds, debug })
+        if (haveSourceCampaign) {
+          const dimsA = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"];
+          const keyIdsA = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!];
+          const reportRowsA = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: dimsA, customDimensionKeyIds: keyIdsA, debug })
           ))).flat();
-          for (const r of reportRows) {
+          for (const r of reportRowsA) {
             const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
             const campaignRaw = safeDecode((r.dims[2] || "").trim());
-            const placementRaw = (r.dims[3] || "").trim();
-            // utm_campaign vem como "{campaignid}" → numérico. Aceita também valores prefixados.
             let cid: string | null = null;
             const m1 = campaignRaw.match(/(\d{6,})/);
             if (m1) cid = m1[1];
-            const placement = placementRaw ? extractPlacementValue(placementRaw, cid) : null;
             utmRows.push({
-              date: r.date,
-              impressions: r.impressions,
-              revenue: r.revenue,
-              source,
-              cid,
-              placement,
-              raw: `s=${r.dims[1]}|c=${r.dims[2]}|p=${r.dims[3]}`,
+              date: r.date, impressions: r.impressions, revenue: r.revenue,
+              source, cid, placement: null,
+              raw: `s=${r.dims[1]}|c=${r.dims[2]}`,
             });
+          }
+          if (utmKeyIds.utm_placement) {
+            const reportRowsB = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE"],
+                customDimensionKeyIds: [utmKeyIds.utm_source!, utmKeyIds.utm_placement!], debug,
+              })
+            ))).flat();
+            for (const r of reportRowsB) {
+              const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
+              const placementRaw = (r.dims[2] || "").trim();
+              if (!placementRaw || placementRaw === "(not applicable)") continue;
+              const placement = extractPlacementValue(placementRaw, null);
+              const cidMatch = safeDecode(placementRaw).match(/(\d{6,})/);
+              utmRows.push({
+                date: r.date, impressions: r.impressions, revenue: r.revenue,
+                source, cid: cidMatch ? cidMatch[1] : null, placement,
+                raw: `s=${r.dims[1]}|p=${r.dims[2]}`,
+              });
+            }
+            debug.push(`[${networkCode}/UTM-B placement] linhas=${reportRowsB.length}`);
           }
           const sourceStats = utmRows.reduce((acc: Record<string, { rows: number; rev: number; impr: number; cidOk: number }>, r) => {
             const s = acc[r.source] ?? { rows: 0, rev: 0, impr: 0, cidOk: 0 };
             s.rows++; s.rev += r.revenue; s.impr += r.impressions; if (r.cid) s.cidOk++;
             acc[r.source] = s; return acc;
           }, {});
-          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
-          // Sample raw para inspecao
-          const sample = utmRows.slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|impr=${r.impressions}|cid=${r.cid}`);
-          debug.push(`[${networkCode}/UTM] sample=${JSON.stringify(sample)}`);
+          debug.push(`[${networkCode}/UTM-A] linhas=${utmRows.length}; por source=${JSON.stringify(sourceStats)}`);
+          const sample = utmRows.filter((r) => r.source === "google").slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}`);
+          debug.push(`[${networkCode}/UTM google sample]=${JSON.stringify(sample)}`);
         } else {
           debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
