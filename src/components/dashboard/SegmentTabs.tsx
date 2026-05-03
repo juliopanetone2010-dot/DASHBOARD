@@ -92,7 +92,7 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
 export function SegmentTabs({
   aggregates, placements, googleAccounts, sites, links,
 }: Props) {
-  // Por conta Ads
+  // Por conta Ads — soma os aggregates já líquidos (profit em BRL, revenue em USD)
   const byAccount: SegmentRow[] = (() => {
     const map = new Map<string, SegmentRow>();
     for (const a of aggregates) {
@@ -100,19 +100,19 @@ export function SegmentTabs({
       const acc = googleAccounts.find((x) => x.id === key);
       const label = acc ? (acc.account_name ?? acc.customer_id) : "Sem conta vinculada";
       const cur = map.get(key) ?? { key, label, spend: 0, revenue: 0, profit: 0, roi: 0 };
-      cur.spend += a.spend; cur.revenue += a.revenue;
+      cur.spend += a.spend;
+      cur.revenue += a.revenue;     // USD líquido
+      cur.profit += a.profit;       // BRL líquido (= rev_brl - spend_brl, já com rev share)
       map.set(key, cur);
     }
-    return [...map.values()].map((r) => ({ ...r, profit: r.revenue - r.spend, roi: calcRoi(r.revenue, r.spend) }));
+    return [...map.values()].map((r) => ({
+      ...r,
+      roi: r.spend > 0 ? (r.profit / r.spend) * 100 : 0,
+    }));
   })();
 
-  // Por site (via vínculos: Ads account -> sites; receita real vem de placements por site_id)
+  // Por site — soma profit dos aggregates das contas vinculadas (mesma base, mesma moeda)
   const bySite: SegmentRow[] = (() => {
-    const accToSites = new Map<string, string[]>();
-    for (const l of links) {
-      if (!accToSites.has(l.google_account_id)) accToSites.set(l.google_account_id, []);
-      accToSites.get(l.google_account_id)!.push(l.site_id);
-    }
     const placementBySite = new Map<string, { rev: number; imp: number }>();
     for (const p of placements) {
       const s = sites.find((x) => x.name === p.site);
@@ -124,20 +124,18 @@ export function SegmentTabs({
     const rows = new Map<string, SegmentRow>();
     for (const s of sites) {
       const linkedAccIds = links.filter((l) => l.site_id === s.id).map((l) => l.google_account_id);
-      const spend = aggregates
-        .filter((a) => linkedAccIds.includes(a.google_account_id ?? ""))
-        .reduce((acc, a) => acc + a.spend, 0);
+      const accAggs = aggregates.filter((a) => linkedAccIds.includes(a.google_account_id ?? ""));
+      const spend = accAggs.reduce((acc, a) => acc + a.spend, 0);
+      const profit = accAggs.reduce((acc, a) => acc + a.profit, 0);
       const placeData = placementBySite.get(s.id) ?? { rev: 0, imp: 0 };
-      const revenue = placeData.rev || aggregates
-        .filter((a) => linkedAccIds.includes(a.google_account_id ?? ""))
-        .reduce((acc, a) => acc + a.revenue, 0);
+      const revenue = placeData.rev || accAggs.reduce((acc, a) => acc + a.revenue, 0);
       rows.set(s.id, {
         key: s.id,
         label: s.name,
         spend,
         revenue,
-        profit: revenue - spend,
-        roi: calcRoi(revenue, spend),
+        profit,
+        roi: spend > 0 ? (profit / spend) * 100 : 0,
         impressions: placeData.imp,
         ecpm: placeData.imp > 0 ? (placeData.rev / placeData.imp) * 1000 : 0,
       });
@@ -151,7 +149,7 @@ export function SegmentTabs({
     profit: a.profit, roi: a.roi, impressions: a.impressions, ecpm: a.ecpm,
   }));
 
-  // Por placement
+  // Por placement (sem custo Ads — só receita líquida do GAM)
   const byPlacement: SegmentRow[] = placements.map((p) => ({
     key: p.placement_key,
     label: `${p.site ?? "—"} • ${p.ad_unit ?? p.placement_key}`,
