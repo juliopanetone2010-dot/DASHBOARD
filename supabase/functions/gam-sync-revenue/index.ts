@@ -286,7 +286,7 @@ async function distributeGamRevenueToCampaigns(
 async function runReport(
   networkCode: string,
   accessToken: string,
-  datePreset: string,
+  range: GamRange,
   groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
   debug: string[],
 ): Promise<ReportRow[]> {
@@ -304,7 +304,7 @@ async function runReport(
         "ADSENSE_IMPRESSIONS",
         "ADSENSE_REVENUE",
       ],
-      dateRange: { relative: datePreset },
+      dateRange: range.dateRange,
     },
   };
   const createRes = await fetch(
