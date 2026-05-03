@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
   TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,11 +31,12 @@ const Index = () => {
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
+    const selectedAccountIds = filters.googleAccountIds;
     const accountCampaignIds = new Set(
-      filters.googleAccountId === "all"
+      selectedAccountIds.length === 0
         ? data.campaigns.map((c) => c.campaign_id)
         : data.campaigns
-            .filter((c) => c.google_account_id === filters.googleAccountId)
+            .filter((c) => c.google_account_id && selectedAccountIds.includes(c.google_account_id))
             .map((c) => c.campaign_id),
     );
 
@@ -98,6 +100,49 @@ const Index = () => {
   const handleRefresh = async () => {
     await data.refresh();
     toast({ title: "Dados atualizados" });
+  };
+
+  const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
+    const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
+    const from = nextFilters.fromDate || undefined;
+    const to = nextFilters.toDate || undefined;
+    const body = {
+      from,
+      to,
+      site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
+      account_ids: nextFilters.googleAccountIds,
+      include_yesterday_fallback: preset === "today",
+    };
+
+    toast({ title: "Sincronizando", description: preset === "today" ? "Hoje + fallback GAM de ontem" : "Filtros atualizados" });
+    const [adsRes, gamRes] = await Promise.all([
+      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
+      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
+    ]);
+
+    if (import.meta.env.DEV) {
+      console.info("[dashboard-sync] Google Ads", adsRes.data ?? adsRes.error);
+      console.info("[dashboard-sync] GAM", gamRes.data ?? gamRes.error);
+    }
+
+    const adsErr = adsRes.error?.message ?? adsRes.data?.error;
+    const gamErr = gamRes.error?.message ?? gamRes.data?.error;
+    if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
+    if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
+    if (!adsErr && !gamErr) {
+      toast({ title: "Dados atualizados", description: preset === "today" ? "GAM pode atrasar. Mostrando último dado disponível." : undefined });
+    }
+    await data.refresh();
+  }, [data]);
+
+  const handleFilterChange = (nextFilters: DashboardFilters) => {
+    const shouldSync =
+      nextFilters.siteId !== filters.siteId ||
+      nextFilters.fromDate !== filters.fromDate ||
+      nextFilters.toDate !== filters.toDate ||
+      nextFilters.googleAccountIds.join("|") !== filters.googleAccountIds.join("|");
+    setFilters(nextFilters);
+    if (shouldSync) void syncDashboardData(nextFilters);
   };
 
   const handleAcknowledge = async (id: string) => {
