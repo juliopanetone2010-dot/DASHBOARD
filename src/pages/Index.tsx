@@ -99,10 +99,10 @@ const Index = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
-      include_yesterday_fallback: preset === "today",
+      include_yesterday_fallback: false,
     };
 
-    toast({ title: "Sincronizando", description: preset === "today" ? "Hoje + fallback GAM de ontem" : "Filtros atualizados" });
+    toast({ title: "Sincronizando", description: "Filtros atualizados" });
     const [adsRes, gamRes] = await Promise.all([
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
