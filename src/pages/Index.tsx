@@ -39,7 +39,7 @@ const IndexInner = () => {
   const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
-  const { filters, setFilters, version: filtersVersion } = useDashboardFilters();
+  const { filters, setFilters } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
@@ -105,8 +105,14 @@ const IndexInner = () => {
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
     const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
-    const from = nextFilters.fromDate || undefined;
-    const to = nextFilters.toDate || undefined;
+    const defaultRange = (() => {
+      const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const d = new Date();
+      d.setDate(d.getDate() - 6);
+      return { from: toIso(d), to: toIso(new Date()) };
+    })();
+    const from = nextFilters.fromDate || defaultRange.from;
+    const to = nextFilters.toDate || defaultRange.to;
     const body = {
       from,
       to,
@@ -117,6 +123,9 @@ const IndexInner = () => {
     };
 
     toast({ title: "Sincronizando", description: "Filtros atualizados" });
+    if (import.meta.env.DEV) {
+      console.info("[dashboard-sync] request", { filter: nextFilters, appliedDate: { from, to }, queryKeys: { dashboard: ["dashboard", user?.id ?? "guest", from, to], retention: ["retention", from, to] } });
+    }
     const [adsRes, gamRes] = await Promise.all([
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
