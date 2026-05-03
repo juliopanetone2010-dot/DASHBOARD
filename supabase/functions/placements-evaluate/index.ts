@@ -30,6 +30,8 @@ Deno.serve(async (req) => {
     const lookbackDays = Math.max(1, Math.min(180, Number(body?.lookback_days ?? 30)));
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const targetUserId: string | undefined = body?.user_id;
+    const explicitFrom: string | undefined = typeof body?.from === "string" ? body.from : undefined;
+    const explicitTo: string | undefined = typeof body?.to === "string" ? body.to : undefined;
 
     let userId: string | null = null;
     if (isService && targetUserId) userId = targetUserId;
