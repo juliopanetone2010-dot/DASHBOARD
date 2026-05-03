@@ -314,7 +314,7 @@ async function distributeGamRevenueToCampaigns(
   debug: string[],
   requestedAccountIds: string[] = [],
 ) {
-  if (!siteId || rows.length === 0) return;
+  if (!siteId) return;
 
   // Agrupa por (date, campaign_id_extraido) — match direto via UTM quando possível.
   const today = new Date().toISOString().slice(0, 10);
@@ -407,19 +407,10 @@ async function distributeGamRevenueToCampaigns(
         matchedIds.add(String(m.campaign_id));
       }
     }
-    // 2) sobra: receita não-matchada + receita de cids do GAM sem campanha Ads correspondente
+    // Não rateia sobra. Receita sem utm_source=google + utm_placement pertence a outra origem
+    // (push/retenção/orgânico/etc.) e não entra no lucro/ROI dos placements do Google Ads.
     let leftover = unmatchedByDate.get(date)?.revenue ?? 0;
-    for (const [cid, v] of directMap) {
-      if (!matchedIds.has(cid)) leftover += v.revenue;
-    }
-    if (leftover > 0) {
-      const totalImp = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
-      for (const m of metrics as any[]) {
-        const w = totalImp === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
-        const share = (w / totalImp) * leftover;
-        revenueByMetricId.set(m.id, (revenueByMetricId.get(m.id) ?? 0) + share);
-      }
-    }
+    for (const [cid, v] of directMap) if (!matchedIds.has(cid)) leftover += v.revenue;
 
     const updates: any[] = [];
     for (const m of metrics as any[]) {
@@ -443,7 +434,7 @@ async function distributeGamRevenueToCampaigns(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via UTM, leftover ${leftover.toFixed(4)} USD rateado em ${metrics.length} campanha(s)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via utm_source=google; ${leftover.toFixed(4)} USD sem match ignorado (não rateado)`);
   }
 }
 
