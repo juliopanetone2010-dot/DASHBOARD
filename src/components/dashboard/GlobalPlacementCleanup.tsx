@@ -175,12 +175,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setApplying(true);
     try {
       const payload = items
-        .filter((i) => selected.has(itemKey(i)))
+        .filter((i) => selected.has(itemKey(i)) && matchesAccount(i))
         .map((i) => ({
           key: itemKey(i), placement: i.placement, type: i.type, app_id: i.app_id ?? null,
           cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
-          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
-        }));
+          campaigns: i.campaigns
+            .filter((c) => accountFilter === "all" || c.google_account_id === accountFilter)
+            .map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
+        }))
+        .filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
         { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl } },
