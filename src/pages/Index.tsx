@@ -17,7 +17,7 @@ import { RoiChart } from "@/components/dashboard/RoiChart";
 import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
-import { FilterBar, EMPTY_FILTERS, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { FilterBar, EMPTY_FILTERS, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { supabase } from "@/integrations/supabase/client";
@@ -171,17 +171,30 @@ const Index = () => {
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
-              onPresetApply={async (_key, gaql) => {
+              onPresetApply={async (key, gaql) => {
                 toast({ title: "Sincronizando", description: `Período: ${gaql.replace(/_/g, " ")}` });
-                const { data: resp, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
-                  "google-ads-sync-campaigns",
-                  { body: { date_preset: gaql } },
-                );
-                if (error || resp?.error) {
-                  toast({ title: "Erro ao sincronizar", description: resp?.error ?? error?.message ?? "Falha", variant: "destructive" });
-                  return;
+                // GAM não tem dados em tempo real → quando "Hoje", buscar também "Ontem" como fallback
+                const gamPreset = key === "today" ? "YESTERDAY" : gaql;
+                const [adsRes, gamRes] = await Promise.all([
+                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+                    "google-ads-sync-campaigns",
+                    { body: { date_preset: gaql } },
+                  ),
+                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+                    "gam-sync-revenue",
+                    { body: { date_preset: gamPreset } },
+                  ),
+                ]);
+                const adsErr = adsRes.error?.message ?? adsRes.data?.error;
+                const gamErr = gamRes.error?.message ?? gamRes.data?.error;
+                if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
+                if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
+                if (!adsErr && !gamErr) {
+                  toast({
+                    title: "Dados atualizados",
+                    description: key === "today" ? "GAM pode atrasar; usando ontem como fallback." : undefined,
+                  });
                 }
-                toast({ title: "Dados atualizados" });
                 await data.refresh();
               }}
             />
@@ -199,7 +212,13 @@ const Index = () => {
                 value={fmtUSD(totals.revenue)}
                 icon={DollarSign}
                 variant="primary"
-                hint="USD nativo"
+                hint={
+                  presetFromRange(filters.fromDate, filters.toDate) === "today"
+                    ? "USD nativo · GAM pode atrasar (mostrando até ontem)"
+                    : totals.revenue === 0
+                      ? "USD nativo · Sem dados do GAM ou atraso de processamento"
+                      : "USD nativo"
+                }
               />
               <MetricCard
                 label="Lucro"
