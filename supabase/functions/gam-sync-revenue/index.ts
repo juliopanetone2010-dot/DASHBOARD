@@ -744,6 +744,7 @@ async function applyGoogleUtmRevenue(
     for (const v of directMap.values()) attributedRev += (v as any).revenue;
 
     const updates: any[] = [];
+    const matchDebug: string[] = [];
     for (const m of metrics as any[]) {
       const direct = directMap.get(String(m.campaign_id));
       let revenueUsd = direct?.revenue ?? 0;
@@ -756,6 +757,7 @@ async function applyGoogleUtmRevenue(
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
+      matchDebug.push(`cid=${m.campaign_id}|match=${!!direct}|rev_usd=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
     }
     const CHUNK = 25;
     for (let i = 0; i < updates.length; i += CHUNK) {
@@ -767,7 +769,8 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match UTM Google real; total atribuído=$${attributedRev.toFixed(2)} de total Google com campaign_id=$${totalGoogle.revenue.toFixed(2)}; sem fallback por gasto`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} match UTM Google; total atribuído=$${attributedRev.toFixed(2)} de total Google=$${totalGoogle.revenue.toFixed(2)}`);
+    debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
 
