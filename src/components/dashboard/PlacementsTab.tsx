@@ -373,7 +373,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     </TableCell></TableRow>
                   )}
                   {visible.map((r) => {
-                    const negative = hasGamRevenue && r.roi < 0;
+                    const matched = gamRevenueByPlacement.has(r.placement);
+                    const negative = matched && r.roi < 0;
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.cost > 20 && r.conversions === 0;
                     const action = actions[r.placement];
@@ -381,7 +382,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
-                          <div className="flex gap-1 mt-1">
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {!matched && <Badge variant="outline" className="text-[9px]">sem UTM</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
