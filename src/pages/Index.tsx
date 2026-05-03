@@ -347,6 +347,14 @@ const Index = () => {
             />
           </TabsContent>
 
+          <TabsContent value="placements" className="mt-6">
+            <PlacementsTab
+              campaigns={data.campaigns}
+              googleAccounts={data.googleAccounts}
+              rawPlacements={data.placements}
+            />
+          </TabsContent>
+
           <TabsContent value="rules" className="mt-6">
             <RulesPanel rules={data.rules} onSave={data.saveRules} />
           </TabsContent>
