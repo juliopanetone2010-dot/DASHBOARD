@@ -39,22 +39,26 @@ interface ApplyUtmResult { error?: string; success?: number; total?: number; fai
 interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
 
 interface AggRow {
-  placement: string;
+  placement: string;          // full normalizado (ex: may.karwin.com)
+  placementRoot: string;      // root domain (ex: karwin.com)
   type: string;
   ad_groups: Set<string>;
   impressions: number;
   clicks: number;
-  cost: number;           // USD estimado para comparar com receita GAM
+  costBrl: number;            // Custo NATIVO da conta Ads (BRL)
   conversions: number;
-  revenue: number;        // USD líquido (GAM após rev share)
-  profit: number;
-  roi: number;
-  revenueSource: "utm" | "none";
+  revenueUsd: number;         // GAM USD bruto
+  revenueUsdNet: number;      // GAM USD após rev share
+  revenueBrl: number;         // revenueUsdNet * fxUsdBrl
+  profitBrl: number;          // receita_brl - custo_brl
+  roi: number;                // ROI calculado em BRL
+  revenueSource: "utm_full" | "utm_root" | "none";
+  matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
-  cpc: number;
+  cpcBrl: number;
 }
 
-type SortKey = "roi" | "cost" | "conversions" | "ctr" | "impressions";
+type SortKey = "roi" | "costBrl" | "conversions" | "ctr" | "impressions";
 
 interface Props {
   campaigns: Campaign[];
