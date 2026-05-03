@@ -92,17 +92,25 @@ Deno.serve(async (req) => {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
         const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
-        let customCriteriaRows: ReportRow[] = [];
+        let googleUtmRows: ReportRow[] = [];
+        let customCriteriaAvailable = false;
         try {
-          customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
+          const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
-            .filter((r) => !!parseGamPlacementName(r.name));
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm rows=${customCriteriaRows.length}`);
+          customCriteriaAvailable = true;
+          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
+          const otherUtmRows = customCriteriaRows.filter((r) => {
+            const parsed = parseGamAttribution(r.name);
+            return parsed?.source && parsed.source !== "google";
+          }).length;
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] google utm rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
 
-        const canonicalRows = customCriteriaRows.length > 0 ? customCriteriaRows : (adUnitRows.length > 0 ? adUnitRows : placementRows);
+        // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
+        // ou tráfego sem UTM não pode ser rateada em campanhas/placements do Google Ads.
+        const canonicalRows = customCriteriaAvailable ? googleUtmRows : [];
         const totals = canonicalRows.reduce(
           (acc, r) => ({
             revenue: acc.revenue + r.revenue,
@@ -150,7 +158,9 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
-          custom_criteria_rows: customCriteriaRows.length,
+          custom_criteria_rows: googleUtmRows.length,
+          custom_criteria_available: customCriteriaAvailable,
+          attribution_rule: "utm_source=google only",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
