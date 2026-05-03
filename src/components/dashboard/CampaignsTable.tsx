@@ -80,6 +80,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
     setBusy(key);
     const { data, error } = await supabase.functions.invoke<{
       ok?: boolean; error?: string; ad_groups_updated?: number; new_status?: string;
+      budget_from?: number; budget_to?: number;
     }>("google-ads-mutate", { body });
     setBusy(null);
     if (error || data?.error) {
@@ -90,12 +91,10 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
       });
       return;
     }
-    toast({
-      title: label,
-      description: data?.new_status
-        ? `Status alterado para ${data.new_status}`
-        : `${data?.ad_groups_updated ?? 0} ad group(s) atualizados`,
-    });
+    let description = `${data?.ad_groups_updated ?? 0} ad group(s) atualizados`;
+    if (data?.new_status) description = `Status alterado para ${data.new_status}`;
+    else if (data?.budget_to != null) description = `Orçamento: ${data.budget_from?.toFixed(2)} → ${data.budget_to.toFixed(2)}`;
+    toast({ title: label, description });
     await onRefresh?.();
   };
 
