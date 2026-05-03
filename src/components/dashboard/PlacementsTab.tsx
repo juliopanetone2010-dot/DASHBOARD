@@ -607,6 +607,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
                             {r.revenueSource === "utm_root" && <Badge variant="outline" className="text-[9px]">UTM root</Badge>}
+                            {r.revenueSource === "utm_prefix" && <Badge variant="outline" className="text-[9px]">UTM app</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
