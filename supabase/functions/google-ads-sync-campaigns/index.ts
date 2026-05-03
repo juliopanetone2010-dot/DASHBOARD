@@ -200,8 +200,11 @@ Deno.serve(async (req) => {
         const accountResults: Array<Record<string, unknown>> = [];
 
         const rootSelected = accountIds.includes(root.id);
+        // Filter leaves early to avoid unnecessary API calls (timeout prevention)
+        if (accountIds.length > 0 && !rootSelected) {
+          leafAccounts = leafAccounts.filter((l) => accountIds.includes(l.id));
+        }
         for (const leaf of leafAccounts) {
-          if (accountIds.length > 0 && !rootSelected && !accountIds.includes(leaf.id)) continue;
           try {
             const headers: Record<string, string> = {
               Authorization: `Bearer ${accessToken}`,
