@@ -273,6 +273,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="destructive">{items.length} ruins</Badge>
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
               <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              <select
+                className="h-7 text-xs rounded border border-border bg-background px-2"
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value)}
+              >
+                <option value="all">Todas as contas ({accounts.length})</option>
+                {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+              </select>
               <span className="ml-auto flex items-center gap-2 text-xs">
                 Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
               </span>
