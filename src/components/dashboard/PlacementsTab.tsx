@@ -52,7 +52,7 @@ interface AggRow {
   revenueBrl: number;         // revenueUsdNet * fxUsdBrl
   profitBrl: number;          // receita_brl - custo_brl
   roi: number;                // ROI calculado em BRL
-  revenueSource: "utm_full" | "utm_root" | "none";
+  revenueSource: "utm_full" | "utm_root" | "utm_prefix" | "none";
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
@@ -93,6 +93,17 @@ const normalizePlacementKey = (value: string, type?: string | null): string => {
 
 const isMobileAppPlacement = (type: string, placement: string) =>
   type === "MOBILE_APPLICATION" || /^[a-z0-9_]+(\.[a-z0-9_-]+){1,}$/i.test(placement);
+
+const findPrefixRevenueKey = (placement: string, keys: string[], usedKeys: Set<string>) => {
+  const normalized = placement.replace(/\.$/, "");
+  return keys
+    .filter((key) => {
+      if (usedKeys.has(key)) return false;
+      const prefix = key.replace(/\.$/, "");
+      return prefix.length >= 8 && normalized.startsWith(prefix);
+    })
+    .sort((a, b) => b.length - a.length)[0] ?? null;
+};
 
 async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   const all: AdsPlacementRow[] = [];
