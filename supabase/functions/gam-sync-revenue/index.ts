@@ -385,31 +385,49 @@ async function collectUtmAttribution(args: {
   networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
 }): Promise<AttributionResult> {
   const { networkCode, accessToken, ranges, debug } = args;
-  const label = "CUSTOM_CRITERIA";
+  const label = "KEY_VALUES_NAME";
 
-  // Estratégia única e correta: 1 report com DATE + AD_UNIT_NAME + CUSTOM_CRITERIA.
-  // CUSTOM_CRITERIA traz a string crua "utm_source=google;utm_campaign=...;utm_placement=..."
-  // Parseamos por ; e =, sem depender de dimensões resolvidas (que retornam (not applicable)).
+  // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
+  // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
+  // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({
-        networkCode, accessToken, range,
-        dimensions: ["DATE", "AD_UNIT_NAME", "CUSTOM_CRITERIA"],
-        debug,
-      })
-    ))).flat();
+    const metricGroups = [
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+    ];
+    for (const group of metricGroups) {
+      try {
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({
+            networkCode, accessToken, range,
+            dimensions: ["DATE", "KEY_VALUES_NAME"],
+            metrics: group.metrics,
+            debug,
+          })
+        ))).flat();
+        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
+        reportRows.push(...groupRows);
+      } catch (e) {
+        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 500)}`);
+      }
+    }
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
-  const rows: AttributedRow[] = reportRows.map((r) => {
-    const rawKv = r.dims[2] || ""; // CUSTOM_CRITERIA é o 3º dim (após DATE + AD_UNIT_NAME)
+  const parsedRows = reportRows.map((r) => {
+    const rawKv = r.dims[1] || ""; // KEY_VALUES_NAME é o 2º dim (após DATE)
     const kv = parseKeyValueDimension(rawKv);
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
+    return { r, rawKv, sourceRaw, campaignRaw, placementRaw };
+  });
+
+  const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
     const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
@@ -424,6 +442,46 @@ async function collectUtmAttribution(args: {
     };
   });
 
+  // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
+  // senão a receita duplica. Para ROI usamos utm_campaign; para placements usamos utm_placement; para
+  // Retenção/Push usamos só utm_source.
+  const sourceRows: AttributedRow[] = parsedRows
+    .filter(({ sourceRaw }) => isRealValue(sourceRaw))
+    .map(({ r, rawKv, sourceRaw }) => ({
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source: safeDecode(sourceRaw).toLowerCase().trim() || "unknown",
+      cid: null,
+      placement: null,
+      raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
+    }));
+  const campaignRows: AttributedRow[] = parsedRows
+    .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
+    .map(({ r, rawKv, campaignRaw }) => ({
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source: "google",
+      cid: extractCampaignId(campaignRaw),
+      placement: null,
+      raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+    }));
+  const placementRows: AttributedRow[] = parsedRows
+    .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
+    .map(({ r, rawKv, placementRaw }) => {
+      const cid = extractCampaignId(placementRaw);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid,
+        placement: isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null,
+        raw: `utm_source=google|utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
+
   // Debug agregado por source
   const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; cidOk: number }>, r) => {
     const s = acc[r.source] ?? { rows: 0, rev: 0, cidOk: 0 };
@@ -433,15 +491,15 @@ async function collectUtmAttribution(args: {
   debug.push(`[${networkCode}/${label}] total_rows=${rows.length}; por_source=${JSON.stringify(sourceStats)}`);
 
   // Debug linha-a-linha (até 20 amostras com receita > 0)
-  const samples = rows.filter((r) => r.revenue > 0).slice(0, 20).map((r) =>
+  const samples = [...campaignRows, ...placementRows, ...sourceRows].filter((r) => r.revenue > 0).slice(0, 20).map((r) =>
     `${r.date}|src=${r.source}|cid=${r.cid ?? "-"}|placement=${r.placement ?? "-"}|rev=${r.revenue.toFixed(4)}|${r.raw}`
   );
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
   // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  const googleCampaignRows = rows.filter((r) => r.source === "google" && r.cid);
-  const googlePlacementRows = rows.filter((r) => r.source === "google" && r.cid && r.placement);
-  const retentionRows = rows; // todas — persistCampaignSourceRevenueFromUtm já agrega por source
+  const googleCampaignRows = campaignRows;
+  const googlePlacementRows = placementRows.filter((r) => r.placement);
+  const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
 
@@ -779,19 +837,20 @@ interface RunReportArgs {
   accessToken: string;
   range: GamRange;
   dimensions: string[];
+  metrics?: string[];
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
     dimensions,
-    metrics: [
+    metrics: metrics ?? [
       "AD_SERVER_IMPRESSIONS",
       "AD_SERVER_REVENUE",
       "AD_EXCHANGE_IMPRESSIONS",
@@ -865,8 +924,8 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      const revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
+      const impressions = metrics ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
+      const revenue = metrics ? normalizeGamRevenue(num(m[1])) : normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
       allRows.push({ date, dims: dimStrings, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
