@@ -1,16 +1,21 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap } from "lucide-react";
 import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
+import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface SourceRow {
   id: string;
