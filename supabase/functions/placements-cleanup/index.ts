@@ -1,14 +1,18 @@
 // Limpeza global de placements ruins.
 // Modos:
-//  - preview: calcula placements ruins agregados em TODAS as campanhas elegíveis
-//  - apply:   adiciona negative placements em cada campanha onde o ruim aparece
-//  - notify:  cria um alerta com o resumo (usado pelo cron)
+//  - preview: lista TODOS placements ruins (com debug por linha)
+//  - apply:   adiciona negative placements em cada campanha (apenas WEBSITE)
+//  - notify:  cria alerta com resumo (cron diário)
 //
-// Regras:
-//  - campanha precisa estar ENABLED e ter >= 20 dias de histórico em daily_metrics
-//  - filtro de segurança: custo_total_brl >= min_cost_brl OU cliques_total >= min_clicks
-//  - precisa ter match UTM (utm_full / utm_root) no GAM
-//  - marca como ruim se ROI <= max_roi_pct (default -10%)
+// Regras de "ruim":
+//  - campanha ENABLED, com >= min_days dias rodando
+//  - filtro: cost_brl >= min_cost_brl OU clicks >= min_clicks
+//  - ROI <= max_roi_pct (default -10%) — placements sem match UTM contam como ROI -100%
+//  - SEM LIMIT, retorna todos
+//
+// Match UTM:
+//  utm_placement = "{campaignid}_{placement}"
+//  já vem parseado no GAM em (campaign_id, placement) — fazemos JOIN exato e por raiz.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
@@ -29,8 +33,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const mode: "preview" | "apply" | "notify" = (body?.mode ?? "preview");
     const minDays = Number(body?.min_days ?? 20);
-    const minCostBrl = Number(body?.min_cost_brl ?? 50); // ~ $10 * 5
-    const minClicks = Number(body?.min_clicks ?? 100);
+    const minCostBrl = Number(body?.min_cost_brl ?? 20);
+    const minClicks = Number(body?.min_clicks ?? 20);
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Number(body?.lookback_days ?? 30);
@@ -63,7 +67,7 @@ Deno.serve(async (req) => {
     const to = iso(today);
     const cutoff = iso(cutoffDate);
 
-    // 1) Campanhas ENABLED do usuário
+    // 1) Campanhas ENABLED
     const { data: camps, error: cErr } = await admin
       .from("campaigns")
       .select("campaign_id, name, status, google_account_id")
@@ -75,30 +79,22 @@ Deno.serve(async (req) => {
       if (c.google_account_id) campMap.set(c.campaign_id, { name: c.name, google_account_id: c.google_account_id });
     }
     const campIds = [...campMap.keys()];
-    if (campIds.length === 0) return json({ ok: true, items: [], stats: { eligible: 0, total: 0 } });
+    if (campIds.length === 0) return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } } });
 
     // 2) Filtra por dias rodando: min(date) <= cutoff
     const eligible = new Set<string>();
-    // Busca min date por campanha em chunks
-    const chunks: string[][] = [];
-    for (let i = 0; i < campIds.length; i += 200) chunks.push(campIds.slice(i, i + 200));
-    for (const chunk of chunks) {
+    for (const chunk of chunkArr(campIds, 200)) {
       const { data } = await admin
         .from("daily_metrics")
         .select("campaign_id, date")
         .eq("user_id", userId)
         .in("campaign_id", chunk)
-        .order("date", { ascending: true })
-        .limit(10000);
-      const minBy = new Map<string, string>();
-      for (const r of data ?? []) {
-        const cur = minBy.get(r.campaign_id);
-        if (!cur || r.date < cur) minBy.set(r.campaign_id, r.date);
-      }
-      for (const [cid, d] of minBy) if (d <= cutoff) eligible.add(cid);
+        .lte("date", cutoff)
+        .limit(50000);
+      for (const r of data ?? []) eligible.add(r.campaign_id);
     }
     if (eligible.size === 0) {
-      return json({ ok: true, items: [], stats: { eligible: 0, total: campIds.length } });
+      return json({ ok: true, items: [], stats: { eligible: 0, total: campIds.length, period: { from, to } } });
     }
     const eligibleIds = [...eligible];
 
@@ -147,14 +143,31 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Receita por (campaign_id, placement_normalized)
+    // Receita SOMADA por (campaign_id, placement_normalized) — uma única vez
     const revByCampPlacement = new Map<string, number>();
     for (const g of gam) {
-      const k = `${g.campaign_id}|${normalize(g.placement)}`;
-      revByCampPlacement.set(k, (revByCampPlacement.get(k) ?? 0) + Number(g.revenue_usd ?? 0));
+      const key = `${g.campaign_id}|${normalize(g.placement)}`;
+      revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
 
-    // 5) Agrega global por placement_clean
+    // 5) Agrega CUSTO por (campaign_id, placement_clean) — uma única vez por dia,
+    //    depois soma a receita CORRESPONDENTE também uma única vez.
+    interface CampPl { cost: number; clicks: number; impressions: number; type: string; }
+    // costByCampPlacement: campaign_id|placement -> custo agregado
+    const cpKey = (cid: string, pl: string) => `${cid}|${pl}`;
+    const cpAgg = new Map<string, CampPl>();
+    for (const r of ads) {
+      const placement = normalize(r.placement_clean || r.placement, r.placement_type);
+      if (!placement) continue;
+      const k = cpKey(r.campaign_id, placement);
+      let c = cpAgg.get(k);
+      if (!c) { c = { cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—" }; cpAgg.set(k, c); }
+      c.cost += Number(r.cost) || 0;
+      c.clicks += Number(r.clicks) || 0;
+      c.impressions += Number(r.impressions) || 0;
+    }
+
+    // Agrega GLOBAL por placement (somando sobre campanhas)
     interface Agg {
       placement: string;
       type: string;
@@ -162,72 +175,85 @@ Deno.serve(async (req) => {
       clicks: number;
       impressions: number;
       revenueUsd: number;
-      campaigns: Map<string, { campaign_id: string; name: string; google_account_id: string; cost: number; matched: boolean }>;
+      hadAnyMatch: boolean;
+      campaigns: Map<string, { campaign_id: string; name: string; google_account_id: string; cost: number; revenue_usd: number; matched: boolean }>;
     }
     const aggMap = new Map<string, Agg>();
-    for (const r of ads) {
-      const key = normalize(r.placement_clean || r.placement, r.placement_type);
-      if (!key) continue;
-      let a = aggMap.get(key);
-      if (!a) {
-        a = { placement: key, type: r.placement_type ?? "—", costBrl: 0, clicks: 0, impressions: 0, revenueUsd: 0, campaigns: new Map() };
-        aggMap.set(key, a);
-      }
-      a.costBrl += Number(r.cost) || 0;
-      a.clicks += Number(r.clicks) || 0;
-      a.impressions += Number(r.impressions) || 0;
 
-      // attribution per campaign
-      const root = rootDomain(key);
-      const usdFull = revByCampPlacement.get(`${r.campaign_id}|${key}`) ?? 0;
-      const usdRoot = root && root !== key ? (revByCampPlacement.get(`${r.campaign_id}|${root}`) ?? 0) : 0;
+    for (const [k, v] of cpAgg) {
+      const [cid, placement] = k.split("|");
+      const meta = campMap.get(cid);
+      if (!meta) continue;
+
+      // receita: tenta match exato (cid, placement) e raiz
+      const root = rootDomain(placement);
+      const usdFull = revByCampPlacement.get(cpKey(cid, placement)) ?? 0;
+      const usdRoot = root && root !== placement ? (revByCampPlacement.get(cpKey(cid, root)) ?? 0) : 0;
       const usd = usdFull > 0 ? usdFull : usdRoot;
-      a.revenueUsd += usd;
 
-      const meta = campMap.get(r.campaign_id);
-      if (meta) {
-        const cur = a.campaigns.get(r.campaign_id);
-        if (!cur) {
-          a.campaigns.set(r.campaign_id, { campaign_id: r.campaign_id, name: meta.name, google_account_id: meta.google_account_id, cost: Number(r.cost) || 0, matched: usd > 0 });
-        } else {
-          cur.cost += Number(r.cost) || 0;
-          cur.matched = cur.matched || usd > 0;
-        }
+      let a = aggMap.get(placement);
+      if (!a) {
+        a = { placement, type: v.type, costBrl: 0, clicks: 0, impressions: 0, revenueUsd: 0, hadAnyMatch: false, campaigns: new Map() };
+        aggMap.set(placement, a);
       }
+      a.costBrl += v.cost;
+      a.clicks += v.clicks;
+      a.impressions += v.impressions;
+      a.revenueUsd += usd;
+      if (usd > 0) a.hadAnyMatch = true;
+      a.campaigns.set(cid, {
+        campaign_id: cid, name: meta.name, google_account_id: meta.google_account_id,
+        cost: v.cost, revenue_usd: usd, matched: usd > 0,
+      });
     }
 
-    // 6) Aplica filtros e calcula ROI
+    // 6) Filtra e calcula ROI (sem LIMIT)
     const items = [];
+    let skippedSafety = 0;
     for (const a of aggMap.values()) {
       const passSafety = a.costBrl >= minCostBrl || a.clicks >= minClicks;
-      if (!passSafety) continue;
-      if (a.revenueUsd <= 0) continue; // sem match UTM = ignora
+      if (!passSafety) { skippedSafety++; continue; }
       const revenueBrl = a.revenueUsd * NET_FACTOR * fxUsdBrl;
       const profitBrl = revenueBrl - a.costBrl;
+      // Sem match: ROI = -100% (pior caso, conta como ruim)
       const roi = a.costBrl > 0 ? (profitBrl / a.costBrl) * 100 : 0;
-      if (roi > maxRoiPct) continue; // só ruins
+      if (roi > maxRoiPct) continue;
+      const reason = !a.hadAnyMatch
+        ? "sem_match_utm"
+        : (roi <= -50 ? "roi_critico" : "roi_baixo");
       items.push({
         placement: a.placement,
         type: a.type,
         cost_brl: round(a.costBrl),
         revenue_brl: round(revenueBrl),
+        revenue_usd: round(a.revenueUsd),
         profit_brl: round(profitBrl),
         roi_pct: round(roi),
         clicks: a.clicks,
         impressions: a.impressions,
+        match_utm: a.hadAnyMatch,
+        reason,
         campaigns: [...a.campaigns.values()].map((c) => ({
           campaign_id: c.campaign_id, name: c.name, google_account_id: c.google_account_id,
-          cost_brl: round(c.cost), matched_utm: c.matched,
+          cost_brl: round(c.cost), revenue_usd: round(c.revenue_usd), matched_utm: c.matched,
         })),
       });
     }
-    items.sort((a, b) => a.roi_pct - b.roi_pct);
+    items.sort((x, y) => x.roi_pct - y.roi_pct);
 
-    const stats = { eligible: eligibleIds.length, total: campIds.length, bad: items.length, period: { from, to } };
+    const stats = {
+      eligible: eligibleIds.length,
+      total: campIds.length,
+      bad: items.length,
+      grouped: aggMap.size,
+      skipped_safety: skippedSafety,
+      ads_rows: ads.length,
+      gam_rows: gam.length,
+      period: { from, to },
+      thresholds: { min_days: minDays, min_cost_brl: minCostBrl, min_clicks: minClicks, max_roi_pct: maxRoiPct },
+    };
 
-    if (mode === "preview") {
-      return json({ ok: true, items, stats });
-    }
+    if (mode === "preview") return json({ ok: true, items, stats });
 
     if (mode === "notify") {
       if (items.length > 0) {
@@ -236,19 +262,34 @@ Deno.serve(async (req) => {
           severity: "warning",
           category: "placement_cleanup",
           title: `${items.length} placements ruins detectados`,
-          message: `Revisão automática (${minDays}d): ${items.length} placements com ROI <= ${maxRoiPct}% em ${eligibleIds.length} campanhas.`,
-          metric_snapshot: { items: items.slice(0, 50), stats },
+          message: `Auto-revisão diária: ${items.length} placements com ROI <= ${maxRoiPct}% em ${eligibleIds.length} campanhas.`,
+          metric_snapshot: { items: items.slice(0, 100), stats },
         });
       }
+      await admin.from("rules_config").update({ placement_cleanup_last_run_at: new Date().toISOString() }).eq("user_id", userId);
       return json({ ok: true, items, stats, notified: items.length > 0 });
     }
 
     if (mode === "apply") {
       const selected: ApplyItem[] = (body?.items ?? items.map((i) => ({
-        placement: i.placement, type: i.type, campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
+        placement: i.placement, type: i.type,
+        campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
       }))) as ApplyItem[];
+
+      // log de segurança ANTES de aplicar
+      const logs = items
+        .filter((i) => selected.some((s) => s.placement === i.placement))
+        .flatMap((i) => i.campaigns.map((c) => ({
+          user_id: userId,
+          campaign_id: c.campaign_id,
+          placement: i.placement,
+          action: "blacklist_preview",
+          note: `roi=${i.roi_pct}% cost=${i.cost_brl} rev=${i.revenue_brl} reason=${i.reason}`,
+        })));
+      if (logs.length) await admin.from("placement_actions").insert(logs);
+
       const result = await applyNegativePlacements(admin, userId, selected);
-      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details });
+      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats });
     }
 
     return json({ error: "mode inválido" });
@@ -299,8 +340,6 @@ function json(payload: unknown) {
   });
 }
 
-// === Aplicação no Google Ads ===
-// Cria negative placement criteria por campanha. Suporta WEBSITE; pula MOBILE_APPLICATION e YouTube por segurança.
 async function applyNegativePlacements(admin: any, userId: string, items: ApplyItem[]) {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
   const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -327,10 +366,9 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
     return j.access_token as string;
   }
 
-  // Agrupa por (campaign_id, account_id)
   const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string }[] }>();
   for (const it of items) {
-    if (it.type !== "WEBSITE") continue; // segurança
+    if (it.type !== "WEBSITE") continue;
     for (const c of it.campaigns) {
       const acc = accMap.get(c.google_account_id);
       if (!acc?.refresh_token) continue;
@@ -376,10 +414,9 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
       }
       applied += g.placements.length;
       details.push({ campaign_id: g.campaign_id, count: g.placements.length, partial: j?.partialFailureError ?? null });
-      // registra ações
       const inserts = g.placements.map((p) => ({
         user_id: userId, campaign_id: g.campaign_id, placement: p.placement,
-        action: "blacklist", note: "global cleanup",
+        action: "blacklist", note: "global cleanup applied",
       }));
       if (inserts.length) await admin.from("placement_actions").insert(inserts);
       await admin.from("automation_actions").insert({
