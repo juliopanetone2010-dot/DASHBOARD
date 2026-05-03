@@ -203,8 +203,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
-  const grandCost = stats?.grand_cost_brl ?? 0;
-  const grandProfit = stats?.grand_profit_brl ?? 0;
 
   // filtra items pela conta selecionada
   const filteredItems = accountFilter === "all"
@@ -224,6 +222,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const sortedCampaigns = [...campaignTotals]
     .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
     .sort((a, b) => a.roi_pct - b.roi_pct);
+
+  // Custo/Lucro do header agora reflete só as campanhas exibidas (com placements ruins),
+  // respeitando o filtro de conta.
+  const grandCost = sortedCampaigns.reduce((a, c) => a + (c.cost_brl || 0), 0);
+  const grandProfit = sortedCampaigns.reduce((a, c) => a + (c.profit_brl || 0), 0);
 
   const toggleExpand = (cid: string) => {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
