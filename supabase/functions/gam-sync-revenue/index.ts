@@ -115,9 +115,11 @@ Deno.serve(async (req) => {
           }
         };
 
-        await persistRows(adUnitRows, "ad_unit");
-        await persistRows(placementRows, "placement");
-        await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug);
+        if (!testMode) {
+          await persistRows(adUnitRows, "ad_unit");
+          await persistRows(placementRows, "placement");
+          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug);
+        }
 
         summary.push({
           network_code: networkCode,
