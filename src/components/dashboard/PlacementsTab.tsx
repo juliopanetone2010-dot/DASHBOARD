@@ -419,7 +419,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     <div className="space-y-6">
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
             <label className="text-xs text-muted-foreground">Conta Ads</label>
             <Select
@@ -458,6 +458,24 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">De</label>
+            <Input
+              type="date"
+              value={range.from}
+              onChange={(e) => setGlobalFilters({ ...globalFilters, fromDate: e.target.value, toDate: range.to })}
+              className="h-9"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Até</label>
+            <Input
+              type="date"
+              value={range.to}
+              onChange={(e) => setGlobalFilters({ ...globalFilters, fromDate: range.from, toDate: e.target.value })}
+              className="h-9"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="text-xs text-muted-foreground">Buscar campanha</label>
