@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtNumber, fmtPercent } from "@/lib/format";
+import { fmtNumber, fmtPercent, fmtUSD } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
@@ -35,6 +35,8 @@ interface AdsPlacementRow {
 
 interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
+interface ApplyUtmResult { error?: string; success?: number; total?: number; failed?: number; }
+interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
 
 interface AggRow {
   placement: string;
@@ -42,9 +44,9 @@ interface AggRow {
   ad_groups: Set<string>;
   impressions: number;
   clicks: number;
-  cost: number;
+  cost: number;           // USD estimado para comparar com receita GAM
   conversions: number;
-  revenue: number;        // BRL líquido (estimado via GAM)
+  revenue: number;        // USD líquido (GAM após rev share)
   profit: number;
   roi: number;
   revenueSource: "utm" | "none";
@@ -61,6 +63,46 @@ interface Props {
 }
 
 const PAGE_SIZE = 100;
+const QUERY_PAGE_SIZE = 1000;
+
+async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
+  const all: AdsPlacementRow[] = [];
+  for (let start = 0; ; start += QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("ads_placements")
+      .select("*")
+      .eq("campaign_id", cid)
+      .gte("date", from)
+      .lte("date", to)
+      .order("date", { ascending: false })
+      .order("placement", { ascending: true })
+      .range(start, start + QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as AdsPlacementRow[];
+    all.push(...page);
+    if (page.length < QUERY_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string) {
+  const all: GamRevRow[] = [];
+  for (let start = 0; ; start += QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("gam_placement_revenue")
+      .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
+      .eq("campaign_id", cid)
+      .eq("utm_source", "google")
+      .gte("date", from)
+      .lte("date", to)
+      .range(start, start + QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as GamRevRow[];
+    all.push(...page);
+    if (page.length < QUERY_PAGE_SIZE) break;
+  }
+  return all;
+}
 
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
   const { range, version, presetKey, filters: globalFilters, setFilters: setGlobalFilters } = useDashboardFilters();
@@ -102,14 +144,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         toast({ title: "Erro ao aplicar UTM", description: error.message, variant: "destructive" });
         return;
       }
-      const r = data as any;
+      const r = data as ApplyUtmResult | null;
       if (r?.error) {
         toast({ title: "Erro", description: r.error, variant: "destructive" });
         return;
       }
       toast({
         title: "UTM aplicado",
-        description: `${r.success}/${r.total} campanhas atualizadas${r.failed ? ` (${r.failed} falha(s))` : ""}.`,
+        description: `${r?.success ?? 0}/${r?.total ?? 0} campanhas atualizadas${r?.failed ? ` (${r.failed} falha(s))` : ""}.`,
       });
     } finally {
       setApplyingUtm(false);
@@ -162,30 +204,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       await supabase.functions.invoke("gam-sync-revenue", {
         body: { from, to, account_ids: accountIds },
       });
-      const { data, error: qErr } = await supabase
-        .from("ads_placements")
-        .select("*")
-        .eq("campaign_id", cid)
-        .gte("date", from)
-        .lte("date", to)
-        .order("date", { ascending: false })
-        .limit(5000);
-      if (qErr) {
-        toast({ title: "Erro ao carregar", description: qErr.message, variant: "destructive" });
-        return;
-      }
-      setRows((data ?? []) as AdsPlacementRow[]);
+      const adsData = await fetchAllAdsPlacements(cid, from, to);
+      setRows(adsData);
       setLimit(PAGE_SIZE);
 
       // Receita do GAM atribuída via UTM Google (campaign_id + placement).
-      const { data: gamData } = await supabase
-        .from("gam_placement_revenue")
-        .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
-        .eq("campaign_id", cid)
-        .eq("utm_source", "google")
-        .gte("date", from)
-        .lte("date", to);
-      setGamRows((gamData ?? []) as GamRevRow[]);
+      const gamData = await fetchAllGamPlacementRevenue(cid, from, to);
+      setGamRows(gamData);
 
       // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
       // já atribuída pelo GAM e distribui pelos placements por cliques/impressões.
@@ -203,8 +228,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .select("placement, action")
         .eq("campaign_id", cid);
       const map: Record<string, "blacklist" | "favorite"> = {};
-      for (const a of acts ?? []) map[(a as any).placement] = (a as any).action;
+      for (const a of (acts ?? []) as PlacementActionRow[]) map[a.placement] = a.action;
       setActions(map);
+    } catch (e) {
+      toast({ title: "Erro ao carregar placements", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -253,21 +280,23 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (directUsd > 0) {
         a.revenueSource = "utm";
       }
-      const revBrl = directUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
-      a.revenue = revBrl;
-      a.profit = revBrl - a.cost;
-      a.roi = a.cost > 0 ? (a.profit / a.cost) * 100 : 0;
+      const costUsd = fxUsdBrl > 0 ? a.cost / fxUsdBrl : a.cost;
+      const netUsd = directUsd * (1 - REV_SHARE_PCT);
+      a.cost = costUsd;
+      a.revenue = netUsd;
+      a.profit = netUsd - costUsd;
+      a.roi = costUsd > 0 ? (a.profit / costUsd) * 100 : 0;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
-      a.cpc = a.clicks > 0 ? a.cost / a.clicks : 0;
+      a.cpc = a.clicks > 0 ? costUsd / a.clicks : 0;
     }
     return values;
-  }, [rows, gamRevenueByPlacement, campaignMetricRows, fxUsdBrl]);
+  }, [rows, gamRevenueByPlacement, fxUsdBrl]);
 
   const sorted = useMemo(() => {
     const arr = [...aggregated];
     arr.sort((a, b) => {
-      const va = (a as any)[sortKey] ?? 0;
-      const vb = (b as any)[sortKey] ?? 0;
+      const va = a[sortKey] ?? 0;
+      const vb = b[sortKey] ?? 0;
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return arr;
@@ -425,7 +454,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           <div className="flex flex-wrap items-center gap-2">
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
-                Receita atribuída: {matchedCount}/{aggregated.length} placement(s)
+                Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · valores em USD
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
@@ -442,7 +471,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
               <div>receita campanha (fallback): <b>{campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0).toFixed(4)} USD</b></div>
               <div>matched/com receita: <b>{matchedCount}</b> · sem receita: <b>{aggregated.length - matchedCount}</b></div>
-              <div>fx USD→BRL: <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+              <div>custo convertido BRL→USD por fx <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
             </div>
           )}
 
@@ -509,14 +538,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.clicks)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.ctr.toFixed(2)}%</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtCurrency(r.cpc)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(r.cpc)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtCurrency(r.cost)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtUSD(r.cost)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {matched ? fmtCurrency(r.revenue) : "—"}
+                          {matched ? fmtUSD(r.revenue) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {matched ? fmtCurrency(r.profit) : "—"}
+                          {matched ? fmtUSD(r.profit) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
                           {matched ? fmtPercent(r.roi) : "—"}
@@ -574,7 +603,7 @@ function RankingCard({ title, rows, variant, hasRevenue }: { title: string; rows
               hasRevenue ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground",
             )}>
               <Icon className="h-3 w-3" />
-              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtCurrency(r.cost)} gasto`}
+              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtUSD(r.cost)} gasto`}
             </span>
           </li>
         ))}
