@@ -288,7 +288,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
     for (const g of gamRows) {
-      const key = (g.placement || "").toLowerCase();
+      const key = normalizePlacementKey(g.placement || "");
       if (!key) continue;
       map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
@@ -298,7 +298,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
     for (const r of rows) {
-      const rawPlacement = (r.placement_clean || r.placement).toLowerCase();
+      const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
       // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
       // O root domain é guardado para fallback de match de receita via UTM.
       const key = rawPlacement;
