@@ -201,10 +201,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const grandCost = stats?.grand_cost_brl ?? 0;
   const grandProfit = stats?.grand_profit_brl ?? 0;
 
+  // filtra items pela conta selecionada
+  const filteredItems = accountFilter === "all"
+    ? items
+    : items.filter((i) => i.campaigns.some((c) => c.google_account_id === accountFilter));
+
   // agrupa items por campanha
   const itemsByCampaign = new Map<string, PreviewItem[]>();
-  for (const it of items) {
+  for (const it of filteredItems) {
     for (const c of it.campaigns) {
+      if (accountFilter !== "all" && c.google_account_id !== accountFilter) continue;
       const arr = itemsByCampaign.get(c.campaign_id) ?? [];
       arr.push(it);
       itemsByCampaign.set(c.campaign_id, arr);
@@ -218,7 +224,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map(itemKey);
+    const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
