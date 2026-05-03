@@ -284,7 +284,8 @@ Deno.serve(async (req) => {
         last_evaluated_at: new Date().toISOString(),
       };
       if (!ex) {
-        row.first_seen_at = new Date(a.firstDate).toISOString();
+        const fd = a.firstDate ? new Date(a.firstDate) : null;
+        row.first_seen_at = (fd && !isNaN(fd.getTime()) ? fd : new Date()).toISOString();
         row.last_status_change_at = new Date().toISOString();
       } else if (statusChanged) {
         row.last_status_change_at = new Date().toISOString();
