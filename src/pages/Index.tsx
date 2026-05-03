@@ -23,6 +23,7 @@ import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
 import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
+import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
