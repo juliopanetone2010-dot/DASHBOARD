@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -13,6 +13,9 @@ import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
+
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "clicks" | "conversions";
+type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
