@@ -211,8 +211,8 @@ Deno.serve(async (req) => {
     const items = [];
     let skippedSafety = 0;
     for (const a of aggMap.values()) {
-      const passSafety = a.costBrl >= minCostBrl || a.clicks >= minClicks;
-      if (!passSafety) { skippedSafety++; continue; }
+      // OBRIGATÓRIO: gastou pelo menos min_cost_brl no período (15 dias) — sem OR clicks
+      if (a.costBrl < minCostBrl) { skippedSafety++; continue; }
       const revenueBrl = a.revenueUsd * NET_FACTOR * fxUsdBrl;
       const profitBrl = revenueBrl - a.costBrl;
       // Sem match: ROI = -100% (pior caso, conta como ruim)
