@@ -837,19 +837,20 @@ interface RunReportArgs {
   accessToken: string;
   range: GamRange;
   dimensions: string[];
+  metrics?: string[];
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
     dimensions,
-    metrics: [
+    metrics: metrics ?? [
       "AD_SERVER_IMPRESSIONS",
       "AD_SERVER_REVENUE",
       "AD_EXCHANGE_IMPRESSIONS",
@@ -923,8 +924,8 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      const revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
+      const impressions = metrics ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
+      const revenue = metrics ? normalizeGamRevenue(num(m[1])) : normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
       allRows.push({ date, dims: dimStrings, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
