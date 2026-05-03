@@ -106,6 +106,8 @@ Deno.serve(async (req) => {
     const rows = results.map((r) => {
       const cost = Number(r.metrics?.costMicros ?? 0) / 1_000_000;
       const placement = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
+      const targetUrl = r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null;
+      const placementClean = cleanPlacement(placement, targetUrl);
       return {
         user_id: userId,
         google_account_id: account.id,
@@ -114,8 +116,9 @@ Deno.serve(async (req) => {
         ad_group_id: r.adGroup?.id ? String(r.adGroup.id) : null,
         ad_group_name: r.adGroup?.name ?? null,
         placement,
+        placement_clean: placementClean,
         display_name: r.detailPlacementView?.displayName ?? null,
-        target_url: r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null,
+        target_url: targetUrl,
         placement_type: r.detailPlacementView?.placementType ?? null,
         date: r.segments?.date,
         impressions: Number(r.metrics?.impressions ?? 0),
@@ -161,4 +164,23 @@ function json(payload: unknown) {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Normaliza placement do Ads para domínio:
+// "https://afrisearch.com/page" → "afrisearch.com"
+// "mobileapp::1-com.foo.bar"   → "com.foo.bar"
+// "youtube.com/channel/UCxx"   → "youtube.com"
+function cleanPlacement(placement: string, targetUrl: string | null): string {
+  const candidate = (placement || targetUrl || "").trim();
+  if (!candidate) return "";
+  // App Android/iOS
+  const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
+  if (appMatch) return appMatch[1].toLowerCase();
+  // URL completa
+  try {
+    const u = new URL(candidate.startsWith("http") ? candidate : `https://${candidate}`);
+    return u.hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return candidate.replace(/^www\./, "").toLowerCase();
+  }
 }

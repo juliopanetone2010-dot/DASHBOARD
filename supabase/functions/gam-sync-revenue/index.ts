@@ -235,13 +235,31 @@ function dateObj(iso: string) {
   return { year, month, day };
 }
 
-// Extrai o campaignid do nome do placement/ad_unit do GAM.
-// Convenção UTM: utm_placement={campaignid}_{placement}
-// O nome do placement no GAM segue esse padrão (prefixo numérico antes do "_").
+// Extrai (campaign_id, placement) do nome do ad unit/placement do GAM.
+// Padrão UTM: utm_placement={campaignid}_{placement}
+// Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
 function extractCampaignIdFromName(name: string): string | null {
+  return parseGamPlacementName(name)?.cid ?? null;
+}
+
+function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
   if (!name) return null;
-  const m = name.match(/^(\d{6,})[_\-:]/);
-  return m ? m[1] : null;
+  const m = name.match(/^(\d{6,})[_\-:](.+)$/);
+  if (!m) return null;
+  return { cid: m[1], placement: normalizePlacement(m[2]) };
+}
+
+function normalizePlacement(s: string): string {
+  const t = (s || "").trim().toLowerCase();
+  // App
+  const appMatch = t.match(/mobileapp::\d+-(.+)$/i);
+  if (appMatch) return appMatch[1];
+  try {
+    const u = new URL(t.startsWith("http") ? t : `https://${t}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return t.replace(/^www\./, "");
+  }
 }
 
 async function distributeGamRevenueToCampaigns(
@@ -259,20 +277,44 @@ async function distributeGamRevenueToCampaigns(
   const today = new Date().toISOString().slice(0, 10);
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
   const unmatchedByDate = new Map<string, { revenue: number; impressions: number }>();
+  // Atribuição por (campaign_id, placement, date) — para a tabela gam_placement_revenue
+  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string }>();
   for (const r of rows) {
     const date = r.date ?? today;
-    const cid = extractCampaignIdFromName(r.name);
-    if (cid) {
+    const parsed = parseGamPlacementName(r.name);
+    if (parsed) {
+      const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
       const cur = inner.get(cid) ?? { revenue: 0, impressions: 0 };
       cur.revenue += r.revenue; cur.impressions += r.impressions;
       inner.set(cid, cur);
+
+      const key = `${cid}|${parsed.placement}|${date}`;
+      const pb = placementBuckets.get(key) ?? {
+        user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
+        date, revenue_usd: 0, impressions: 0, source: "utm_name",
+      };
+      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+      placementBuckets.set(key, pb);
     } else {
       const cur = unmatchedByDate.get(date) ?? { revenue: 0, impressions: 0 };
       cur.revenue += r.revenue; cur.impressions += r.impressions;
       unmatchedByDate.set(date, cur);
     }
+  }
+
+  // Persiste atribuição por placement (substitui período)
+  if (placementBuckets.size > 0) {
+    const dates = [...new Set([...placementBuckets.values()].map((p) => p.date))];
+    await admin.from("gam_placement_revenue")
+      .delete().eq("user_id", userId).in("date", dates);
+    const arr = [...placementBuckets.values()];
+    const CHUNK = 500;
+    for (let i = 0; i < arr.length; i += CHUNK) {
+      await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
+    }
+    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) gravadas`);
   }
 
   const { data: links, error: linksErr } = await admin

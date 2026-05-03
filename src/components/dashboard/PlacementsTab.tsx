@@ -11,11 +11,12 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
-import type { Campaign, GoogleAccount, Placement } from "@/types/domain";
+import type { Campaign, GoogleAccount } from "@/types/domain";
 
 interface AdsPlacementRow {
   id: string;
   placement: string;
+  placement_clean: string | null;
   display_name: string | null;
   target_url: string | null;
   placement_type: string | null;
@@ -30,6 +31,8 @@ interface AdsPlacementRow {
   ctr: number;
   avg_cpc: number;
 }
+
+interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; }
 
 interface AggRow {
   placement: string;
@@ -51,23 +54,24 @@ type SortKey = "roi" | "cost" | "conversions" | "ctr" | "impressions";
 interface Props {
   campaigns: Campaign[];
   googleAccounts: GoogleAccount[];
-  rawPlacements: Placement[];      // GAM (para tentar atribuir receita por domínio)
   fxUsdBrl?: number;               // câmbio aproximado (vem da última sync)
 }
 
 const PAGE_SIZE = 100;
 
-export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdBrl = 4.97 }: Props) {
+export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
+  const [gamRows, setGamRows] = useState<GamRevRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
+  const [showDebug, setShowDebug] = useState(false);
 
   const visibleCampaigns = useMemo(() => {
     return campaigns
@@ -101,6 +105,15 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
       setRows((data ?? []) as AdsPlacementRow[]);
       setLimit(PAGE_SIZE);
 
+      // Receita do GAM atribuída via UTM (campaign_id + placement)
+      const { data: gamData } = await supabase
+        .from("gam_placement_revenue")
+        .select("placement, revenue_usd, impressions, date")
+        .eq("campaign_id", cid)
+        .gte("date", range.from)
+        .lte("date", range.to);
+      setGamRows((gamData ?? []) as GamRevRow[]);
+
       // Carrega ações (blacklist/favorite) para os placements desta campanha
       const { data: acts } = await supabase
         .from("placement_actions")
@@ -119,30 +132,31 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, preset]);
 
-  // Tenta achar receita do GAM por placement (match por domínio/host).
-  const gamRevenueByHost = useMemo(() => {
+  // Receita GAM por placement (já agrupada via UTM no backend)
+  const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
-    for (const p of rawPlacements) {
-      const key = (p.site || "").toLowerCase().replace(/^www\./, "");
+    for (const g of gamRows) {
+      const key = (g.placement || "").toLowerCase();
       if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + Number(p.revenue ?? 0));
+      map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
     return map;
-  }, [rawPlacements]);
+  }, [gamRows]);
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
     for (const r of rows) {
-      let agg = map.get(r.placement);
+      const key = r.placement_clean || r.placement;
+      let agg = map.get(key);
       if (!agg) {
         agg = {
-          placement: r.placement,
+          placement: key,
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
           impressions: 0, clicks: 0, cost: 0, conversions: 0,
           revenue: 0, profit: 0, roi: 0, ctr: 0, cpc: 0,
         };
-        map.set(r.placement, agg);
+        map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
@@ -151,8 +165,7 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
       agg.conversions += Number(r.conversions);
     }
     for (const a of map.values()) {
-      const host = a.placement.toLowerCase().replace(/^www\./, "").replace(/^https?:\/\//, "").split("/")[0];
-      const grossUsd = gamRevenueByHost.get(host) ?? 0;
+      const grossUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
       const revBrl = grossUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
       a.revenue = revBrl;
       a.profit = revBrl - a.cost;
@@ -161,7 +174,7 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
       a.cpc = a.clicks > 0 ? a.cost / a.clicks : 0;
     }
     return [...map.values()];
-  }, [rows, gamRevenueByHost, fxUsdBrl]);
+  }, [rows, gamRevenueByPlacement, fxUsdBrl]);
 
   const sorted = useMemo(() => {
     const arr = [...aggregated];
@@ -174,7 +187,11 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
   }, [aggregated, sortKey, sortDir]);
 
   const visible = sorted.slice(0, limit);
-  const hasGamRevenue = gamRevenueByHost.size > 0;
+  const hasGamRevenue = gamRevenueByPlacement.size > 0;
+  const matchedCount = useMemo(
+    () => aggregated.filter((a) => gamRevenueByPlacement.has(a.placement)).length,
+    [aggregated, gamRevenueByPlacement],
+  );
 
   const top = useMemo(
     () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
@@ -292,11 +309,28 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
             <RankingCard title="💀 Piores placements" rows={worst} variant="worst" hasRevenue={hasGamRevenue} />
           </div>
 
-          {/* Aviso GAM */}
-          {!hasGamRevenue && (
-            <Badge variant="secondary" className="text-xs">
-              Receita por placement indisponível (limitação do GAM). Mostrando custo, CTR e conversões.
-            </Badge>
+          {/* Aviso GAM + debug */}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasGamRevenue ? (
+              <Badge variant="outline" className="text-xs">
+                Receita atribuída via UTM: {matchedCount}/{aggregated.length} placement(s)
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs">
+                Sem receita atribuída — GAM não tem ad units com padrão {`{campaignid}_{placement}`} para esta campanha.
+              </Badge>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
+              {showDebug ? "Ocultar debug" : "Mostrar debug"}
+            </Button>
+          </div>
+          {showDebug && (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
+              <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
+              <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
+              <div>matched: <b>{matchedCount}</b> · sem match: <b>{aggregated.length - matchedCount}</b></div>
+              <div>fx USD→BRL: <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+            </div>
           )}
 
           {/* Tabela */}
@@ -339,7 +373,8 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
                     </TableCell></TableRow>
                   )}
                   {visible.map((r) => {
-                    const negative = hasGamRevenue && r.roi < 0;
+                    const matched = gamRevenueByPlacement.has(r.placement);
+                    const negative = matched && r.roi < 0;
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.cost > 20 && r.conversions === 0;
                     const action = actions[r.placement];
@@ -347,7 +382,8 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
-                          <div className="flex gap-1 mt-1">
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {!matched && <Badge variant="outline" className="text-[9px]">sem UTM</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
@@ -363,13 +399,13 @@ export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdB
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtCurrency(r.cost)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {hasGamRevenue ? fmtCurrency(r.revenue) : "—"}
+                          {matched ? fmtCurrency(r.revenue) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-medium", hasGamRevenue ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {hasGamRevenue ? fmtCurrency(r.profit) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtCurrency(r.profit) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-semibold", hasGamRevenue ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {hasGamRevenue ? fmtPercent(r.roi) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtPercent(r.roi) : "—"}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
