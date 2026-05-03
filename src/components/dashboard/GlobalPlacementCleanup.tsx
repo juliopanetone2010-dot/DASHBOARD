@@ -52,11 +52,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
-  const [minDays, setMinDays] = useState(20);
+  const [minDays, setMinDays] = useState(15);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
   const [minClicks, setMinClicks] = useState(20);
-  const [lookback, setLookback] = useState(30);
+  const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
@@ -99,7 +99,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       placement_cleanup_min_cost_brl: minCost,
       placement_cleanup_min_clicks: minClicks,
     });
-    toast({ title: on ? "Limpeza automática ativada (24h)" : "Limpeza automática desativada" });
+    toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
   const runPreview = async () => {
@@ -197,7 +197,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
           <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
           <div className="text-xs">
-            <div className="font-medium">Auto cleanup 24h</div>
+            <div className="font-medium">Auto cleanup 15d</div>
             <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
