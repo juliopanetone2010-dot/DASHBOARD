@@ -589,12 +589,13 @@ interface RunReportArgs {
   accessToken: string;
   range: GamRange;
   dimensions: string[];
-  customDimensionKeyIds?: string[];
+  dimensionKeyIds?: string[];
+  dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, customDimensionKeyIds, debug } = args;
+  const { networkCode, accessToken, range, dimensions, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
 
   const reportDefinition: any = {
@@ -610,7 +611,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     ],
     dateRange: range.dateRange,
   };
-  if (customDimensionKeyIds?.length) reportDefinition.customDimensionKeyIds = customDimensionKeyIds;
+  if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
   const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
