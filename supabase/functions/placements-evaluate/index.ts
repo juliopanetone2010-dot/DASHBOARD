@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     // gam_placement_revenue
     type GamRow = { campaign_id: string; placement: string; revenue_usd: number; date: string };
     const gam: GamRow[] = [];
-    let s = 0;
+    s = 0;
     for (;;) {
       const { data, error } = await admin.from("gam_placement_revenue")
         .select("campaign_id, placement, revenue_usd, date")
