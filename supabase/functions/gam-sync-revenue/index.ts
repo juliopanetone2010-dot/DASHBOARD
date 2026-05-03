@@ -397,14 +397,20 @@ async function runReport(
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // GAM retorna receita em micros de USD. Armazenamos em USD nativo.
-      const revenue = (num(m[1]) + num(m[3]) + num(m[5])) / 1_000_000;
+      // A API nova do GAM pode retornar receita já em decimal USD ou em micros,
+      // dependendo do backend/metric. Normalizamos sem dividir duas vezes.
+      const revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
   return allRows;
+}
+
+function normalizeGamRevenue(value: number) {
+  if (!Number.isFinite(value) || value === 0) return 0;
+  return Math.abs(value) >= 1_000 ? value / 1_000_000 : value;
 }
 
 function parseGamDate(value: any): string | null {
