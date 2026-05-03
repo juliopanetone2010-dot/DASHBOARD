@@ -212,7 +212,13 @@ const Index = () => {
                 value={fmtUSD(totals.revenue)}
                 icon={DollarSign}
                 variant="primary"
-                hint="USD nativo"
+                hint={
+                  presetFromRange(filters.fromDate, filters.toDate) === "today"
+                    ? "USD nativo · GAM pode atrasar (mostrando até ontem)"
+                    : totals.revenue === 0
+                      ? "USD nativo · Sem dados do GAM ou atraso de processamento"
+                      : "USD nativo"
+                }
               />
               <MetricCard
                 label="Lucro"
