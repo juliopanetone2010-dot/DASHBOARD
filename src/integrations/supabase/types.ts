@@ -191,6 +191,60 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_country_metrics: {
+        Row: {
+          campaign_id: string
+          clicks: number
+          conversions: number
+          cost: number
+          country_code: string
+          country_criterion_id: string | null
+          country_name: string | null
+          created_at: string
+          date: string
+          google_account_id: string | null
+          id: string
+          impressions: number
+          revenue_usd: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          clicks?: number
+          conversions?: number
+          cost?: number
+          country_code: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          date: string
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          clicks?: number
+          conversions?: number
+          cost?: number
+          country_code?: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          date?: string
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaigns: {
         Row: {
           budget_micros: number | null
