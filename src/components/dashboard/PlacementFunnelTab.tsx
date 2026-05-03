@@ -312,7 +312,41 @@ function ConfirmBtn({ icon, label, title, desc, onConfirm, busy, variant }: {
   );
 }
 
-interface FBProps {
+function MultiPicker({ label, items, selected, onChange }: {
+  label: string; items: { id: string; name: string }[]; selected: Set<string>; onChange: (s: Set<string>) => void;
+}) {
+  const allSelected = selected.size === 0;
+  const display = allSelected ? `Todas (${items.length})` : `${selected.size} selec.`;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
+          {label}: <span className="font-semibold">{display}</span>
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-auto w-64">
+        <DropdownMenuLabel className="text-xs">{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem checked={allSelected} onCheckedChange={() => onChange(new Set())}>
+          Todas
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {items.length === 0 && <div className="text-[11px] text-muted-foreground px-2 py-1">— vazio —</div>}
+        {items.map((it) => (
+          <DropdownMenuCheckboxItem key={it.id} checked={selected.has(it.id)} onSelect={(e) => e.preventDefault()}
+            onCheckedChange={(c) => {
+              const n = new Set(selected);
+              c ? n.add(it.id) : n.delete(it.id);
+              onChange(n);
+            }}>
+            <span className="truncate">{it.name}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
   rows: Row[];
   loading: boolean;
   busyId: string | null;
