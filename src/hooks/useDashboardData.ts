@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { EngineAlertDraft } from "@/engine/rules";
 import type {
@@ -237,23 +238,36 @@ const emptySnapshot = (): DashboardSnapshot => ({
 
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
+  const { range, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
 
-  const queryKey = useMemo(() => [...DASHBOARD_QK, user?.id ?? "guest"], [user?.id]);
+  const queryKey = useMemo(
+    () => [...DASHBOARD_QK, user?.id ?? "guest", range.from, range.to, filters.googleAccountIds.join("|"), filters.siteId],
+    [user?.id, range.from, range.to, filters.googleAccountIds, filters.siteId],
+  );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
-    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { user: user?.id ?? "guest" });
+    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: range.from, to: range.to });
 
     if (!user) {
       const store = loadGuestStore();
       return { ...store, fetchedAt: Date.now() };
     }
 
+    let metricsQuery = supabase
+      .from("daily_metrics")
+      .select("*")
+      .gte("date", range.from)
+      .lte("date", range.to)
+      .order("date", { ascending: false })
+      .limit(5000);
+    if (filters.googleAccountIds.length > 0) metricsQuery = metricsQuery.in("google_account_id", filters.googleAccountIds);
+
     const [c, m, p, r, a, ga, gam, s, l] = await Promise.all([
       supabase.from("campaigns").select("*").order("name"),
-      supabase.from("daily_metrics").select("*").order("date", { ascending: false }).limit(1000),
-      supabase.from("placements").select("*").order("date", { ascending: false }).limit(1000),
+      metricsQuery,
+      supabase.from("placements").select("*").gte("date", range.from).lte("date", range.to).order("date", { ascending: false }).limit(5000),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("google_accounts").select("*").order("account_name"),
@@ -274,7 +288,7 @@ export function useDashboardData(): DashboardData {
       links: (l.data ?? []) as AccountSiteLink[],
       fetchedAt: Date.now(),
     };
-  }, [user]);
+  }, [user, queryKey, range.from, range.to, filters.googleAccountIds]);
 
   const query = useQuery<DashboardSnapshot>({
     queryKey,
