@@ -403,10 +403,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     [aggregated],
   );
 
-  const toggleAction = async (placement: string, action: "blacklist" | "favorite") => {
+  const toggleAction = async (placement: string, action: "blacklist" | "favorite", row?: AggRow) => {
     const current = actions[placement];
     if (current === action) {
-      // remove
+      // remove (apenas registro local; não desfaz exclusão no Google Ads)
       await supabase.from("placement_actions").delete().eq("campaign_id", campaignId).eq("placement", placement).eq("action", action);
       setActions((s) => ({ ...s, [placement]: undefined }));
       return;
@@ -414,9 +414,48 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     const userRes = await supabase.auth.getUser();
     const uid = userRes.data.user?.id;
     if (!uid) return;
+
+    if (action === "blacklist") {
+      const camp = campaigns.find((c) => c.campaign_id === campaignId);
+      if (!camp?.google_account_id) {
+        toast({ title: "Campanha sem conta vinculada", variant: "destructive" });
+        return;
+      }
+      if (!confirm(`Excluir "${placement}" como negative placement no Google Ads desta campanha?`)) return;
+      setActions((s) => ({ ...s, [placement]: action })); // otimista
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; details?: any }>(
+        "placements-cleanup",
+        {
+          body: {
+            mode: "apply",
+            fx_usd_brl: fxUsdBrl,
+            items: [{
+              placement,
+              type: row?.type ?? "WEBSITE",
+              app_id: null,
+              campaigns: [{ campaign_id: campaignId, google_account_id: camp.google_account_id }],
+            }],
+          },
+        },
+      );
+      if (error || data?.error) {
+        setActions((s) => ({ ...s, [placement]: undefined }));
+        toast({ title: "Erro ao excluir no Google Ads", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      if ((data?.applied ?? 0) === 0) {
+        setActions((s) => ({ ...s, [placement]: undefined }));
+        const reason = data?.details?.[0]?.partial_message ?? data?.details?.[0]?.error ?? "rejeitado pelo Google Ads (campanhas Performance Max/App não aceitam negative placement por campanha)";
+        toast({ title: "Não aplicado no Google Ads", description: reason, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Excluído no Google Ads", description: `${placement} (${data?.applied} aplicado, ${data?.failed ?? 0} falha)` });
+      return;
+    }
+
     await supabase.from("placement_actions").insert({ user_id: uid, campaign_id: campaignId, placement, action });
     setActions((s) => ({ ...s, [placement]: action }));
-    toast({ title: action === "blacklist" ? "Blacklist registrada" : "Favoritado", description: placement });
+    toast({ title: "Favoritado", description: placement });
   };
 
   const toggleSort = (k: SortKey) => {
