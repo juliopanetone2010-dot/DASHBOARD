@@ -219,83 +219,15 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/40">
-              <TableHead>Placement</TableHead>
-              <TableHead>Campanha</TableHead>
-              <TableHead className="text-right">Status</TableHead>
-              <TableHead className="text-right">Tempo</TableHead>
-              <TableHead className="text-right">Custo</TableHead>
-              <TableHead className="text-right">Receita</TableHead>
-              <TableHead className="text-right">ROI</TableHead>
-              <TableHead className="text-right">Cliques</TableHead>
-              <TableHead className="text-right w-56">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && (
-              <TableRow><TableCell colSpan={9} className="text-center py-8"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando...</TableCell></TableRow>
-            )}
-            {!loading && filtered.length === 0 && (
-              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                Nenhum placement. Clique em <b>Avaliar agora</b>.
-              </TableCell></TableRow>
-            )}
-            {filtered.map((r) => {
-              const meta = STATUS_META[r.status];
-              return (
-                <TableRow key={r.id}>
-                  <TableCell className="text-sm font-medium max-w-[280px] truncate" title={r.placement}>
-                    {r.priority && <Sparkles className="h-3 w-3 inline mr-1 text-primary" />}
-                    {r.placement}
-                    {r.manual_override && <Badge variant="outline" className="ml-2 text-[10px] py-0">manual</Badge>}
-                    {r.reason && <div className="text-[10px] text-muted-foreground truncate" title={r.reason}>{r.reason}</div>}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={r.campaign_name ?? ""}>{r.campaign_name}</TableCell>
-                  <TableCell className="text-right">
-                    <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold", meta.cls)}>
-                      {meta.label}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{daysSince(r.first_seen_at)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtBRL(r.cost_total)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtBRL(r.revenue_total)}</TableCell>
-                  <TableCell className={cn("text-right tabular-nums font-semibold", r.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(r.roi_pct)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(r.clicks_total)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-1">
-                      {r.status !== "blocked" && (
-                        <ConfirmBtn icon={<Ban className="h-3.5 w-3.5" />} label="Forçar bloqueio"
-                          variant="danger"
-                          title={`Bloquear ${r.placement}?`}
-                          desc="O placement será marcado como blocked e adicionado à blacklist na próxima limpeza."
-                          busy={busyId === r.id}
-                          onConfirm={() => updateStatus(r.id, "blocked", "force_block manual")} />
-                      )}
-                      {(r.status === "bad" || r.status === "blocked") && (
-                        <ConfirmBtn icon={<Play className="h-3.5 w-3.5" />} label="2ª chance"
-                          variant="default"
-                          title={`Dar segunda chance a ${r.placement}?`}
-                          desc="Volta para learning e suspende qualquer bloqueio automático."
-                          busy={busyId === r.id}
-                          onConfirm={() => updateStatus(r.id, "learning", "second_chance manual")} />
-                      )}
-                      <ConfirmBtn icon={<RotateCcw className="h-3.5 w-3.5" />} label="Reset"
-                        variant="ghost"
-                        title={`Resetar ${r.placement}?`}
-                        desc="Volta para test e zera o histórico de decisão (override manual desligado)."
-                        busy={busyId === r.id}
-                        onConfirm={() => resetPlacement(r.id)} />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      <FunnelByCampaign
+        rows={filtered}
+        loading={loading}
+        busyId={busyId}
+        daysSince={daysSince}
+        onBlock={(id, p) => updateStatus(id, "blocked", "force_block manual")}
+        onSecondChance={(id) => updateStatus(id, "learning", "second_chance manual")}
+        onReset={resetPlacement}
+      />
     </div>
   );
 }
