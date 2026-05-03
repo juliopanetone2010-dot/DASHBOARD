@@ -38,6 +38,75 @@ export type Database = {
         }
         Relationships: []
       }
+      ads_placements: {
+        Row: {
+          ad_group_id: string | null
+          ad_group_name: string | null
+          avg_cpc: number
+          campaign_id: string
+          campaign_name: string | null
+          clicks: number
+          conversions: number
+          cost: number
+          created_at: string
+          ctr: number
+          date: string
+          display_name: string | null
+          google_account_id: string | null
+          id: string
+          impressions: number
+          placement: string
+          placement_type: string | null
+          target_url: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_group_id?: string | null
+          ad_group_name?: string | null
+          avg_cpc?: number
+          campaign_id: string
+          campaign_name?: string | null
+          clicks?: number
+          conversions?: number
+          cost?: number
+          created_at?: string
+          ctr?: number
+          date: string
+          display_name?: string | null
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          placement: string
+          placement_type?: string | null
+          target_url?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_group_id?: string | null
+          ad_group_name?: string | null
+          avg_cpc?: number
+          campaign_id?: string
+          campaign_name?: string | null
+          clicks?: number
+          conversions?: number
+          cost?: number
+          created_at?: string
+          ctr?: number
+          date?: string
+          display_name?: string | null
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          placement?: string
+          placement_type?: string | null
+          target_url?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           acknowledged: boolean
@@ -303,6 +372,36 @@ export type Database = {
           manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      placement_actions: {
+        Row: {
+          action: string
+          campaign_id: string | null
+          created_at: string
+          id: string
+          note: string | null
+          placement: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          placement: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          placement?: string
           user_id?: string
         }
         Relationships: []
