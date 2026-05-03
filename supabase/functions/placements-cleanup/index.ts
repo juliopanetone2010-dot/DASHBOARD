@@ -298,6 +298,7 @@ Deno.serve(async (req) => {
           key: i.key,
           placement: i.placement,
           type: i.type,
+          app_id: i.app_id ?? null,
           cost_brl: i.cost_brl,
           revenue_brl: i.revenue_brl,
           revenue_usd: i.revenue_usd,
