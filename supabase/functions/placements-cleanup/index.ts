@@ -187,6 +187,7 @@ Deno.serve(async (req) => {
         key: itemKey,
         placement: v.placement,
         type: v.type,
+        app_id: v.app_id,
         cost_brl: round(v.cost),
         revenue_brl: round(revenueBrl),
         revenue_usd: round(revenueUsd),
