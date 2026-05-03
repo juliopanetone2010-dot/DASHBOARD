@@ -90,91 +90,82 @@ Deno.serve(async (req) => {
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
-        const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
-        const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
-        let googleUtmRows: ReportRow[] = [];
-        const allUtmRows: ReportRow[] = [];
-        let customCriteriaAvailable = false;
-        let customCriteriaDimUsed: string | null = null;
-        const sourceCounts: Record<string, number> = {};
-        // Tenta dimensões possíveis para extrair UTM/key-values do GAM (a API nova
-        // renomeou várias dimensões; tentamos em ordem de preferência).
-        const candidateDims: Array<"KEY_VALUES_NAME" | "CUSTOM_CRITERIA" | "AD_REQUEST_CUSTOM_CRITERIA"> = [
-          "KEY_VALUES_NAME",
-          "CUSTOM_CRITERIA",
-          "AD_REQUEST_CUSTOM_CRITERIA",
-        ];
-        for (const dim of candidateDims) {
-          try {
-            const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, dim as any, debug))))
-              .flat();
-            customCriteriaAvailable = true;
-            customCriteriaDimUsed = dim;
-            for (const r of customCriteriaRows) {
-              const parsed = parseGamAttribution(r.name);
-              if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
-              if (parsed?.cid) allUtmRows.push(r);
-              if (parsed?.source === "google") googleUtmRows.push(r);
-            }
-            debug.push(`[${networkCode}/${dim}] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
-            break;
-          } catch (e) {
-            debug.push(`[${networkCode}/${dim}] indisponível: ${String(e).slice(0, 200)}`);
+
+        // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
+        const adUnitRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug })
+        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        const placementRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
+        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+
+        // 1) Descobre IDs dos custom targeting keys utm_source, utm_campaign, utm_placement
+        const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
+        const haveAllKeys = utmKeyIds.utm_source && utmKeyIds.utm_campaign && utmKeyIds.utm_placement;
+
+        // 2) Roda report com CUSTOM_DIMENSION_*_VALUE (UTM nativo via key-values do GAM)
+        let utmRows: AttributedRow[] = [];
+        if (haveAllKeys) {
+          const customDimensionKeyIds = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!, utmKeyIds.utm_placement!];
+          const dims = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE", "CUSTOM_DIMENSION_2_VALUE"];
+          const reportRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: dims, customDimensionKeyIds, debug })
+          ))).flat();
+          for (const r of reportRows) {
+            const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
+            const campaignRaw = (r.dims[2] || "").trim();
+            const placementRaw = (r.dims[3] || "").trim();
+            const cid = /^\d{6,}$/.test(campaignRaw) ? campaignRaw : null;
+            const placement = placementRaw ? extractPlacementValue(placementRaw, cid) : null;
+            utmRows.push({
+              date: r.date,
+              impressions: r.impressions,
+              revenue: r.revenue,
+              source,
+              cid,
+              placement,
+              raw: `s=${r.dims[1]}|c=${r.dims[2]}|p=${r.dims[3]}`,
+            });
           }
+          const sourceCounts = utmRows.reduce((acc: Record<string, number>, r) => {
+            acc[r.source] = (acc[r.source] ?? 0) + 1; return acc;
+          }, {});
+          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; sources=${JSON.stringify(sourceCounts)}`);
+        } else {
+          debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
 
-        // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
-        // ou tráfego sem UTM não pode ser rateada em campanhas/placements do Google Ads.
-        const canonicalRows = customCriteriaAvailable ? googleUtmRows : [];
-        const totals = canonicalRows.reduce(
-          (acc, r) => ({
-            revenue: acc.revenue + r.revenue,
-            impressions: acc.impressions + r.impressions,
-          }),
+        const googleRows = utmRows.filter((r) => r.source === "google" && r.cid);
+        const totals = googleRows.reduce(
+          (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
         );
         const today = new Date().toISOString().slice(0, 10);
 
-        // Persiste rows como placements em bulk (chunked upsert)
-        const persistRows = async (rows: ReportRow[], kind: "ad_unit" | "placement") => {
+        // Persiste placements/ad_units para inspeção (sem afetar ROI)
+        const persistRows = async (rows: Array<{ date: string | null; name: string; impressions: number; revenue: number }>, kind: "ad_unit" | "placement") => {
           if (rows.length === 0) return;
           const siteForRow = networkSites[0];
           const payload = rows.map((r) => {
             const ecpm = r.impressions > 0 ? (r.revenue / r.impressions) * 1000 : 0;
             return {
-              user_id: userId,
-              site_id: siteForRow.id,
-              site: siteForRow.name,
+              user_id: userId, site_id: siteForRow.id, site: siteForRow.name,
               ad_unit: kind === "ad_unit" ? r.name : null,
               placement_key: `${kind}:${networkCode}:${r.name}`,
-              date: r.date ?? today,
-              impressions: r.impressions,
-              revenue: r.revenue,
-              ecpm,
+              date: r.date ?? today, impressions: r.impressions, revenue: r.revenue, ecpm,
             };
           });
           const CHUNK = 500;
           for (let i = 0; i < payload.length; i += CHUNK) {
-            await admin.from("placements").upsert(
-              payload.slice(i, i + CHUNK),
-              { onConflict: "user_id,placement_key,date" },
-            );
+            await admin.from("placements").upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,placement_key,date" });
           }
         };
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenue(admin, userId, networkSites[0]?.id, allUtmRows, debug, expandFixedDates(ranges));
-          if (customCriteriaAvailable && canonicalRows.length > 0) {
-            await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
-          } else {
-            // Fallback: GAM não expõe dimensão de UTM (ou veio vazia). Em vez de zerar
-            // o Dashboard, distribuímos a receita total do GAM (placementRows) por
-            // share de gasto entre as campanhas Ads vinculadas ao site.
-            debug.push(`[fallback] sem UTM dim disponível (dim=${customCriteriaDimUsed ?? "nenhuma"}). Rateando receita total do GAM por share de gasto.`);
-            await distributeGamTotalsBySpend(admin, userId, networkSites[0]?.id, adUnitRows, fxRates, debug, expandFixedDates(ranges));
-          }
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges));
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleRows, fxRates, debug, expandFixedDates(ranges));
         }
 
         summary.push({
@@ -182,17 +173,17 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
-          custom_criteria_rows: googleUtmRows.length,
-          custom_criteria_available: customCriteriaAvailable,
-          utm_sources_breakdown: sourceCounts,
-          attribution_rule: "google→ROI/ROAS; demais origens→retenção",
+          utm_rows: utmRows.length,
+          utm_keys_found: utmKeyIds,
+          google_rows: googleRows.length,
+          attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
-          rows_returned: canonicalRows.length,
+          rows_returned: googleRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
@@ -221,8 +212,8 @@ Deno.serve(async (req) => {
   }
 });
 
-interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
-
+interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; }
+interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
@@ -294,50 +285,12 @@ function dateObj(iso: string) {
   return { year, month, day };
 }
 
-// Extrai (utm_source, campaign_id, placement) do nome/key-value do GAM.
-// Padrão Google: utm_source=google + utm_placement={campaignid}_{placement}
-// Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
-// (parseGamAttribution abaixo cobre extração de cid/placement/source)
-
-function parseGamAttribution(name: string): { source: string | null; cid: string | null; placement: string | null } | null {
-  if (!name) return null;
-  const decoded = safeDecode(String(name).trim());
-  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
-  const source = sourceMatch?.[1]?.toLowerCase() ?? null;
-  // Preferência 1: utm_campaign={campaignid} — match direto independente de placement
-  const campaignMatch = decoded.match(/(?:^|[\s,;&|])utm_campaign[=~:]*([^\s,;&|]+)/i);
-  let cid: string | null = null;
-  let placement: string | null = null;
-  if (campaignMatch && /^\d{6,}$/.test(campaignMatch[1])) {
-    cid = campaignMatch[1];
-  }
-  // Preferência 2: utm_placement={cid}_{placement} (formato granular)
-  const utm = decoded.match(/(?:^|[\s,;&|])utm_placement[=~:]*([^\s,;&|]+)/i);
-  const candidate = utm?.[1] ?? (cid ? null : decoded);
-  if (candidate) {
-    const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
-    if (m) {
-      cid = cid ?? m[1];
-      placement = normalizePlacement(m[2]);
-    }
-  }
-  if (!cid && !source) return null;
-  return { source, cid, placement };
-}
-
-function parseUtmSource(name: string): string | null {
-  const decoded = safeDecode(String(name || "").trim());
-  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
-  return sourceMatch?.[1]?.toLowerCase() ?? null;
-}
-
 function safeDecode(s: string): string {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
 function normalizePlacement(s: string): string {
   const t = (s || "").trim().toLowerCase();
-  // App
   const appMatch = t.match(/mobileapp::\d+-(.+)$/i);
   if (appMatch) return appMatch[1];
   try {
@@ -348,12 +301,54 @@ function normalizePlacement(s: string): string {
   }
 }
 
-// Persiste receita por (campanha, source, data) — separa Google de Push/outros para LTV/Retenção.
-async function persistCampaignSourceRevenue(
+// utm_placement vem como "{campaignid}_{placement}". Extrai a parte do placement.
+function extractPlacementValue(raw: string, cid: string | null): string | null {
+  if (!raw) return null;
+  const decoded = safeDecode(raw);
+  const m = decoded.match(/^(\d{6,})[_\-:](.+)$/);
+  if (m) return normalizePlacement(m[2]);
+  if (cid && decoded.startsWith(cid)) return normalizePlacement(decoded.slice(cid.length).replace(/^[_\-:]/, ""));
+  return normalizePlacement(decoded);
+}
+
+// Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
+async function fetchUtmKeyIds(
+  networkCode: string,
+  accessToken: string,
+  debug: string[],
+): Promise<{ utm_source: string | null; utm_campaign: string | null; utm_placement: string | null }> {
+  const wanted: Record<string, string | null> = { utm_source: null, utm_campaign: null, utm_placement: null };
+  let pageToken: string | undefined;
+  let pages = 0;
+  do {
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    url.searchParams.set("pageSize", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const text = await res.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { throw new Error(`customTargetingKeys retorno não-JSON: ${text.slice(0, 200)}`); }
+    if (!res.ok) throw new Error(`customTargetingKeys failed (${res.status}): ${text.slice(0, 300)}`);
+    const keys = (json.customTargetingKeys ?? []) as Array<{ name?: string; adTagName?: string; customTargetingKeyId?: string }>;
+    for (const k of keys) {
+      const name = (k.adTagName ?? "").toLowerCase();
+      const id = String(k.customTargetingKeyId ?? (k.name ?? "").split("/").pop() ?? "");
+      if (!id) continue;
+      if (name in wanted && !wanted[name]) wanted[name] = id;
+    }
+    pageToken = json.nextPageToken;
+    pages++;
+    if (pages > 20) break;
+  } while (pageToken);
+  debug.push(`[customTargetingKeys] utm_source=${wanted.utm_source} utm_campaign=${wanted.utm_campaign} utm_placement=${wanted.utm_placement}`);
+  return wanted as any;
+}
+
+async function persistCampaignSourceRevenueFromUtm(
   admin: any,
   userId: string,
   siteId: string | undefined,
-  rows: ReportRow[],
+  rows: AttributedRow[],
   debug: string[],
   syncDates: string[] = [],
 ) {
@@ -361,13 +356,12 @@ async function persistCampaignSourceRevenue(
   const today = new Date().toISOString().slice(0, 10);
   const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number }>();
   for (const r of rows) {
-    const parsed = parseGamAttribution(r.name);
-    if (!parsed?.cid) continue;
-    const source = (parsed.source ?? "unknown").toLowerCase();
+    if (!r.cid) continue;
     const date = r.date ?? today;
-    const key = `${parsed.cid}|${date}|${source}`;
+    const source = (r.source || "unknown").toLowerCase();
+    const key = `${r.cid}|${date}|${source}`;
     const cur = buckets.get(key) ?? {
-      user_id: userId, site_id: siteId, campaign_id: parsed.cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+      user_id: userId, site_id: siteId, campaign_id: r.cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
     };
     cur.revenue_usd += r.revenue; cur.impressions += r.impressions;
     buckets.set(key, cur);
@@ -382,61 +376,46 @@ async function persistCampaignSourceRevenue(
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
   }
   const sources = arr.reduce((acc: Record<string, number>, b) => {
-    acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd;
-    return acc;
+    acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
   debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s); receita por source=${JSON.stringify(sources)}`);
 }
 
-async function distributeGamRevenueToCampaigns(
+async function applyGoogleUtmRevenue(
   admin: any,
   userId: string,
   siteId: string | undefined,
-  rows: ReportRow[],
-  _fx: FxRates,
+  googleRows: AttributedRow[],
+  fx: FxRates,
   debug: string[],
-  requestedAccountIds: string[] = [],
   syncDates: string[] = [],
 ) {
   if (!siteId) return;
-
-  // Agrupa por (date, campaign_id_extraido) — match direto via UTM quando possível.
   const today = new Date().toISOString().slice(0, 10);
-  const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
-  const unmatchedByDate = new Map<string, { revenue: number; impressions: number }>();
-  // Atribuição por (campaign_id, placement, date) — somente tráfego Google por UTM.
-  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string | null; raw_utm: string }>();
-  for (const r of rows) {
-    const date = r.date ?? today;
-    const parsed = parseGamAttribution(r.name);
-    if (parsed && parsed.source === "google" && parsed.cid) {
-      const cid = parsed.cid;
-      if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
-      const inner = directByDateCid.get(date)!;
-      const cur = inner.get(cid) ?? { revenue: 0, impressions: 0 };
-      cur.revenue += r.revenue; cur.impressions += r.impressions;
-      inner.set(cid, cur);
 
-      // Só registra placement granular quando temos utm_placement (parsed.placement não-nulo)
-      if (parsed.placement) {
-        const key = `${cid}|${parsed.placement}|${date}`;
-        const pb = placementBuckets.get(key) ?? {
-          user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
-          date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
-        };
-        pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
-        placementBuckets.set(key, pb);
-      }
-    } else {
-      const source = parseUtmSource(r.name);
-      if (source) {
-        debug.push(`[utm ignored para ROI Ads] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
-      }
+  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
+  const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
+  for (const r of googleRows) {
+    if (!r.cid) continue;
+    const date = r.date ?? today;
+    if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
+    const inner = directByDateCid.get(date)!;
+    const cur = inner.get(r.cid) ?? { revenue: 0, impressions: 0 };
+    cur.revenue += r.revenue; cur.impressions += r.impressions;
+    inner.set(r.cid, cur);
+
+    if (r.placement) {
+      const key = `${r.cid}|${r.placement}|${date}`;
+      const pb = placementBuckets.get(key) ?? {
+        user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
+        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
+      };
+      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+      placementBuckets.set(key, pb);
     }
   }
 
-  // Persiste atribuição por placement (substitui período mesmo quando zerou, para limpar dado antigo/push misturado)
-  const dates = [...new Set([...syncDates, ...placementBuckets.values()].map((p: any) => typeof p === "string" ? p : p.date).filter(Boolean))];
+  const dates = [...new Set([...syncDates, ...[...placementBuckets.values()].map((p) => p.date)])];
   if (dates.length > 0) {
     await admin.from("gam_placement_revenue")
       .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
@@ -445,61 +424,39 @@ async function distributeGamRevenueToCampaigns(
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
     }
-    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) gravadas`);
+    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) gravadas (apenas utm_source=google)`);
   }
 
-  const { data: links, error: linksErr } = await admin
+  const { data: links } = await admin
     .from("account_site_links")
     .select("google_account_id")
     .eq("user_id", userId)
     .eq("site_id", siteId);
-  if (linksErr || !links?.length) {
-    debug.push(`[daily_metrics] sem vínculo Ads↔site para distribuir receita GAM`);
-    return;
-  }
-  // IMPORTANTE: a receita do GAM é total do site — sempre distribuímos entre TODAS as
-  // contas Ads vinculadas ao site, independente do filtro de UI. Filtrar aqui causaria
-  // receita "vazando" para outras contas via leftover.
-  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
-    debug.push(`[daily_metrics] nenhuma conta Ads vinculada ao site`);
+    debug.push(`[daily_metrics] sem vínculo Ads↔site`);
     return;
   }
 
-  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...unmatchedByDate.keys()]);
+  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys()]);
   for (const date of allDates) {
-    const { data: metrics, error: metricsErr } = await admin
+    const { data: metrics } = await admin
       .from("daily_metrics")
       .select("id, campaign_id, spend, impressions")
       .eq("user_id", userId)
       .eq("date", date)
       .in("google_account_id", accountIds);
-    if (metricsErr || !metrics?.length) {
-      debug.push(`[daily_metrics] sem campanhas Ads em ${date}`);
-      continue;
-    }
+    if (!metrics?.length) continue;
 
-    // 1) match direto via UTM
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
-    const revenueByMetricId = new Map<string, number>();
-    for (const m of metrics as any[]) {
-      const direct = directMap.get(String(m.campaign_id));
-      if (direct) {
-        revenueByMetricId.set(m.id, (revenueByMetricId.get(m.id) ?? 0) + direct.revenue);
-        matchedIds.add(String(m.campaign_id));
-      }
-    }
-    // Não rateia sobra. Receita sem utm_source=google + utm_placement pertence a outra origem
-    // (push/retenção/orgânico/etc.) e não entra no lucro/ROI dos placements do Google Ads.
-    let leftover = unmatchedByDate.get(date)?.revenue ?? 0;
-    for (const [cid, v] of directMap) if (!matchedIds.has(cid)) leftover += v.revenue;
-
     const updates: any[] = [];
     for (const m of metrics as any[]) {
-      const revenueUsd = revenueByMetricId.get(m.id) ?? 0;
+      const direct = directMap.get(String(m.campaign_id));
+      const revenueUsd = direct?.revenue ?? 0;
+      if (direct) matchedIds.add(String(m.campaign_id));
       const spendBrl = Number(m.spend ?? 0);
-      const revenueBrl = revenueUsd * _fx.usdBrl;
+      const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
       const profit = revenueBrl - spendBrl;
       const roi = spendBrl > 0 ? (profit / spendBrl) * 100 : 0;
@@ -517,195 +474,103 @@ async function distributeGamRevenueToCampaigns(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via utm_source=google; ${leftover.toFixed(4)} USD sem match ignorado (não rateado)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match via utm_campaign=campaign_id (Google)`);
   }
 }
 
-// Fallback quando GAM não expõe dimensão de UTM:
-// distribui a receita total do GAM entre as campanhas Ads vinculadas ao site,
-// proporcional ao gasto de cada campanha no dia. NÃO grava em
-// gam_campaign_source_revenue (sem origem confiável), apenas atualiza daily_metrics
-// para que Dashboard volte a mostrar receita/ROI.
-async function distributeGamTotalsBySpend(
-  admin: any,
-  userId: string,
-  siteId: string | undefined,
-  placementRows: ReportRow[],
-  fx: FxRates,
-  debug: string[],
-  syncDates: string[] = [],
-) {
-  if (!siteId) return;
-  const { data: links } = await admin
-    .from("account_site_links")
-    .select("google_account_id")
-    .eq("user_id", userId)
-    .eq("site_id", siteId);
-  const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
-  if (accountIds.length === 0) {
-    debug.push(`[fallback] sem vínculo Ads↔site`);
-    return;
-  }
-
-  // Receita total por dia (USD) somando todos os placement rows do GAM
-  const revByDate = new Map<string, number>();
-  for (const r of placementRows) {
-    if (!r.date) continue;
-    revByDate.set(r.date, (revByDate.get(r.date) ?? 0) + r.revenue);
-  }
-  const allDates = new Set<string>([...syncDates, ...revByDate.keys()]);
-
-  for (const date of allDates) {
-    const totalUsd = revByDate.get(date) ?? 0;
-    const { data: metrics } = await admin
-      .from("daily_metrics")
-      .select("id, spend, impressions")
-      .eq("user_id", userId)
-      .eq("date", date)
-      .in("google_account_id", accountIds);
-    if (!metrics?.length) continue;
-    const totalSpend = (metrics as any[]).reduce((acc, m) => acc + Number(m.spend ?? 0), 0);
-    const totalImpr = (metrics as any[]).reduce((acc, m) => acc + Number(m.impressions ?? 0), 0);
-    const updates: any[] = [];
-    for (const m of metrics as any[]) {
-      const spend = Number(m.spend ?? 0);
-      const impr = Number(m.impressions ?? 0);
-      const weight = totalSpend > 0
-        ? spend / totalSpend
-        : (totalImpr > 0 ? impr / totalImpr : 0);
-      const revenueUsd = totalUsd * weight;
-      const revenueBrl = revenueUsd * fx.usdBrl;
-      const profit = revenueBrl - spend;
-      const roi = spend > 0 ? (profit / spend) * 100 : 0;
-      const roas = spend > 0 ? revenueBrl / spend : 0;
-      const ecpm = impr > 0 ? (revenueBrl / impr) * 1000 : 0;
-      updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
-    }
-    const CHUNK = 25;
-    for (let i = 0; i < updates.length; i += CHUNK) {
-      await Promise.all(
-        updates.slice(i, i + CHUNK).map((u) =>
-          admin.from("daily_metrics").update({
-            revenue: u.revenue, profit: u.profit, roi: u.roi, roas: u.roas, ecpm: u.ecpm,
-          }).eq("id", u.id)
-        ),
-      );
-    }
-    debug.push(`[fallback] ${date}: ${updates.length} campanha(s) atualizada(s) com share de gasto sobre ${totalUsd.toFixed(2)} USD`);
-  }
+interface RunReportArgs {
+  networkCode: string;
+  accessToken: string;
+  range: GamRange;
+  dimensions: string[];
+  customDimensionKeyIds?: string[];
+  debug: string[];
 }
 
-async function runReport(
-  networkCode: string,
-  accessToken: string,
-  range: GamRange,
-  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME" | "AD_REQUEST_CUSTOM_CRITERIA",
-  debug: string[],
-): Promise<ReportRow[]> {
-  // 1) cria report
-  const reportBody = {
-    visibility: "DRAFT",
-    reportDefinition: {
-      reportType: "HISTORICAL",
-      dimensions: ["DATE", groupDim],
-      metrics: [
-        "AD_SERVER_IMPRESSIONS",
-        "AD_SERVER_REVENUE",
-        "AD_EXCHANGE_IMPRESSIONS",
-        "AD_EXCHANGE_REVENUE",
-        "ADSENSE_IMPRESSIONS",
-        "ADSENSE_REVENUE",
-      ],
-      dateRange: range.dateRange,
-    },
+async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
+  const { networkCode, accessToken, range, dimensions, customDimensionKeyIds, debug } = args;
+  const tag = `${networkCode}/${dimensions.join("+")}`;
+
+  const reportDefinition: any = {
+    reportType: "HISTORICAL",
+    dimensions,
+    metrics: [
+      "AD_SERVER_IMPRESSIONS",
+      "AD_SERVER_REVENUE",
+      "AD_EXCHANGE_IMPRESSIONS",
+      "AD_EXCHANGE_REVENUE",
+      "ADSENSE_IMPRESSIONS",
+      "ADSENSE_REVENUE",
+    ],
+    dateRange: range.dateRange,
   };
-  const createRes = await fetch(
-    `${GAM_BASE}/networks/${networkCode}/reports`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(reportBody),
-    },
-  );
+  if (customDimensionKeyIds?.length) reportDefinition.customDimensionKeyIds = customDimensionKeyIds;
+
+  const reportBody = { visibility: "DRAFT", reportDefinition };
+  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(reportBody),
+  });
   const createText = await createRes.text();
-  debug.push(`[${networkCode}/${groupDim}] create status=${createRes.status}`);
+  debug.push(`[${tag}] create status=${createRes.status}`);
   let createJson: any;
   try { createJson = JSON.parse(createText); }
   catch {
     throw new Error(
-      "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE. Depois aguarde ~1 min e sincronize novamente."
+      "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) throw new Error(formatGamError(createRes.status, createJson));
-  const reportName: string = createJson.name; // networks/X/reports/Y
+  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+  const reportName: string = createJson.name;
 
-  // 2) run report (LRO)
   const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  const runJson = await parseJsonResponse(runRes, "run report", networkCode, groupDim);
-  debug.push(`[${networkCode}/${groupDim}] run status=${runRes.status}`);
-  if (!runRes.ok) throw new Error(`run failed: ${JSON.stringify(runJson)}`);
-  const opName: string = runJson.name; // operations/...
+  const runJson = await parseJsonResponse(runRes, "run report", tag);
+  if (!runRes.ok) throw new Error(`[${tag}] run failed: ${JSON.stringify(runJson)}`);
+  const opName: string = runJson.name;
 
-  // 3) poll operation até done
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    const opRes = await fetch(`${GAM_BASE}/${opName}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const opJson = await parseJsonResponse(opRes, "poll operation", networkCode, groupDim);
+    const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const opJson = await parseJsonResponse(opRes, "poll", tag);
     if (opJson.done) {
-      if (opJson.error) throw new Error(`op error: ${JSON.stringify(opJson.error)}`);
+      if (opJson.error) throw new Error(`[${tag}] op error: ${JSON.stringify(opJson.error)}`);
       resultName = opJson.response?.reportResult?.name ?? opJson.response?.reportResult ?? opJson.response?.name;
-      if (!resultName) throw new Error(`report done sem reportResult: ${JSON.stringify(opJson.response ?? opJson)}`);
-      debug.push(`[${networkCode}/${groupDim}] done after ${(i + 1) * 2}s`);
-      debug.push(`[${networkCode}/${groupDim}] result=${resultName}`);
+      if (!resultName) throw new Error(`[${tag}] report done sem reportResult`);
+      debug.push(`[${tag}] done after ${(i + 1) * 2}s`);
       break;
     }
   }
-  if (!resultName) throw new Error("report timeout");
+  if (!resultName) throw new Error(`[${tag}] report timeout`);
 
-  // 4) fetch result rows
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
-    const rowsRes = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    debug.push(`[${networkCode}/${groupDim}] fetchRows status=${rowsRes.status}`);
-    const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", networkCode, groupDim);
-    if (!rowsRes.ok) throw new Error(`fetchRows failed: ${JSON.stringify(rowsJson)}`);
+    const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", tag);
+    if (!rowsRes.ok) throw new Error(`[${tag}] fetchRows failed: ${JSON.stringify(rowsJson)}`);
 
     const rows = (rowsJson.rows ?? []) as Array<{
       dimensionValues?: Array<{ stringValue?: string; intValue?: string }>;
-      metricValueGroups?: Array<{
-        primaryValues?: Array<{ intValue?: string; doubleValue?: number }>;
-      }>;
+      metricValueGroups?: Array<{ primaryValues?: Array<{ intValue?: string; doubleValue?: number }> }>;
     }>;
-
     for (const r of rows) {
-      const dims = r.dimensionValues ?? [];
-      const date = parseGamDate(dims[0]);
-      const name = dims[1]?.stringValue ?? "(unknown)";
+      const dimsVals = r.dimensionValues ?? [];
+      const date = parseGamDate(dimsVals[0]);
+      const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // A API nova do GAM pode retornar receita já em decimal USD ou em micros,
-      // dependendo do backend/metric. Normalizamos sem dividir duas vezes.
       const revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
-      allRows.push({ date, name, impressions, revenue });
+      allRows.push({ date, dims: dimStrings, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
@@ -725,20 +590,12 @@ function parseGamDate(value: any): string | null {
   return null;
 }
 
-async function parseJsonResponse(
-  res: Response,
-  step: string,
-  networkCode: string,
-  groupDim: string,
-) {
+async function parseJsonResponse(res: Response, step: string, tag: string) {
   const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
+  try { return JSON.parse(text); }
+  catch {
     const preview = text.replace(/\s+/g, " ").slice(0, 300);
-    throw new Error(
-      `[${networkCode}/${groupDim}] ${step} retornou resposta não-JSON (status ${res.status}, content-type ${res.headers.get("content-type") ?? "sem content-type"}): ${preview}`,
-    );
+    throw new Error(`[${tag}] ${step} retornou resposta não-JSON (status ${res.status}): ${preview}`);
   }
 }
 
