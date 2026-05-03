@@ -18,10 +18,12 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
     let datePreset = "LAST_7_DAYS";
+    let testMode = false;
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
+      testMode = Boolean((body as any)?.test);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
