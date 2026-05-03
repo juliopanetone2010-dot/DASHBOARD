@@ -274,14 +274,15 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     const map = new Map<string, AggRow>();
     for (const r of rows) {
       const rawPlacement = (r.placement_clean || r.placement).toLowerCase();
-      // Google Ads consolida "Onde os anúncios foram exibidos" no domínio raiz
-      // (ex: may.karwin.com entra em karwin.com). Usar full aqui quebrava o custo.
-      const key = rootDomain(rawPlacement);
+      // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
+      // O root domain é guardado para fallback de match de receita via UTM.
+      const key = rawPlacement;
+      const root = rootDomain(rawPlacement);
       let agg = map.get(key);
       if (!agg) {
         agg = {
           placement: key,
-          placementRoot: key,
+          placementRoot: root,
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
           impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
