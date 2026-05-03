@@ -306,10 +306,11 @@ function isRealValue(raw: string | null | undefined): boolean {
 function parseKeyValueDimension(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   const decoded = safeDecode(String(raw ?? ""));
-  for (const part of decoded.split(",")) {
+  const normalized = decoded.replace(/[\n\r;]+/g, ",").replace(/&/g, ",");
+  for (const part of normalized.split(",")) {
     const m = part.trim().match(/^([^=~|]+)[=~](.+)$/);
     if (!m) continue;
-    const key = m[1].replace(/^\*/, "").trim().toLowerCase();
+    const key = m[1].replace(/^\*/, "").replace(/^custom targeting\s*/i, "").trim().toLowerCase();
     const value = m[2].split("|")[0]?.replace(/^\*/, "").trim() ?? "";
     if (key) out[key] = value;
   }
