@@ -72,12 +72,15 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
+    // Janela alinhada com o preset "Últimos 15 dias" do dashboard:
+    // de (hoje - lookback) até ontem (último dia completo no Google Ads).
     const today = new Date();
-    const fromDate = new Date(today.getTime() - (lookbackDays - 1) * 86400_000);
+    const toDate = new Date(today.getTime() - 86400_000); // ontem
+    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
     const cutoffDate = new Date(today.getTime() - minDays * 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate);
-    const to = iso(today);
+    const to = iso(toDate);
     const cutoff = iso(cutoffDate);
 
     const { data: camps, error: cErr } = await admin
