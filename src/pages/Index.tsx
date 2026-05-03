@@ -32,41 +32,29 @@ const Index = () => {
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
-    const accountCampaignIds = new Set(
-      selectedAccountIds.length === 0
-        ? data.campaigns.map((c) => c.campaign_id)
-        : data.campaigns
-            .filter((c) => c.google_account_id && selectedAccountIds.includes(c.google_account_id))
-            .map((c) => c.campaign_id),
-    );
-
-    const siteCampaignIds = new Set(
+    const linkedAccountIds = new Set(
       filters.siteId === "all"
-        ? data.campaigns.map((c) => c.campaign_id)
-        : (() => {
-            const linkedAccIds = data.links
-              .filter((l) => l.site_id === filters.siteId)
-              .map((l) => l.google_account_id);
-            return data.campaigns
-              .filter((c) => linkedAccIds.includes(c.google_account_id ?? ""))
-              .map((c) => c.campaign_id);
-          })(),
+        ? []
+        : data.links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id),
     );
-
-    const matchCampaign = (cid: string) =>
+    const matchAccount = (accountId?: string | null) =>
+      selectedAccountIds.length === 0 || (accountId ? selectedAccountIds.includes(accountId) : false);
+    const matchSiteAccount = (accountId?: string | null) =>
+      filters.siteId === "all" || (accountId ? linkedAccountIds.has(accountId) : false);
+    const matchCampaign = (cid: string, accountId?: string | null) =>
       (filters.campaignId === "all" || filters.campaignId === cid) &&
-      accountCampaignIds.has(cid) && siteCampaignIds.has(cid);
+      matchAccount(accountId) && matchSiteAccount(accountId);
 
     const inDateRange = (date: string) =>
       (!filters.fromDate || date >= filters.fromDate) &&
       (!filters.toDate || date <= filters.toDate);
 
-    const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id));
+    const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id, c.google_account_id));
     const metrics: DailyMetric[] = data.metrics.filter(
-      (m) => matchCampaign(m.campaign_id) && inDateRange(m.date),
+      (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
     const placements: Placement[] = data.placements.filter((p) => {
-      const cidOk = !p.campaign_id || matchCampaign(p.campaign_id);
+      const cidOk = filters.campaignId === "all" || p.campaign_id === filters.campaignId;
       const siteOk = filters.siteId === "all" || p.site_id === filters.siteId
         || data.sites.find((s) => s.id === filters.siteId)?.name === p.site;
       return cidOk && siteOk && inDateRange(p.date);
