@@ -24,6 +24,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
+import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
