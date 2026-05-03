@@ -336,6 +336,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         </Button>
       </div>
 
+      {!campaignId && (
         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
           Selecione uma campanha para carregar os placements.
         </div>
