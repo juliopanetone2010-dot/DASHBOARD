@@ -32,12 +32,12 @@ Deno.serve(async (req) => {
     const isService = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "___");
     const body = await req.json().catch(() => ({}));
     const mode: "preview" | "apply" | "notify" = (body?.mode ?? "preview");
-    const minDays = Number(body?.min_days ?? 20);
+    const minDays = Number(body?.min_days ?? 15);
     const minCostBrl = Number(body?.min_cost_brl ?? 20);
     const minClicks = Number(body?.min_clicks ?? 20);
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
-    const lookbackDays = Number(body?.lookback_days ?? 30);
+    const lookbackDays = Number(body?.lookback_days ?? 15);
     const targetUserId: string | undefined = body?.user_id;
 
     const admin = createClient(
