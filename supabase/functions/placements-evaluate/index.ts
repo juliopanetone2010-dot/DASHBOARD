@@ -10,7 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
-const REV_SHARE_NET = 0.68;
+const REV_SHARE_NET = 0.935;
 const KEY_SEP = "\u0001";
 
 type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
@@ -78,30 +78,19 @@ Deno.serve(async (req) => {
     for (const c of camps ?? []) campMap.set(String(c.campaign_id), { name: c.name, google_account_id: c.google_account_id, status: c.status });
 
     // ads_placements (custo + cliques + conversões + datas)
-    // Primeiro tenta buscar direto do Google Ads, igual a aba de Placements.
-    // Se a API não retornar nada, usa o snapshot salvo como fallback.
     type AdsRow = { campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string };
-    let ads: AdsRow[] = [];
-    const campIds = [...campMap.keys()];
-    const live = await fetchLiveAdsPlacements(admin, userId, campIds, campMap, from, to).catch((e) => {
-      console.error("[placements-evaluate] live ads fallback", e);
-      return [] as AdsRow[];
-    });
-    if (live.length > 0) {
-      ads = live;
-    } else {
-      let s = 0;
-      for (;;) {
-        const { data, error } = await admin.from("ads_placements")
-          .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
-          .eq("user_id", userId).gte("date", from).lte("date", to)
-          .range(s, s + 999);
-        if (error) return json({ error: error.message });
-        const rows = (data ?? []) as AdsRow[];
-        ads.push(...rows);
-        if (rows.length < 1000) break;
-        s += 1000;
-      }
+    const ads: AdsRow[] = [];
+    let s = 0;
+    for (;;) {
+      const { data, error } = await admin.from("ads_placements")
+        .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
+        .eq("user_id", userId).gte("date", from).lte("date", to)
+        .range(s, s + 999);
+      if (error) return json({ error: error.message });
+      const rows = (data ?? []) as AdsRow[];
+      ads.push(...rows);
+      if (rows.length < 1000) break;
+      s += 1000;
     }
 
     // gam_placement_revenue
