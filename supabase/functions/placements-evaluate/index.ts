@@ -10,7 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
-const REV_SHARE_NET = 0.68;
+const REV_SHARE_NET = 0.935;
 const KEY_SEP = "\u0001";
 
 type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
@@ -109,12 +109,28 @@ Deno.serve(async (req) => {
       s += 1000;
     }
 
-    const revByKey = new Map<string, number>();
+    const revByCampaign = new Map<string, Map<string, number>>();
     for (const g of gam) {
       const placement = normalize(g.placement);
       if (!placement) continue;
-      const key = cpKey(String(g.campaign_id), placement);
-      revByKey.set(key, (revByKey.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cid = String(g.campaign_id);
+      const inner = revByCampaign.get(cid) ?? new Map<string, number>();
+      inner.set(placement, (inner.get(placement) ?? 0) + Number(g.revenue_usd ?? 0));
+      revByCampaign.set(cid, inner);
+    }
+
+    const spendByCampaign = new Map<string, number>();
+    s = 0;
+    for (;;) {
+      const { data, error } = await admin.from("daily_metrics")
+        .select("campaign_id, spend")
+        .eq("user_id", userId).gte("date", from).lte("date", to)
+        .range(s, s + 999);
+      if (error) return json({ error: error.message });
+      const rows = data ?? [];
+      for (const r of rows) spendByCampaign.set(String(r.campaign_id), (spendByCampaign.get(String(r.campaign_id)) ?? 0) + Number(r.spend ?? 0));
+      if (rows.length < 1000) break;
+      s += 1000;
     }
 
     interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
@@ -137,9 +153,38 @@ Deno.serve(async (req) => {
       if (r.date < a.firstDate) a.firstDate = r.date;
     }
 
+    // Fallback: se a campanha tem custo no dashboard, mas não trouxe linhas em
+    // ads_placements no período, distribui o custo pelos placements com receita.
+    // Isso evita campanha/placement zerado quando a sincronização detalhada do Ads
+    // ainda não cobriu aquela campanha.
+    const costByCampaignFromAds = new Map<string, number>();
+    for (const a of agg.values()) costByCampaignFromAds.set(a.campaign_id, (costByCampaignFromAds.get(a.campaign_id) ?? 0) + a.cost);
+    for (const [cid, revMap] of revByCampaign) {
+      if ((costByCampaignFromAds.get(cid) ?? 0) > 0) continue;
+      const spend = spendByCampaign.get(cid) ?? 0;
+      if (spend <= 0 || revMap.size === 0) continue;
+      const totalUsd = [...revMap.values()].reduce((a, b) => a + b, 0);
+      if (totalUsd <= 0) continue;
+      for (const [placement, usd] of revMap) {
+        const k = cpKey(cid, placement);
+        if (agg.has(k)) continue;
+        agg.set(k, {
+          campaign_id: cid,
+          placement,
+          type: "WEBSITE",
+          cost: spend * (usd / totalUsd),
+          clicks: 0,
+          impressions: 0,
+          conversions: 0,
+          lastConvDate: null,
+          firstDate: from,
+        });
+      }
+    }
+
     // Carrega status atuais
     const { data: existing } = await admin.from("placement_status")
-      .select("id, campaign_id, placement, status, manual_override, prev_roi_pct, roi_pct, first_seen_at")
+      .select("id, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
       .eq("user_id", userId);
     const existMap = new Map<string, any>();
     for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
@@ -193,7 +238,10 @@ Deno.serve(async (req) => {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
       const k = cpKey(a.campaign_id, a.placement);
-      const usd = revByKey.get(k) ?? 0;
+      const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
+      const root = rootDomain(a.placement);
+      let usd = campaignRevenue.get(a.placement) ?? 0;
+      if (usd <= 0 && root && root !== a.placement) usd = campaignRevenue.get(root) ?? 0;
       const revenue_brl = usd * REV_SHARE_NET * fxUsdBrl;
       const profit = revenue_brl - a.cost;
       const roi = a.cost > 0 ? (profit / a.cost) * 100 : 0;
@@ -291,8 +339,10 @@ Deno.serve(async (req) => {
         prev_roi_pct: ex?.roi_pct ?? null,
         last_evaluated_at: nowIso,
         first_seen_at: firstSeen,
-        last_status_change_at: ex && prevStatus === status ? undefined : nowIso,
+        last_status_change_at: ex?.last_status_change_at ?? nowIso,
+        blocked_at: ex?.blocked_at ?? null,
       };
+      if (statusChanged) row.last_status_change_at = nowIso;
       if (status === "blocked" && (!ex || ex.status !== "blocked")) row.blocked_at = nowIso;
       // remove undefined
       for (const k2 of Object.keys(row)) if (row[k2] === undefined) delete row[k2];
@@ -402,6 +452,15 @@ function normalize(value: string, type?: string | null): string {
   } catch {
     return raw.replace(/^www\./, "");
   }
+}
+function rootDomain(host: string): string {
+  if (!host || host.includes("/") || !host.includes(".")) return host;
+  const parts = host.split(".");
+  if (parts.length <= 2) return host;
+  const last2 = parts.slice(-2).join(".");
+  const cc = new Set(["com.br", "co.uk", "com.au", "com.mx", "co.jp", "com.ar", "co.in"]);
+  if (cc.has(last2) && parts.length >= 3) return parts.slice(-3).join(".");
+  return last2;
 }
 function json(p: unknown) {
   return new Response(JSON.stringify(p), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
