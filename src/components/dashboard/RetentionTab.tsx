@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,37 +26,46 @@ interface Props {
 }
 
 export function RetentionTab({ campaigns }: Props) {
-  const { range, filters, version } = useDashboardFilters();
-  const [rows, setRows] = useState<SourceRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [usdBrl, setUsdBrl] = useState(5);
+  const { range, filters } = useDashboardFilters();
+  const queryClient = useQueryClient();
 
-  const load = async () => {
-    setLoading(true);
-    setRows([]); // limpa antes para evitar mistura de períodos
-    if (import.meta.env.DEV) {
-      console.info("[retention] fetch", { range, accounts: filters.googleAccountIds, version });
-    }
-    let q = supabase
-      .from("gam_campaign_source_revenue")
-      .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
-      .gte("date", range.from)
-      .lte("date", range.to)
-      .order("date", { ascending: false })
-      .limit(5000);
-    const { data } = await q;
-    setRows((data ?? []) as any);
-    // FX rate
-    try {
+  const queryKey = useMemo(
+    () => ["retention", range.from, range.to, filters.googleAccountIds.join("|")],
+    [range.from, range.to, filters.googleAccountIds],
+  );
+
+  const rowsQuery = useQuery<SourceRow[]>({
+    queryKey,
+    queryFn: async () => {
+      if (import.meta.env.DEV) console.info("[retention] fetch", queryKey);
+      const { data } = await supabase
+        .from("gam_campaign_source_revenue")
+        .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .order("date", { ascending: false })
+        .limit(5000);
+      return (data ?? []) as SourceRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const fxQuery = useQuery<number>({
+    queryKey: ["fx-usd-brl"],
+    queryFn: async () => {
       const r = await fetch("https://open.er-api.com/v6/latest/USD");
       const j = await r.json();
       const rate = Number(j?.rates?.BRL);
-      if (Number.isFinite(rate) && rate > 0) setUsdBrl(rate);
-    } catch { /* */ }
-    setLoading(false);
-  };
+      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+    },
+    staleTime: 60 * 60 * 1000,
+  });
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [range.from, range.to, version]);
+  const rows = rowsQuery.data ?? [];
+  const usdBrl = fxQuery.data ?? 5;
+  const loading = rowsQuery.isFetching;
+
+  const load = () => queryClient.invalidateQueries({ queryKey });
 
   const campaignName = useMemo(() => {
     const m = new Map<string, string>();
