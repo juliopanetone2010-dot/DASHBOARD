@@ -329,6 +329,19 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
   return out;
 }
 
+function parseUrlParams(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  const value = safeDecode(String(raw ?? ""));
+  const query = value.includes("?") ? value.split("?").slice(1).join("?") : value;
+  for (const part of query.split(/[&#]/)) {
+    const [k, ...rest] = part.split("=");
+    if (!k || rest.length === 0) continue;
+    const key = safeDecode(k).trim().toLowerCase();
+    if (key.startsWith("utm_")) out[key] = safeDecode(rest.join("=")).trim();
+  }
+  return out;
+}
+
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
 async function fetchUtmKeyIds(
   networkCode: string,
