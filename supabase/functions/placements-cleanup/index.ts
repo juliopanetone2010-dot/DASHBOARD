@@ -34,6 +34,7 @@ type LiveAdsRow = {
   placement: string;
   placement_clean: string | null;
   placement_type: string | null;
+  app_id: string | null; // ex.: "1-com.whatsapp" (Android) ou "2-123456789" (iOS)
   cost: number;
   clicks: number;
   impressions: number;
