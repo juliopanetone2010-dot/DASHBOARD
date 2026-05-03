@@ -155,13 +155,20 @@ Deno.serve(async (req) => {
     }
 
     const hasErrors = summary.some((s) => typeof s.error === "string");
+    const gamDebug = {
+      gam_called: true,
+      rows_returned: summary.reduce((acc, s) => acc + Number(s.rows_returned ?? 0), 0),
+      date_range: summary.flatMap((s) => Array.isArray(s.date_range) ? s.date_range : []),
+      site: requestedSiteId ?? "all",
+      error: summary.find((s) => typeof s.error === "string")?.error ?? null,
+    };
 
     // Atualiza last_synced_at/status sem marcar como conectado quando o GAM recusou a chamada
     await admin.from("gam_accounts")
       .update({ last_synced_at: new Date().toISOString(), status: hasErrors ? "pending" : "connected" })
       .eq("user_id", userId);
 
-    return json({ ok: true, date_preset: datePreset, summary, debug });
+    return json({ ok: true, date_preset: datePreset, summary, gam_debug: gamDebug, debug });
   } catch (e) {
     console.error("[gam-sync-revenue] uncaught", e);
     return json({ error: String(e), debug });
