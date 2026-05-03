@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtNumber, fmtPercent, fmtUSD } from "@/lib/format";
+import { fmtNumber, fmtPercent, fmtUSD } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
