@@ -216,7 +216,23 @@ const IndexInner = () => {
     toast({ title: "Dados de teste inseridos", description: "Inclui contas, sites e vínculos." });
   };
 
-  const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
+  const baseTotals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
+  const usdBrl = fxQuery.data ?? 5;
+  const extraPushUsd = extraRevQuery.data?.push ?? 0;
+  const extraOtherUsd = extraRevQuery.data?.other ?? 0;
+  const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
+  const extraNetBrl = extraNetUsd * usdBrl;
+  const totalRevenueUsd = baseTotals.revenue + extraNetUsd;
+  const totalProfitBrl = baseTotals.profit + extraNetBrl;
+  const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
+  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
+  const totals = {
+    spend: baseTotals.spend,
+    revenue: totalRevenueUsd,
+    profit: totalProfitBrl,
+    roi: totalRoi,
+    roas: totalRoas,
+  };
   const profitPositive = totals.profit >= 0;
   // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
