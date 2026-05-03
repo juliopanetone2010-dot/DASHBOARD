@@ -90,91 +90,82 @@ Deno.serve(async (req) => {
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
-        const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
-        const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
-        let googleUtmRows: ReportRow[] = [];
-        const allUtmRows: ReportRow[] = [];
-        let customCriteriaAvailable = false;
-        let customCriteriaDimUsed: string | null = null;
-        const sourceCounts: Record<string, number> = {};
-        // Tenta dimensões possíveis para extrair UTM/key-values do GAM (a API nova
-        // renomeou várias dimensões; tentamos em ordem de preferência).
-        const candidateDims: Array<"KEY_VALUES_NAME" | "CUSTOM_CRITERIA" | "AD_REQUEST_CUSTOM_CRITERIA"> = [
-          "KEY_VALUES_NAME",
-          "CUSTOM_CRITERIA",
-          "AD_REQUEST_CUSTOM_CRITERIA",
-        ];
-        for (const dim of candidateDims) {
-          try {
-            const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, dim as any, debug))))
-              .flat();
-            customCriteriaAvailable = true;
-            customCriteriaDimUsed = dim;
-            for (const r of customCriteriaRows) {
-              const parsed = parseGamAttribution(r.name);
-              if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
-              if (parsed?.cid) allUtmRows.push(r);
-              if (parsed?.source === "google") googleUtmRows.push(r);
-            }
-            debug.push(`[${networkCode}/${dim}] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
-            break;
-          } catch (e) {
-            debug.push(`[${networkCode}/${dim}] indisponível: ${String(e).slice(0, 200)}`);
+
+        // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
+        const adUnitRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug })
+        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        const placementRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
+        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+
+        // 1) Descobre IDs dos custom targeting keys utm_source, utm_campaign, utm_placement
+        const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
+        const haveAllKeys = utmKeyIds.utm_source && utmKeyIds.utm_campaign && utmKeyIds.utm_placement;
+
+        // 2) Roda report com CUSTOM_DIMENSION_*_VALUE (UTM nativo via key-values do GAM)
+        let utmRows: AttributedRow[] = [];
+        if (haveAllKeys) {
+          const customDimensionKeyIds = [utmKeyIds.utm_source!, utmKeyIds.utm_campaign!, utmKeyIds.utm_placement!];
+          const dims = ["DATE", "CUSTOM_DIMENSION_0_VALUE", "CUSTOM_DIMENSION_1_VALUE", "CUSTOM_DIMENSION_2_VALUE"];
+          const reportRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: dims, customDimensionKeyIds, debug })
+          ))).flat();
+          for (const r of reportRows) {
+            const source = (r.dims[1] || "").toLowerCase().trim() || "unknown";
+            const campaignRaw = (r.dims[2] || "").trim();
+            const placementRaw = (r.dims[3] || "").trim();
+            const cid = /^\d{6,}$/.test(campaignRaw) ? campaignRaw : null;
+            const placement = placementRaw ? extractPlacementValue(placementRaw, cid) : null;
+            utmRows.push({
+              date: r.date,
+              impressions: r.impressions,
+              revenue: r.revenue,
+              source,
+              cid,
+              placement,
+              raw: `s=${r.dims[1]}|c=${r.dims[2]}|p=${r.dims[3]}`,
+            });
           }
+          const sourceCounts = utmRows.reduce((acc: Record<string, number>, r) => {
+            acc[r.source] = (acc[r.source] ?? 0) + 1; return acc;
+          }, {});
+          debug.push(`[${networkCode}/UTM] linhas=${utmRows.length}; sources=${JSON.stringify(sourceCounts)}`);
+        } else {
+          debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
         }
 
-        // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
-        // ou tráfego sem UTM não pode ser rateada em campanhas/placements do Google Ads.
-        const canonicalRows = customCriteriaAvailable ? googleUtmRows : [];
-        const totals = canonicalRows.reduce(
-          (acc, r) => ({
-            revenue: acc.revenue + r.revenue,
-            impressions: acc.impressions + r.impressions,
-          }),
+        const googleRows = utmRows.filter((r) => r.source === "google" && r.cid);
+        const totals = googleRows.reduce(
+          (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
         );
         const today = new Date().toISOString().slice(0, 10);
 
-        // Persiste rows como placements em bulk (chunked upsert)
-        const persistRows = async (rows: ReportRow[], kind: "ad_unit" | "placement") => {
+        // Persiste placements/ad_units para inspeção (sem afetar ROI)
+        const persistRows = async (rows: Array<{ date: string | null; name: string; impressions: number; revenue: number }>, kind: "ad_unit" | "placement") => {
           if (rows.length === 0) return;
           const siteForRow = networkSites[0];
           const payload = rows.map((r) => {
             const ecpm = r.impressions > 0 ? (r.revenue / r.impressions) * 1000 : 0;
             return {
-              user_id: userId,
-              site_id: siteForRow.id,
-              site: siteForRow.name,
+              user_id: userId, site_id: siteForRow.id, site: siteForRow.name,
               ad_unit: kind === "ad_unit" ? r.name : null,
               placement_key: `${kind}:${networkCode}:${r.name}`,
-              date: r.date ?? today,
-              impressions: r.impressions,
-              revenue: r.revenue,
-              ecpm,
+              date: r.date ?? today, impressions: r.impressions, revenue: r.revenue, ecpm,
             };
           });
           const CHUNK = 500;
           for (let i = 0; i < payload.length; i += CHUNK) {
-            await admin.from("placements").upsert(
-              payload.slice(i, i + CHUNK),
-              { onConflict: "user_id,placement_key,date" },
-            );
+            await admin.from("placements").upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,placement_key,date" });
           }
         };
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenue(admin, userId, networkSites[0]?.id, allUtmRows, debug, expandFixedDates(ranges));
-          if (customCriteriaAvailable && canonicalRows.length > 0) {
-            await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
-          } else {
-            // Fallback: GAM não expõe dimensão de UTM (ou veio vazia). Em vez de zerar
-            // o Dashboard, distribuímos a receita total do GAM (placementRows) por
-            // share de gasto entre as campanhas Ads vinculadas ao site.
-            debug.push(`[fallback] sem UTM dim disponível (dim=${customCriteriaDimUsed ?? "nenhuma"}). Rateando receita total do GAM por share de gasto.`);
-            await distributeGamTotalsBySpend(admin, userId, networkSites[0]?.id, adUnitRows, fxRates, debug, expandFixedDates(ranges));
-          }
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges));
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleRows, fxRates, debug, expandFixedDates(ranges));
         }
 
         summary.push({
@@ -182,17 +173,17 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
-          custom_criteria_rows: googleUtmRows.length,
-          custom_criteria_available: customCriteriaAvailable,
-          utm_sources_breakdown: sourceCounts,
-          attribution_rule: "google→ROI/ROAS; demais origens→retenção",
+          utm_rows: utmRows.length,
+          utm_keys_found: utmKeyIds,
+          google_rows: googleRows.length,
+          attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
-          rows_returned: canonicalRows.length,
+          rows_returned: googleRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
