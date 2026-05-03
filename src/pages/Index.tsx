@@ -118,7 +118,7 @@ const Index = () => {
     if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
     if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
     if (!adsErr && !gamErr) {
-      toast({ title: "Dados atualizados", description: preset === "today" ? "GAM pode atrasar. Mostrando último dado disponível." : undefined });
+      toast({ title: "Dados atualizados" });
     }
     await data.refresh();
   }, [data]);
