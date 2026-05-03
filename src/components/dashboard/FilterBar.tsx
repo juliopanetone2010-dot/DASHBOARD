@@ -65,17 +65,26 @@ interface Props {
   googleAccounts: GoogleAccount[];
   sites: Site[];
   campaigns: Campaign[];
+  links?: AccountSiteLink[];
   onPresetApply?: (preset: DatePresetKey, gaql: string) => void;
 }
 
-export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, onPresetApply }: Props) {
+export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns, links = [], onPresetApply }: Props) {
   const set = <K extends keyof DashboardFilters>(k: K, v: DashboardFilters[K]) =>
     onChange({ ...filters, [k]: v });
+
+  // Quando um site é selecionado, só listamos contas Ads vinculadas a ele
+  const linkedAccountIdsForSite = filters.siteId === "all"
+    ? null
+    : new Set(links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id));
+  const visibleAccounts = linkedAccountIdsForSite
+    ? googleAccounts.filter((a) => linkedAccountIdsForSite.has(a.id))
+    : googleAccounts;
 
   const selectedAccountIds = filters.googleAccountIds;
   const allAccountsSelected = selectedAccountIds.length === 0;
   const accountLabel = allAccountsSelected
-    ? "Todas as contas"
+    ? linkedAccountIdsForSite ? `Todas as contas do site (${visibleAccounts.length})` : "Todas as contas"
     : selectedAccountIds.length === 1
       ? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.account_name
         ?? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.customer_id
@@ -87,6 +96,17 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
       ? selectedAccountIds.filter((accountId) => accountId !== id)
       : [...selectedAccountIds, id];
     set("googleAccountIds", next);
+  };
+
+  const handleSiteChange = (v: string) => {
+    // Ao trocar site, remove contas que não estão vinculadas a ele
+    if (v === "all") {
+      onChange({ ...filters, siteId: v });
+      return;
+    }
+    const linked = new Set(links.filter((l) => l.site_id === v).map((l) => l.google_account_id));
+    const nextAccounts = filters.googleAccountIds.filter((id) => linked.has(id));
+    onChange({ ...filters, siteId: v, googleAccountIds: nextAccounts });
   };
 
   const isDirty =
