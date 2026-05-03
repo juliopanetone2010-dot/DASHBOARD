@@ -250,6 +250,20 @@ function buildGamRanges(datePreset: string, from: string | null, to: string | nu
   return ranges;
 }
 
+function expandFixedDates(ranges: GamRange[]): string[] {
+  const dates: string[] = [];
+  for (const r of ranges) {
+    const fixed = (r.dateRange as any)?.fixed;
+    if (!fixed?.startDate || !fixed?.endDate) continue;
+    const start = new Date(Date.UTC(fixed.startDate.year, fixed.startDate.month - 1, fixed.startDate.day));
+    const end = new Date(Date.UTC(fixed.endDate.year, fixed.endDate.month - 1, fixed.endDate.day));
+    for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  }
+  return dates;
+}
+
 function dateObj(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   return { year, month, day };
