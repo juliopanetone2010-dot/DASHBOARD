@@ -502,6 +502,10 @@ const IndexInner = () => {
             />
           </TabsContent>
 
+          <TabsContent value="funnel" className="mt-6">
+            <PlacementFunnelTab fxUsdBrl={usdBrl} />
+          </TabsContent>
+
           <TabsContent value="countries" className="mt-6">
             <CountriesTab fxUsdBrl={usdBrl} />
           </TabsContent>
