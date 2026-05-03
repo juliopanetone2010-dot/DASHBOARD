@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
           const sample = utmRows.filter((r) => r.source === "google").slice(0, 5).map((r) => `${r.raw}|rev=${r.revenue}|cid=${r.cid}`);
           debug.push(`[${networkCode}/UTM google sample]=${JSON.stringify(sample)}`);
 
-          // DIAG: roda um relatório só com utm_campaign (sem cruzar utm_source) para ver se a chave tem valores
+          // DIAG: confere se a chave utm_campaign realmente recebe valores no inventário do GAM
           try {
             const diag = (await Promise.all(ranges.map((range) =>
               runReport({
@@ -172,9 +172,13 @@ Deno.serve(async (req) => {
               cur.rev += r.revenue; cur.impr += r.impressions;
               cMap.set(v, cur);
             }
-            const top = [...cMap.entries()].sort((a, b) => b[1].rev - a[1].rev).slice(0, 10)
+            const top = [...cMap.entries()].sort((a, b) => b[1].rev - a[1].rev).slice(0, 5)
               .map(([k, v]) => `${k}=$${v.rev.toFixed(2)}/${v.impr}imp`);
-            debug.push(`[${networkCode}/DIAG utm_campaign solo] linhas=${diag.length}; top=${JSON.stringify(top)}`);
+            const realValues = [...cMap.keys()].filter((k) => k && k !== "(not applicable)" && k !== "(empty)").length;
+            debug.push(`[${networkCode}/DIAG utm_campaign solo] valores_reais=${realValues}; top=${JSON.stringify(top)}`);
+            if (realValues === 0) {
+              debug.push(`⚠️ A chave utm_campaign EXISTE no GAM mas o ad tag do site NÃO está enviando esse key-value. Configure googletag.pubads().setTargeting('utm_campaign', getParam('utm_campaign')) no header do site (idem utm_source/utm_placement/utm_adgroup/utm_content).`);
+            }
           } catch (e) { debug.push(`[DIAG utm_campaign] erro: ${String(e)}`); }
         } else {
           debug.push(`[${networkCode}/UTM] keys ausentes: ${JSON.stringify(utmKeyIds)} — receita não será atribuída sem UTM real`);
