@@ -127,7 +127,8 @@ export interface CampaignAggregate {
   status: string;
   google_account_id?: string | null;
   spend: number;
-  revenue: number;
+  revenue: number;       // USD líquido (após rev share)
+  revenue_brl?: number;  // BRL líquido (após rev share, usado para reconciliar com lucro)
   profit: number;
   roi: number;
   roas: number;
