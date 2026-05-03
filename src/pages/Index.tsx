@@ -21,6 +21,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, EMPTY_FILTERS, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
+import { REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
@@ -28,6 +29,7 @@ const Index = () => {
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
@@ -99,7 +101,8 @@ const Index = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
-      include_yesterday_fallback: false,
+      // Para "Hoje", incluímos ontem como fallback (GAM atrasa horas).
+      include_yesterday_fallback: preset === "today",
     };
 
     toast({ title: "Sincronizando", description: "Filtros atualizados" });
@@ -154,6 +157,9 @@ const Index = () => {
 
   const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
   const profitPositive = totals.profit >= 0;
+  // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
+  const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
+  const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -208,14 +214,30 @@ const Index = () => {
             />
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita: USD nativo (GAM)</Badge>
+              <Badge variant="outline">Receita líquida (rev share {(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline">USD nativo (GAM)</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
-                <Badge variant="secondary">Dados podem atrasar até algumas horas</Badge>
+                <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
               {totals.revenue === 0 && (
-                <Badge variant="secondary">GAM pode atrasar. Mostrando último dado disponível.</Badge>
+                <Badge variant="secondary">Sem receita do GAM no período</Badge>
               )}
+              <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
+                {showDebug ? "Ocultar debug" : "Mostrar debug"}
+              </Button>
             </div>
+
+            {showDebug && (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs font-mono space-y-1">
+                <div>gross_revenue_usd: <b>{grossRevenueUsd.toFixed(6)}</b></div>
+                <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
+                <div>gross_profit_brl : <b>{grossProfitBrl.toFixed(2)}</b></div>
+                <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
+                <div>spend_brl        : <b>{totals.spend.toFixed(2)}</b></div>
+                <div>roi              : <b>{totals.roi.toFixed(2)}%</b> · roas <b>{totals.roas.toFixed(2)}x</b></div>
+                <div>campaigns: {engine?.aggregates.length ?? 0} · metrics rows: {filtered.metrics.length} · placements: {filtered.placements.length}</div>
+              </div>
+            )}
 
             {/* Métricas */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -58,13 +58,17 @@ export interface PlacementAggregate {
   campaign_id: string | null;
   site: string | null;
   ad_unit: string | null;
-  revenue: number;
+  revenue: number;          // já líquida (após rev share)
+  gross_revenue: number;    // bruta (debug)
   impressions: number;
   ecpm: number;
 }
 
-const calcRoi = (revenue: number, spend: number) =>
-  spend > 0 ? ((revenue - spend) / spend) * 100 : 0;
+// Rev share fixo do publisher (Google fica com 6.5%).
+export const REV_SHARE_PCT = 0.065;
+export const NET_FACTOR = 1 - REV_SHARE_PCT;
+export const applyRevShare = (gross: number) => Number(gross || 0) * NET_FACTOR;
+
 const calcRoiFromProfit = (profit: number, spend: number) =>
   spend > 0 ? (profit / spend) * 100 : 0;
 const calcRoas = (revenue: number, spend: number) =>
@@ -116,6 +120,14 @@ export function aggregateByCampaign(
     dayCount.get(m.campaign_id)!.add(m.date);
   }
   for (const agg of byId.values()) {
+    // Rev share fixo (6.5%) — aplicado uma vez na agregação. Fonte única.
+    // revenue (USD bruto) e profit (BRL bruto = rev_brl - spend_brl).
+    const grossRevUsd = agg.revenue;
+    const grossProfitBrl = agg.profit;
+    const grossRevBrl = grossProfitBrl + agg.spend;
+    const shareBrl = grossRevBrl * REV_SHARE_PCT;
+    agg.revenue = grossRevUsd * NET_FACTOR;
+    agg.profit = grossProfitBrl - shareBrl;
     agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
     agg.roas = calcRoas(agg.profit + agg.spend, agg.spend);
     agg.ecpm = calcEcpm(agg.revenue, agg.impressions);
@@ -135,15 +147,19 @@ export function aggregateByPlacement(placements: Placement[]): PlacementAggregat
         site: p.site,
         ad_unit: p.ad_unit,
         revenue: 0,
+        gross_revenue: 0,
         impressions: 0,
         ecpm: 0,
       };
       map.set(p.placement_key, a);
     }
-    a.revenue += Number(p.revenue);
+    a.gross_revenue += Number(p.revenue);
     a.impressions += Number(p.impressions);
   }
-  for (const a of map.values()) a.ecpm = calcEcpm(a.revenue, a.impressions);
+  for (const a of map.values()) {
+    a.revenue = a.gross_revenue * NET_FACTOR;
+    a.ecpm = calcEcpm(a.revenue, a.impressions);
+  }
   return [...map.values()];
 }
 
