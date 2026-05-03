@@ -18,7 +18,8 @@ import { RoiChart } from "@/components/dashboard/RoiChart";
 import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
-import { FilterBar, EMPTY_FILTERS, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
@@ -27,10 +28,18 @@ import { REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
+  return (
+    <FilterProvider>
+      <IndexInner />
+    </FilterProvider>
+  );
+};
+
+const IndexInner = () => {
   const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
-  const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const { filters, setFilters, version: filtersVersion } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
@@ -135,6 +144,9 @@ const Index = () => {
       nextFilters.toDate !== filters.toDate ||
       nextFilters.googleAccountIds.join("|") !== filters.googleAccountIds.join("|");
     setFilters(nextFilters);
+    if (import.meta.env.DEV) {
+      console.info("[dashboard] filters change", { from: nextFilters.fromDate, to: nextFilters.toDate, accounts: nextFilters.googleAccountIds, site: nextFilters.siteId, shouldSync });
+    }
     if (shouldSync) void syncDashboardData(nextFilters);
   };
 

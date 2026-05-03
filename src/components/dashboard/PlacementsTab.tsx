@@ -11,6 +11,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 import type { Campaign, GoogleAccount } from "@/types/domain";
 
 interface AdsPlacementRow {
@@ -62,11 +63,13 @@ interface Props {
 const PAGE_SIZE = 100;
 
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
+  const { range, version, presetKey, filters: globalFilters, setFilters: setGlobalFilters } = useDashboardFilters();
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [lastAutoSelectedAccount, setLastAutoSelectedAccount] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
+  // Local preset is just a label for display; the actual range comes from the global filter.
+  const [preset, setPreset] = useState<DatePresetKey>(presetKey ?? "last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
   const [gamRows, setGamRows] = useState<GamRevRow[]>([]);
   const [campaignMetricRows, setCampaignMetricRows] = useState<CampaignMetricRow[]>([]);
@@ -77,6 +80,16 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
   const [showDebug, setShowDebug] = useState(false);
   const [applyingUtm, setApplyingUtm] = useState(false);
+
+  // Sincroniza com o filtro global de contas
+  useEffect(() => {
+    setAccountIds(globalFilters.googleAccountIds);
+  }, [globalFilters.googleAccountIds]);
+
+  // Mantém o preset visual em sincronia com o filtro global
+  useEffect(() => {
+    if (presetKey) setPreset(presetKey);
+  }, [presetKey]);
 
   const applyUtmAll = async () => {
     if (!confirm("Aplicar UTM padrão (utm_placement={campaignid}_{placement}) no Final URL Suffix de TODAS as campanhas?\n\nIsso é necessário para que o GAM consiga associar receita por placement.")) return;
@@ -129,10 +142,17 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
   const fetchPlacements = async (cid: string) => {
     setLoading(true);
+    setRows([]);
+    setGamRows([]);
+    setCampaignMetricRows([]);
     try {
-      const range = DATE_PRESETS.find((p) => p.key === preset)!.range();
+      const from = range.from;
+      const to = range.to;
+      if (import.meta.env.DEV) {
+        console.info("[placements] fetch", { campaign: cid, from, to, accounts: accountIds, version });
+      }
       const { error } = await supabase.functions.invoke("google-ads-sync-placements", {
-        body: { campaign_id: cid, from: range.from, to: range.to },
+        body: { campaign_id: cid, from, to },
       });
       if (error) {
         toast({ title: "Erro ao sincronizar", description: error.message, variant: "destructive" });
@@ -140,14 +160,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       }
       // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
       await supabase.functions.invoke("gam-sync-revenue", {
-        body: { from: range.from, to: range.to, account_ids: accountIds },
+        body: { from, to, account_ids: accountIds },
       });
       const { data, error: qErr } = await supabase
         .from("ads_placements")
         .select("*")
         .eq("campaign_id", cid)
-        .gte("date", range.from)
-        .lte("date", range.to)
+        .gte("date", from)
+        .lte("date", to)
         .order("date", { ascending: false })
         .limit(5000);
       if (qErr) {
@@ -163,8 +183,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
         .eq("campaign_id", cid)
         .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to);
+        .gte("date", from)
+        .lte("date", to);
       setGamRows((gamData ?? []) as GamRevRow[]);
 
       // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
@@ -173,8 +193,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .from("daily_metrics")
         .select("revenue, clicks, impressions, date")
         .eq("campaign_id", cid)
-        .gte("date", range.from)
-        .lte("date", range.to);
+        .gte("date", from)
+        .lte("date", to);
       setCampaignMetricRows((metricData ?? []) as CampaignMetricRow[]);
 
       // Carrega ações (blacklist/favorite) para os placements desta campanha
@@ -193,7 +213,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   useEffect(() => {
     if (campaignId) void fetchPlacements(campaignId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignId, preset]);
+  }, [campaignId, range.from, range.to, version]);
 
   // Receita GAM por placement (já agrupada via UTM no backend)
   const gamRevenueByPlacement = useMemo(() => {
@@ -316,8 +336,16 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Período</label>
-            <Select value={preset} onValueChange={(v) => setPreset(v as DatePresetKey)}>
+            <label className="text-xs text-muted-foreground">Período (global)</label>
+            <Select
+              value={preset}
+              onValueChange={(v) => {
+                const key = v as DatePresetKey;
+                setPreset(key);
+                const r = DATE_PRESETS.find((p) => p.key === key)!.range();
+                setGlobalFilters({ ...globalFilters, fromDate: r.from, toDate: r.to });
+              }}
+            >
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {DATE_PRESETS.map((p) => (
