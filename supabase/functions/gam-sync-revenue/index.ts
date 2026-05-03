@@ -491,7 +491,8 @@ async function applyGoogleUtmRevenue(
   admin: any,
   userId: string,
   siteId: string | undefined,
-  googleRows: AttributedRow[],
+  googleCampaignRows: AttributedRow[],
+  googlePlacementRows: AttributedRow[],
   fx: FxRates,
   debug: string[],
   syncDates: string[] = [],
@@ -501,7 +502,7 @@ async function applyGoogleUtmRevenue(
 
   const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
-  for (const r of googleRows) {
+  for (const r of googleCampaignRows) {
     if (!r.cid) continue;
     const date = r.date ?? today;
     if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
@@ -510,15 +511,18 @@ async function applyGoogleUtmRevenue(
     cur.revenue += r.revenue; cur.impressions += r.impressions;
     inner.set(r.cid, cur);
 
-    if (r.placement) {
-      const key = `${r.cid}|${r.placement}|${date}`;
-      const pb = placementBuckets.get(key) ?? {
-        user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
-      };
-      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
-      placementBuckets.set(key, pb);
-    }
+  }
+
+  for (const r of googlePlacementRows) {
+    if (!r.cid || !r.placement) continue;
+    const date = r.date ?? today;
+    const key = `${r.cid}|${r.placement}|${date}`;
+    const pb = placementBuckets.get(key) ?? {
+      user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
+      date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
+    };
+    pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+    placementBuckets.set(key, pb);
   }
 
   const dates = [...new Set([...syncDates, ...[...placementBuckets.values()].map((p) => p.date)])];
