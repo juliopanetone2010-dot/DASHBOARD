@@ -370,11 +370,14 @@ async function collectUtmAttribution(args: {
   const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
 
   const directCampaignRows = campaignPick?.rows ?? [];
-  const placementRows = placementPick?.rows.filter((r) => r.placement) ?? [];
+  const placementRowsAll = placementPick?.rows ?? [];
+  const placementRows = placementRowsAll.filter((r) => r.placement);
   const directGoogleRows = directCampaignRows.filter((r) => r.source === "google" && r.cid);
   const placementGoogleRows = placementRows.filter((r) => r.source === "google" && r.cid);
   const googleCampaignRows = directGoogleRows.length > 0 ? directGoogleRows : placementGoogleRows;
-  const retentionRows = directCampaignRows.some((r) => r.cid) ? directCampaignRows.filter((r) => r.cid) : placementRows.filter((r) => r.cid);
+  const retentionRows = directCampaignRows.length > 0
+    ? directCampaignRows
+    : (placementRowsAll.length > 0 ? placementRowsAll : placementRows);
 
   await debugKeyValuesName(networkCode, accessToken, ranges, debug);
   debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
