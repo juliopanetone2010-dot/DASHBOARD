@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
         const idList = chunk.map((id) => id.replace(/\D/g, "")).filter(Boolean).join(",");
         if (!idList) continue;
         const query = `
-          SELECT campaign.id, segments.date, segments.geo_target_country,
+          SELECT campaign.id, segments.date,
+                 geographic_view.country_criterion_id,
                  metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
           FROM geographic_view
           WHERE segments.date BETWEEN '${from}' AND '${to}'
@@ -89,9 +90,10 @@ Deno.serve(async (req) => {
             return json({ error: j?.error?.message ?? "Erro Google Ads" });
           }
           for (const row of j.results ?? []) {
-            const geo = String(row.segments?.geoTargetCountry ?? "");
-            // Formato: "geoTargetConstants/2076" -> id 2076
-            const countryId = geo.split("/").pop() ?? "";
+            const countryId = String(
+              row.geographicView?.countryCriterionId ??
+              (row.geographicView?.resourceName?.split("~").pop() ?? "")
+            );
             all.push({
               campaign_id: String(row.campaign?.id ?? ""),
               date: String(row.segments?.date ?? ""),

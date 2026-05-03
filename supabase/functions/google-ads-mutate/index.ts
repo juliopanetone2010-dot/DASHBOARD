@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
     const deltaPct = Number((body as any)?.delta_pct ?? 0); // e.g. +10 / -10
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -265,6 +265,32 @@ Deno.serve(async (req) => {
         budget_from: currentMicros / 1_000_000,
         budget_to: nextMicros / 1_000_000,
       });
+    }
+
+    // exclude_country: adiciona um campaign_criterion negativo de location (geoTargetConstant)
+    if (action === "exclude_country") {
+      const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
+      if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
+
+      const mutateBody = {
+        operations: [{
+          create: {
+            campaign: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            negative: true,
+            location: { geoTargetConstant: `geoTargetConstants/${countryCriterionId}` },
+          },
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaignCriteria:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await logAction("executed", { country_criterion_id: countryCriterionId });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId });
     }
 
     return json({ error: "unreachable" });
