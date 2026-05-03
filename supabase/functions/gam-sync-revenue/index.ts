@@ -356,7 +356,7 @@ async function distributeGamRevenueToCampaigns(
   for (const r of rows) {
     const date = r.date ?? today;
     const parsed = parseGamAttribution(r.name);
-    if (parsed && parsed.source === "google") {
+    if (parsed && parsed.source === "google" && parsed.cid) {
       const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
@@ -364,17 +364,20 @@ async function distributeGamRevenueToCampaigns(
       cur.revenue += r.revenue; cur.impressions += r.impressions;
       inner.set(cid, cur);
 
-      const key = `${cid}|${parsed.placement}|${date}`;
-      const pb = placementBuckets.get(key) ?? {
-        user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
-      };
-      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
-      placementBuckets.set(key, pb);
+      // Só registra placement granular quando temos utm_placement (parsed.placement não-nulo)
+      if (parsed.placement) {
+        const key = `${cid}|${parsed.placement}|${date}`;
+        const pb = placementBuckets.get(key) ?? {
+          user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
+          date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
+        };
+        pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+        placementBuckets.set(key, pb);
+      }
     } else {
       const source = parseUtmSource(r.name);
       if (source) {
-        debug.push(`[utm ignored] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
+        debug.push(`[utm ignored para ROI Ads] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
       }
     }
   }
