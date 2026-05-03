@@ -127,6 +127,7 @@ export function aggregateByCampaign(
     const grossRevBrl = grossProfitBrl + agg.spend;
     const shareBrl = grossRevBrl * REV_SHARE_PCT;
     agg.revenue = grossRevUsd * NET_FACTOR;
+    agg.revenue_brl = grossRevBrl * NET_FACTOR;
     agg.profit = grossProfitBrl - shareBrl;
     agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
     agg.roas = calcRoas(agg.profit + agg.spend, agg.spend);
