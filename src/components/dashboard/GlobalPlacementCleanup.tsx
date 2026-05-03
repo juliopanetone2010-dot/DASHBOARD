@@ -22,6 +22,7 @@ interface PreviewCampaign {
   cost_brl: number;
   revenue_usd: number;
   matched_utm: boolean;
+  roi_pct?: number;
 }
 interface PreviewItem {
   key?: string;
