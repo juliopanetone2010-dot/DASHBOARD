@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Campaign, GoogleAccount, Site } from "@/types/domain";
+import type { AccountSiteLink, Campaign, GoogleAccount, Site } from "@/types/domain";
 
 // Usa data local (timezone do usuário), não UTC — evita "Hoje" vazio perto da meia-noite
 const toISO = (d: Date) => {
