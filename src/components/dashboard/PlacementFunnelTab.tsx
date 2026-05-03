@@ -93,13 +93,21 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("placement_status")
-        .select("id, campaign_id, campaign_name, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
-        .order("cost_total", { ascending: false })
-        .limit(5000);
-      if (error) throw error;
-      setRows((data ?? []) as Row[]);
+      const all: Row[] = [];
+      let s = 0;
+      for (;;) {
+        const { data, error } = await supabase
+          .from("placement_status")
+          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
+          .order("cost_total", { ascending: false })
+          .range(s, s + 999);
+        if (error) throw error;
+        const rows = (data ?? []) as Row[];
+        all.push(...rows);
+        if (rows.length < 1000) break;
+        s += 1000;
+      }
+      setRows(all);
     } catch (e: any) {
       toast({ title: "Erro ao carregar", description: e.message, variant: "destructive" });
     } finally { setLoading(false); }
