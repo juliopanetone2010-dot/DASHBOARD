@@ -159,7 +159,7 @@ export function RetentionTab({ campaigns }: Props) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base">
-            <span>LTV por campanha (últimos 30 dias)</span>
+            <span>LTV por campanha ({range.from} → {range.to})</span>
             <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
           </CardTitle>
         </CardHeader>
