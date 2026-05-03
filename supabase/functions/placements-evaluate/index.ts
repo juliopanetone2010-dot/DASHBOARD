@@ -264,6 +264,9 @@ Deno.serve(async (req) => {
       const statusChanged = prevStatus !== status;
       if (statusChanged) summary.transitions++;
 
+      const nowIso = new Date().toISOString();
+      const fd = a.firstDate ? new Date(a.firstDate) : null;
+      const firstSeen = ex?.first_seen_at ?? (fd && !isNaN(fd.getTime()) ? fd.toISOString() : nowIso);
       const row: any = {
         user_id: userId,
         google_account_id: meta.google_account_id,
@@ -281,14 +284,13 @@ Deno.serve(async (req) => {
         impressions_total: a.impressions,
         conversions_total: a.conversions,
         prev_roi_pct: ex?.roi_pct ?? null,
-        last_evaluated_at: new Date().toISOString(),
+        last_evaluated_at: nowIso,
+        first_seen_at: firstSeen,
+        last_status_change_at: ex && prevStatus === status ? undefined : nowIso,
       };
-      if (!ex) {
-        const fd = a.firstDate ? new Date(a.firstDate) : null;
-        row.first_seen_at = (fd && !isNaN(fd.getTime()) ? fd : new Date()).toISOString();
-        row.last_status_change_at = new Date().toISOString();
-      } else if (statusChanged) {
-        row.last_status_change_at = new Date().toISOString();
+      if (status === "blocked" && (!ex || ex.status !== "blocked")) row.blocked_at = nowIso;
+      // remove undefined
+      for (const k2 of Object.keys(row)) if (row[k2] === undefined) delete row[k2];
         if (status === "blocked") row.blocked_at = new Date().toISOString();
       }
       upserts.push(row);
