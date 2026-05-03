@@ -133,17 +133,31 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Conta Ads</label>
-          <Select value={filters.googleAccountId} onValueChange={(v) => set("googleAccountId", v)}>
-            <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas as contas</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" className="h-9 w-[210px] justify-between gap-2 px-3 font-normal">
+                <span className="truncate">{accountLabel}</span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[240px]" align="start">
+              <DropdownMenuCheckboxItem checked={allAccountsSelected} onCheckedChange={() => set("googleAccountIds", [])}>
+                Todas as contas
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
               {googleAccounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.account_name ?? a.customer_id}
-                </SelectItem>
+                <DropdownMenuCheckboxItem
+                  key={a.id}
+                  checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
+                  onCheckedChange={() => toggleAccount(a.id)}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  <span className="truncate">{a.account_name ?? a.customer_id}</span>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {!allAccountsSelected && <Badge variant="secondary">{selectedAccountIds.length} selecionada(s)</Badge>}
         </div>
 
         <div className="space-y-1">
