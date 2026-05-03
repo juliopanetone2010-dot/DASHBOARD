@@ -308,6 +308,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
+    const revenueKeys = [...gamRevenueByPlacement.keys()];
+    const usedPrefixRevenueKeys = new Set<string>();
     for (const r of rows) {
       const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
       // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
@@ -343,6 +345,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       else if (a.placementRoot && a.placementRoot !== a.placement) {
         const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
         if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
+      }
+      if (usd <= 0 && isMobileAppPlacement(a.type, a.placement)) {
+        const prefixKey = findPrefixRevenueKey(a.placement, revenueKeys, usedPrefixRevenueKeys);
+        if (prefixKey) {
+          usd = gamRevenueByPlacement.get(prefixKey) ?? 0;
+          if (usd > 0) { source = "utm_prefix"; matchedKey = prefixKey; usedPrefixRevenueKeys.add(prefixKey); }
+        }
       }
       const usdNet = usd * (1 - REV_SHARE_PCT);
       const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
