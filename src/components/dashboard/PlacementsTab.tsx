@@ -72,6 +72,33 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
   const [showDebug, setShowDebug] = useState(false);
+  const [applyingUtm, setApplyingUtm] = useState(false);
+
+  const applyUtmAll = async () => {
+    if (!confirm("Aplicar UTM padrão (utm_placement={campaignid}_{placement}) no Final URL Suffix de TODAS as campanhas?\n\nIsso é necessário para que o GAM consiga associar receita por placement.")) return;
+    setApplyingUtm(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
+        body: accountIds.length ? { account_ids: accountIds } : {},
+      });
+      if (error) {
+        toast({ title: "Erro ao aplicar UTM", description: error.message, variant: "destructive" });
+        return;
+      }
+      const r = data as any;
+      if (r?.error) {
+        toast({ title: "Erro", description: r.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "UTM aplicado",
+        description: `${r.success}/${r.total} campanhas atualizadas${r.failed ? ` (${r.failed} falha(s))` : ""}.`,
+      });
+    } finally {
+      setApplyingUtm(false);
+    }
+  };
+
 
   const visibleCampaigns = useMemo(() => {
     return campaigns
@@ -293,6 +320,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Aplicar UTM em todas as campanhas */}
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[260px]">
+          <div className="text-sm font-semibold">UTMs nas campanhas</div>
+          <div className="text-xs text-muted-foreground">
+            Aplica <code className="bg-muted px-1 rounded">{"utm_placement={campaignid}_{placement}"}</code> no Final URL Suffix de todas as campanhas {accountIds.length ? "da conta filtrada" : "de todas as contas"}. Necessário para casar receita do GAM por placement.
+          </div>
+        </div>
+        <Button onClick={applyUtmAll} disabled={applyingUtm} variant="default">
+          {applyingUtm ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+          Aplicar UTM {accountIds.length ? "(conta filtrada)" : "em todas"}
+        </Button>
       </div>
 
       {!campaignId && (

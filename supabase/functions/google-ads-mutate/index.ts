@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
     const deltaPct = Number((body as any)?.delta_pct ?? 0); // e.g. +10 / -10
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -180,6 +180,38 @@ Deno.serve(async (req) => {
         ok: true, action, delta_pct: deltaPct,
         ad_groups_updated: meta.length, details: meta,
       });
+    }
+
+    // apply_utm: define final_url_suffix da campanha com o padrão UTM
+    // utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}
+    if (action === "apply_utm") {
+      const suffix = [
+        "utm_source=google",
+        "utm_campaign={campaignid}",
+        "utm_adgroup={adgroupid}",
+        "utm_content={creative}",
+        "utm_placement={campaignid}_{placement}",
+      ].join("&");
+
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            finalUrlSuffix: suffix,
+          },
+          updateMask: "final_url_suffix",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaigns:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await logAction("executed", { suffix });
+      return json({ ok: true, action, suffix });
     }
 
     return json({ error: "unreachable" });
