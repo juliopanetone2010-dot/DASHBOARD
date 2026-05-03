@@ -37,12 +37,18 @@ interface PreviewItem {
   reason: string;
   campaigns: PreviewCampaign[];
 }
+interface CampaignTotal {
+  campaign_id: string; name: string;
+  cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
+  bad_count: number;
+}
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
   period?: { from: string; to: string };
+  grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
-interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; }
+interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [open, setOpen] = useState(false);
