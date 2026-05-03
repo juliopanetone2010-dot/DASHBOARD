@@ -30,6 +30,8 @@ Deno.serve(async (req) => {
     const lookbackDays = Math.max(1, Math.min(180, Number(body?.lookback_days ?? 30)));
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const targetUserId: string | undefined = body?.user_id;
+    const explicitFrom: string | undefined = typeof body?.from === "string" ? body.from : undefined;
+    const explicitTo: string | undefined = typeof body?.to === "string" ? body.to : undefined;
 
     let userId: string | null = null;
     if (isService && targetUserId) userId = targetUserId;
@@ -59,11 +61,14 @@ Deno.serve(async (req) => {
     };
 
     const today = new Date();
-    const toDate = new Date(today.getTime() - 86400_000);
-    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
-    const recentConvCutoff = new Date(today.getTime() - R.protectRecentConvDays * 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const from = iso(fromDate), to = iso(toDate), recentCut = iso(recentConvCutoff);
+    // Janela inclui o dia de hoje (to = hoje, from = hoje - (lookback-1))
+    const toDate = today;
+    const fromDate = new Date(today.getTime() - (lookbackDays - 1) * 86400_000);
+    const recentConvCutoff = new Date(today.getTime() - R.protectRecentConvDays * 86400_000);
+    const from = explicitFrom ?? iso(fromDate);
+    const to = explicitTo ?? iso(toDate);
+    const recentCut = iso(recentConvCutoff);
 
     // Campanhas (todas, não só enabled — para manter histórico)
     const { data: camps } = await admin.from("campaigns")
