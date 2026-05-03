@@ -88,6 +88,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
         setLastRun(data.placement_cleanup_last_run_at ?? null);
       }
+      const { data: accs } = await supabase
+        .from("google_accounts")
+        .select("id, account_name, descriptive_name, customer_id")
+        .order("account_name", { ascending: true });
+      setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
     })();
   }, []);
 
