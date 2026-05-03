@@ -281,16 +281,30 @@ function parseGamPlacementName(name: string): { cid: string; placement: string }
   return parsed ? { cid: parsed.cid, placement: parsed.placement } : null;
 }
 
-function parseGamAttribution(name: string): { source: string | null; cid: string; placement: string } | null {
+function parseGamAttribution(name: string): { source: string | null; cid: string | null; placement: string | null } | null {
   if (!name) return null;
   const decoded = safeDecode(String(name).trim());
   const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
   const source = sourceMatch?.[1]?.toLowerCase() ?? null;
+  // Preferência 1: utm_campaign={campaignid} — match direto independente de placement
+  const campaignMatch = decoded.match(/(?:^|[\s,;&|])utm_campaign[=~:]*([^\s,;&|]+)/i);
+  let cid: string | null = null;
+  let placement: string | null = null;
+  if (campaignMatch && /^\d{6,}$/.test(campaignMatch[1])) {
+    cid = campaignMatch[1];
+  }
+  // Preferência 2: utm_placement={cid}_{placement} (formato granular)
   const utm = decoded.match(/(?:^|[\s,;&|])utm_placement[=~:]*([^\s,;&|]+)/i);
-  const candidate = utm?.[1] ?? decoded;
-  const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
-  if (!m) return null;
-  return { source, cid: m[1], placement: normalizePlacement(m[2]) };
+  const candidate = utm?.[1] ?? (cid ? null : decoded);
+  if (candidate) {
+    const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
+    if (m) {
+      cid = cid ?? m[1];
+      placement = normalizePlacement(m[2]);
+    }
+  }
+  if (!cid && !source) return null;
+  return { source, cid, placement };
 }
 
 function parseUtmSource(name: string): string | null {
