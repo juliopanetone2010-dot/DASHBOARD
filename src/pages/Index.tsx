@@ -99,10 +99,10 @@ const Index = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
-      include_yesterday_fallback: preset === "today",
+      include_yesterday_fallback: false,
     };
 
-    toast({ title: "Sincronizando", description: preset === "today" ? "Hoje + fallback GAM de ontem" : "Filtros atualizados" });
+    toast({ title: "Sincronizando", description: "Filtros atualizados" });
     const [adsRes, gamRes] = await Promise.all([
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
       supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
@@ -118,7 +118,7 @@ const Index = () => {
     if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
     if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
     if (!adsErr && !gamErr) {
-      toast({ title: "Dados atualizados", description: preset === "today" ? "GAM pode atrasar. Mostrando último dado disponível." : undefined });
+      toast({ title: "Dados atualizados" });
     }
     await data.refresh();
   }, [data]);
@@ -231,11 +231,9 @@ const Index = () => {
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  presetFromRange(filters.fromDate, filters.toDate) === "today"
-                    ? "USD nativo · GAM pode atrasar (mostrando até ontem)"
-                    : totals.revenue === 0
-                      ? "USD nativo · Sem dados do GAM ou atraso de processamento"
-                      : "USD nativo"
+                  totals.revenue === 0
+                    ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
+                    : "USD nativo"
                 }
               />
               <MetricCard
