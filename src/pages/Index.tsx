@@ -29,6 +29,7 @@ const Index = () => {
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
