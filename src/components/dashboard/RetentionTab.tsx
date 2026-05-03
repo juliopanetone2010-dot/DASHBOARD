@@ -109,17 +109,22 @@ export function RetentionTab({ campaigns }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold">Retenção / Push</h2>
           <p className="text-xs text-muted-foreground">
             Receita de usuários retidos via push (sem custo adicional). Comparado ao tráfego pago do Google Ads.
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
-          <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="font-mono text-xs">
+            Período: {range.from} → {range.to}
+          </Badge>
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
+            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -154,7 +159,7 @@ export function RetentionTab({ campaigns }: Props) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base">
-            <span>LTV por campanha (últimos 30 dias)</span>
+            <span>LTV por campanha ({range.from} → {range.to})</span>
             <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
           </CardTitle>
         </CardHeader>

@@ -20,11 +20,12 @@ import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
+import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
-import { REV_SHARE_PCT } from "@/engine/rules";
+import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
@@ -39,8 +40,42 @@ const IndexInner = () => {
   const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
-  const { filters, setFilters } = useDashboardFilters();
+  const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
+
+  // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
+  const extraRevQuery = useQuery({
+    queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("utm_source, revenue_usd, date")
+        .gte("date", range.from)
+        .lte("date", range.to);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows } = await q.limit(5000);
+      let push = 0, other = 0;
+      for (const r of rows ?? []) {
+        const usd = Number((r as any).revenue_usd) || 0;
+        const src = String((r as any).utm_source ?? "").toLowerCase();
+        if (src === "google") continue;
+        if (src === "push") push += usd; else other += usd;
+      }
+      return { push, other };
+    },
+    staleTime: 30_000,
+  });
+
+  const fxQuery = useQuery<number>({
+    queryKey: ["fx-usd-brl"],
+    queryFn: async () => {
+      const r = await fetch("https://open.er-api.com/v6/latest/USD");
+      const j = await r.json();
+      const rate = Number(j?.rates?.BRL);
+      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+    },
+    staleTime: 60 * 60 * 1000,
+  });
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
@@ -181,7 +216,23 @@ const IndexInner = () => {
     toast({ title: "Dados de teste inseridos", description: "Inclui contas, sites e vínculos." });
   };
 
-  const totals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
+  const baseTotals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
+  const usdBrl = fxQuery.data ?? 5;
+  const extraPushUsd = extraRevQuery.data?.push ?? 0;
+  const extraOtherUsd = extraRevQuery.data?.other ?? 0;
+  const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
+  const extraNetBrl = extraNetUsd * usdBrl;
+  const totalRevenueUsd = baseTotals.revenue + extraNetUsd;
+  const totalProfitBrl = baseTotals.profit + extraNetBrl;
+  const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
+  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
+  const totals = {
+    spend: baseTotals.spend,
+    revenue: totalRevenueUsd,
+    profit: totalProfitBrl,
+    roi: totalRoi,
+    roas: totalRoas,
+  };
   const profitPositive = totals.profit >= 0;
   // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
@@ -287,7 +338,7 @@ const IndexInner = () => {
                 hint={
                   totals.revenue === 0
                     ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
-                    : "USD nativo"
+                    : `Google + Push + Outras · push ${fmtUSD(extraPushUsd * NET_FACTOR)} · outras ${fmtUSD(extraOtherUsd * NET_FACTOR)}`
                 }
               />
               <MetricCard
