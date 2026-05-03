@@ -99,7 +99,8 @@ const Index = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
-      include_yesterday_fallback: false,
+      // Para "Hoje", incluímos ontem como fallback (GAM atrasa horas).
+      include_yesterday_fallback: preset === "today",
     };
 
     toast({ title: "Sincronizando", description: "Filtros atualizados" });
