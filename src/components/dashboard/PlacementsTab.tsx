@@ -509,7 +509,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
               <div className="text-xs text-muted-foreground">
                 Ordenar:{" "}
                 <button onClick={() => toggleSort("roi")} className={cn("ml-1 hover:underline", sortKey === "roi" && "text-primary font-medium")}>ROI</button> ·{" "}
-                <button onClick={() => toggleSort("cost")} className={cn("hover:underline", sortKey === "cost" && "text-primary font-medium")}>Custo</button> ·{" "}
+                <button onClick={() => toggleSort("costBrl")} className={cn("hover:underline", sortKey === "costBrl" && "text-primary font-medium")}>Custo</button> ·{" "}
                 <button onClick={() => toggleSort("conversions")} className={cn("hover:underline", sortKey === "conversions" && "text-primary font-medium")}>Conv.</button> ·{" "}
                 <button onClick={() => toggleSort("ctr")} className={cn("hover:underline", sortKey === "ctr" && "text-primary font-medium")}>CTR</button>
               </div>
@@ -523,21 +523,22 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("impressions")}>Impr.</TableHead>
                     <TableHead className="text-right">Cliques</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("ctr")}>CTR</TableHead>
-                    <TableHead className="text-right">CPC</TableHead>
+                    <TableHead className="text-right">CPC (BRL)</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("conversions")}>Conv.</TableHead>
-                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("cost")}>Custo</TableHead>
-                    <TableHead className="text-right">Receita</TableHead>
-                    <TableHead className="text-right">Lucro</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("costBrl")}>Custo Ads (BRL)</TableHead>
+                    <TableHead className="text-right">Receita GAM</TableHead>
+                    <TableHead className="text-right">Lucro (BRL)</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("roi")}>ROI</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
+                    {showDebug && <TableHead className="text-xs">Debug</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visible.length === 0 && !loading && (
-                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Sem placements no período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={showDebug ? 13 : 12} className="text-center py-8 text-muted-foreground">Sem placements no período.</TableCell></TableRow>
                   )}
                   {loading && (
-                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                    <TableRow><TableCell colSpan={showDebug ? 13 : 12} className="text-center py-8 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Sincronizando...
                     </TableCell></TableRow>
                   )}
@@ -545,14 +546,15 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     const matched = r.revenueSource !== "none";
                     const negative = matched && r.roi < 0;
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
-                    const wasted = r.cost > 20 && r.conversions === 0;
+                    const wasted = r.costBrl > 100 && r.conversions === 0;
                     const action = actions[r.placement];
                     return (
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {r.revenueSource === "utm" && <Badge variant="outline" className="text-[9px]">UTM</Badge>}
+                            {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
+                            {r.revenueSource === "utm_root" && <Badge variant="outline" className="text-[9px]">UTM root</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
@@ -565,36 +567,45 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.clicks)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.ctr.toFixed(2)}%</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(r.cpc)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtBRL(r.cpcBrl)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtUSD(r.cost)}</TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">{fmtBRL(r.costBrl)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {matched ? fmtUSD(r.revenue) : "—"}
+                          {matched ? (
+                            <div>
+                              <div>{fmtUSD(r.revenueUsdNet)}</div>
+                              <div className="text-[10px] text-muted-foreground/70">≈ {fmtBRL(r.revenueBrl)}</div>
+                            </div>
+                          ) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {matched ? fmtUSD(r.profit) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profitBrl >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtBRL(r.profitBrl) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
                           {matched ? fmtPercent(r.roi) : "—"}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button
-                              size="icon" variant="ghost" className="h-7 w-7"
-                              title="Favoritar"
-                              onClick={() => toggleAction(r.placement, "favorite")}
-                            >
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button
-                              size="icon" variant="ghost" className="h-7 w-7 text-danger"
-                              title="Excluir (blacklist)"
-                              onClick={() => toggleAction(r.placement, "blacklist")}
-                            >
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir (blacklist)" onClick={() => toggleAction(r.placement, "blacklist")}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </TableCell>
+                        {showDebug && (
+                          <TableCell className="text-[10px] font-mono whitespace-nowrap">
+                            <div>cid: <b>{campaignId}</b></div>
+                            <div>full: {r.placement}</div>
+                            <div>root: {r.placementRoot}</div>
+                            <div>cost_ads: R$ {r.costBrl.toFixed(2)} (BRL)</div>
+                            <div>utm_match: {r.matchedUtm ?? "—"} ({r.revenueSource})</div>
+                            <div>rev_usd: ${r.revenueUsd.toFixed(4)} → net ${r.revenueUsdNet.toFixed(4)}</div>
+                            <div>fx: {fxUsdBrl} → rev_brl: R$ {r.revenueBrl.toFixed(2)}</div>
+                            <div>roi: {r.roi.toFixed(2)}%</div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
