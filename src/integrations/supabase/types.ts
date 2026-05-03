@@ -544,6 +544,144 @@ export type Database = {
         }
         Relationships: []
       }
+      placement_status: {
+        Row: {
+          app_id: string | null
+          blocked_at: string | null
+          campaign_id: string
+          campaign_name: string | null
+          clicks_total: number
+          conversions_total: number
+          cost_total: number
+          created_at: string
+          first_seen_at: string
+          google_account_id: string | null
+          id: string
+          impressions_total: number
+          last_evaluated_at: string
+          last_status_change_at: string
+          manual_override: boolean
+          phase: string
+          placement: string
+          placement_type: string | null
+          prev_roi_pct: number | null
+          priority: boolean
+          profit_total: number
+          reason: string | null
+          revenue_total: number
+          roi_pct: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          app_id?: string | null
+          blocked_at?: string | null
+          campaign_id: string
+          campaign_name?: string | null
+          clicks_total?: number
+          conversions_total?: number
+          cost_total?: number
+          created_at?: string
+          first_seen_at?: string
+          google_account_id?: string | null
+          id?: string
+          impressions_total?: number
+          last_evaluated_at?: string
+          last_status_change_at?: string
+          manual_override?: boolean
+          phase?: string
+          placement: string
+          placement_type?: string | null
+          prev_roi_pct?: number | null
+          priority?: boolean
+          profit_total?: number
+          reason?: string | null
+          revenue_total?: number
+          roi_pct?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          app_id?: string | null
+          blocked_at?: string | null
+          campaign_id?: string
+          campaign_name?: string | null
+          clicks_total?: number
+          conversions_total?: number
+          cost_total?: number
+          created_at?: string
+          first_seen_at?: string
+          google_account_id?: string | null
+          id?: string
+          impressions_total?: number
+          last_evaluated_at?: string
+          last_status_change_at?: string
+          manual_override?: boolean
+          phase?: string
+          placement?: string
+          placement_type?: string | null
+          prev_roi_pct?: number | null
+          priority?: boolean
+          profit_total?: number
+          reason?: string | null
+          revenue_total?: number
+          roi_pct?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      placement_status_history: {
+        Row: {
+          campaign_id: string
+          cost_total: number | null
+          created_at: string
+          from_status: string | null
+          id: string
+          placement: string
+          placement_status_id: string
+          reason: string | null
+          revenue_total: number | null
+          roi_pct: number | null
+          to_status: string
+          triggered_by: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          cost_total?: number | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          placement: string
+          placement_status_id: string
+          reason?: string | null
+          revenue_total?: number | null
+          roi_pct?: number | null
+          to_status: string
+          triggered_by?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          cost_total?: number | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          placement?: string
+          placement_status_id?: string
+          reason?: string | null
+          revenue_total?: number | null
+          roi_pct?: number | null
+          to_status?: string
+          triggered_by?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       placements: {
         Row: {
           ad_unit: string | null
@@ -617,6 +755,16 @@ export type Database = {
           auto_pause_enabled: boolean
           boost_roi_pct: number
           budget_increase_pct: number
+          funnel_block_max_roi: number
+          funnel_block_min_cost: number
+          funnel_decision_bad_roi: number
+          funnel_decision_good_roi: number
+          funnel_learning_max_cost: number
+          funnel_learning_min_roi: number
+          funnel_protect_min_clicks: number
+          funnel_protect_recent_conv_days: number
+          funnel_scale_min_roi: number
+          funnel_test_max_cost: number
           max_loss_roi_pct: number
           min_roi_pct: number
           min_spend_threshold: number
@@ -635,6 +783,16 @@ export type Database = {
           auto_pause_enabled?: boolean
           boost_roi_pct?: number
           budget_increase_pct?: number
+          funnel_block_max_roi?: number
+          funnel_block_min_cost?: number
+          funnel_decision_bad_roi?: number
+          funnel_decision_good_roi?: number
+          funnel_learning_max_cost?: number
+          funnel_learning_min_roi?: number
+          funnel_protect_min_clicks?: number
+          funnel_protect_recent_conv_days?: number
+          funnel_scale_min_roi?: number
+          funnel_test_max_cost?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
@@ -653,6 +811,16 @@ export type Database = {
           auto_pause_enabled?: boolean
           boost_roi_pct?: number
           budget_increase_pct?: number
+          funnel_block_max_roi?: number
+          funnel_block_min_cost?: number
+          funnel_decision_bad_roi?: number
+          funnel_decision_good_roi?: number
+          funnel_learning_max_cost?: number
+          funnel_learning_min_roi?: number
+          funnel_protect_min_clicks?: number
+          funnel_protect_recent_conv_days?: number
+          funnel_scale_min_roi?: number
+          funnel_test_max_cost?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
