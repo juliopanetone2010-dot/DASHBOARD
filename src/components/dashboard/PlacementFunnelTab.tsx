@@ -20,6 +20,7 @@ interface Row {
   id: string;
   campaign_id: string;
   campaign_name: string | null;
+  google_account_id: string | null;
   placement: string;
   placement_type: string | null;
   status: Status;
@@ -37,6 +38,9 @@ interface Row {
   first_seen_at: string;
   last_status_change_at: string;
 }
+
+interface AccountOpt { id: string; name: string; }
+interface SiteOpt { id: string; name: string; account_ids: string[]; }
 
 const STATUS_META: Record<Status, { label: string; cls: string }> = {
   test: { label: "Teste", cls: "bg-muted text-muted-foreground" },
