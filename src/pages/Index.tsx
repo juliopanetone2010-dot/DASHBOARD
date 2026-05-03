@@ -77,6 +77,33 @@ const IndexInner = () => {
     staleTime: 60 * 60 * 1000,
   });
 
+  // Última atualização real dos dados (timestamps de update no banco)
+  const freshnessQuery = useQuery({
+    queryKey: ["data-freshness", filters.siteId, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let adsQ = supabase
+        .from("daily_metrics")
+        .select("updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (filters.googleAccountIds.length > 0) adsQ = adsQ.in("google_account_id", filters.googleAccountIds);
+
+      let gamQ = supabase
+        .from("gam_campaign_source_revenue")
+        .select("created_at")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (filters.siteId !== "all") gamQ = gamQ.eq("site_id", filters.siteId);
+
+      const [ads, gam] = await Promise.all([adsQ, gamQ]);
+      return {
+        ads: ads.data?.[0]?.updated_at ?? null,
+        gam: gam.data?.[0]?.created_at ?? null,
+      };
+    },
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  });
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
