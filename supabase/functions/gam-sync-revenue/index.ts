@@ -373,6 +373,7 @@ async function collectUtmAttribution(args: {
   }
 
   const customCriteriaCandidate = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
+  const urlNameCandidate = await runUrlNameCandidate(networkCode, accessToken, ranges, debug);
   const keyValueCandidate = await runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug);
   const campaignCandidates = utmKeyIds.utm_campaign
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_campaign, "utm_source", "utm_campaign", debug)
@@ -381,8 +382,8 @@ async function collectUtmAttribution(args: {
     ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_placement, "utm_source", "utm_placement", debug)
     : [];
 
-  const campaignCandidatesWithKv = [customCriteriaCandidate, keyValueCandidate, ...campaignCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
-  const placementCandidatesWithKv = [customCriteriaCandidate, keyValueCandidate, ...placementCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+  const campaignCandidatesWithKv = [customCriteriaCandidate, urlNameCandidate, keyValueCandidate, ...campaignCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
+  const placementCandidatesWithKv = [customCriteriaCandidate, urlNameCandidate, keyValueCandidate, ...placementCandidates].filter(Boolean) as Array<{ label: string; rows: AttributedRow[] }>;
 
   const campaignPick = campaignCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidatesWithKv[0];
   const placementPick = placementCandidatesWithKv.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidatesWithKv[0];
