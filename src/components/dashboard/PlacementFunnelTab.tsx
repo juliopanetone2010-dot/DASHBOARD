@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Play, Ban, RotateCcw, Sparkles, Filter } from "lucide-react";
+import { Loader2, RefreshCw, Play, Ban, RotateCcw, Sparkles, Filter, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 interface Props { fxUsdBrl: number; }
 
@@ -19,6 +20,7 @@ interface Row {
   id: string;
   campaign_id: string;
   campaign_name: string | null;
+  google_account_id: string | null;
   placement: string;
   placement_type: string | null;
   status: Status;
@@ -36,6 +38,9 @@ interface Row {
   first_seen_at: string;
   last_status_change_at: string;
 }
+
+interface AccountOpt { id: string; name: string; }
+interface SiteOpt { id: string; name: string; account_ids: string[]; }
 
 const STATUS_META: Record<Status, { label: string; cls: string }> = {
   test: { label: "Teste", cls: "bg-muted text-muted-foreground" },
@@ -56,6 +61,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
+  const [accounts, setAccounts] = useState<AccountOpt[]>([]);
+  const [sites, setSites] = useState<SiteOpt[]>([]);
+  const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
+  const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
+
   const loadConfig = async () => {
     const { data } = await supabase
       .from("rules_config")
@@ -65,18 +75,39 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       setAutoEnabled(!!data.placement_auto_cleanup_enabled);
       setLastRun(data.placement_cleanup_last_run_at ?? null);
     }
+    const [{ data: accs }, { data: siteRows }, { data: linkRows }] = await Promise.all([
+      supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id").order("account_name", { ascending: true }),
+      supabase.from("sites").select("id, name").order("name", { ascending: true }),
+      supabase.from("account_site_links").select("site_id, google_account_id"),
+    ]);
+    setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
+    const linksBySite = new Map<string, string[]>();
+    for (const l of linkRows ?? []) {
+      const arr = linksBySite.get(l.site_id) ?? [];
+      arr.push(l.google_account_id);
+      linksBySite.set(l.site_id, arr);
+    }
+    setSites((siteRows ?? []).map((s: any) => ({ id: s.id, name: s.name, account_ids: linksBySite.get(s.id) ?? [] })));
   };
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("placement_status")
-        .select("id, campaign_id, campaign_name, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
-        .order("cost_total", { ascending: false })
-        .limit(5000);
-      if (error) throw error;
-      setRows((data ?? []) as Row[]);
+      const all: Row[] = [];
+      let s = 0;
+      for (;;) {
+        const { data, error } = await supabase
+          .from("placement_status")
+          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
+          .order("cost_total", { ascending: false })
+          .range(s, s + 999);
+        if (error) throw error;
+        const rows = (data ?? []) as Row[];
+        all.push(...rows);
+        if (rows.length < 1000) break;
+        s += 1000;
+      }
+      setRows(all);
     } catch (e: any) {
       toast({ title: "Erro ao carregar", description: e.message, variant: "destructive" });
     } finally { setLoading(false); }
@@ -159,17 +190,34 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     } finally { setBusyId(null); }
   };
 
+  // Conjunto efetivo de google_account_ids permitidos pelo filtro (conta + site)
+  const allowedAccountIds = useMemo(() => {
+    let allowed: Set<string> | null = null;
+    if (accountFilter.size > 0) allowed = new Set(accountFilter);
+    if (siteFilter.size > 0) {
+      const fromSites = new Set<string>();
+      for (const s of sites) if (siteFilter.has(s.id)) for (const a of s.account_ids) fromSites.add(a);
+      allowed = allowed ? new Set([...allowed].filter((a) => fromSites.has(a))) : fromSites;
+    }
+    return allowed; // null = sem restrição
+  }, [accountFilter, siteFilter, sites]);
+
+  const accountFiltered = useMemo(() => {
+    if (!allowedAccountIds) return rows;
+    return rows.filter((r) => r.google_account_id && allowedAccountIds.has(r.google_account_id));
+  }, [rows, allowedAccountIds]);
+
   const counts = useMemo(() => {
-    const c = { all: rows.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
-    for (const r of rows) c[r.status]++;
+    const c = { all: accountFiltered.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
+    for (const r of accountFiltered) c[r.status]++;
     return c;
-  }, [rows]);
+  }, [accountFiltered]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return rows.filter((r) => (filter === "all" || r.status === filter) &&
+    return accountFiltered.filter((r) => (filter === "all" || r.status === filter) &&
       (!s || r.placement.toLowerCase().includes(s) || (r.campaign_name ?? "").toLowerCase().includes(s)));
-  }, [rows, filter, search]);
+  }, [accountFiltered, filter, search]);
 
   const daysSince = (iso: string) => {
     const d = (Date.now() - new Date(iso).getTime()) / 86400_000;
@@ -213,6 +261,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
             <span className="ml-1 text-[10px] tabular-nums opacity-70">{counts[s]}</span>
           </button>
         ))}
+
+        <MultiPicker label="Contas" items={accounts} selected={accountFilter} onChange={setAccountFilter} />
+        <MultiPicker label="Sites" items={sites.map((s) => ({ id: s.id, name: s.name }))} selected={siteFilter} onChange={setSiteFilter} />
+
         <div className="flex-1 min-w-[220px] flex items-center gap-2 ml-auto">
           <Filter className="h-3.5 w-3.5 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filtrar por placement ou campanha..." className="h-8 text-xs" />
@@ -257,6 +309,42 @@ function ConfirmBtn({ icon, label, title, desc, onConfirm, busy, variant }: {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+function MultiPicker({ label, items, selected, onChange }: {
+  label: string; items: { id: string; name: string }[]; selected: Set<string>; onChange: (s: Set<string>) => void;
+}) {
+  const allSelected = selected.size === 0;
+  const display = allSelected ? `Todas (${items.length})` : `${selected.size} selec.`;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
+          {label}: <span className="font-semibold">{display}</span>
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-auto w-64">
+        <DropdownMenuLabel className="text-xs">{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem checked={allSelected} onCheckedChange={() => onChange(new Set())}>
+          Todas
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {items.length === 0 && <div className="text-[11px] text-muted-foreground px-2 py-1">— vazio —</div>}
+        {items.map((it) => (
+          <DropdownMenuCheckboxItem key={it.id} checked={selected.has(it.id)} onSelect={(e) => e.preventDefault()}
+            onCheckedChange={(c) => {
+              const n = new Set(selected);
+              c ? n.add(it.id) : n.delete(it.id);
+              onChange(n);
+            }}>
+            <span className="truncate">{it.name}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
