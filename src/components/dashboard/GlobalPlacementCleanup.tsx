@@ -162,9 +162,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       return n;
     });
   };
+  const matchesAccount = (i: PreviewItem) =>
+    accountFilter === "all" || i.campaigns.some((c) => c.google_account_id === accountFilter);
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter(canExclude).map(itemKey)));
+    setSelected(new Set(items.filter((i) => canExclude(i) && matchesAccount(i)).map(itemKey)));
   };
 
   const runApply = async () => {
@@ -173,12 +175,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setApplying(true);
     try {
       const payload = items
-        .filter((i) => selected.has(itemKey(i)))
+        .filter((i) => selected.has(itemKey(i)) && matchesAccount(i))
         .map((i) => ({
           key: itemKey(i), placement: i.placement, type: i.type, app_id: i.app_id ?? null,
           cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
-          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
-        }));
+          campaigns: i.campaigns
+            .filter((c) => accountFilter === "all" || c.google_account_id === accountFilter)
+            .map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
+        }))
+        .filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
         { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl } },
@@ -276,7 +281,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
-                onChange={(e) => setAccountFilter(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAccountFilter(next);
+                  // mantém apenas seleções da conta escolhida
+                  setSelected((s) => {
+                    if (next === "all") return s;
+                    const allowed = new Set(items.filter((i) => i.campaigns.some((c) => c.google_account_id === next)).map(itemKey));
+                    return new Set([...s].filter((k) => allowed.has(k)));
+                  });
+                }}
               >
                 <option value="all">Todas as contas ({accounts.length})</option>
                 {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
