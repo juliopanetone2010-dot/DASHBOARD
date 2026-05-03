@@ -487,6 +487,48 @@ async function runCustomCriteriaCandidate(
   }
 }
 
+async function runUrlNameCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "URL_NAME (URL com parâmetros UTM)";
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+    ))).flat();
+    const rows = rowsFromUrlReportRows(reportRows, label);
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", rows, debug);
+    return { label, rows };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
+function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+  return reportRows.map((r) => {
+    const rawUrl = r.dims[1] || r.dims[0] || "";
+    const params = parseUrlParams(rawUrl);
+    const sourceRaw = params.utm_source ?? "";
+    const campaignRaw = params.utm_campaign ?? "";
+    const placementRaw = params.utm_placement ?? "";
+    const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
+    return {
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source,
+      cid,
+      placement,
+      raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=URL_NAME|raw=${rawUrl}`,
+    };
+  }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
+}
+
 function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
   return reportRows.map((r) => {
     const rawKv = r.dims[1] || r.dims[0] || "";
