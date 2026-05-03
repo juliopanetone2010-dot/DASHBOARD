@@ -290,7 +290,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(i.placement));
                   const isOpen = expanded.has(camp.campaign_id);
                   return (
-                    <>
+                    <Fragment key={camp.campaign_id}>
                       <TableRow key={camp.campaign_id} className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(camp.campaign_id)}>
                         <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
                         <TableCell className="font-medium text-sm">{camp.name}</TableCell>
