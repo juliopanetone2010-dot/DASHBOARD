@@ -346,12 +346,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(isApp && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(itemKey(i))} disabled={isApp} onCheckedChange={() => toggle(itemKey(i))} />
+                                        <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
-                                      <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
+                                      <TableCell className="text-xs">
+                                        {i.type}
+                                        {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
+                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                      </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">${(c?.revenue_usd ?? 0).toFixed(2)}</TableCell>
