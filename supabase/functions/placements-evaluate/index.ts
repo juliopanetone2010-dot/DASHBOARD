@@ -246,8 +246,15 @@ Deno.serve(async (req) => {
         reason = `protegido (${lowVolume ? "low_volume" : ""}${lowVolume && hasRecentConv ? "+" : ""}${hasRecentConv ? "recent_conv" : ""}): bloqueio adiado`;
       }
 
-      // Override manual ganha de tudo
+      // Override manual ganha
       if (isManual && prevStatus) status = prevStatus;
+
+      // Já bloqueado historicamente (placement_actions.blacklist) → permanece blocked
+      if (blacklisted.has(k) && !isManual) {
+        status = "blocked";
+        phase = "phase4_block";
+        if (prevStatus !== "blocked") reason = `legacy blacklist: já excluído anteriormente`;
+      }
 
       summary.total++;
       summary[status]++;
