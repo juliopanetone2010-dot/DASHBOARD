@@ -270,13 +270,21 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .lte("date", to);
       setCampaignMetricRows((metricData ?? []) as CampaignMetricRow[]);
 
-      // Carrega ações (blacklist/favorite) para os placements desta campanha
+      // Carrega ações (blacklist/favorite) para os placements desta campanha.
+      // Inclui registros gerados pela limpeza automática (global cleanup) e pelo
+      // botão individual. Normaliza a chave para casar com a linha exibida.
       const { data: acts } = await supabase
         .from("placement_actions")
         .select("placement, action")
-        .eq("campaign_id", cid);
+        .eq("campaign_id", cid)
+        .in("action", ["blacklist", "favorite"]);
       const map: Record<string, "blacklist" | "favorite"> = {};
-      for (const a of (acts ?? []) as PlacementActionRow[]) map[a.placement] = a.action;
+      for (const a of (acts ?? []) as PlacementActionRow[]) {
+        const key = normalizePlacementKey(a.placement);
+        if (key) map[key] = a.action;
+        // mantém também a chave original como fallback
+        map[a.placement] = a.action;
+      }
       setActions(map);
     } catch (e) {
       toast({ title: "Erro ao carregar placements", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
