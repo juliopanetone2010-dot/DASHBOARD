@@ -190,9 +190,34 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
-  const totalCost = items.reduce((a, i) => a + i.cost_brl, 0);
-  const totalLoss = items.reduce((a, i) => a + i.profit_brl, 0);
   const noMatch = items.filter((i) => !i.match_utm).length;
+  const grandCost = stats?.grand_cost_brl ?? 0;
+  const grandProfit = stats?.grand_profit_brl ?? 0;
+
+  // agrupa items por campanha
+  const itemsByCampaign = new Map<string, PreviewItem[]>();
+  for (const it of items) {
+    for (const c of it.campaigns) {
+      const arr = itemsByCampaign.get(c.campaign_id) ?? [];
+      arr.push(it);
+      itemsByCampaign.set(c.campaign_id, arr);
+    }
+  }
+  const sortedCampaigns = [...campaignTotals]
+    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
+    .sort((a, b) => a.roi_pct - b.roi_pct);
+
+  const toggleExpand = (cid: string) => {
+    setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+  };
+  const toggleCampaignSelection = (cid: string, on: boolean) => {
+    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map((i) => i.placement);
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const p of placements) on ? n.add(p) : n.delete(p);
+      return n;
+    });
+  };
 
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
