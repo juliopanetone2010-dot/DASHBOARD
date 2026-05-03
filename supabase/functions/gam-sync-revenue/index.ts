@@ -220,6 +220,15 @@ function dateObj(iso: string) {
   return { year, month, day };
 }
 
+// Extrai o campaignid do nome do placement/ad_unit do GAM.
+// Convenção UTM: utm_placement={campaignid}_{placement}
+// O nome do placement no GAM segue esse padrão (prefixo numérico antes do "_").
+function extractCampaignIdFromName(name: string): string | null {
+  if (!name) return null;
+  const m = name.match(/^(\d{6,})[_\-:]/);
+  return m ? m[1] : null;
+}
+
 async function distributeGamRevenueToCampaigns(
   admin: any,
   userId: string,
@@ -231,14 +240,24 @@ async function distributeGamRevenueToCampaigns(
 ) {
   if (!siteId || rows.length === 0) return;
 
-  const totalsByDate = new Map<string, { revenue: number; impressions: number }>();
+  // Agrupa por (date, campaign_id_extraido) — match direto via UTM quando possível.
   const today = new Date().toISOString().slice(0, 10);
+  const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
+  const unmatchedByDate = new Map<string, { revenue: number; impressions: number }>();
   for (const r of rows) {
     const date = r.date ?? today;
-    const cur = totalsByDate.get(date) ?? { revenue: 0, impressions: 0 };
-    cur.revenue += r.revenue;
-    cur.impressions += r.impressions;
-    totalsByDate.set(date, cur);
+    const cid = extractCampaignIdFromName(r.name);
+    if (cid) {
+      if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
+      const inner = directByDateCid.get(date)!;
+      const cur = inner.get(cid) ?? { revenue: 0, impressions: 0 };
+      cur.revenue += r.revenue; cur.impressions += r.impressions;
+      inner.set(cid, cur);
+    } else {
+      const cur = unmatchedByDate.get(date) ?? { revenue: 0, impressions: 0 };
+      cur.revenue += r.revenue; cur.impressions += r.impressions;
+      unmatchedByDate.set(date, cur);
+    }
   }
 
   const { data: links, error: linksErr } = await admin
@@ -250,7 +269,6 @@ async function distributeGamRevenueToCampaigns(
     debug.push(`[daily_metrics] sem vínculo Ads↔site para distribuir receita GAM`);
     return;
   }
-
   const linkedAccountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
   const accountIds = requestedAccountIds.length > 0
     ? linkedAccountIds.filter((id: string) => requestedAccountIds.includes(id))
@@ -259,7 +277,9 @@ async function distributeGamRevenueToCampaigns(
     debug.push(`[daily_metrics] nenhuma conta Ads selecionada está vinculada ao site`);
     return;
   }
-  for (const [date, totals] of totalsByDate) {
+
+  const allDates = new Set<string>([...directByDateCid.keys(), ...unmatchedByDate.keys()]);
+  for (const date of allDates) {
     const { data: metrics, error: metricsErr } = await admin
       .from("daily_metrics")
       .select("id, campaign_id, spend, impressions")
@@ -267,16 +287,38 @@ async function distributeGamRevenueToCampaigns(
       .eq("date", date)
       .in("google_account_id", accountIds);
     if (metricsErr || !metrics?.length) {
-      debug.push(`[daily_metrics] sem campanhas Ads em ${date} para distribuir receita GAM`);
+      debug.push(`[daily_metrics] sem campanhas Ads em ${date}`);
       continue;
     }
 
-    const totalWeight = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
+    // 1) match direto via UTM
+    const directMap = directByDateCid.get(date) ?? new Map();
+    const matchedIds = new Set<string>();
+    const revenueByMetricId = new Map<string, number>();
+    for (const m of metrics as any[]) {
+      const direct = directMap.get(String(m.campaign_id));
+      if (direct) {
+        revenueByMetricId.set(m.id, (revenueByMetricId.get(m.id) ?? 0) + direct.revenue);
+        matchedIds.add(String(m.campaign_id));
+      }
+    }
+    // 2) sobra: receita não-matchada + receita de cids do GAM sem campanha Ads correspondente
+    let leftover = unmatchedByDate.get(date)?.revenue ?? 0;
+    for (const [cid, v] of directMap) {
+      if (!matchedIds.has(cid)) leftover += v.revenue;
+    }
+    if (leftover > 0) {
+      const totalImp = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
+      for (const m of metrics as any[]) {
+        const w = totalImp === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
+        const share = (w / totalImp) * leftover;
+        revenueByMetricId.set(m.id, (revenueByMetricId.get(m.id) ?? 0) + share);
+      }
+    }
+
     const updates: any[] = [];
     for (const m of metrics as any[]) {
-      const weight = totalWeight === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
-      const share = weight / totalWeight;
-      const revenueUsd = totals.revenue * share;
+      const revenueUsd = revenueByMetricId.get(m.id) ?? 0;
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * _fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
@@ -286,7 +328,6 @@ async function distributeGamRevenueToCampaigns(
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
     }
-    // bulk update via Promise.all in chunks (Supabase has no native bulk update by id)
     const CHUNK = 25;
     for (let i = 0; i < updates.length; i += CHUNK) {
       await Promise.all(
@@ -297,7 +338,7 @@ async function distributeGamRevenueToCampaigns(
         ),
       );
     }
-    debug.push(`[daily_metrics] receita GAM ${totals.revenue.toFixed(6)} USD distribuída em ${metrics.length} campanha(s) de ${date} (fx ${_fx.usdBrl})`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via UTM, leftover ${leftover.toFixed(4)} USD rateado em ${metrics.length} campanha(s)`);
   }
 }
 
