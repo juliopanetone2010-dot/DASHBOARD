@@ -108,6 +108,8 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
     dimensions: ["DATE", "HOUR"],
     metrics: ["AD_SERVER_IMPRESSIONS", "AD_EXCHANGE_IMPRESSIONS", "ADSENSE_IMPRESSIONS"],
     dateRange: { fixed: { startDate: { year, month, day }, endDate: { year, month, day } } },
+    // Usa o fuso da rede (mesmo que o usuário vê na UI do GAM)
+    timeZoneSource: "PUBLISHER",
   };
   const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
