@@ -77,6 +77,33 @@ const IndexInner = () => {
     staleTime: 60 * 60 * 1000,
   });
 
+  // Última atualização real dos dados (timestamps de update no banco)
+  const freshnessQuery = useQuery({
+    queryKey: ["data-freshness", filters.siteId, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let adsQ = supabase
+        .from("daily_metrics")
+        .select("updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (filters.googleAccountIds.length > 0) adsQ = adsQ.in("google_account_id", filters.googleAccountIds);
+
+      let gamQ = supabase
+        .from("gam_campaign_source_revenue")
+        .select("created_at")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (filters.siteId !== "all") gamQ = gamQ.eq("site_id", filters.siteId);
+
+      const [ads, gam] = await Promise.all([adsQ, gamQ]);
+      return {
+        ads: ads.data?.[0]?.updated_at ?? null,
+        gam: gam.data?.[0]?.created_at ?? null,
+      };
+    },
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  });
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
@@ -295,6 +322,33 @@ const IndexInner = () => {
               campaigns={data.campaigns}
               links={data.links}
             />
+
+            {(() => {
+              const fmtFresh = (iso: string | null) => {
+                if (!iso) return "—";
+                const d = new Date(iso);
+                const sameDay = d.toDateString() === new Date().toDateString();
+                return sameDay
+                  ? `hoje ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+                  : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+              };
+              const adsAt = freshnessQuery.data?.ads ?? null;
+              const gamAt = freshnessQuery.data?.gam ?? null;
+              return (
+                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-primary" />
+                    <span className="text-muted-foreground">Google Ads atualizado:</span>
+                    <span className="font-mono font-medium">{fmtFresh(adsAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-success" />
+                    <span className="text-muted-foreground">Ad Manager atualizado:</span>
+                    <span className="font-mono font-medium">{fmtFresh(gamAt)}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Receita líquida (rev share {(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
