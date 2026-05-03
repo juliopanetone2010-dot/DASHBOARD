@@ -64,7 +64,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [minDays, setMinDays] = useState(15);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
-  const [minClicks, setMinClicks] = useState(20);
   const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
@@ -82,7 +81,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         setMinDays(Number(data.placement_cleanup_min_days ?? 20));
         setMaxRoi(Number(data.placement_cleanup_max_roi_pct ?? -10));
         setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
-        setMinClicks(Number(data.placement_cleanup_min_clicks ?? 20));
         setLastRun(data.placement_cleanup_last_run_at ?? null);
       }
     })();
@@ -93,7 +91,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     placement_cleanup_min_days: number;
     placement_cleanup_max_roi_pct: number;
     placement_cleanup_min_cost_brl: number;
-    placement_cleanup_min_clicks: number;
   }>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
@@ -107,7 +104,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       placement_cleanup_min_days: minDays,
       placement_cleanup_max_roi_pct: maxRoi,
       placement_cleanup_min_cost_brl: minCost,
-      placement_cleanup_min_clicks: minClicks,
     });
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
@@ -123,7 +119,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           min_days: minDays,
           max_roi_pct: maxRoi,
           min_cost_brl: minCost,
-          min_clicks: minClicks,
           lookback_days: lookback,
           fx_usd_brl: fxUsdBrl,
         },
@@ -144,7 +139,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         placement_cleanup_min_days: minDays,
         placement_cleanup_max_roi_pct: maxRoi,
         placement_cleanup_min_cost_brl: minCost,
-        placement_cleanup_min_clicks: minClicks,
       });
     } finally {
       setLoading(false);
@@ -229,7 +223,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza global de placements</div>
           <div className="text-xs text-muted-foreground">
-            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim placements com ROI ≤ {maxRoi}% (custo ≥ R$ {minCost} <i>ou</i> {minClicks} cliques). Apps/YouTube ficam de fora da exclusão automática.
+            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} nos últimos {lookback} dias. Apps/YouTube ficam de fora da exclusão automática.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
@@ -249,7 +243,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Cliques mín <Input type="number" value={minClicks} onChange={(e) => setMinClicks(+e.target.value)} className="h-6 w-20 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Período (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
       </div>
 
