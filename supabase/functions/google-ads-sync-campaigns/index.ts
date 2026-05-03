@@ -251,66 +251,47 @@ Deno.serve(async (req) => {
               });
             }
 
-            // Upsert campanhas
-            for (const [cid, info] of uniqueCampaigns) {
+            // Bulk upsert campanhas
+            if (uniqueCampaigns.size > 0) {
+              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => ({
+                user_id: userId,
+                google_account_id: leaf.id,
+                campaign_id: cid,
+                name: info.name,
+                status: info.status.toLowerCase(),
+                channel_type: info.channel,
+              }));
               const { error: campErr } = await admin
                 .from("campaigns")
-                .upsert(
-                  {
-                    user_id: userId,
-                    google_account_id: leaf.id,
-                    campaign_id: cid,
-                    name: info.name,
-                    status: info.status.toLowerCase(),
-                    channel_type: info.channel,
-                  },
-                  { onConflict: "user_id,google_account_id,campaign_id" },
-                );
-              if (!campErr) totalCampaigns++;
+                .upsert(campaignRows, { onConflict: "user_id,google_account_id,campaign_id" });
+              if (!campErr) totalCampaigns += campaignRows.length;
+              else debugLogs.push(`campaigns upsert err ${leaf.customer_id}: ${campErr.message}`);
             }
 
-            // Upsert métricas diárias
-            for (const r of results) {
-              // Spend mantido na moeda nativa da conta (Ads geralmente BRL nesta conta)
+            // Bulk upsert métricas diárias (apenas campos de spend; preserva revenue existente)
+            const metricRows = results.map((r) => {
               const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
-              const clicks = Number(r.metrics.clicks ?? 0);
-              const impressions = Number(r.metrics.impressions ?? 0);
-              const conversions = Number(r.metrics.conversions ?? 0);
-              const baseMetric = {
+              return {
+                user_id: userId,
+                google_account_id: leaf.id,
+                campaign_id: r.campaign.id,
+                date: r.segments.date,
                 spend,
-                clicks,
-                impressions,
-                conversions,
+                clicks: Number(r.metrics.clicks ?? 0),
+                impressions: Number(r.metrics.impressions ?? 0),
+                conversions: Number(r.metrics.conversions ?? 0),
               };
+            });
 
-              const { data: existingMetric } = await admin
+            // chunk to avoid huge payloads
+            const CHUNK = 500;
+            for (let i = 0; i < metricRows.length; i += CHUNK) {
+              const slice = metricRows.slice(i, i + CHUNK);
+              const { error: mErr } = await admin
                 .from("daily_metrics")
-                .select("id")
-                .eq("user_id", userId)
-                .eq("google_account_id", leaf.id)
-                .eq("campaign_id", r.campaign.id)
-                .eq("date", r.segments.date)
-                .maybeSingle();
-
-              const { error: mErr } = existingMetric?.id
-                ? await admin.from("daily_metrics").update(baseMetric).eq("id", existingMetric.id)
-                : await admin
-                .from("daily_metrics")
-                .insert(
-                  {
-                    user_id: userId,
-                    google_account_id: leaf.id,
-                    campaign_id: r.campaign.id,
-                    date: r.segments.date,
-                    ...baseMetric,
-                    revenue: 0,
-                    profit: -spend,
-                    roi: spend > 0 ? -100 : 0,
-                    roas: 0,
-                    ecpm: 0,
-                  },
-                );
-              if (!mErr) totalMetrics++;
+                .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id,date" });
+              if (!mErr) totalMetrics += slice.length;
+              else debugLogs.push(`metrics upsert err ${leaf.customer_id}: ${mErr.message}`);
             }
 
             accountResults.push({
