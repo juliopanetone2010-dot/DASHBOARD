@@ -119,13 +119,13 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
   // Por país, lista campanhas com agregação
   const campaignsByCountry = useMemo(() => {
-    const m = new Map<string, Map<string, { campaign_id: string; name: string; cost: number; revenue_brl: number }>>();
+    const m = new Map<string, Map<string, { campaign_id: string; name: string; cost: number; revenue_brl: number; country_criterion_id: string | null }>>();
     for (const r of rows) {
       let cm = m.get(r.country_code);
       if (!cm) { cm = new Map(); m.set(r.country_code, cm); }
       let c = cm.get(r.campaign_id);
       if (!c) {
-        c = { campaign_id: r.campaign_id, name: campNames[r.campaign_id] ?? r.campaign_id, cost: 0, revenue_brl: 0 };
+        c = { campaign_id: r.campaign_id, name: campNames[r.campaign_id] ?? r.campaign_id, cost: 0, revenue_brl: 0, country_criterion_id: r.country_criterion_id };
         cm.set(r.campaign_id, c);
       }
       c.cost += Number(r.cost) || 0;
@@ -133,6 +133,75 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     }
     return m;
   }, [rows, fxUsdBrl, campNames]);
+
+  // Agrega por campanha
+  const byCampaign = useMemo(() => {
+    const m = new Map<string, { campaign_id: string; name: string; cost: number; revenue_brl: number; clicks: number; impressions: number; countries: Set<string> }>();
+    for (const r of rows) {
+      let c = m.get(r.campaign_id);
+      if (!c) {
+        c = { campaign_id: r.campaign_id, name: campNames[r.campaign_id] ?? r.campaign_id, cost: 0, revenue_brl: 0, clicks: 0, impressions: 0, countries: new Set() };
+        m.set(r.campaign_id, c);
+      }
+      c.cost += Number(r.cost) || 0;
+      c.revenue_brl += (Number(r.revenue_usd) || 0) * REV_SHARE_NET * fxUsdBrl;
+      c.clicks += Number(r.clicks) || 0;
+      c.impressions += Number(r.impressions) || 0;
+      c.countries.add(r.country_code);
+    }
+    return [...m.values()].map((c) => {
+      const profit = c.revenue_brl - c.cost;
+      const roi = c.cost > 0 ? (profit / c.cost) * 100 : 0;
+      return { ...c, profit, roi };
+    }).sort((a, b) => {
+      const dir = sort.dir === "desc" ? -1 : 1;
+      switch (sort.key) {
+        case "cost": return (a.cost - b.cost) * dir;
+        case "revenue": return (a.revenue_brl - b.revenue_brl) * dir;
+        case "roi": return (a.roi - b.roi) * dir;
+        case "clicks": return (a.clicks - b.clicks) * dir;
+        case "impressions": return (a.impressions - b.impressions) * dir;
+      }
+    });
+  }, [rows, fxUsdBrl, campNames, sort]);
+
+  // Por campanha, lista países
+  const countriesByCampaign = useMemo(() => {
+    const m = new Map<string, Array<{ code: string; name: string; criterion_id: string | null; cost: number; revenue_brl: number }>>();
+    const tmp = new Map<string, Map<string, { code: string; name: string; criterion_id: string | null; cost: number; revenue_brl: number }>>();
+    for (const r of rows) {
+      let cm = tmp.get(r.campaign_id);
+      if (!cm) { cm = new Map(); tmp.set(r.campaign_id, cm); }
+      let c = cm.get(r.country_code);
+      if (!c) {
+        c = { code: r.country_code, name: r.country_name ?? r.country_code, criterion_id: r.country_criterion_id, cost: 0, revenue_brl: 0 };
+        cm.set(r.country_code, c);
+      }
+      c.cost += Number(r.cost) || 0;
+      c.revenue_brl += (Number(r.revenue_usd) || 0) * REV_SHARE_NET * fxUsdBrl;
+    }
+    for (const [k, v] of tmp) m.set(k, [...v.values()].sort((a, b) => b.cost - a.cost));
+    return m;
+  }, [rows, fxUsdBrl]);
+
+  const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string) => {
+    if (!criterionId) {
+      toast({ title: "Sem ID do país", description: "Sincronize de novo para obter o ID do critério.", variant: "destructive" });
+      return;
+    }
+    setExcluding(`${campaignId}|${criterionId}`);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+        "google-ads-mutate",
+        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId } },
+      );
+      if (error || data?.error) {
+        toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "País excluído", description: `${countryName} adicionado como exclusão na campanha.` });
+    } finally { setExcluding(null); }
+  };
 
   const toggleExpand = (code: string) => {
     setExpanded((s) => { const n = new Set(s); n.has(code) ? n.delete(code) : n.add(code); return n; });
