@@ -52,11 +52,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
-  const [minDays, setMinDays] = useState(20);
+  const [minDays, setMinDays] = useState(15);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
   const [minClicks, setMinClicks] = useState(20);
-  const [lookback, setLookback] = useState(30);
+  const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
