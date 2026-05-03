@@ -22,8 +22,10 @@ interface PreviewCampaign {
   cost_brl: number;
   revenue_usd: number;
   matched_utm: boolean;
+  roi_pct?: number;
 }
 interface PreviewItem {
+  key?: string;
   placement: string;
   type: string;
   cost_brl: number;
@@ -63,24 +65,23 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [minDays, setMinDays] = useState(15);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
-  const [minClicks, setMinClicks] = useState(20);
   const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
 
   // carrega config persistida
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from("rules_config")
-        .select("placement_auto_cleanup_enabled, placement_cleanup_min_days, placement_cleanup_max_roi_pct, placement_cleanup_min_cost_brl, placement_cleanup_min_clicks, placement_cleanup_last_run_at")
+        .select("placement_auto_cleanup_enabled, placement_cleanup_min_days, placement_cleanup_max_roi_pct, placement_cleanup_min_cost_brl, placement_cleanup_last_run_at")
         .maybeSingle();
       if (data) {
         setAutoEnabled(!!data.placement_auto_cleanup_enabled);
         setMinDays(Number(data.placement_cleanup_min_days ?? 20));
         setMaxRoi(Number(data.placement_cleanup_max_roi_pct ?? -10));
         setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
-        setMinClicks(Number(data.placement_cleanup_min_clicks ?? 20));
         setLastRun(data.placement_cleanup_last_run_at ?? null);
       }
     })();
@@ -91,7 +92,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     placement_cleanup_min_days: number;
     placement_cleanup_max_roi_pct: number;
     placement_cleanup_min_cost_brl: number;
-    placement_cleanup_min_clicks: number;
   }>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
@@ -105,7 +105,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       placement_cleanup_min_days: minDays,
       placement_cleanup_max_roi_pct: maxRoi,
       placement_cleanup_min_cost_brl: minCost,
-      placement_cleanup_min_clicks: minClicks,
     });
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
@@ -121,7 +120,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           min_days: minDays,
           max_roi_pct: maxRoi,
           min_cost_brl: minCost,
-          min_clicks: minClicks,
           lookback_days: lookback,
           fx_usd_brl: fxUsdBrl,
         },
@@ -134,7 +132,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setItems(list);
       setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
-      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
       // persiste filtros
@@ -142,7 +140,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         placement_cleanup_min_days: minDays,
         placement_cleanup_max_roi_pct: maxRoi,
         placement_cleanup_min_cost_brl: minCost,
-        placement_cleanup_min_clicks: minClicks,
       });
     } finally {
       setLoading(false);
@@ -158,7 +155,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map(itemKey)));
   };
 
   const runApply = async () => {
@@ -167,10 +164,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setApplying(true);
     try {
       const payload = items
-        .filter((i) => selected.has(i.placement))
+        .filter((i) => selected.has(itemKey(i)))
         .map((i) => ({
-          placement: i.placement, type: i.type,
-          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
+          key: itemKey(i), placement: i.placement, type: i.type,
+          cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
+          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
         }));
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
@@ -211,7 +209,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map((i) => i.placement);
+    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map(itemKey);
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
@@ -226,7 +224,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza global de placements</div>
           <div className="text-xs text-muted-foreground">
-            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim placements com ROI ≤ {maxRoi}% (custo ≥ R$ {minCost} <i>ou</i> {minClicks} cliques). Apps/YouTube ficam de fora da exclusão automática.
+            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} nos últimos {lookback} dias. Apps/YouTube ficam de fora da exclusão automática.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
@@ -246,7 +244,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Cliques mín <Input type="number" value={minClicks} onChange={(e) => setMinClicks(+e.target.value)} className="h-6 w-20 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Período (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
       </div>
 
@@ -287,7 +284,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
                   const websiteList = list.filter((i) => i.type === "WEBSITE");
-                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(i.placement));
+                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
                   return (
                     <Fragment key={camp.campaign_id}>
@@ -325,9 +322,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   const isApp = i.type !== "WEBSITE";
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={`${camp.campaign_id}-${i.placement}`} className={cn(isApp && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(isApp && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(i.placement)} disabled={isApp} onCheckedChange={() => toggle(i.placement)} />
+                                        <Checkbox checked={selected.has(itemKey(i))} disabled={isApp} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
