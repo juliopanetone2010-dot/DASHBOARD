@@ -186,6 +186,8 @@ function cleanPlacement(placement: string, targetUrl: string | null): string {
   // App Android/iOS
   const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
   if (appMatch) return appMatch[1].toLowerCase();
+  const numericAppMatch = candidate.match(/^\d+-(.+)$/i);
+  if (numericAppMatch) return numericAppMatch[1].toLowerCase();
   // URL completa
   try {
     const u = new URL(candidate.startsWith("http") ? candidate : `https://${candidate}`);

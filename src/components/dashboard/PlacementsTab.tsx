@@ -52,7 +52,7 @@ interface AggRow {
   revenueBrl: number;         // revenueUsdNet * fxUsdBrl
   profitBrl: number;          // receita_brl - custo_brl
   roi: number;                // ROI calculado em BRL
-  revenueSource: "utm_full" | "utm_root" | "none";
+  revenueSource: "utm_full" | "utm_root" | "utm_prefix" | "none";
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
@@ -68,6 +68,42 @@ interface Props {
 
 const PAGE_SIZE = 100;
 const QUERY_PAGE_SIZE = 1000;
+
+const formatIsoDateBR = (iso: string) => {
+  const [year, month, day] = iso.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : iso;
+};
+
+const normalizePlacementKey = (value: string, type?: string | null): string => {
+  const raw = (value || "").trim().toLowerCase();
+  if (!raw) return "";
+  const mobileApp = raw.match(/mobileapp::\d+-(.+)$/i);
+  if (mobileApp) return mobileApp[1].replace(/^www\./, "");
+  if (type === "MOBILE_APPLICATION") {
+    const numericApp = raw.match(/^\d+-(.+)$/);
+    if (numericApp) return numericApp[1].replace(/^www\./, "");
+  }
+  try {
+    const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return raw.replace(/^www\./, "");
+  }
+};
+
+const isMobileAppPlacement = (type: string, placement: string) =>
+  type === "MOBILE_APPLICATION" || /^\d+$/.test(placement);
+
+const findPrefixRevenueKey = (placement: string, keys: string[], usedKeys: Set<string>) => {
+  const normalized = placement.replace(/\.$/, "");
+  return keys
+    .filter((key) => {
+      if (usedKeys.has(key)) return false;
+      const prefix = key.replace(/\.$/, "");
+      return prefix.length >= 8 && normalized.startsWith(prefix);
+    })
+    .sort((a, b) => b.length - a.length)[0] ?? null;
+};
 
 async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   const all: AdsPlacementRow[] = [];
@@ -263,7 +299,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
     for (const g of gamRows) {
-      const key = (g.placement || "").toLowerCase();
+      const key = normalizePlacementKey(g.placement || "");
       if (!key) continue;
       map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
@@ -272,8 +308,10 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
+    const revenueKeys = [...gamRevenueByPlacement.keys()];
+    const usedPrefixRevenueKeys = new Set<string>();
     for (const r of rows) {
-      const rawPlacement = (r.placement_clean || r.placement).toLowerCase();
+      const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
       // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
       // O root domain é guardado para fallback de match de receita via UTM.
       const key = rawPlacement;
@@ -307,6 +345,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       else if (a.placementRoot && a.placementRoot !== a.placement) {
         const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
         if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
+      }
+      if (usd <= 0 && isMobileAppPlacement(a.type, a.placement)) {
+        const prefixKey = findPrefixRevenueKey(a.placement, revenueKeys, usedPrefixRevenueKeys);
+        if (prefixKey) {
+          usd = gamRevenueByPlacement.get(prefixKey) ?? 0;
+          if (usd > 0) { source = "utm_prefix"; matchedKey = prefixKey; usedPrefixRevenueKeys.add(prefixKey); }
+        }
       }
       const usdNet = usd * (1 - REV_SHARE_PCT);
       const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
@@ -374,7 +419,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     <div className="space-y-6">
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
             <label className="text-xs text-muted-foreground">Conta Ads</label>
             <Select
@@ -413,6 +458,24 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">De</label>
+            <Input
+              type="date"
+              value={range.from}
+              onChange={(e) => setGlobalFilters({ ...globalFilters, fromDate: e.target.value, toDate: range.to })}
+              className="h-9"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Até</label>
+            <Input
+              type="date"
+              value={range.to}
+              onChange={(e) => setGlobalFilters({ ...globalFilters, fromDate: range.from, toDate: e.target.value })}
+              className="h-9"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="text-xs text-muted-foreground">Buscar campanha</label>
@@ -483,6 +546,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
           {/* Aviso GAM + debug */}
           <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="text-xs">
+              Período Ads: {formatIsoDateBR(range.from)}–{formatIsoDateBR(range.to)}
+            </Badge>
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
                 Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · custo BRL (Ads) / receita USD→BRL (GAM)
@@ -500,7 +566,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
               <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
-              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b></div>
+              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b> · mobile com receita=<b>{aggregated.filter(a => isMobileAppPlacement(a.type, a.placement) && a.revenueSource !== "none").length}</b></div>
               <div>custo: vem do Google Ads em <b>BRL nativo</b> (sem conversão) · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
               <div>receita: GAM em USD → convertida p/ BRL via fx <b>{fxUsdBrl}</b> · ROI calculado em BRL</div>
             </div>
@@ -559,6 +625,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
                             {r.revenueSource === "utm_root" && <Badge variant="outline" className="text-[9px]">UTM root</Badge>}
+                            {r.revenueSource === "utm_prefix" && <Badge variant="outline" className="text-[9px]">UTM app</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
