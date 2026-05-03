@@ -94,12 +94,12 @@ Deno.serve(async (req) => {
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
         let customCriteriaRows: ReportRow[] = [];
         try {
-          customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "CUSTOM_CRITERIA", debug))))
+          customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
             .filter((r) => !!parseGamPlacementName(r.name));
-          debug.push(`[${networkCode}/CUSTOM_CRITERIA] utm rows=${customCriteriaRows.length}`);
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm rows=${customCriteriaRows.length}`);
         } catch (e) {
-          debug.push(`[${networkCode}/CUSTOM_CRITERIA] indisponível: ${String(e)}`);
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
 
         const canonicalRows = customCriteriaRows.length > 0 ? customCriteriaRows : (adUnitRows.length > 0 ? adUnitRows : placementRows);
@@ -420,7 +420,7 @@ async function runReport(
   networkCode: string,
   accessToken: string,
   range: GamRange,
-  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME" | "CUSTOM_CRITERIA",
+  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME" | "AD_REQUEST_CUSTOM_CRITERIA",
   debug: string[],
 ): Promise<ReportRow[]> {
   // 1) cria report
