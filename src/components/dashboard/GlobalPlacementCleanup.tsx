@@ -164,7 +164,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map(itemKey)));
+    setSelected(new Set(items.filter(canExclude).map(itemKey)));
   };
 
   const runApply = async () => {
