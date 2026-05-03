@@ -491,6 +491,7 @@ const IndexInner = () => {
             <PlacementsTab
               campaigns={data.campaigns}
               googleAccounts={data.googleAccounts}
+              fxUsdBrl={usdBrl}
             />
           </TabsContent>
 
