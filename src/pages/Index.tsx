@@ -351,7 +351,6 @@ const Index = () => {
             <PlacementsTab
               campaigns={data.campaigns}
               googleAccounts={data.googleAccounts}
-              rawPlacements={data.placements}
             />
           </TabsContent>
 
