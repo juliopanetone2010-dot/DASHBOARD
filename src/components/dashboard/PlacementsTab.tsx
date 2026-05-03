@@ -278,12 +278,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (directUsd > 0) {
         a.revenueSource = "utm";
       }
-      const revBrl = directUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
-      a.revenue = revBrl;
-      a.profit = revBrl - a.cost;
-      a.roi = a.cost > 0 ? (a.profit / a.cost) * 100 : 0;
+      const costUsd = fxUsdBrl > 0 ? a.cost / fxUsdBrl : a.cost;
+      const netUsd = directUsd * (1 - REV_SHARE_PCT);
+      a.cost = costUsd;
+      a.revenue = netUsd;
+      a.profit = netUsd - costUsd;
+      a.roi = costUsd > 0 ? (a.profit / costUsd) * 100 : 0;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
-      a.cpc = a.clicks > 0 ? a.cost / a.clicks : 0;
+      a.cpc = a.clicks > 0 ? costUsd / a.clicks : 0;
     }
     return values;
   }, [rows, gamRevenueByPlacement, campaignMetricRows, fxUsdBrl]);
