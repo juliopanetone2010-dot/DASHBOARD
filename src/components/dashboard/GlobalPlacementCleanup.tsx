@@ -169,10 +169,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setApplying(true);
     try {
       const payload = items
-        .filter((i) => selected.has(i.placement))
+        .filter((i) => selected.has(itemKey(i)))
         .map((i) => ({
-          placement: i.placement, type: i.type,
-          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
+          key: itemKey(i), placement: i.placement, type: i.type,
+          cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
+          campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
         }));
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
@@ -213,7 +214,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map((i) => i.placement);
+    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map(itemKey);
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
