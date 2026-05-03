@@ -42,11 +42,9 @@ export function RetentionTab({ campaigns }: Props) {
         .from("gam_campaign_source_revenue")
         .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
         .gte("date", range.from)
-        .lte("date", range.to)
-        .order("date", { ascending: false })
-        .limit(5000);
+        .lte("date", range.to);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data } = await q;
+      const { data } = await q.order("date", { ascending: false }).limit(5000);
       return (data ?? []) as SourceRow[];
     },
     staleTime: 30_000,
