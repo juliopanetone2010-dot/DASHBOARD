@@ -139,6 +139,46 @@ Deno.serve(async (req) => {
     const existMap = new Map<string, any>();
     for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
 
+    // Carrega placements já excluídos manualmente / pelo cleanup antigo
+    // (placement_actions.action='blacklist'). Eles devem aparecer no funil
+    // como 'blocked' mesmo sem dados recentes — isso preserva o histórico
+    // de exclusões e evita "ressurreição" como test/learning.
+    const blacklisted = new Set<string>();
+    {
+      let bs = 0;
+      for (;;) {
+        const { data, error } = await admin.from("placement_actions")
+          .select("campaign_id, placement")
+          .eq("user_id", userId).eq("action", "blacklist")
+          .range(bs, bs + 999);
+        if (error) return json({ error: error.message });
+        const rows = data ?? [];
+        for (const r of rows) {
+          const placement = normalize(String(r.placement ?? ""));
+          if (r.campaign_id && placement) blacklisted.add(cpKey(String(r.campaign_id), placement));
+        }
+        if (rows.length < 1000) break;
+        bs += 1000;
+      }
+    }
+
+    // Garante que todo placement já blacklistado tenha entry em agg
+    for (const k of blacklisted) {
+      if (agg.has(k)) continue;
+      const [campaign_id, placement] = k.split(KEY_SEP);
+      const ex = existMap.get(k);
+      agg.set(k, {
+        campaign_id, placement,
+        type: ex?.placement_type ?? "WEBSITE",
+        cost: Number(ex?.cost_total ?? 0),
+        clicks: Number(ex?.clicks_total ?? 0),
+        impressions: Number(ex?.impressions_total ?? 0),
+        conversions: Number(ex?.conversions_total ?? 0),
+        lastConvDate: null,
+        firstDate: ex?.first_seen_at ? String(ex.first_seen_at).slice(0, 10) : from,
+      });
+    }
+
     const upserts: any[] = [];
     const histInserts: any[] = [];
     const newlyBlocked: Array<{ campaign_id: string; placement: string; placement_type: string; cost_brl: number; revenue_brl: number; roi_pct: number; google_account_id: string | null; campaign_name: string }> = [];
