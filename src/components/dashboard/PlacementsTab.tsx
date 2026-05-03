@@ -309,11 +309,28 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <RankingCard title="💀 Piores placements" rows={worst} variant="worst" hasRevenue={hasGamRevenue} />
           </div>
 
-          {/* Aviso GAM */}
-          {!hasGamRevenue && (
-            <Badge variant="secondary" className="text-xs">
-              Receita por placement indisponível (limitação do GAM). Mostrando custo, CTR e conversões.
-            </Badge>
+          {/* Aviso GAM + debug */}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasGamRevenue ? (
+              <Badge variant="outline" className="text-xs">
+                Receita atribuída via UTM: {matchedCount}/{aggregated.length} placement(s)
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs">
+                Sem receita atribuída — GAM não tem ad units com padrão {`{campaignid}_{placement}`} para esta campanha.
+              </Badge>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
+              {showDebug ? "Ocultar debug" : "Mostrar debug"}
+            </Button>
+          </div>
+          {showDebug && (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
+              <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
+              <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
+              <div>matched: <b>{matchedCount}</b> · sem match: <b>{aggregated.length - matchedCount}</b></div>
+              <div>fx USD→BRL: <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+            </div>
           )}
 
           {/* Tabela */}
