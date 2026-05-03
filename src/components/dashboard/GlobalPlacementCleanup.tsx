@@ -24,6 +24,7 @@ interface PreviewCampaign {
   matched_utm: boolean;
 }
 interface PreviewItem {
+  key?: string;
   placement: string;
   type: string;
   cost_brl: number;
@@ -67,6 +68,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
 
   // carrega config persistida
   useEffect(() => {
@@ -134,7 +136,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setItems(list);
       setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
-      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
       // persiste filtros
