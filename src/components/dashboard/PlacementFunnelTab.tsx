@@ -122,7 +122,17 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     await supabase.from("rules_config").update({ placement_auto_cleanup_enabled: on }).eq("user_id", u.user.id);
-    toast({ title: on ? "Esteira automática ligada (diária)" : "Esteira automática desligada" });
+    toast({ title: on ? `Esteira automática ligada (a cada ${autoIntervalDays}d)` : "Esteira automática desligada" });
+  };
+
+  const updateAutoInterval = async (days: number) => {
+    const v = Math.max(1, Math.min(180, Math.round(days)));
+    setAutoIntervalDays(v);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.from("rules_config")
+      .update({ placement_cleanup_interval_days: v } as any)
+      .eq("user_id", u.user.id);
   };
 
   const evaluateNow = async () => {
