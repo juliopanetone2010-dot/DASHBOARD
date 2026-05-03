@@ -11,7 +11,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
-import type { Campaign, GoogleAccount, Placement } from "@/types/domain";
+import type { Campaign, GoogleAccount } from "@/types/domain";
 
 interface AdsPlacementRow {
   id: string;
