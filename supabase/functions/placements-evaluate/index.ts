@@ -405,6 +405,122 @@ function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
 }
 function round(n: number) { return Math.round(n * 100) / 100; }
+async function fetchLiveAdsPlacements(
+  admin: any,
+  userId: string,
+  campaignIds: string[],
+  campMap: Map<string, { name: string; google_account_id: string | null; status: string }>,
+  from: string,
+  to: string,
+): Promise<Array<{ campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string }>> {
+  const byAccount = new Map<string, string[]>();
+  for (const cid of campaignIds) {
+    const accId = campMap.get(cid)?.google_account_id;
+    if (!accId) continue;
+    const arr = byAccount.get(accId) ?? [];
+    arr.push(cid);
+    byAccount.set(accId, arr);
+  }
+  if (byAccount.size === 0) return [];
+
+  const { data: accs, error } = await admin
+    .from("google_accounts")
+    .select("id, customer_id, refresh_token, login_customer_id")
+    .eq("user_id", userId)
+    .in("id", [...byAccount.keys()]);
+  if (error) throw new Error(error.message);
+
+  const accMap = new Map<string, any>();
+  for (const a of accs ?? []) accMap.set(a.id, a);
+  const tokenCache = new Map<string, string>();
+  const out: Array<{ campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string }> = [];
+
+  for (const [accountId, ids] of byAccount) {
+    const acc = accMap.get(accountId);
+    if (!acc?.refresh_token || !acc?.customer_id) continue;
+    const token = await getGoogleToken(acc.refresh_token, tokenCache);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "Content-Type": "application/json",
+    };
+    if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+
+    for (const chunk of chunkArr(ids, 50)) {
+      const idList = chunk.map((id) => String(id).replace(/\D/g, "")).filter(Boolean).join(",");
+      if (!idList) continue;
+      const query = `
+        SELECT
+          detail_placement_view.placement,
+          detail_placement_view.display_name,
+          detail_placement_view.target_url,
+          detail_placement_view.placement_type,
+          detail_placement_view.group_placement_target_url,
+          campaign.id,
+          metrics.clicks,
+          metrics.impressions,
+          metrics.cost_micros,
+          metrics.conversions,
+          segments.date
+        FROM detail_placement_view
+        WHERE segments.date BETWEEN '${from}' AND '${to}'
+          AND campaign.id IN (${idList})
+      `;
+      let pageToken: string | undefined;
+      do {
+        const res = await fetch(`https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`, {
+          method: "POST", headers, body: JSON.stringify({ query, pageToken }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message ?? "Erro ao buscar placements no Google Ads");
+        for (const r of data.results ?? []) {
+          const placementRaw = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
+          const targetUrl = r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null;
+          const type = r.detailPlacementView?.placementType ?? null;
+          out.push({
+            campaign_id: String(r.campaign?.id ?? ""),
+            placement: placementRaw,
+            placement_clean: cleanPlacement(placementRaw, targetUrl, type),
+            placement_type: type,
+            cost: Number(r.metrics?.costMicros ?? 0) / 1_000_000,
+            clicks: Number(r.metrics?.clicks ?? 0),
+            impressions: Number(r.metrics?.impressions ?? 0),
+            conversions: Number(r.metrics?.conversions ?? 0),
+            date: r.segments?.date ?? from,
+          });
+        }
+        pageToken = data.nextPageToken || undefined;
+      } while (pageToken);
+    }
+  }
+  return out;
+}
+async function getGoogleToken(refreshToken: string, cache: Map<string, string>) {
+  if (cache.has(refreshToken)) return cache.get(refreshToken)!;
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
+      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
+  cache.set(refreshToken, j.access_token);
+  return j.access_token as string;
+}
+function cleanPlacement(placement: string, targetUrl: string | null, type?: string | null): string {
+  const candidate = (placement || targetUrl || "").trim();
+  if (!candidate) return "";
+  const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
+  if (appMatch) return appMatch[1].toLowerCase();
+  const numericAppMatch = candidate.match(/^\d+-(.+)$/i);
+  if (numericAppMatch) return numericAppMatch[1].toLowerCase();
+  return normalize(candidate, type);
+}
 function normalize(value: string, type?: string | null): string {
   const raw = (value || "").trim().toLowerCase();
   if (!raw) return "";
