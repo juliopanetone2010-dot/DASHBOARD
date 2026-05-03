@@ -59,17 +59,19 @@ interface Props {
 
 const PAGE_SIZE = 100;
 
-export function PlacementsTab({ campaigns, googleAccounts, rawPlacements, fxUsdBrl = 4.97 }: Props) {
+export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
+  const [gamRows, setGamRows] = useState<GamRevRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
+  const [showDebug, setShowDebug] = useState(false);
 
   const visibleCampaigns = useMemo(() => {
     return campaigns
