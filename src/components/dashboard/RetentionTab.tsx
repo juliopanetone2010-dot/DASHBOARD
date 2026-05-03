@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
 import { REV_SHARE_PCT } from "@/engine/rules";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 
 interface SourceRow {
   id: string;
@@ -24,20 +25,25 @@ interface Props {
 }
 
 export function RetentionTab({ campaigns }: Props) {
+  const { range, filters, version } = useDashboardFilters();
   const [rows, setRows] = useState<SourceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [usdBrl, setUsdBrl] = useState(5);
 
   const load = async () => {
     setLoading(true);
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-    const { data } = await supabase
+    setRows([]); // limpa antes para evitar mistura de períodos
+    if (import.meta.env.DEV) {
+      console.info("[retention] fetch", { range, accounts: filters.googleAccountIds, version });
+    }
+    let q = supabase
       .from("gam_campaign_source_revenue")
       .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
-      .gte("date", since.toISOString().slice(0, 10))
+      .gte("date", range.from)
+      .lte("date", range.to)
       .order("date", { ascending: false })
       .limit(5000);
+    const { data } = await q;
     setRows((data ?? []) as any);
     // FX rate
     try {
@@ -49,7 +55,7 @@ export function RetentionTab({ campaigns }: Props) {
     setLoading(false);
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [range.from, range.to, version]);
 
   const campaignName = useMemo(() => {
     const m = new Map<string, string>();
