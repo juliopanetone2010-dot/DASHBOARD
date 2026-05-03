@@ -316,15 +316,20 @@ function isRealValue(raw: string | null | undefined): boolean {
 }
 
 function parseKeyValueDimension(raw: string | null | undefined): Record<string, string> {
+  // GAM CUSTOM_CRITERIA vem como: "utm_source=google;utm_campaign=23389421643;utm_placement=23389421643_as_diariovagas_mob_top"
+  // Pode ter variações: separador ; , & ou \n; valor pode vir prefixado com * (negativos) ou ter |
   const out: Record<string, string> = {};
   const decoded = safeDecode(String(raw ?? ""));
   const normalized = decoded.replace(/[\n\r;]+/g, ",").replace(/&/g, ",");
   for (const part of normalized.split(",")) {
-    const m = part.trim().match(/^([^=~|]+)[=~](.+)$/);
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    // aceita = ou ~ como separador key/value (GAM usa ~ em alguns formatos legados)
+    const m = trimmed.match(/^([^=~|]+)[=~](.+)$/);
     if (!m) continue;
     const key = m[1].replace(/^\*/, "").replace(/^custom targeting\s*/i, "").trim().toLowerCase();
     const value = m[2].split("|")[0]?.replace(/^\*/, "").trim() ?? "";
-    if (key) out[key] = value;
+    if (key && value) out[key] = value;
   }
   return out;
 }
