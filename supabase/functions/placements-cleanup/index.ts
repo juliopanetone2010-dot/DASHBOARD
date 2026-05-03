@@ -147,6 +147,31 @@ Deno.serve(async (req) => {
       revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
 
+    // Placements já excluídos não devem voltar no próximo preview/limpeza.
+    // A marcação é por campanha, porque o mesmo domínio pode ser ruim em uma campanha
+    // e ainda não ter sido excluído em outra.
+    const blacklisted = new Set<string>();
+    for (const chunk of chunkArr(eligibleIds, 200)) {
+      let start = 0;
+      for (;;) {
+        const { data, error } = await admin
+          .from("placement_actions")
+          .select("campaign_id, placement")
+          .eq("user_id", userId)
+          .eq("action", "blacklist")
+          .in("campaign_id", chunk)
+          .range(start, start + 999);
+        if (error) return json({ error: error.message });
+        const rows = data ?? [];
+        for (const r of rows) {
+          const placement = normalize(String(r.placement ?? ""));
+          if (r.campaign_id && placement) blacklisted.add(cpKey(String(r.campaign_id), placement));
+        }
+        if (rows.length < 1000) break;
+        start += 1000;
+      }
+    }
+
     interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; app_id: string | null; }
     const cpAgg = new Map<string, CampPl>();
     for (const r of ads) {
@@ -167,9 +192,14 @@ Deno.serve(async (req) => {
 
     const items = [];
     let skippedSafety = 0;
+    let skippedAlreadyBlacklisted = 0;
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
       if (!meta) continue;
+      if (blacklisted.has(cpKey(v.campaign_id, normalize(v.placement, v.type)))) {
+        skippedAlreadyBlacklisted++;
+        continue;
+      }
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
 
       const root = rootDomain(v.placement);
@@ -264,6 +294,7 @@ Deno.serve(async (req) => {
       bad: items.length,
       grouped: cpAgg.size,
       skipped_safety: skippedSafety,
+      skipped_blacklisted: skippedAlreadyBlacklisted,
       ads_rows: ads.length,
       gam_rows: gam.length,
       period: { from, to },
@@ -312,16 +343,6 @@ Deno.serve(async (req) => {
             roi_pct: c.roi_pct,
           })),
         }));
-
-      const now = new Date().toISOString();
-      const logs = selected.flatMap((i) => i.campaigns.map((c) => ({
-        user_id: userId,
-        campaign_id: c.campaign_id,
-        placement: i.placement,
-        action: "blacklist_preview",
-        note: `date=${now} roi=${i.roi_pct ?? c.roi_pct ?? "n/a"}% cost=${i.cost_brl ?? c.cost_brl ?? "n/a"} revenue=${i.revenue_brl ?? i.revenue_usd ?? "n/a"} reason=${i.reason ?? "selected"}`,
-      })));
-      if (logs.length) await admin.from("placement_actions").insert(logs);
 
       const result = await applyNegativePlacements(admin, userId, selected);
       return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats });
