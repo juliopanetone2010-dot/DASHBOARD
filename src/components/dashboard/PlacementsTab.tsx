@@ -32,7 +32,7 @@ interface AdsPlacementRow {
   avg_cpc: number;
 }
 
-interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; }
+interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
 
 interface AggRow {
@@ -46,7 +46,7 @@ interface AggRow {
   revenue: number;        // BRL líquido (estimado via GAM)
   profit: number;
   roi: number;
-  revenueSource: "utm" | "campaign_estimate" | "none";
+  revenueSource: "utm" | "none";
   ctr: number;
   cpc: number;
 }
@@ -157,11 +157,12 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       setRows((data ?? []) as AdsPlacementRow[]);
       setLimit(PAGE_SIZE);
 
-      // Receita do GAM atribuída via UTM (campaign_id + placement)
+      // Receita do GAM atribuída via UTM Google (campaign_id + placement).
       const { data: gamData } = await supabase
         .from("gam_placement_revenue")
-        .select("placement, revenue_usd, impressions, date")
+        .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
         .eq("campaign_id", cid)
+        .eq("utm_source", "google")
         .gte("date", range.from)
         .lte("date", range.to);
       setGamRows((gamData ?? []) as GamRevRow[]);
@@ -227,31 +228,12 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
-    const campaignGrossUsd = campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0);
-    const directGrossUsd = [...gamRevenueByPlacement.values()].reduce((sum, v) => sum + v, 0);
-    const fallbackGrossUsd = Math.max(campaignGrossUsd - directGrossUsd, 0);
-    const unmatched = values.filter((a) => !gamRevenueByPlacement.has(a.placement));
-    const totalClicks = unmatched.reduce((sum, a) => sum + a.clicks, 0);
-    const totalImpressions = unmatched.reduce((sum, a) => sum + a.impressions, 0);
-    const totalCost = unmatched.reduce((sum, a) => sum + a.cost, 0);
-
     for (const a of values) {
       const directUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
-      let grossUsd = directUsd;
       if (directUsd > 0) {
         a.revenueSource = "utm";
-      } else if (fallbackGrossUsd > 0 && unmatched.length > 0) {
-        const weight = totalClicks > 0
-          ? a.clicks / totalClicks
-          : totalImpressions > 0
-            ? a.impressions / totalImpressions
-            : totalCost > 0
-              ? a.cost / totalCost
-              : 1 / unmatched.length;
-        grossUsd = fallbackGrossUsd * weight;
-        a.revenueSource = grossUsd > 0 ? "campaign_estimate" : "none";
       }
-      const revBrl = grossUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
+      const revBrl = directUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
       a.revenue = revBrl;
       a.profit = revBrl - a.cost;
       a.roi = a.cost > 0 ? (a.profit / a.cost) * 100 : 0;
@@ -272,7 +254,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   }, [aggregated, sortKey, sortDir]);
 
   const visible = sorted.slice(0, limit);
-  const hasGamRevenue = gamRevenueByPlacement.size > 0 || campaignMetricRows.some((m) => Number(m.revenue ?? 0) > 0);
+  const hasGamRevenue = gamRevenueByPlacement.size > 0;
   const matchedCount = useMemo(
     () => aggregated.filter((a) => a.revenueSource !== "none").length,
     [aggregated],
@@ -487,7 +469,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {r.revenueSource === "utm" && <Badge variant="outline" className="text-[9px]">UTM</Badge>}
-                            {r.revenueSource === "campaign_estimate" && <Badge variant="secondary" className="text-[9px]">estimado</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}

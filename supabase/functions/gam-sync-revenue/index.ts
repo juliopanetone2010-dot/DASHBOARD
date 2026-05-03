@@ -92,17 +92,25 @@ Deno.serve(async (req) => {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
         const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
-        let customCriteriaRows: ReportRow[] = [];
+        let googleUtmRows: ReportRow[] = [];
+        let customCriteriaAvailable = false;
         try {
-          customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
+          const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
-            .filter((r) => !!parseGamPlacementName(r.name));
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm rows=${customCriteriaRows.length}`);
+          customCriteriaAvailable = true;
+          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
+          const otherUtmRows = customCriteriaRows.filter((r) => {
+            const parsed = parseGamAttribution(r.name);
+            return parsed?.source && parsed.source !== "google";
+          }).length;
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm_source=google rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
 
-        const canonicalRows = customCriteriaRows.length > 0 ? customCriteriaRows : (adUnitRows.length > 0 ? adUnitRows : placementRows);
+        // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
+        // ou tráfego sem UTM não pode ser rateada em campanhas/placements do Google Ads.
+        const canonicalRows = customCriteriaAvailable ? googleUtmRows : [];
         const totals = canonicalRows.reduce(
           (acc, r) => ({
             revenue: acc.revenue + r.revenue,
@@ -142,7 +150,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds);
+          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
         }
 
         summary.push({
@@ -150,7 +158,9 @@ Deno.serve(async (req) => {
           sites: networkSites.map((s) => s.name),
           ad_unit_rows: adUnitRows.length,
           placement_rows: placementRows.length,
-          custom_criteria_rows: customCriteriaRows.length,
+          custom_criteria_rows: googleUtmRows.length,
+          custom_criteria_available: customCriteriaAvailable,
+          attribution_rule: "utm_source=google only",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
@@ -240,26 +250,53 @@ function buildGamRanges(datePreset: string, from: string | null, to: string | nu
   return ranges;
 }
 
+function expandFixedDates(ranges: GamRange[]): string[] {
+  const dates: string[] = [];
+  for (const r of ranges) {
+    const fixed = (r.dateRange as any)?.fixed;
+    if (!fixed?.startDate || !fixed?.endDate) continue;
+    const start = new Date(Date.UTC(fixed.startDate.year, fixed.startDate.month - 1, fixed.startDate.day));
+    const end = new Date(Date.UTC(fixed.endDate.year, fixed.endDate.month - 1, fixed.endDate.day));
+    for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  }
+  return dates;
+}
+
 function dateObj(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   return { year, month, day };
 }
 
-// Extrai (campaign_id, placement) do nome do ad unit/placement do GAM.
-// Padrão UTM: utm_placement={campaignid}_{placement}
+// Extrai (utm_source, campaign_id, placement) do nome/key-value do GAM.
+// Padrão Google: utm_source=google + utm_placement={campaignid}_{placement}
 // Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
 function extractCampaignIdFromName(name: string): string | null {
   return parseGamPlacementName(name)?.cid ?? null;
 }
 
 function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
+  const parsed = parseGamAttribution(name);
+  return parsed ? { cid: parsed.cid, placement: parsed.placement } : null;
+}
+
+function parseGamAttribution(name: string): { source: string | null; cid: string; placement: string } | null {
   if (!name) return null;
   const decoded = safeDecode(String(name).trim());
-  const utm = decoded.match(/(?:^|[\s,;|])utm_placement[=~*]*([^\s,;|]+)/i);
+  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
+  const source = sourceMatch?.[1]?.toLowerCase() ?? null;
+  const utm = decoded.match(/(?:^|[\s,;&|])utm_placement[=~:]*([^\s,;&|]+)/i);
   const candidate = utm?.[1] ?? decoded;
   const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
   if (!m) return null;
-  return { cid: m[1], placement: normalizePlacement(m[2]) };
+  return { source, cid: m[1], placement: normalizePlacement(m[2]) };
+}
+
+function parseUtmSource(name: string): string | null {
+  const decoded = safeDecode(String(name || "").trim());
+  const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
+  return sourceMatch?.[1]?.toLowerCase() ?? null;
 }
 
 function safeDecode(s: string): string {
@@ -287,19 +324,20 @@ async function distributeGamRevenueToCampaigns(
   _fx: FxRates,
   debug: string[],
   requestedAccountIds: string[] = [],
+  syncDates: string[] = [],
 ) {
-  if (!siteId || rows.length === 0) return;
+  if (!siteId) return;
 
   // Agrupa por (date, campaign_id_extraido) — match direto via UTM quando possível.
   const today = new Date().toISOString().slice(0, 10);
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
   const unmatchedByDate = new Map<string, { revenue: number; impressions: number }>();
-  // Atribuição por (campaign_id, placement, date) — para a tabela gam_placement_revenue
-  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string }>();
+  // Atribuição por (campaign_id, placement, date) — somente tráfego Google por UTM.
+  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string | null; raw_utm: string }>();
   for (const r of rows) {
     const date = r.date ?? today;
-    const parsed = parseGamPlacementName(r.name);
-    if (parsed) {
+    const parsed = parseGamAttribution(r.name);
+    if (parsed && parsed.source === "google") {
       const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
@@ -310,22 +348,23 @@ async function distributeGamRevenueToCampaigns(
       const key = `${cid}|${parsed.placement}|${date}`;
       const pb = placementBuckets.get(key) ?? {
         user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_name",
+        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
       };
       pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
       placementBuckets.set(key, pb);
     } else {
-      const cur = unmatchedByDate.get(date) ?? { revenue: 0, impressions: 0 };
-      cur.revenue += r.revenue; cur.impressions += r.impressions;
-      unmatchedByDate.set(date, cur);
+      const source = parseUtmSource(r.name);
+      if (source) {
+        debug.push(`[utm ignored] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
+      }
     }
   }
 
-  // Persiste atribuição por placement (substitui período)
-  if (placementBuckets.size > 0) {
-    const dates = [...new Set([...placementBuckets.values()].map((p) => p.date))];
+  // Persiste atribuição por placement (substitui período mesmo quando zerou, para limpar dado antigo/push misturado)
+  const dates = [...new Set([...syncDates, ...placementBuckets.values()].map((p: any) => typeof p === "string" ? p : p.date).filter(Boolean))];
+  if (dates.length > 0) {
     await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).in("date", dates);
+      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
     const arr = [...placementBuckets.values()];
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
@@ -352,7 +391,7 @@ async function distributeGamRevenueToCampaigns(
     return;
   }
 
-  const allDates = new Set<string>([...directByDateCid.keys(), ...unmatchedByDate.keys()]);
+  const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...unmatchedByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics, error: metricsErr } = await admin
       .from("daily_metrics")
@@ -376,19 +415,10 @@ async function distributeGamRevenueToCampaigns(
         matchedIds.add(String(m.campaign_id));
       }
     }
-    // 2) sobra: receita não-matchada + receita de cids do GAM sem campanha Ads correspondente
+    // Não rateia sobra. Receita sem utm_source=google + utm_placement pertence a outra origem
+    // (push/retenção/orgânico/etc.) e não entra no lucro/ROI dos placements do Google Ads.
     let leftover = unmatchedByDate.get(date)?.revenue ?? 0;
-    for (const [cid, v] of directMap) {
-      if (!matchedIds.has(cid)) leftover += v.revenue;
-    }
-    if (leftover > 0) {
-      const totalImp = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
-      for (const m of metrics as any[]) {
-        const w = totalImp === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
-        const share = (w / totalImp) * leftover;
-        revenueByMetricId.set(m.id, (revenueByMetricId.get(m.id) ?? 0) + share);
-      }
-    }
+    for (const [cid, v] of directMap) if (!matchedIds.has(cid)) leftover += v.revenue;
 
     const updates: any[] = [];
     for (const m of metrics as any[]) {
@@ -412,7 +442,7 @@ async function distributeGamRevenueToCampaigns(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via UTM, leftover ${leftover.toFixed(4)} USD rateado em ${metrics.length} campanha(s)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via utm_source=google; ${leftover.toFixed(4)} USD sem match ignorado (não rateado)`);
   }
 }
 
