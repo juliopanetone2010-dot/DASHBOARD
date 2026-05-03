@@ -370,11 +370,14 @@ async function collectUtmAttribution(args: {
   const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
 
   const directCampaignRows = campaignPick?.rows ?? [];
-  const placementRows = placementPick?.rows.filter((r) => r.placement) ?? [];
+  const placementRowsAll = placementPick?.rows ?? [];
+  const placementRows = placementRowsAll.filter((r) => r.placement);
   const directGoogleRows = directCampaignRows.filter((r) => r.source === "google" && r.cid);
   const placementGoogleRows = placementRows.filter((r) => r.source === "google" && r.cid);
   const googleCampaignRows = directGoogleRows.length > 0 ? directGoogleRows : placementGoogleRows;
-  const retentionRows = directCampaignRows.some((r) => r.cid) ? directCampaignRows.filter((r) => r.cid) : placementRows.filter((r) => r.cid);
+  const retentionRows = directCampaignRows.length > 0
+    ? directCampaignRows
+    : (placementRowsAll.length > 0 ? placementRowsAll : placementRows);
 
   await debugKeyValuesName(networkCode, accessToken, ranges, debug);
   debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
@@ -505,14 +508,13 @@ async function applyGoogleUtmRevenue(
 
   const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
-  // Total Google por dia (mesmo sem cid resolvido) para distribuir proporcionalmente ao spend.
   const googleTotalByDate = new Map<string, { revenue: number; impressions: number }>();
   for (const r of googleCampaignRows) {
     const date = r.date ?? today;
+    if (!r.cid) continue;
     const tot = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
     tot.revenue += r.revenue; tot.impressions += r.impressions;
     googleTotalByDate.set(date, tot);
-    if (!r.cid) continue;
     if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
     const inner = directByDateCid.get(date)!;
     const cur = inner.get(r.cid) ?? { revenue: 0, impressions: 0 };
@@ -567,24 +569,15 @@ async function applyGoogleUtmRevenue(
 
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
-    // Receita Google que NÃO foi atribuída via UTM (utm_campaign=(not applicable))
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
     let attributedRev = 0;
     for (const v of directMap.values()) attributedRev += (v as any).revenue;
-    const unattributedRev = Math.max(0, totalGoogle.revenue - attributedRev);
-    // Distribui o restante proporcionalmente ao spend das campanhas Google do dia
-    const totalSpend = (metrics as any[]).reduce((acc, m) => acc + Number(m.spend ?? 0), 0);
 
     const updates: any[] = [];
-    let distributedCount = 0;
     for (const m of metrics as any[]) {
       const direct = directMap.get(String(m.campaign_id));
       let revenueUsd = direct?.revenue ?? 0;
       if (direct) matchedIds.add(String(m.campaign_id));
-      else if (totalSpend > 0 && unattributedRev > 0) {
-        revenueUsd = unattributedRev * (Number(m.spend ?? 0) / totalSpend);
-        if (revenueUsd > 0) distributedCount++;
-      }
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
@@ -604,7 +597,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match UTM Google + ${distributedCount} distribuídas por spend (unattrib=$${unattributedRev.toFixed(2)} de total Google=$${totalGoogle.revenue.toFixed(2)})`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match UTM Google real; total atribuído=$${attributedRev.toFixed(2)} de total Google com campaign_id=$${totalGoogle.revenue.toFixed(2)}; sem fallback por gasto`);
   }
 }
 

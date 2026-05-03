@@ -30,21 +30,21 @@ export function RetentionTab({ campaigns }: Props) {
   const queryClient = useQueryClient();
 
   const queryKey = useMemo(
-    () => ["retention", range.from, range.to, filters.googleAccountIds.join("|")],
-    [range.from, range.to, filters.googleAccountIds],
+    () => ["retention", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
+    [range.from, range.to, filters.siteId, filters.googleAccountIds],
   );
 
   const rowsQuery = useQuery<SourceRow[]>({
     queryKey,
     queryFn: async () => {
       if (import.meta.env.DEV) console.info("[retention] fetch", queryKey);
-      const { data } = await supabase
+      let q = supabase
         .from("gam_campaign_source_revenue")
         .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
         .gte("date", range.from)
-        .lte("date", range.to)
-        .order("date", { ascending: false })
-        .limit(5000);
+        .lte("date", range.to);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data } = await q.order("date", { ascending: false }).limit(5000);
       return (data ?? []) as SourceRow[];
     },
     staleTime: 30_000,
