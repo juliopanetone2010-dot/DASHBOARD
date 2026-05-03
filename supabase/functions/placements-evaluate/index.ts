@@ -291,8 +291,6 @@ Deno.serve(async (req) => {
       if (status === "blocked" && (!ex || ex.status !== "blocked")) row.blocked_at = nowIso;
       // remove undefined
       for (const k2 of Object.keys(row)) if (row[k2] === undefined) delete row[k2];
-        if (status === "blocked") row.blocked_at = new Date().toISOString();
-      }
       upserts.push(row);
 
       if (statusChanged) {
