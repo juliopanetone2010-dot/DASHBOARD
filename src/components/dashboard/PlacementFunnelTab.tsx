@@ -347,6 +347,8 @@ function MultiPicker({ label, items, selected, onChange }: {
     </DropdownMenu>
   );
 }
+
+interface FBProps {
   rows: Row[];
   loading: boolean;
   busyId: string | null;
