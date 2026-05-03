@@ -28,6 +28,7 @@ interface PreviewItem {
   key?: string;
   placement: string;
   type: string;
+  app_id?: string | null;
   cost_brl: number;
   revenue_brl: number;
   revenue_usd: number;
@@ -68,7 +69,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
+  const [accountFilter, setAccountFilter] = useState<string>("all");
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
+  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
 
   // carrega config persistida
   useEffect(() => {
@@ -84,6 +88,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
         setLastRun(data.placement_cleanup_last_run_at ?? null);
       }
+      const { data: accs } = await supabase
+        .from("google_accounts")
+        .select("id, account_name, descriptive_name, customer_id")
+        .order("account_name", { ascending: true });
+      setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
     })();
   }, []);
 
@@ -132,7 +141,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setItems(list);
       setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
-      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map(itemKey)));
+      setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
       // persiste filtros
@@ -155,7 +164,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map(itemKey)));
+    setSelected(new Set(items.filter(canExclude).map(itemKey)));
   };
 
   const runApply = async () => {
@@ -166,7 +175,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const payload = items
         .filter((i) => selected.has(itemKey(i)))
         .map((i) => ({
-          key: itemKey(i), placement: i.placement, type: i.type,
+          key: itemKey(i), placement: i.placement, type: i.type, app_id: i.app_id ?? null,
           cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
           campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
         }));
@@ -192,10 +201,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const grandCost = stats?.grand_cost_brl ?? 0;
   const grandProfit = stats?.grand_profit_brl ?? 0;
 
+  // filtra items pela conta selecionada
+  const filteredItems = accountFilter === "all"
+    ? items
+    : items.filter((i) => i.campaigns.some((c) => c.google_account_id === accountFilter));
+
   // agrupa items por campanha
   const itemsByCampaign = new Map<string, PreviewItem[]>();
-  for (const it of items) {
+  for (const it of filteredItems) {
     for (const c of it.campaigns) {
+      if (accountFilter !== "all" && c.google_account_id !== accountFilter) continue;
       const arr = itemsByCampaign.get(c.campaign_id) ?? [];
       arr.push(it);
       itemsByCampaign.set(c.campaign_id, arr);
@@ -209,7 +224,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map(itemKey);
+    const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
@@ -258,6 +273,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="destructive">{items.length} ruins</Badge>
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
               <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              <select
+                className="h-7 text-xs rounded border border-border bg-background px-2"
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value)}
+              >
+                <option value="all">Todas as contas ({accounts.length})</option>
+                {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+              </select>
               <span className="ml-auto flex items-center gap-2 text-xs">
                 Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
               </span>
@@ -320,14 +343,19 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
+                                  const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(isApp && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(itemKey(i))} disabled={isApp} onCheckedChange={() => toggle(itemKey(i))} />
+                                        <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
-                                      <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
+                                      <TableCell className="text-xs">
+                                        {i.type}
+                                        {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
+                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                      </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">${(c?.revenue_usd ?? 0).toFixed(2)}</TableCell>

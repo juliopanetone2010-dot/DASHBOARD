@@ -19,6 +19,7 @@ interface ApplyItem {
   key?: string;
   placement: string;
   type: string;
+  app_id?: string | null;
   cost_brl?: number;
   revenue_brl?: number;
   revenue_usd?: number;
@@ -34,6 +35,7 @@ type LiveAdsRow = {
   placement: string;
   placement_clean: string | null;
   placement_type: string | null;
+  app_id: string | null; // ex.: "1-com.whatsapp" (Android) ou "2-123456789" (iOS)
   cost: number;
   clicks: number;
   impressions: number;
@@ -145,7 +147,7 @@ Deno.serve(async (req) => {
       revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
 
-    interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; }
+    interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; app_id: string | null; }
     const cpAgg = new Map<string, CampPl>();
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
@@ -153,13 +155,14 @@ Deno.serve(async (req) => {
       const k = cpKey(r.campaign_id, placement);
       let c = cpAgg.get(k);
       if (!c) {
-        c = { campaign_id: r.campaign_id, placement, cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—" };
+        c = { campaign_id: r.campaign_id, placement, cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—", app_id: r.app_id };
         cpAgg.set(k, c);
       }
       c.cost += Number(r.cost) || 0;
       c.clicks += Number(r.clicks) || 0;
       c.impressions += Number(r.impressions) || 0;
       if (r.placement_type) c.type = r.placement_type;
+      if (!c.app_id && r.app_id) c.app_id = r.app_id;
     }
 
     const items = [];
@@ -185,6 +188,7 @@ Deno.serve(async (req) => {
         key: itemKey,
         placement: v.placement,
         type: v.type,
+        app_id: v.app_id,
         cost_brl: round(v.cost),
         revenue_brl: round(revenueBrl),
         revenue_usd: round(revenueUsd),
@@ -294,6 +298,7 @@ Deno.serve(async (req) => {
           key: i.key,
           placement: i.placement,
           type: i.type,
+          app_id: i.app_id ?? null,
           cost_brl: i.cost_brl,
           revenue_brl: i.revenue_brl,
           revenue_usd: i.revenue_usd,
@@ -412,6 +417,7 @@ async function fetchLiveAdsPlacements(
             placement: placementRaw,
             placement_clean: cleanPlacement(placementRaw, targetUrl, type),
             placement_type: type,
+            app_id: extractAppId(placementRaw, type),
             cost: Number(r.metrics?.costMicros ?? 0) / 1_000_000,
             clicks: Number(r.metrics?.clicks ?? 0),
             impressions: Number(r.metrics?.impressions ?? 0),
@@ -492,6 +498,22 @@ function rootDomain(host: string): string {
 
 function round(n: number) { return Math.round(n * 100) / 100; }
 
+// Extrai app id no formato Google Ads: "1-com.pacote" (Android) ou "2-123456789" (iOS).
+function extractAppId(placementRaw: string, type?: string | null): string | null {
+  if (type !== "MOBILE_APPLICATION") return null;
+  const raw = (placementRaw || "").trim();
+  if (!raw) return null;
+  const m1 = raw.match(/mobileapp::([12]-[A-Za-z0-9._-]+)/i);
+  if (m1) return m1[1];
+  const m2 = raw.match(/^([12]-[A-Za-z0-9._-]+)$/);
+  if (m2) return m2[1];
+  // fallback: se vier só pacote tipo "com.whatsapp" assume Android
+  if (/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i.test(raw)) return `1-${raw}`;
+  // iOS numeric
+  if (/^\d{6,}$/.test(raw)) return `2-${raw}`;
+  return null;
+}
+
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {
     status: 200,
@@ -510,16 +532,20 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
   const tokenCache = new Map<string, string>();
   for (const a of accs ?? []) accMap.set(a.id, a);
 
-  const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string }[] }>();
+  const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string; app_id: string | null }[] }>();
   for (const it of items) {
-    if (it.type !== "WEBSITE") continue;
+    // permite WEBSITE e MOBILE_APPLICATION (app só com app_id válido)
+    if (it.type !== "WEBSITE" && it.type !== "MOBILE_APPLICATION") continue;
+    if (it.type === "MOBILE_APPLICATION" && !it.app_id) continue;
     for (const c of it.campaigns) {
       const acc = accMap.get(c.google_account_id);
       if (!acc?.refresh_token) continue;
       const k = `${c.google_account_id}|${c.campaign_id}`;
       let g = ops.get(k);
       if (!g) { g = { acc, campaign_id: c.campaign_id, placements: [] }; ops.set(k, g); }
-      if (!g.placements.some((p) => p.placement === it.placement)) g.placements.push({ placement: it.placement, type: it.type });
+      if (!g.placements.some((p) => p.placement === it.placement)) {
+        g.placements.push({ placement: it.placement, type: it.type, app_id: it.app_id ?? null });
+      }
     }
   }
 
@@ -535,13 +561,21 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         "Content-Type": "application/json",
       };
       if (g.acc.login_customer_id) headers["login-customer-id"] = g.acc.login_customer_id;
-      const operations = g.placements.map((p) => ({
-        create: {
+      const operations = g.placements.map((p) => {
+        const base = {
           campaign: `customers/${g.acc.customer_id}/campaigns/${g.campaign_id}`,
           negative: true,
-          placement: { url: p.placement.startsWith("http") ? p.placement : `https://${p.placement}` },
-        },
-      }));
+        };
+        if (p.type === "MOBILE_APPLICATION" && p.app_id) {
+          return { create: { ...base, mobileApplication: { appId: p.app_id } } };
+        }
+        return {
+          create: {
+            ...base,
+            placement: { url: p.placement.startsWith("http") ? p.placement : `https://${p.placement}` },
+          },
+        };
+      });
       const r = await fetch(
         `https://googleads.googleapis.com/v21/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
         { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
