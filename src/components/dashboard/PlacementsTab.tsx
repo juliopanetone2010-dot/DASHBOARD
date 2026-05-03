@@ -386,12 +386,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     [aggregated],
   );
 
+  // Para o ranking de ROI, exigimos volume mínimo: custo ≥ R$ 20 e receita > 0.
+  // Isso evita placements com custo de centavos inflando ROI para milhares de %.
   const top = useMemo(
-    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
+    () => [...aggregated]
+      .filter((a) => a.costBrl >= 20 && a.revenueBrl > 0 && a.revenueSource !== "none")
+      .sort((a, b) => b.roi - a.roi)
+      .slice(0, 5),
     [aggregated],
   );
   const worst = useMemo(
-    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => a.roi - b.roi).slice(0, 5),
+    () => [...aggregated]
+      .filter((a) => a.costBrl >= 20 && a.revenueSource !== "none")
+      .sort((a, b) => a.roi - b.roi)
+      .slice(0, 5),
     [aggregated],
   );
 
