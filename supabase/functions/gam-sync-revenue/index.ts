@@ -103,27 +103,28 @@ Deno.serve(async (req) => {
         );
         const today = new Date().toISOString().slice(0, 10);
 
-        // Persiste rows como placements (uma linha por dia x dimensão)
+        // Persiste rows como placements em bulk (chunked upsert)
         const persistRows = async (rows: ReportRow[], kind: "ad_unit" | "placement") => {
-          for (const r of rows) {
-            const revenue = r.revenue;
-            const impressions = r.impressions;
-            const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
-            const siteForRow = networkSites[0]; // GAM não retorna domínio; usa 1º site da network
-            const placementKey = `${kind}:${networkCode}:${r.name}`;
-
+          if (rows.length === 0) return;
+          const siteForRow = networkSites[0];
+          const payload = rows.map((r) => {
+            const ecpm = r.impressions > 0 ? (r.revenue / r.impressions) * 1000 : 0;
+            return {
+              user_id: userId,
+              site_id: siteForRow.id,
+              site: siteForRow.name,
+              ad_unit: kind === "ad_unit" ? r.name : null,
+              placement_key: `${kind}:${networkCode}:${r.name}`,
+              date: r.date ?? today,
+              impressions: r.impressions,
+              revenue: r.revenue,
+              ecpm,
+            };
+          });
+          const CHUNK = 500;
+          for (let i = 0; i < payload.length; i += CHUNK) {
             await admin.from("placements").upsert(
-              {
-                user_id: userId,
-                site_id: siteForRow.id,
-                site: siteForRow.name,
-                ad_unit: kind === "ad_unit" ? r.name : null,
-                placement_key: placementKey,
-                date: r.date ?? today,
-                impressions,
-                revenue,
-                ecpm,
-              },
+              payload.slice(i, i + CHUNK),
               { onConflict: "user_id,placement_key,date" },
             );
           }
@@ -271,12 +272,11 @@ async function distributeGamRevenueToCampaigns(
     }
 
     const totalWeight = metrics.reduce((acc: number, m: any) => acc + Math.max(Number(m.impressions ?? 0), 0), 0) || metrics.length;
+    const updates: any[] = [];
     for (const m of metrics as any[]) {
       const weight = totalWeight === metrics.length ? 1 : Math.max(Number(m.impressions ?? 0), 0);
       const share = weight / totalWeight;
-      // Receita armazenada em USD (nativa do GAM)
       const revenueUsd = totals.revenue * share;
-      // Spend está em BRL (nativo do Ads). Para profit/ROI/ROAS, convertemos receita USD→BRL.
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * _fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
@@ -284,7 +284,18 @@ async function distributeGamRevenueToCampaigns(
       const roi = spendBrl > 0 ? (profit / spendBrl) * 100 : 0;
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
-      await admin.from("daily_metrics").update({ revenue: revenueUsd, profit, roi, roas, ecpm }).eq("id", m.id);
+      updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
+    }
+    // bulk update via Promise.all in chunks (Supabase has no native bulk update by id)
+    const CHUNK = 25;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+      await Promise.all(
+        updates.slice(i, i + CHUNK).map((u) =>
+          admin.from("daily_metrics").update({
+            revenue: u.revenue, profit: u.profit, roi: u.roi, roas: u.roas, ecpm: u.ecpm,
+          }).eq("id", u.id)
+        ),
+      );
     }
     debug.push(`[daily_metrics] receita GAM ${totals.revenue.toFixed(6)} USD distribuída em ${metrics.length} campanha(s) de ${date} (fx ${_fx.usdBrl})`);
   }
