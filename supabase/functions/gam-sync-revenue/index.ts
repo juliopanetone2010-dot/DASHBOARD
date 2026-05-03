@@ -103,27 +103,28 @@ Deno.serve(async (req) => {
         );
         const today = new Date().toISOString().slice(0, 10);
 
-        // Persiste rows como placements (uma linha por dia x dimensão)
+        // Persiste rows como placements em bulk (chunked upsert)
         const persistRows = async (rows: ReportRow[], kind: "ad_unit" | "placement") => {
-          for (const r of rows) {
-            const revenue = r.revenue;
-            const impressions = r.impressions;
-            const ecpm = impressions > 0 ? (revenue / impressions) * 1000 : 0;
-            const siteForRow = networkSites[0]; // GAM não retorna domínio; usa 1º site da network
-            const placementKey = `${kind}:${networkCode}:${r.name}`;
-
+          if (rows.length === 0) return;
+          const siteForRow = networkSites[0];
+          const payload = rows.map((r) => {
+            const ecpm = r.impressions > 0 ? (r.revenue / r.impressions) * 1000 : 0;
+            return {
+              user_id: userId,
+              site_id: siteForRow.id,
+              site: siteForRow.name,
+              ad_unit: kind === "ad_unit" ? r.name : null,
+              placement_key: `${kind}:${networkCode}:${r.name}`,
+              date: r.date ?? today,
+              impressions: r.impressions,
+              revenue: r.revenue,
+              ecpm,
+            };
+          });
+          const CHUNK = 500;
+          for (let i = 0; i < payload.length; i += CHUNK) {
             await admin.from("placements").upsert(
-              {
-                user_id: userId,
-                site_id: siteForRow.id,
-                site: siteForRow.name,
-                ad_unit: kind === "ad_unit" ? r.name : null,
-                placement_key: placementKey,
-                date: r.date ?? today,
-                impressions,
-                revenue,
-                ecpm,
-              },
+              payload.slice(i, i + CHUNK),
               { onConflict: "user_id,placement_key,date" },
             );
           }
