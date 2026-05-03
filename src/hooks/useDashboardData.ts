@@ -259,14 +259,12 @@ export function useDashboardData(): DashboardData {
       .from("daily_metrics")
       .select("*")
       .gte("date", range.from)
-      .lte("date", range.to)
-      .order("date", { ascending: false })
-      .limit(5000);
+      .lte("date", range.to);
     if (filters.googleAccountIds.length > 0) metricsQuery = metricsQuery.in("google_account_id", filters.googleAccountIds);
 
     const [c, m, p, r, a, ga, gam, s, l] = await Promise.all([
       supabase.from("campaigns").select("*").order("name"),
-      metricsQuery,
+      metricsQuery.order("date", { ascending: false }).limit(5000),
       supabase.from("placements").select("*").gte("date", range.from).lte("date", range.to).order("date", { ascending: false }).limit(5000),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
