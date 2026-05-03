@@ -241,6 +241,51 @@ Deno.serve(async (req) => {
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct);
 
+    // 7) Totais REAIS por campanha (custo + receita) no período via daily_metrics
+    //    daily_metrics.spend já está em BRL; revenue está em USD (líquido USD será convertido)
+    type CampTotal = { campaign_id: string; name: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number };
+    const totalsMap = new Map<string, CampTotal>();
+    for (const chunk of chunkArr(eligibleIds, 200)) {
+      const { data } = await admin
+        .from("daily_metrics")
+        .select("campaign_id, spend, revenue")
+        .eq("user_id", userId)
+        .in("campaign_id", chunk)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      for (const r of data ?? []) {
+        const meta = campMap.get(r.campaign_id);
+        if (!meta) continue;
+        let t = totalsMap.get(r.campaign_id);
+        if (!t) {
+          t = { campaign_id: r.campaign_id, name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 };
+          totalsMap.set(r.campaign_id, t);
+        }
+        t.cost_brl += Number(r.spend) || 0;
+        // revenue da daily_metrics está em USD bruto — converte para BRL líquido
+        t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
+      }
+    }
+    for (const t of totalsMap.values()) {
+      t.profit_brl = t.revenue_brl - t.cost_brl;
+      t.roi_pct = t.cost_brl > 0 ? (t.profit_brl / t.cost_brl) * 100 : 0;
+      t.cost_brl = round(t.cost_brl);
+      t.revenue_brl = round(t.revenue_brl);
+      t.profit_brl = round(t.profit_brl);
+      t.roi_pct = round(t.roi_pct);
+    }
+    for (const it of items) {
+      for (const c of it.campaigns) {
+        const t = totalsMap.get(c.campaign_id);
+        if (t) t.bad_count++;
+      }
+    }
+    const campaign_totals = [...totalsMap.values()];
+    const grand_cost_brl = round(campaign_totals.reduce((a, c) => a + c.cost_brl, 0));
+    const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
+    const grand_profit_brl = round(grand_revenue_brl - grand_cost_brl);
+
     const stats = {
       eligible: eligibleIds.length,
       total: campIds.length,
@@ -251,9 +296,10 @@ Deno.serve(async (req) => {
       gam_rows: gam.length,
       period: { from, to },
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, min_clicks: minClicks, max_roi_pct: maxRoiPct },
+      grand_cost_brl, grand_revenue_brl, grand_profit_brl,
     };
 
-    if (mode === "preview") return json({ ok: true, items, stats });
+    if (mode === "preview") return json({ ok: true, items, stats, campaign_totals });
 
     if (mode === "notify") {
       if (items.length > 0) {
