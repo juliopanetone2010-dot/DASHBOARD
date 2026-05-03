@@ -311,6 +311,9 @@ const IndexInner = () => {
             <TabsTrigger value="placements" className="gap-1.5">
               <MapPin className="h-3.5 w-3.5" /> Placements
             </TabsTrigger>
+            <TabsTrigger value="countries" className="gap-1.5">
+              <Globe className="h-3.5 w-3.5" /> Países
+            </TabsTrigger>
             <TabsTrigger value="retention" className="gap-1.5">
               <Repeat className="h-3.5 w-3.5" /> Retenção / Push
             </TabsTrigger>
