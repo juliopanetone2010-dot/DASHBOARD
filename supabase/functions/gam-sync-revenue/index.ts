@@ -291,6 +291,31 @@ function extractPlacementValue(raw: string, cid: string | null): string | null {
   return normalizePlacement(decoded);
 }
 
+function extractCampaignId(raw: string | null | undefined): string | null {
+  const decoded = safeDecode(String(raw ?? "").trim());
+  if (!decoded || decoded === "(not applicable)" || decoded === "(empty)") return null;
+  const m = decoded.match(/(\d{6,})/);
+  return m ? m[1] : null;
+}
+
+function isRealValue(raw: string | null | undefined): boolean {
+  const value = String(raw ?? "").trim();
+  return !!value && value !== "(not applicable)" && value !== "(empty)";
+}
+
+function parseKeyValueDimension(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  const decoded = safeDecode(String(raw ?? ""));
+  for (const part of decoded.split(",")) {
+    const m = part.trim().match(/^([^=~|]+)[=~](.+)$/);
+    if (!m) continue;
+    const key = m[1].replace(/^\*/, "").trim().toLowerCase();
+    const value = m[2].split("|")[0]?.replace(/^\*/, "").trim() ?? "";
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
 async function fetchUtmKeyIds(
   networkCode: string,
