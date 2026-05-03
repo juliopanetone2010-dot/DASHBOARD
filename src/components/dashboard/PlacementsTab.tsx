@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { fmtNumber, fmtPercent, fmtUSD } from "@/lib/format";
+import { fmtNumber, fmtPercent, fmtUSD, fmtBRL } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { REV_SHARE_PCT } from "@/engine/rules";
@@ -39,22 +39,26 @@ interface ApplyUtmResult { error?: string; success?: number; total?: number; fai
 interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
 
 interface AggRow {
-  placement: string;
+  placement: string;          // full normalizado (ex: may.karwin.com)
+  placementRoot: string;      // root domain (ex: karwin.com)
   type: string;
   ad_groups: Set<string>;
   impressions: number;
   clicks: number;
-  cost: number;           // USD estimado para comparar com receita GAM
+  costBrl: number;            // Custo NATIVO da conta Ads (BRL)
   conversions: number;
-  revenue: number;        // USD líquido (GAM após rev share)
-  profit: number;
-  roi: number;
-  revenueSource: "utm" | "none";
+  revenueUsd: number;         // GAM USD bruto
+  revenueUsdNet: number;      // GAM USD após rev share
+  revenueBrl: number;         // revenueUsdNet * fxUsdBrl
+  profitBrl: number;          // receita_brl - custo_brl
+  roi: number;                // ROI calculado em BRL
+  revenueSource: "utm_full" | "utm_root" | "none";
+  matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
-  cpc: number;
+  cpcBrl: number;
 }
 
-type SortKey = "roi" | "cost" | "conversions" | "ctr" | "impressions";
+type SortKey = "roi" | "costBrl" | "conversions" | "ctr" | "impressions";
 
 interface Props {
   campaigns: Campaign[];
@@ -242,6 +246,19 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, range.from, range.to, version]);
 
+  // Extrai root domain (karwin.com de may.karwin.com). Apps/youtube ficam iguais.
+  const rootDomain = (host: string): string => {
+    if (!host) return host;
+    if (host.includes("/") || !host.includes(".")) return host; // app id ou outro formato
+    const parts = host.split(".");
+    if (parts.length <= 2) return host;
+    // pega últimos 2 (ignora suffixes compostos como .com.br)
+    const last2 = parts.slice(-2).join(".");
+    const ccTLDs = new Set(["com.br", "co.uk", "com.au", "com.mx", "co.jp", "com.ar", "co.in"]);
+    if (ccTLDs.has(last2) && parts.length >= 3) return parts.slice(-3).join(".");
+    return last2;
+  };
+
   // Receita GAM por placement (já agrupada via UTM no backend)
   const gamRevenueByPlacement = useMemo(() => {
     const map = new Map<string, number>();
@@ -261,33 +278,43 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (!agg) {
         agg = {
           placement: key,
+          placementRoot: rootDomain(key),
           type: r.placement_type ?? "—",
           ad_groups: new Set(),
-          impressions: 0, clicks: 0, cost: 0, conversions: 0,
-          revenue: 0, profit: 0, roi: 0, revenueSource: "none", ctr: 0, cpc: 0,
+          impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
+          revenueUsd: 0, revenueUsdNet: 0, revenueBrl: 0, profitBrl: 0, roi: 0,
+          revenueSource: "none", matchedUtm: null, ctr: 0, cpcBrl: 0,
         };
         map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
       agg.clicks += Number(r.clicks);
-      agg.cost += Number(r.cost);
+      agg.costBrl += Number(r.cost); // custo NATIVO (BRL na conta BR)
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
     for (const a of values) {
-      const directUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
-      if (directUsd > 0) {
-        a.revenueSource = "utm";
+      // Match: 1) full normalizado  2) root domain
+      let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
+      let source: AggRow["revenueSource"] = "none";
+      let matchedKey: string | null = null;
+      if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
+      else if (a.placementRoot && a.placementRoot !== a.placement) {
+        const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
+        if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
       }
-      const costUsd = fxUsdBrl > 0 ? a.cost / fxUsdBrl : a.cost;
-      const netUsd = directUsd * (1 - REV_SHARE_PCT);
-      a.cost = costUsd;
-      a.revenue = netUsd;
-      a.profit = netUsd - costUsd;
-      a.roi = costUsd > 0 ? (a.profit / costUsd) * 100 : 0;
+      const usdNet = usd * (1 - REV_SHARE_PCT);
+      const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
+      a.revenueUsd = usd;
+      a.revenueUsdNet = usdNet;
+      a.revenueBrl = revenueBrl;
+      a.profitBrl = revenueBrl - a.costBrl;
+      a.roi = a.costBrl > 0 ? (a.profitBrl / a.costBrl) * 100 : 0;
+      a.revenueSource = source;
+      a.matchedUtm = matchedKey;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
-      a.cpc = a.clicks > 0 ? costUsd / a.clicks : 0;
+      a.cpcBrl = a.clicks > 0 ? a.costBrl / a.clicks : 0;
     }
     return values;
   }, [rows, gamRevenueByPlacement, fxUsdBrl]);
@@ -295,8 +322,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const sorted = useMemo(() => {
     const arr = [...aggregated];
     arr.sort((a, b) => {
-      const va = a[sortKey] ?? 0;
-      const vb = b[sortKey] ?? 0;
+      const va = (a[sortKey] as number) ?? 0;
+      const vb = (b[sortKey] as number) ?? 0;
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return arr;
@@ -310,11 +337,11 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   );
 
   const top = useMemo(
-    () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
+    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
     [aggregated],
   );
   const worst = useMemo(
-    () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => a.roi - b.roi).slice(0, 5),
+    () => [...aggregated].filter((a) => a.costBrl > 0).sort((a, b) => a.roi - b.roi).slice(0, 5),
     [aggregated],
   );
 
@@ -454,7 +481,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           <div className="flex flex-wrap items-center gap-2">
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
-                Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · valores em USD
+                Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · custo BRL (Ads) / receita USD→BRL (GAM)
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
@@ -469,9 +496,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
               <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
-              <div>receita campanha (fallback): <b>{campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0).toFixed(4)} USD</b></div>
-              <div>matched/com receita: <b>{matchedCount}</b> · sem receita: <b>{aggregated.length - matchedCount}</b></div>
-              <div>custo convertido BRL→USD por fx <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b></div>
+              <div>custo: vem do Google Ads em <b>BRL nativo</b> (sem conversão) · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+              <div>receita: GAM em USD → convertida p/ BRL via fx <b>{fxUsdBrl}</b> · ROI calculado em BRL</div>
             </div>
           )}
 
@@ -482,7 +509,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
               <div className="text-xs text-muted-foreground">
                 Ordenar:{" "}
                 <button onClick={() => toggleSort("roi")} className={cn("ml-1 hover:underline", sortKey === "roi" && "text-primary font-medium")}>ROI</button> ·{" "}
-                <button onClick={() => toggleSort("cost")} className={cn("hover:underline", sortKey === "cost" && "text-primary font-medium")}>Custo</button> ·{" "}
+                <button onClick={() => toggleSort("costBrl")} className={cn("hover:underline", sortKey === "costBrl" && "text-primary font-medium")}>Custo</button> ·{" "}
                 <button onClick={() => toggleSort("conversions")} className={cn("hover:underline", sortKey === "conversions" && "text-primary font-medium")}>Conv.</button> ·{" "}
                 <button onClick={() => toggleSort("ctr")} className={cn("hover:underline", sortKey === "ctr" && "text-primary font-medium")}>CTR</button>
               </div>
@@ -496,21 +523,22 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("impressions")}>Impr.</TableHead>
                     <TableHead className="text-right">Cliques</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("ctr")}>CTR</TableHead>
-                    <TableHead className="text-right">CPC</TableHead>
+                    <TableHead className="text-right">CPC (BRL)</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("conversions")}>Conv.</TableHead>
-                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("cost")}>Custo</TableHead>
-                    <TableHead className="text-right">Receita</TableHead>
-                    <TableHead className="text-right">Lucro</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("costBrl")}>Custo Ads (BRL)</TableHead>
+                    <TableHead className="text-right">Receita GAM</TableHead>
+                    <TableHead className="text-right">Lucro (BRL)</TableHead>
                     <TableHead className="text-right cursor-pointer" onClick={() => toggleSort("roi")}>ROI</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
+                    {showDebug && <TableHead className="text-xs">Debug</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visible.length === 0 && !loading && (
-                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Sem placements no período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={showDebug ? 13 : 12} className="text-center py-8 text-muted-foreground">Sem placements no período.</TableCell></TableRow>
                   )}
                   {loading && (
-                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                    <TableRow><TableCell colSpan={showDebug ? 13 : 12} className="text-center py-8 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Sincronizando...
                     </TableCell></TableRow>
                   )}
@@ -518,14 +546,15 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     const matched = r.revenueSource !== "none";
                     const negative = matched && r.roi < 0;
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
-                    const wasted = r.cost > 20 && r.conversions === 0;
+                    const wasted = r.costBrl > 100 && r.conversions === 0;
                     const action = actions[r.placement];
                     return (
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {r.revenueSource === "utm" && <Badge variant="outline" className="text-[9px]">UTM</Badge>}
+                            {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
+                            {r.revenueSource === "utm_root" && <Badge variant="outline" className="text-[9px]">UTM root</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
@@ -538,36 +567,45 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.clicks)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.ctr.toFixed(2)}%</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(r.cpc)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtBRL(r.cpcBrl)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtUSD(r.cost)}</TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">{fmtBRL(r.costBrl)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {matched ? fmtUSD(r.revenue) : "—"}
+                          {matched ? (
+                            <div>
+                              <div>{fmtUSD(r.revenueUsdNet)}</div>
+                              <div className="text-[10px] text-muted-foreground/70">≈ {fmtBRL(r.revenueBrl)}</div>
+                            </div>
+                          ) : "—"}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {matched ? fmtUSD(r.profit) : "—"}
+                        <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profitBrl >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
+                          {matched ? fmtBRL(r.profitBrl) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
                           {matched ? fmtPercent(r.roi) : "—"}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button
-                              size="icon" variant="ghost" className="h-7 w-7"
-                              title="Favoritar"
-                              onClick={() => toggleAction(r.placement, "favorite")}
-                            >
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button
-                              size="icon" variant="ghost" className="h-7 w-7 text-danger"
-                              title="Excluir (blacklist)"
-                              onClick={() => toggleAction(r.placement, "blacklist")}
-                            >
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir (blacklist)" onClick={() => toggleAction(r.placement, "blacklist")}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </TableCell>
+                        {showDebug && (
+                          <TableCell className="text-[10px] font-mono whitespace-nowrap">
+                            <div>cid: <b>{campaignId}</b></div>
+                            <div>full: {r.placement}</div>
+                            <div>root: {r.placementRoot}</div>
+                            <div>cost_ads: R$ {r.costBrl.toFixed(2)} (BRL)</div>
+                            <div>utm_match: {r.matchedUtm ?? "—"} ({r.revenueSource})</div>
+                            <div>rev_usd: ${r.revenueUsd.toFixed(4)} → net ${r.revenueUsdNet.toFixed(4)}</div>
+                            <div>fx: {fxUsdBrl} → rev_brl: R$ {r.revenueBrl.toFixed(2)}</div>
+                            <div>roi: {r.roi.toFixed(2)}%</div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -603,7 +641,7 @@ function RankingCard({ title, rows, variant, hasRevenue }: { title: string; rows
               hasRevenue ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground",
             )}>
               <Icon className="h-3 w-3" />
-              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtUSD(r.cost)} gasto`}
+              {hasRevenue ? `${r.roi.toFixed(1)}%` : `${fmtBRL(r.costBrl)} gasto`}
             </span>
           </li>
         ))}
