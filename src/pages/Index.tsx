@@ -338,7 +338,7 @@ const IndexInner = () => {
                 hint={
                   totals.revenue === 0
                     ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
-                    : "USD nativo"
+                    : `Google + Push + Outras · push ${fmtUSD(extraPushUsd * NET_FACTOR)} · outras ${fmtUSD(extraOtherUsd * NET_FACTOR)}`
                 }
               />
               <MetricCard
