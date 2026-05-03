@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
         body: JSON.stringify({
-          mode: "notify",
+          mode: "apply",
           user_id: u.user_id,
           min_days: u.placement_cleanup_min_days,
           max_roi_pct: u.placement_cleanup_max_roi_pct,
