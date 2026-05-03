@@ -78,19 +78,30 @@ Deno.serve(async (req) => {
     for (const c of camps ?? []) campMap.set(String(c.campaign_id), { name: c.name, google_account_id: c.google_account_id, status: c.status });
 
     // ads_placements (custo + cliques + conversões + datas)
+    // Primeiro tenta buscar direto do Google Ads, igual a aba de Placements.
+    // Se a API não retornar nada, usa o snapshot salvo como fallback.
     type AdsRow = { campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string };
-    const ads: AdsRow[] = [];
-    let s = 0;
-    for (;;) {
-      const { data, error } = await admin.from("ads_placements")
-        .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
-        .eq("user_id", userId).gte("date", from).lte("date", to)
-        .range(s, s + 999);
-      if (error) return json({ error: error.message });
-      const rows = (data ?? []) as AdsRow[];
-      ads.push(...rows);
-      if (rows.length < 1000) break;
-      s += 1000;
+    let ads: AdsRow[] = [];
+    const campIds = [...campMap.keys()];
+    const live = await fetchLiveAdsPlacements(admin, userId, campIds, campMap, from, to).catch((e) => {
+      console.error("[placements-evaluate] live ads fallback", e);
+      return [] as AdsRow[];
+    });
+    if (live.length > 0) {
+      ads = live;
+    } else {
+      let s = 0;
+      for (;;) {
+        const { data, error } = await admin.from("ads_placements")
+          .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
+          .eq("user_id", userId).gte("date", from).lte("date", to)
+          .range(s, s + 999);
+        if (error) return json({ error: error.message });
+        const rows = (data ?? []) as AdsRow[];
+        ads.push(...rows);
+        if (rows.length < 1000) break;
+        s += 1000;
+      }
     }
 
     // gam_placement_revenue
@@ -109,12 +120,14 @@ Deno.serve(async (req) => {
       s += 1000;
     }
 
-    const revByKey = new Map<string, number>();
+    const revByCampaign = new Map<string, Map<string, number>>();
     for (const g of gam) {
       const placement = normalize(g.placement);
       if (!placement) continue;
-      const key = cpKey(String(g.campaign_id), placement);
-      revByKey.set(key, (revByKey.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cid = String(g.campaign_id);
+      const inner = revByCampaign.get(cid) ?? new Map<string, number>();
+      inner.set(placement, (inner.get(placement) ?? 0) + Number(g.revenue_usd ?? 0));
+      revByCampaign.set(cid, inner);
     }
 
     interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
@@ -139,7 +152,7 @@ Deno.serve(async (req) => {
 
     // Carrega status atuais
     const { data: existing } = await admin.from("placement_status")
-      .select("id, campaign_id, placement, status, manual_override, prev_roi_pct, roi_pct, first_seen_at")
+      .select("id, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
       .eq("user_id", userId);
     const existMap = new Map<string, any>();
     for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
