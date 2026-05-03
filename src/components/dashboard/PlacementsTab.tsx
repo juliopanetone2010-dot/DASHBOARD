@@ -322,7 +322,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         </div>
       </div>
 
-      {!campaignId && (
+      {/* Aplicar UTM em todas as campanhas */}
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[260px]">
+          <div className="text-sm font-semibold">UTMs nas campanhas</div>
+          <div className="text-xs text-muted-foreground">
+            Aplica <code className="bg-muted px-1 rounded">utm_placement={'{campaignid}_{placement}'}</code> no Final URL Suffix de todas as campanhas {accountIds.length ? "da conta filtrada" : "de todas as contas"}. Necessário para casar receita do GAM por placement.
+          </div>
+        </div>
+        <Button onClick={applyUtmAll} disabled={applyingUtm} variant="default">
+          {applyingUtm ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+          Aplicar UTM {accountIds.length ? "(conta filtrada)" : "em todas"}
+        </Button>
+      </div>
+
         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
           Selecione uma campanha para carregar os placements.
         </div>
