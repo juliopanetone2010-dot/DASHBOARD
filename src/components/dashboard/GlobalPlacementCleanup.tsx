@@ -141,7 +141,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setItems(list);
       setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
-      setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map(itemKey)));
+      setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
       // persiste filtros
