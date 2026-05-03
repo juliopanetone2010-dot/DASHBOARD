@@ -17,7 +17,7 @@ import { RoiChart } from "@/components/dashboard/RoiChart";
 import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
-import { FilterBar, EMPTY_FILTERS, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { FilterBar, EMPTY_FILTERS, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { supabase } from "@/integrations/supabase/client";
