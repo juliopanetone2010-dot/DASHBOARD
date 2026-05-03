@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
       revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
 
-    interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; }
+    interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; app_id: string | null; }
     const cpAgg = new Map<string, CampPl>();
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
@@ -154,13 +154,14 @@ Deno.serve(async (req) => {
       const k = cpKey(r.campaign_id, placement);
       let c = cpAgg.get(k);
       if (!c) {
-        c = { campaign_id: r.campaign_id, placement, cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—" };
+        c = { campaign_id: r.campaign_id, placement, cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—", app_id: r.app_id };
         cpAgg.set(k, c);
       }
       c.cost += Number(r.cost) || 0;
       c.clicks += Number(r.clicks) || 0;
       c.impressions += Number(r.impressions) || 0;
       if (r.placement_type) c.type = r.placement_type;
+      if (!c.app_id && r.app_id) c.app_id = r.app_id;
     }
 
     const items = [];
