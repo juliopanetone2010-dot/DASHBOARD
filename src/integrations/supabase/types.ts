@@ -331,6 +331,42 @@ export type Database = {
         }
         Relationships: []
       }
+      gam_campaign_source_revenue: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          date: string
+          id: string
+          impressions: number
+          revenue_usd: number
+          site_id: string | null
+          user_id: string
+          utm_source: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          date: string
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          user_id: string
+          utm_source: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          date?: string
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          user_id?: string
+          utm_source?: string
+        }
+        Relationships: []
+      }
       gam_placement_revenue: {
         Row: {
           campaign_id: string

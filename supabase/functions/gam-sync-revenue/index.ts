@@ -93,17 +93,20 @@ Deno.serve(async (req) => {
         const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
         const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
         let googleUtmRows: ReportRow[] = [];
+        const allUtmRows: ReportRow[] = [];
         let customCriteriaAvailable = false;
+        const sourceCounts: Record<string, number> = {};
         try {
           const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
             .flat()
           customCriteriaAvailable = true;
-          googleUtmRows = customCriteriaRows.filter((r) => parseGamAttribution(r.name)?.source === "google");
-          const otherUtmRows = customCriteriaRows.filter((r) => {
+          for (const r of customCriteriaRows) {
             const parsed = parseGamAttribution(r.name);
-            return parsed?.source && parsed.source !== "google";
-          }).length;
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] utm_source=google rows=${googleUtmRows.length}; outras origens UTM ignoradas=${otherUtmRows}`);
+            if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
+            if (parsed?.cid) allUtmRows.push(r);
+            if (parsed?.source === "google") googleUtmRows.push(r);
+          }
+          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
         } catch (e) {
           debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
@@ -150,6 +153,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
+          await persistCampaignSourceRevenue(admin, userId, networkSites[0]?.id, allUtmRows, debug, expandFixedDates(ranges));
           await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
         }
 
@@ -160,7 +164,8 @@ Deno.serve(async (req) => {
           placement_rows: placementRows.length,
           custom_criteria_rows: googleUtmRows.length,
           custom_criteria_available: customCriteriaAvailable,
-          attribution_rule: "utm_source=google only",
+          utm_sources_breakdown: sourceCounts,
+          attribution_rule: "google→ROI/ROAS; demais origens→retenção",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
@@ -272,25 +277,32 @@ function dateObj(iso: string) {
 // Extrai (utm_source, campaign_id, placement) do nome/key-value do GAM.
 // Padrão Google: utm_source=google + utm_placement={campaignid}_{placement}
 // Exemplo: "23389421643_afrisearch.com" → { cid: "23389421643", placement: "afrisearch.com" }
-function extractCampaignIdFromName(name: string): string | null {
-  return parseGamPlacementName(name)?.cid ?? null;
-}
+// (parseGamAttribution abaixo cobre extração de cid/placement/source)
 
-function parseGamPlacementName(name: string): { cid: string; placement: string } | null {
-  const parsed = parseGamAttribution(name);
-  return parsed ? { cid: parsed.cid, placement: parsed.placement } : null;
-}
-
-function parseGamAttribution(name: string): { source: string | null; cid: string; placement: string } | null {
+function parseGamAttribution(name: string): { source: string | null; cid: string | null; placement: string | null } | null {
   if (!name) return null;
   const decoded = safeDecode(String(name).trim());
   const sourceMatch = decoded.match(/(?:^|[\s,;&|])utm_source[=~:]*([^\s,;&|]+)/i);
   const source = sourceMatch?.[1]?.toLowerCase() ?? null;
+  // Preferência 1: utm_campaign={campaignid} — match direto independente de placement
+  const campaignMatch = decoded.match(/(?:^|[\s,;&|])utm_campaign[=~:]*([^\s,;&|]+)/i);
+  let cid: string | null = null;
+  let placement: string | null = null;
+  if (campaignMatch && /^\d{6,}$/.test(campaignMatch[1])) {
+    cid = campaignMatch[1];
+  }
+  // Preferência 2: utm_placement={cid}_{placement} (formato granular)
   const utm = decoded.match(/(?:^|[\s,;&|])utm_placement[=~:]*([^\s,;&|]+)/i);
-  const candidate = utm?.[1] ?? decoded;
-  const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
-  if (!m) return null;
-  return { source, cid: m[1], placement: normalizePlacement(m[2]) };
+  const candidate = utm?.[1] ?? (cid ? null : decoded);
+  if (candidate) {
+    const m = candidate.match(/(\d{6,})[_\-:](.+)$/);
+    if (m) {
+      cid = cid ?? m[1];
+      placement = normalizePlacement(m[2]);
+    }
+  }
+  if (!cid && !source) return null;
+  return { source, cid, placement };
 }
 
 function parseUtmSource(name: string): string | null {
@@ -316,6 +328,46 @@ function normalizePlacement(s: string): string {
   }
 }
 
+// Persiste receita por (campanha, source, data) — separa Google de Push/outros para LTV/Retenção.
+async function persistCampaignSourceRevenue(
+  admin: any,
+  userId: string,
+  siteId: string | undefined,
+  rows: ReportRow[],
+  debug: string[],
+  syncDates: string[] = [],
+) {
+  if (!siteId) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number }>();
+  for (const r of rows) {
+    const parsed = parseGamAttribution(r.name);
+    if (!parsed?.cid) continue;
+    const source = (parsed.source ?? "unknown").toLowerCase();
+    const date = r.date ?? today;
+    const key = `${parsed.cid}|${date}|${source}`;
+    const cur = buckets.get(key) ?? {
+      user_id: userId, site_id: siteId, campaign_id: parsed.cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+    };
+    cur.revenue_usd += r.revenue; cur.impressions += r.impressions;
+    buckets.set(key, cur);
+  }
+  const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
+  if (dates.length === 0) return;
+  await admin.from("gam_campaign_source_revenue")
+    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  const arr = [...buckets.values()];
+  const CHUNK = 500;
+  for (let i = 0; i < arr.length; i += CHUNK) {
+    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+  }
+  const sources = arr.reduce((acc: Record<string, number>, b) => {
+    acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd;
+    return acc;
+  }, {});
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s); receita por source=${JSON.stringify(sources)}`);
+}
+
 async function distributeGamRevenueToCampaigns(
   admin: any,
   userId: string,
@@ -337,7 +389,7 @@ async function distributeGamRevenueToCampaigns(
   for (const r of rows) {
     const date = r.date ?? today;
     const parsed = parseGamAttribution(r.name);
-    if (parsed && parsed.source === "google") {
+    if (parsed && parsed.source === "google" && parsed.cid) {
       const cid = parsed.cid;
       if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
       const inner = directByDateCid.get(date)!;
@@ -345,17 +397,20 @@ async function distributeGamRevenueToCampaigns(
       cur.revenue += r.revenue; cur.impressions += r.impressions;
       inner.set(cid, cur);
 
-      const key = `${cid}|${parsed.placement}|${date}`;
-      const pb = placementBuckets.get(key) ?? {
-        user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
-        date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
-      };
-      pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
-      placementBuckets.set(key, pb);
+      // Só registra placement granular quando temos utm_placement (parsed.placement não-nulo)
+      if (parsed.placement) {
+        const key = `${cid}|${parsed.placement}|${date}`;
+        const pb = placementBuckets.get(key) ?? {
+          user_id: userId, site_id: siteId, campaign_id: cid, placement: parsed.placement,
+          date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: parsed.source ?? "google", raw_utm: safeDecode(r.name).slice(0, 500),
+        };
+        pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+        placementBuckets.set(key, pb);
+      }
     } else {
       const source = parseUtmSource(r.name);
       if (source) {
-        debug.push(`[utm ignored] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
+        debug.push(`[utm ignored para ROI Ads] source=${source} name=${safeDecode(r.name).slice(0, 120)}`);
       }
     }
   }
