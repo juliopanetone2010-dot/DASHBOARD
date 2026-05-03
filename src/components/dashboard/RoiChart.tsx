@@ -9,6 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import type { DailyMetric } from "@/types/domain";
+import { REV_SHARE_PCT } from "@/engine/rules";
 
 interface Props {
   metrics: DailyMetric[];
@@ -16,20 +17,26 @@ interface Props {
 
 export function RoiChart({ metrics }: Props) {
   const data = useMemo(() => {
-    const byDate = new Map<string, { spend: number; revenue: number }>();
+    // m.spend = BRL, m.profit = BRL bruto (rev_brl - spend_brl). Aplicamos rev share aqui
+    // para manter consistência com a agregação por campanha (mesma fonte da verdade).
+    const byDate = new Map<string, { spend: number; grossProfitBrl: number }>();
     for (const m of metrics) {
-      const cur = byDate.get(m.date) ?? { spend: 0, revenue: 0 };
+      const cur = byDate.get(m.date) ?? { spend: 0, grossProfitBrl: 0 };
       cur.spend += Number(m.spend);
-      cur.revenue += Number(m.revenue);
+      cur.grossProfitBrl += Number(m.profit);
       byDate.set(m.date, cur);
     }
     return [...byDate.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, v]) => ({
-        date: date.slice(5),
-        roi: v.spend > 0 ? ((v.revenue - v.spend) / v.spend) * 100 : 0,
-        profit: v.revenue - v.spend,
-      }));
+      .map(([date, v]) => {
+        const grossRevBrl = v.grossProfitBrl + v.spend;
+        const netProfit = v.grossProfitBrl - grossRevBrl * REV_SHARE_PCT;
+        return {
+          date: date.slice(5),
+          roi: v.spend > 0 ? (netProfit / v.spend) * 100 : 0,
+          profit: netProfit,
+        };
+      });
   }, [metrics]);
 
   return (
