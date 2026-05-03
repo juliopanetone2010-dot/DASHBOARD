@@ -63,11 +63,13 @@ interface Props {
 const PAGE_SIZE = 100;
 
 export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Props) {
+  const { range, version, presetKey, filters: globalFilters } = useDashboardFilters();
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [lastAutoSelectedAccount, setLastAutoSelectedAccount] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
+  // Local preset is just a label for display; the actual range comes from the global filter.
+  const [preset, setPreset] = useState<DatePresetKey>(presetKey ?? "last_7_days");
   const [rows, setRows] = useState<AdsPlacementRow[]>([]);
   const [gamRows, setGamRows] = useState<GamRevRow[]>([]);
   const [campaignMetricRows, setCampaignMetricRows] = useState<CampaignMetricRow[]>([]);
@@ -78,6 +80,16 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
   const [showDebug, setShowDebug] = useState(false);
   const [applyingUtm, setApplyingUtm] = useState(false);
+
+  // Sincroniza com o filtro global de contas
+  useEffect(() => {
+    setAccountIds(globalFilters.googleAccountIds);
+  }, [globalFilters.googleAccountIds]);
+
+  // Mantém o preset visual em sincronia com o filtro global
+  useEffect(() => {
+    if (presetKey) setPreset(presetKey);
+  }, [presetKey]);
 
   const applyUtmAll = async () => {
     if (!confirm("Aplicar UTM padrão (utm_placement={campaignid}_{placement}) no Final URL Suffix de TODAS as campanhas?\n\nIsso é necessário para que o GAM consiga associar receita por placement.")) return;
