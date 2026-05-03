@@ -1,29 +1,43 @@
 // Limpeza global de placements ruins.
-// Modos:
-//  - preview: lista TODOS placements ruins (com debug por linha)
-//  - apply:   adiciona negative placements em cada campanha (apenas WEBSITE)
-//  - notify:  cria alerta com resumo (cron diário)
-//
-// Regras de "ruim":
-//  - campanha ENABLED, com >= min_days dias rodando
-//  - filtro: cost_brl >= min_cost_brl OU clicks >= min_clicks
-//  - ROI <= max_roi_pct (default -10%) — placements sem match UTM contam como ROI -100%
-//  - SEM LIMIT, retorna todos
-//
-// Match UTM:
-//  utm_placement = "{campaignid}_{placement}"
-//  já vem parseado no GAM em (campaign_id, placement) — fazemos JOIN exato e por raiz.
+// Preview calcula placements ao vivo no Google Ads para o período completo, agrupando por campanha + placement.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const REV_SHARE_PCT = 0.32;
 const NET_FACTOR = 1 - REV_SHARE_PCT;
+const KEY_SEP = "\u0001";
+
+interface ApplyCampaign {
+  campaign_id: string;
+  google_account_id: string;
+  cost_brl?: number;
+  revenue_usd?: number;
+  roi_pct?: number;
+}
 
 interface ApplyItem {
+  key?: string;
   placement: string;
   type: string;
-  campaigns: { campaign_id: string; google_account_id: string }[];
+  cost_brl?: number;
+  revenue_brl?: number;
+  revenue_usd?: number;
+  roi_pct?: number;
+  reason?: string;
+  campaigns: ApplyCampaign[];
 }
+
+type CampMeta = { name: string; google_account_id: string };
+type LiveAdsRow = {
+  google_account_id: string;
+  campaign_id: string;
+  placement: string;
+  placement_clean: string | null;
+  placement_type: string | null;
+  cost: number;
+  clicks: number;
+  impressions: number;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -31,13 +45,12 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const isService = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "___");
     const body = await req.json().catch(() => ({}));
-    const mode: "preview" | "apply" | "notify" = (body?.mode ?? "preview");
-    const minDays = Number(body?.min_days ?? 15);
-    const minCostBrl = Number(body?.min_cost_brl ?? 20);
-    const minClicks = Number(body?.min_clicks ?? 20);
+    const mode: "preview" | "apply" | "notify" = body?.mode ?? "preview";
+    const minDays = Math.max(1, Number(body?.min_days ?? 15));
+    const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 20));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
-    const lookbackDays = Number(body?.lookback_days ?? 15);
+    const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const targetUserId: string | undefined = body?.user_id;
 
     const admin = createClient(
@@ -60,67 +73,46 @@ Deno.serve(async (req) => {
     }
 
     const today = new Date();
-    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
+    const fromDate = new Date(today.getTime() - (lookbackDays - 1) * 86400_000);
     const cutoffDate = new Date(today.getTime() - minDays * 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate);
     const to = iso(today);
     const cutoff = iso(cutoffDate);
 
-    // 1) Campanhas ENABLED
     const { data: camps, error: cErr } = await admin
       .from("campaigns")
       .select("campaign_id, name, status, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
     if (cErr) return json({ error: cErr.message });
-    const campMap = new Map<string, { name: string; google_account_id: string }>();
+
+    const campMap = new Map<string, CampMeta>();
     for (const c of camps ?? []) {
-      if (c.google_account_id) campMap.set(c.campaign_id, { name: c.name, google_account_id: c.google_account_id });
+      if (c.google_account_id) campMap.set(String(c.campaign_id), { name: c.name, google_account_id: c.google_account_id });
     }
     const campIds = [...campMap.keys()];
     if (campIds.length === 0) return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } } });
 
-    // 2) Filtra por dias rodando: min(date) <= cutoff
     const eligible = new Set<string>();
     for (const chunk of chunkArr(campIds, 200)) {
-      const { data } = await admin
+      const { data, error } = await admin
         .from("daily_metrics")
         .select("campaign_id, date")
         .eq("user_id", userId)
         .in("campaign_id", chunk)
         .lte("date", cutoff)
         .limit(50000);
-      for (const r of data ?? []) eligible.add(r.campaign_id);
+      if (error) return json({ error: error.message });
+      for (const r of data ?? []) eligible.add(String(r.campaign_id));
     }
     if (eligible.size === 0) {
       return json({ ok: true, items: [], stats: { eligible: 0, total: campIds.length, period: { from, to } } });
     }
     const eligibleIds = [...eligible];
 
-    // 3) ads_placements no período (paginado)
-    type AdsRow = { campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number };
-    const ads: AdsRow[] = [];
-    for (const chunk of chunkArr(eligibleIds, 50)) {
-      let start = 0;
-      for (;;) {
-        const { data, error } = await admin
-          .from("ads_placements")
-          .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions")
-          .eq("user_id", userId)
-          .in("campaign_id", chunk)
-          .gte("date", from)
-          .lte("date", to)
-          .range(start, start + 999);
-        if (error) return json({ error: error.message });
-        const rows = (data ?? []) as AdsRow[];
-        ads.push(...rows);
-        if (rows.length < 1000) break;
-        start += 1000;
-      }
-    }
+    const ads = await fetchLiveAdsPlacements(admin, userId, eligibleIds, campMap, from, to);
 
-    // 4) gam_placement_revenue no período (utm_source=google)
     type GamRow = { campaign_id: string; placement: string; revenue_usd: number };
     const gam: GamRow[] = [];
     for (const chunk of chunkArr(eligibleIds, 50)) {
@@ -130,7 +122,6 @@ Deno.serve(async (req) => {
           .from("gam_placement_revenue")
           .select("campaign_id, placement, revenue_usd")
           .eq("user_id", userId)
-          .eq("utm_source", "google")
           .in("campaign_id", chunk)
           .gte("date", from)
           .lte("date", to)
@@ -143,110 +134,80 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Receita SOMADA por (campaign_id, placement_normalized) — uma única vez
     const revByCampPlacement = new Map<string, number>();
     for (const g of gam) {
-      const key = `${g.campaign_id}|${normalize(g.placement)}`;
+      const placement = normalize(g.placement);
+      if (!placement) continue;
+      const key = cpKey(String(g.campaign_id), placement);
       revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
 
-    // 5) Agrega CUSTO por (campaign_id, placement_clean) — uma única vez por dia,
-    //    depois soma a receita CORRESPONDENTE também uma única vez.
-    interface CampPl { cost: number; clicks: number; impressions: number; type: string; }
-    // costByCampPlacement: campaign_id|placement -> custo agregado
-    const cpKey = (cid: string, pl: string) => `${cid}|${pl}`;
+    interface CampPl { campaign_id: string; placement: string; cost: number; clicks: number; impressions: number; type: string; }
     const cpAgg = new Map<string, CampPl>();
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
       if (!placement) continue;
       const k = cpKey(r.campaign_id, placement);
       let c = cpAgg.get(k);
-      if (!c) { c = { cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—" }; cpAgg.set(k, c); }
+      if (!c) {
+        c = { campaign_id: r.campaign_id, placement, cost: 0, clicks: 0, impressions: 0, type: r.placement_type ?? "—" };
+        cpAgg.set(k, c);
+      }
       c.cost += Number(r.cost) || 0;
       c.clicks += Number(r.clicks) || 0;
       c.impressions += Number(r.impressions) || 0;
+      if (r.placement_type) c.type = r.placement_type;
     }
 
-    // Agrega GLOBAL por placement (somando sobre campanhas)
-    interface Agg {
-      placement: string;
-      type: string;
-      costBrl: number;
-      clicks: number;
-      impressions: number;
-      revenueUsd: number;
-      hadAnyMatch: boolean;
-      campaigns: Map<string, { campaign_id: string; name: string; google_account_id: string; cost: number; revenue_usd: number; matched: boolean }>;
-    }
-    const aggMap = new Map<string, Agg>();
-
-    for (const [k, v] of cpAgg) {
-      const [cid, placement] = k.split("|");
-      const meta = campMap.get(cid);
-      if (!meta) continue;
-
-      // receita: tenta match exato (cid, placement) e raiz
-      const root = rootDomain(placement);
-      const usdFull = revByCampPlacement.get(cpKey(cid, placement)) ?? 0;
-      const usdRoot = root && root !== placement ? (revByCampPlacement.get(cpKey(cid, root)) ?? 0) : 0;
-      const usd = usdFull > 0 ? usdFull : usdRoot;
-
-      let a = aggMap.get(placement);
-      if (!a) {
-        a = { placement, type: v.type, costBrl: 0, clicks: 0, impressions: 0, revenueUsd: 0, hadAnyMatch: false, campaigns: new Map() };
-        aggMap.set(placement, a);
-      }
-      a.costBrl += v.cost;
-      a.clicks += v.clicks;
-      a.impressions += v.impressions;
-      a.revenueUsd += usd;
-      if (usd > 0) a.hadAnyMatch = true;
-      a.campaigns.set(cid, {
-        campaign_id: cid, name: meta.name, google_account_id: meta.google_account_id,
-        cost: v.cost, revenue_usd: usd, matched: usd > 0,
-      });
-    }
-
-    // 6) Filtra e calcula ROI (sem LIMIT)
     const items = [];
     let skippedSafety = 0;
-    for (const a of aggMap.values()) {
-      // OBRIGATÓRIO: gastou pelo menos min_cost_brl no período (15 dias) — sem OR clicks
-      if (a.costBrl < minCostBrl) { skippedSafety++; continue; }
-      const revenueBrl = a.revenueUsd * NET_FACTOR * fxUsdBrl;
-      const profitBrl = revenueBrl - a.costBrl;
-      // Sem match: ROI = -100% (pior caso, conta como ruim)
-      const roi = a.costBrl > 0 ? (profitBrl / a.costBrl) * 100 : 0;
+    for (const v of cpAgg.values()) {
+      const meta = campMap.get(v.campaign_id);
+      if (!meta) continue;
+      if (v.cost < minCostBrl) { skippedSafety++; continue; }
+
+      const root = rootDomain(v.placement);
+      const usdFull = revByCampPlacement.get(cpKey(v.campaign_id, v.placement)) ?? 0;
+      const usdRoot = root && root !== v.placement ? (revByCampPlacement.get(cpKey(v.campaign_id, root)) ?? 0) : 0;
+      const revenueUsd = usdFull > 0 ? usdFull : usdRoot;
+      const matched = revenueUsd > 0;
+      const revenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
+      const profitBrl = revenueBrl - v.cost;
+      const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
       if (roi > maxRoiPct) continue;
-      const reason = !a.hadAnyMatch
-        ? "sem_match_utm"
-        : (roi <= -50 ? "roi_critico" : "roi_baixo");
+
+      const reason = !matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo");
+      const itemKey = `${v.campaign_id}|${v.placement}`;
       items.push({
-        placement: a.placement,
-        type: a.type,
-        cost_brl: round(a.costBrl),
+        key: itemKey,
+        placement: v.placement,
+        type: v.type,
+        cost_brl: round(v.cost),
         revenue_brl: round(revenueBrl),
-        revenue_usd: round(a.revenueUsd),
+        revenue_usd: round(revenueUsd),
         profit_brl: round(profitBrl),
         roi_pct: round(roi),
-        clicks: a.clicks,
-        impressions: a.impressions,
-        match_utm: a.hadAnyMatch,
+        clicks: v.clicks,
+        impressions: v.impressions,
+        match_utm: matched,
         reason,
-        campaigns: [...a.campaigns.values()].map((c) => ({
-          campaign_id: c.campaign_id, name: c.name, google_account_id: c.google_account_id,
-          cost_brl: round(c.cost), revenue_usd: round(c.revenue_usd), matched_utm: c.matched,
-        })),
+        campaigns: [{
+          campaign_id: v.campaign_id,
+          name: meta.name,
+          google_account_id: meta.google_account_id,
+          cost_brl: round(v.cost),
+          revenue_usd: round(revenueUsd),
+          matched_utm: matched,
+          roi_pct: round(roi),
+        }],
       });
     }
-    items.sort((x, y) => x.roi_pct - y.roi_pct);
+    items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
-    // 7) Totais REAIS por campanha (custo + receita) no período via daily_metrics
-    //    daily_metrics.spend já está em BRL; revenue está em USD (líquido USD será convertido)
     type CampTotal = { campaign_id: string; name: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number };
     const totalsMap = new Map<string, CampTotal>();
     for (const chunk of chunkArr(eligibleIds, 200)) {
-      const { data } = await admin
+      const { data, error } = await admin
         .from("daily_metrics")
         .select("campaign_id, spend, revenue")
         .eq("user_id", userId)
@@ -254,18 +215,22 @@ Deno.serve(async (req) => {
         .gte("date", from)
         .lte("date", to)
         .limit(50000);
+      if (error) return json({ error: error.message });
       for (const r of data ?? []) {
-        const meta = campMap.get(r.campaign_id);
+        const meta = campMap.get(String(r.campaign_id));
         if (!meta) continue;
-        let t = totalsMap.get(r.campaign_id);
+        let t = totalsMap.get(String(r.campaign_id));
         if (!t) {
-          t = { campaign_id: r.campaign_id, name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 };
-          totalsMap.set(r.campaign_id, t);
+          t = { campaign_id: String(r.campaign_id), name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 };
+          totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
-        // revenue da daily_metrics está em USD bruto — converte para BRL líquido
         t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
+    }
+    for (const id of eligibleIds) {
+      const meta = campMap.get(id);
+      if (meta && !totalsMap.has(id)) totalsMap.set(id, { campaign_id: id, name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 });
     }
     for (const t of totalsMap.values()) {
       t.profit_brl = t.revenue_brl - t.cost_brl;
@@ -276,11 +241,11 @@ Deno.serve(async (req) => {
       t.roi_pct = round(t.roi_pct);
     }
     for (const it of items) {
-      for (const c of it.campaigns) {
-        const t = totalsMap.get(c.campaign_id);
-        if (t) t.bad_count++;
-      }
+      const cid = it.campaigns[0]?.campaign_id;
+      const t = cid ? totalsMap.get(cid) : null;
+      if (t) t.bad_count++;
     }
+
     const campaign_totals = [...totalsMap.values()];
     const grand_cost_brl = round(campaign_totals.reduce((a, c) => a + c.cost_brl, 0));
     const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
@@ -290,13 +255,16 @@ Deno.serve(async (req) => {
       eligible: eligibleIds.length,
       total: campIds.length,
       bad: items.length,
-      grouped: aggMap.size,
+      grouped: cpAgg.size,
       skipped_safety: skippedSafety,
       ads_rows: ads.length,
       gam_rows: gam.length,
       period: { from, to },
-      thresholds: { min_days: minDays, min_cost_brl: minCostBrl, min_clicks: minClicks, max_roi_pct: maxRoiPct },
-      grand_cost_brl, grand_revenue_brl, grand_profit_brl,
+      source: "google_ads_api_live",
+      thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
+      grand_cost_brl,
+      grand_revenue_brl,
+      grand_profit_brl,
     };
 
     if (mode === "preview") return json({ ok: true, items, stats, campaign_totals });
@@ -308,7 +276,7 @@ Deno.serve(async (req) => {
           severity: "warning",
           category: "placement_cleanup",
           title: `${items.length} placements ruins detectados`,
-          message: `Auto-revisão diária: ${items.length} placements com ROI <= ${maxRoiPct}% em ${eligibleIds.length} campanhas.`,
+          message: `Auto-revisão 15d: ${items.length} placements com ROI <= ${maxRoiPct}% em ${eligibleIds.length} campanhas.`,
           metric_snapshot: { items: items.slice(0, 100), stats },
         });
       }
@@ -317,21 +285,34 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "apply") {
-      const selected: ApplyItem[] = (body?.items ?? items.map((i) => ({
-        placement: i.placement, type: i.type,
-        campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
-      }))) as ApplyItem[];
-
-      // log de segurança ANTES de aplicar
-      const logs = items
-        .filter((i) => selected.some((s) => s.placement === i.placement))
-        .flatMap((i) => i.campaigns.map((c) => ({
-          user_id: userId,
-          campaign_id: c.campaign_id,
+      const selected: ApplyItem[] = Array.isArray(body?.items) && body.items.length
+        ? body.items as ApplyItem[]
+        : items.map((i) => ({
+          key: i.key,
           placement: i.placement,
-          action: "blacklist_preview",
-          note: `roi=${i.roi_pct}% cost=${i.cost_brl} rev=${i.revenue_brl} reason=${i.reason}`,
-        })));
+          type: i.type,
+          cost_brl: i.cost_brl,
+          revenue_brl: i.revenue_brl,
+          revenue_usd: i.revenue_usd,
+          roi_pct: i.roi_pct,
+          reason: i.reason,
+          campaigns: i.campaigns.map((c) => ({
+            campaign_id: c.campaign_id,
+            google_account_id: c.google_account_id,
+            cost_brl: c.cost_brl,
+            revenue_usd: c.revenue_usd,
+            roi_pct: c.roi_pct,
+          })),
+        }));
+
+      const now = new Date().toISOString();
+      const logs = selected.flatMap((i) => i.campaigns.map((c) => ({
+        user_id: userId,
+        campaign_id: c.campaign_id,
+        placement: i.placement,
+        action: "blacklist_preview",
+        note: `date=${now} roi=${i.roi_pct ?? c.roi_pct ?? "n/a"}% cost=${i.cost_brl ?? c.cost_brl ?? "n/a"} revenue=${i.revenue_brl ?? i.revenue_usd ?? "n/a"} reason=${i.reason ?? "selected"}`,
+      })));
       if (logs.length) await admin.from("placement_actions").insert(logs);
 
       const result = await applyNegativePlacements(admin, userId, selected);
@@ -344,6 +325,124 @@ Deno.serve(async (req) => {
     return json({ error: String(e instanceof Error ? e.message : e) });
   }
 });
+
+async function fetchLiveAdsPlacements(
+  admin: any,
+  userId: string,
+  eligibleIds: string[],
+  campMap: Map<string, CampMeta>,
+  from: string,
+  to: string,
+): Promise<LiveAdsRow[]> {
+  const byAccount = new Map<string, string[]>();
+  for (const cid of eligibleIds) {
+    const accId = campMap.get(cid)?.google_account_id;
+    if (!accId) continue;
+    const arr = byAccount.get(accId) ?? [];
+    arr.push(cid);
+    byAccount.set(accId, arr);
+  }
+
+  const { data: accs, error } = await admin
+    .from("google_accounts")
+    .select("id, customer_id, refresh_token, login_customer_id")
+    .eq("user_id", userId)
+    .in("id", [...byAccount.keys()]);
+  if (error) throw new Error(error.message);
+
+  const accMap = new Map<string, any>();
+  for (const a of accs ?? []) accMap.set(a.id, a);
+
+  const tokenCache = new Map<string, string>();
+  const out: LiveAdsRow[] = [];
+
+  for (const [accountId, campaignIds] of byAccount) {
+    const acc = accMap.get(accountId);
+    if (!acc?.refresh_token || !acc?.customer_id) continue;
+    const token = await getGoogleToken(acc.refresh_token, tokenCache);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "Content-Type": "application/json",
+    };
+    if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+
+    for (const chunk of chunkArr(campaignIds, 50)) {
+      const idList = chunk.map((id) => String(id).replace(/\D/g, "")).filter(Boolean).join(",");
+      if (!idList) continue;
+      const query = `
+        SELECT
+          detail_placement_view.placement,
+          detail_placement_view.display_name,
+          detail_placement_view.target_url,
+          detail_placement_view.placement_type,
+          detail_placement_view.group_placement_target_url,
+          campaign.id,
+          campaign.name,
+          metrics.clicks,
+          metrics.impressions,
+          metrics.cost_micros,
+          segments.date
+        FROM detail_placement_view
+        WHERE segments.date BETWEEN '${from}' AND '${to}'
+          AND campaign.id IN (${idList})
+      `;
+
+      let pageToken: string | undefined;
+      do {
+        const res = await fetch(
+          `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+          { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          console.error("[placements-cleanup] live GAQL error", JSON.stringify(data));
+          throw new Error(data?.error?.message ?? "Erro ao buscar placements no Google Ads");
+        }
+        for (const r of data.results ?? []) {
+          const placementRaw = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
+          const targetUrl = r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null;
+          const type = r.detailPlacementView?.placementType ?? null;
+          out.push({
+            google_account_id: accountId,
+            campaign_id: String(r.campaign?.id ?? ""),
+            placement: placementRaw,
+            placement_clean: cleanPlacement(placementRaw, targetUrl, type),
+            placement_type: type,
+            cost: Number(r.metrics?.costMicros ?? 0) / 1_000_000,
+            clicks: Number(r.metrics?.clicks ?? 0),
+            impressions: Number(r.metrics?.impressions ?? 0),
+          });
+        }
+        pageToken = data.nextPageToken || undefined;
+      } while (pageToken);
+    }
+  }
+
+  return out;
+}
+
+async function getGoogleToken(refreshToken: string, cache: Map<string, string>) {
+  if (cache.has(refreshToken)) return cache.get(refreshToken)!;
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
+      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
+  cache.set(refreshToken, j.access_token);
+  return j.access_token as string;
+}
+
+function cpKey(cid: string, placement: string) {
+  return `${cid}${KEY_SEP}${placement}`;
+}
 
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -368,6 +467,16 @@ function normalize(value: string, type?: string | null): string {
   }
 }
 
+function cleanPlacement(placement: string, targetUrl: string | null, type?: string | null): string {
+  const candidate = (placement || targetUrl || "").trim();
+  if (!candidate) return "";
+  const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
+  if (appMatch) return appMatch[1].toLowerCase();
+  const numericAppMatch = candidate.match(/^\d+-(.+)$/i);
+  if (numericAppMatch) return numericAppMatch[1].toLowerCase();
+  return normalize(candidate, type);
+}
+
 function rootDomain(host: string): string {
   if (!host || host.includes("/") || !host.includes(".")) return host;
   const parts = host.split(".");
@@ -382,15 +491,14 @@ function round(n: number) { return Math.round(n * 100) / 100; }
 
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {
-    status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
 async function applyNegativePlacements(admin: any, userId: string, items: ApplyItem[]) {
-  const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
   const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
-  const accountIds = [...new Set(items.flatMap((i) => i.campaigns.map((c) => c.google_account_id)))];
+  const accountIds = [...new Set(items.flatMap((i) => i.campaigns.map((c) => c.google_account_id)).filter(Boolean))];
   const { data: accs } = await admin
     .from("google_accounts")
     .select("id, customer_id, refresh_token, login_customer_id")
@@ -398,19 +506,6 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
   const accMap = new Map<string, any>();
   const tokenCache = new Map<string, string>();
   for (const a of accs ?? []) accMap.set(a.id, a);
-
-  async function getToken(refresh: string) {
-    if (tokenCache.has(refresh)) return tokenCache.get(refresh)!;
-    const r = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refresh, grant_type: "refresh_token" }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
-    tokenCache.set(refresh, j.access_token);
-    return j.access_token as string;
-  }
 
   const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string }[] }>();
   for (const it of items) {
@@ -421,7 +516,7 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
       const k = `${c.google_account_id}|${c.campaign_id}`;
       let g = ops.get(k);
       if (!g) { g = { acc, campaign_id: c.campaign_id, placements: [] }; ops.set(k, g); }
-      g.placements.push({ placement: it.placement, type: it.type });
+      if (!g.placements.some((p) => p.placement === it.placement)) g.placements.push({ placement: it.placement, type: it.type });
     }
   }
 
@@ -430,7 +525,7 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
 
   for (const g of ops.values()) {
     try {
-      const token = await getToken(g.acc.refresh_token);
+      const token = await getGoogleToken(g.acc.refresh_token, tokenCache);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
         "developer-token": devToken,
@@ -453,22 +548,33 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         failed += g.placements.length;
         details.push({ campaign_id: g.campaign_id, error: j?.error?.message ?? JSON.stringify(j) });
         await admin.from("automation_actions").insert({
-          user_id: userId, campaign_id: g.campaign_id, action_type: "negative_placement",
-          payload: { placements: g.placements }, status: "failed", error: JSON.stringify(j), executed_at: new Date().toISOString(),
+          user_id: userId,
+          campaign_id: g.campaign_id,
+          action_type: "negative_placement",
+          payload: { placements: g.placements },
+          status: "failed",
+          error: JSON.stringify(j),
+          executed_at: new Date().toISOString(),
         });
         continue;
       }
       applied += g.placements.length;
       details.push({ campaign_id: g.campaign_id, count: g.placements.length, partial: j?.partialFailureError ?? null });
       const inserts = g.placements.map((p) => ({
-        user_id: userId, campaign_id: g.campaign_id, placement: p.placement,
-        action: "blacklist", note: "global cleanup applied",
+        user_id: userId,
+        campaign_id: g.campaign_id,
+        placement: p.placement,
+        action: "blacklist",
+        note: "global cleanup applied",
       }));
       if (inserts.length) await admin.from("placement_actions").insert(inserts);
       await admin.from("automation_actions").insert({
-        user_id: userId, campaign_id: g.campaign_id, action_type: "negative_placement",
+        user_id: userId,
+        campaign_id: g.campaign_id,
+        action_type: "negative_placement",
         payload: { placements: g.placements, partial: j?.partialFailureError ?? null },
-        status: "executed", executed_at: new Date().toISOString(),
+        status: "executed",
+        executed_at: new Date().toISOString(),
       });
     } catch (e) {
       failed += g.placements.length;
