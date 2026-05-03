@@ -231,15 +231,42 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                             </DropdownMenuContent>
                           </DropdownMenu>
 
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-success hover:text-success"
-                            title="Aumentar orçamento (regra interna)"
-                            onClick={() => onBoost?.(c.campaign_id)}
-                          >
-                            <TrendingUp className="h-3.5 w-3.5" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-success hover:text-success"
+                                title="Ajustar orçamento"
+                              >
+                                <TrendingUp className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuLabel className="text-xs">Ajustar Orçamento</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
+                              </DropdownMenuItem>
+                              {onBoost && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
+                                    <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </>
                       )}
                     </div>
