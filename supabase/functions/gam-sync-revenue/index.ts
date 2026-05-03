@@ -392,13 +392,27 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({
-        networkCode, accessToken, range,
-        dimensions: ["DATE", "KEY_VALUES_NAME"],
-        debug,
-      })
-    ))).flat();
+    const metricGroups = [
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+    ];
+    for (const group of metricGroups) {
+      try {
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({
+            networkCode, accessToken, range,
+            dimensions: ["DATE", "KEY_VALUES_NAME"],
+            metrics: group.metrics,
+            debug,
+          })
+        ))).flat();
+        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
+        reportRows.push(...groupRows);
+      } catch (e) {
+        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 500)}`);
+      }
+    }
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
