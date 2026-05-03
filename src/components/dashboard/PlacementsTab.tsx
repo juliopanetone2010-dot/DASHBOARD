@@ -69,6 +69,31 @@ interface Props {
 const PAGE_SIZE = 100;
 const QUERY_PAGE_SIZE = 1000;
 
+const formatIsoDateBR = (iso: string) => {
+  const [year, month, day] = iso.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : iso;
+};
+
+const normalizePlacementKey = (value: string, type?: string | null): string => {
+  const raw = (value || "").trim().toLowerCase();
+  if (!raw) return "";
+  const mobileApp = raw.match(/mobileapp::\d+-(.+)$/i);
+  if (mobileApp) return mobileApp[1].replace(/^www\./, "");
+  if (type === "MOBILE_APPLICATION") {
+    const numericApp = raw.match(/^\d+-(.+)$/);
+    if (numericApp) return numericApp[1].replace(/^www\./, "");
+  }
+  try {
+    const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return raw.replace(/^www\./, "");
+  }
+};
+
+const isMobileAppPlacement = (type: string, placement: string) =>
+  type === "MOBILE_APPLICATION" || /^[a-z0-9_]+(\.[a-z0-9_-]+){1,}$/i.test(placement);
+
 async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   const all: AdsPlacementRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
