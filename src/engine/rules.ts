@@ -58,13 +58,17 @@ export interface PlacementAggregate {
   campaign_id: string | null;
   site: string | null;
   ad_unit: string | null;
-  revenue: number;
+  revenue: number;          // já líquida (após rev share)
+  gross_revenue: number;    // bruta (debug)
   impressions: number;
   ecpm: number;
 }
 
-const calcRoi = (revenue: number, spend: number) =>
-  spend > 0 ? ((revenue - spend) / spend) * 100 : 0;
+// Rev share fixo do publisher (Google fica com 6.5%).
+export const REV_SHARE_PCT = 0.065;
+export const NET_FACTOR = 1 - REV_SHARE_PCT;
+export const applyRevShare = (gross: number) => Number(gross || 0) * NET_FACTOR;
+
 const calcRoiFromProfit = (profit: number, spend: number) =>
   spend > 0 ? (profit / spend) * 100 : 0;
 const calcRoas = (revenue: number, spend: number) =>
