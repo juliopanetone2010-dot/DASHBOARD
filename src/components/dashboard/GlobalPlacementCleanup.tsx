@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Loader2, Trash2, ShieldAlert, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,18 +37,26 @@ interface PreviewItem {
   reason: string;
   campaigns: PreviewCampaign[];
 }
+interface CampaignTotal {
+  campaign_id: string; name: string;
+  cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
+  bad_count: number;
+}
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
   period?: { from: string; to: string };
+  grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
-interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; }
+interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [items, setItems] = useState<PreviewItem[]>([]);
+  const [campaignTotals, setCampaignTotals] = useState<CampaignTotal[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
@@ -124,8 +132,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
       const list = data?.items ?? [];
       setItems(list);
+      setCampaignTotals(data?.campaign_totals ?? []);
       setStats(data?.stats);
       setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+      setExpanded(new Set());
       setOpen(true);
       // persiste filtros
       await persistConfig({
@@ -180,9 +190,34 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
-  const totalCost = items.reduce((a, i) => a + i.cost_brl, 0);
-  const totalLoss = items.reduce((a, i) => a + i.profit_brl, 0);
   const noMatch = items.filter((i) => !i.match_utm).length;
+  const grandCost = stats?.grand_cost_brl ?? 0;
+  const grandProfit = stats?.grand_profit_brl ?? 0;
+
+  // agrupa items por campanha
+  const itemsByCampaign = new Map<string, PreviewItem[]>();
+  for (const it of items) {
+    for (const c of it.campaigns) {
+      const arr = itemsByCampaign.get(c.campaign_id) ?? [];
+      arr.push(it);
+      itemsByCampaign.set(c.campaign_id, arr);
+    }
+  }
+  const sortedCampaigns = [...campaignTotals]
+    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
+    .sort((a, b) => a.roi_pct - b.roi_pct);
+
+  const toggleExpand = (cid: string) => {
+    setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+  };
+  const toggleCampaignSelection = (cid: string, on: boolean) => {
+    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => i.type === "WEBSITE").map((i) => i.placement);
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const p of placements) on ? n.add(p) : n.delete(p);
+      return n;
+    });
+  };
 
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
@@ -225,7 +260,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
               <Badge variant="destructive">{items.length} ruins</Badge>
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
-              <Badge variant="secondary">Custo: {fmtBRL(totalCost)} · Prejuízo: {fmtBRL(totalLoss)}</Badge>
+              <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               <span className="ml-auto flex items-center gap-2 text-xs">
                 Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
               </span>
@@ -235,64 +270,88 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={selected.size > 0 && selected.size === items.filter((i) => i.type === "WEBSITE").length}
-                      onCheckedChange={(v) => toggleAll(!!v)}
-                    />
-                  </TableHead>
-                  <TableHead>Placement</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead className="text-right">Cliques</TableHead>
-                  <TableHead className="text-right">Custo</TableHead>
-                  <TableHead className="text-right">Receita</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                  <TableHead>Campanha</TableHead>
+                  <TableHead className="text-right">Custo (15d)</TableHead>
+                  <TableHead className="text-right">Receita (15d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
-                  <TableHead className="text-right">Camp.</TableHead>
-                  {showDebug && <TableHead>Match</TableHead>}
-                  {showDebug && <TableHead>Motivo</TableHead>}
+                  <TableHead className="text-right">Ruins</TableHead>
+                  <TableHead className="text-right">Selec.</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.length === 0 && (
-                  <TableRow><TableCell colSpan={showDebug ? 11 : 9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
+                {sortedCampaigns.length === 0 && (
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
                 )}
-                {items.map((i) => {
-                  const isApp = i.type !== "WEBSITE";
+                {sortedCampaigns.map((camp) => {
+                  const list = itemsByCampaign.get(camp.campaign_id) ?? [];
+                  const websiteList = list.filter((i) => i.type === "WEBSITE");
+                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(i.placement));
+                  const isOpen = expanded.has(camp.campaign_id);
                   return (
-                    <TableRow key={i.placement} className={cn(isApp && "opacity-60")}>
-                      <TableCell>
-                        <Checkbox checked={selected.has(i.placement)} disabled={isApp} onCheckedChange={() => toggle(i.placement)} />
-                      </TableCell>
-                      <TableCell className="font-mono text-xs max-w-[260px] truncate" title={i.placement}>{i.placement}</TableCell>
-                      <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtNumber(i.clicks)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtBRL(i.cost_brl)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtBRL(i.revenue_brl)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-danger">{fmtBRL(i.profit_brl)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
-                      <TableCell className="text-right text-xs">
-                        <details>
-                          <summary className="cursor-pointer">{i.campaigns.length}</summary>
-                          <ul className="text-left mt-1 space-y-0.5">
-                            {i.campaigns.map((c) => (
-                              <li key={c.campaign_id} className="text-[10px]">
-                                {c.name} <span className="text-muted-foreground">({fmtBRL(c.cost_brl)} · ${c.revenue_usd.toFixed(2)})</span>
-                                {!c.matched_utm && <span className="text-warning"> · sem UTM</span>}
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      </TableCell>
-                      {showDebug && (
-                        <TableCell className="text-[10px]">
-                          {i.match_utm
-                            ? <Badge variant="outline" className="text-[9px]">true</Badge>
-                            : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
+                    <Fragment key={camp.campaign_id}>
+                      <TableRow key={camp.campaign_id} className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(camp.campaign_id)}>
+                        <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
+                        <TableCell className="font-medium text-sm">{camp.name}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
+                        <TableCell className="text-right"><Badge variant="destructive">{list.length}</Badge></TableCell>
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
                         </TableCell>
+                      </TableRow>
+                      {isOpen && (
+                        <TableRow key={`${camp.campaign_id}-detail`}>
+                          <TableCell colSpan={8} className="bg-muted/10 p-0">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-10"></TableHead>
+                                  <TableHead>Placement</TableHead>
+                                  <TableHead>Tipo</TableHead>
+                                  <TableHead className="text-right">Cliques</TableHead>
+                                  <TableHead className="text-right">Custo</TableHead>
+                                  <TableHead className="text-right">Receita</TableHead>
+                                  <TableHead className="text-right">ROI</TableHead>
+                                  {showDebug && <TableHead>Match</TableHead>}
+                                  {showDebug && <TableHead>Motivo</TableHead>}
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {list.map((i) => {
+                                  const isApp = i.type !== "WEBSITE";
+                                  const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
+                                  return (
+                                    <TableRow key={`${camp.campaign_id}-${i.placement}`} className={cn(isApp && "opacity-60")}>
+                                      <TableCell>
+                                        <Checkbox checked={selected.has(i.placement)} disabled={isApp} onCheckedChange={() => toggle(i.placement)} />
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
+                                      <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs">${(c?.revenue_usd ?? 0).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
+                                      {showDebug && (
+                                        <TableCell>
+                                          {c?.matched_utm
+                                            ? <Badge variant="outline" className="text-[9px]">true</Badge>
+                                            : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
+                                        </TableCell>
+                                      )}
+                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
                       )}
-                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
-                    </TableRow>
+                    </Fragment>
                   );
                 })}
               </TableBody>
