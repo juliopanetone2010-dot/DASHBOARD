@@ -26,6 +26,55 @@ interface Props {
 
 export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
+  // Padrão: ROI DESC. null = sem ordenação (ordem original)
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
+
+  const handleSort = (key: SortKey) => {
+    setSort((cur) => {
+      if (!cur || cur.key !== key) return { key, dir: "desc" };
+      if (cur.dir === "desc") return { key, dir: "asc" };
+      return null; // 3º clique remove ordenação
+    });
+  };
+
+  const sortedCampaigns = useMemo(() => {
+    if (!sort) return campaigns;
+    const arr = [...campaigns];
+    const mult = sort.dir === "desc" ? -1 : 1;
+    arr.sort((a, b) => {
+      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
+      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
+      if (av === bv) return 0;
+      return av < bv ? -1 * mult : 1 * mult;
+    });
+    return arr;
+  }, [campaigns, sort]);
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (!sort || sort.key !== k) return <ChevronsUpDown className="h-3 w-3 opacity-40" />;
+    return sort.dir === "desc"
+      ? <ChevronDown className="h-3 w-3" />
+      : <ChevronUp className="h-3 w-3" />;
+  };
+
+  const SortHead = ({ k, label }: { k: SortKey; label: string }) => {
+    const active = sort?.key === k;
+    return (
+      <TableHead className={cn("text-right", active && "bg-primary/5")}>
+        <button
+          type="button"
+          onClick={() => handleSort(k)}
+          className={cn(
+            "inline-flex items-center gap-1 ml-auto select-none hover:text-foreground transition-colors",
+            active ? "text-foreground font-semibold" : "text-muted-foreground",
+          )}
+        >
+          {label}
+          <SortIcon k={k} />
+        </button>
+      </TableHead>
+    );
+  };
 
   const callMutate = async (label: string, body: Record<string, unknown>, key: string) => {
     setBusy(key);
