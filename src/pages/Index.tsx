@@ -212,37 +212,21 @@ const Index = () => {
           <TabsContent value="dashboard" className="space-y-6 mt-6">
             <FilterBar
               filters={filters}
-              onChange={setFilters}
+              onChange={handleFilterChange}
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
-              onPresetApply={async (key, gaql) => {
-                toast({ title: "Sincronizando", description: `Período: ${gaql.replace(/_/g, " ")}` });
-                // GAM não tem dados em tempo real → quando "Hoje", buscar também "Ontem" como fallback
-                const gamPreset = key === "today" ? "YESTERDAY" : gaql;
-                const [adsRes, gamRes] = await Promise.all([
-                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
-                    "google-ads-sync-campaigns",
-                    { body: { date_preset: gaql } },
-                  ),
-                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
-                    "gam-sync-revenue",
-                    { body: { date_preset: gamPreset } },
-                  ),
-                ]);
-                const adsErr = adsRes.error?.message ?? adsRes.data?.error;
-                const gamErr = gamRes.error?.message ?? gamRes.data?.error;
-                if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
-                if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
-                if (!adsErr && !gamErr) {
-                  toast({
-                    title: "Dados atualizados",
-                    description: key === "today" ? "GAM pode atrasar; usando ontem como fallback." : undefined,
-                  });
-                }
-                await data.refresh();
-              }}
             />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Receita: USD nativo (GAM)</Badge>
+              {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
+                <Badge variant="secondary">Dados podem atrasar até algumas horas</Badge>
+              )}
+              {totals.revenue === 0 && (
+                <Badge variant="secondary">GAM pode atrasar. Mostrando último dado disponível.</Badge>
+              )}
+            </div>
 
             {/* Métricas */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
