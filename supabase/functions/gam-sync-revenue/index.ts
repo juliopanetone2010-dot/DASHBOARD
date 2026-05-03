@@ -413,7 +413,7 @@ async function runReport(
   networkCode: string,
   accessToken: string,
   range: GamRange,
-  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
+  groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME" | "CUSTOM_CRITERIA",
   debug: string[],
 ): Promise<ReportRow[]> {
   // 1) cria report
