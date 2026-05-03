@@ -122,6 +122,9 @@ export function RetentionTab({ campaigns }: Props) {
 
   const net = (usd: number) => usd * (1 - REV_SHARE_PCT) * usdBrl;
 
+  const fromDate = range.from ? new Date(range.from + "T00:00:00") : undefined;
+  const toDate = range.to ? new Date(range.to + "T00:00:00") : undefined;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -135,10 +138,70 @@ export function RetentionTab({ campaigns }: Props) {
           <Badge variant="outline" className="font-mono text-xs">
             Período: {range.from} → {range.to}
           </Badge>
+          {localRange && (
+            <Button size="sm" variant="ghost" onClick={() => setLocalRange(null)} className="h-8 text-xs">
+              Usar período do dashboard
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Atualizar
           </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-1">
+            <Zap className="h-3.5 w-3.5" /> Período
+          </div>
+          {DATE_PRESETS.map((p) => (
+            <Button
+              key={p.key}
+              type="button"
+              size="sm"
+              variant={activePreset === p.key ? "default" : "outline"}
+              onClick={() => applyPreset(p.key)}
+              className="h-8"
+            >
+              {p.label}
+            </Button>
+          ))}
+          <div className="mx-2 h-6 w-px bg-border" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-8 gap-2", !fromDate && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {fromDate ? format(fromDate, "dd/MM/yy") : "De"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={fromDate}
+                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
+                initialFocus
+                className={cn("p-3 pointer-events-auto")}
+              />
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-8 gap-2", !toDate && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {toDate ? format(toDate, "dd/MM/yy") : "Até"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={toDate}
+                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
+                initialFocus
+                className={cn("p-3 pointer-events-auto")}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
