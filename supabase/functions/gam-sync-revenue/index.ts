@@ -95,20 +95,32 @@ Deno.serve(async (req) => {
         let googleUtmRows: ReportRow[] = [];
         const allUtmRows: ReportRow[] = [];
         let customCriteriaAvailable = false;
+        let customCriteriaDimUsed: string | null = null;
         const sourceCounts: Record<string, number> = {};
-        try {
-          const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
-            .flat()
-          customCriteriaAvailable = true;
-          for (const r of customCriteriaRows) {
-            const parsed = parseGamAttribution(r.name);
-            if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
-            if (parsed?.cid) allUtmRows.push(r);
-            if (parsed?.source === "google") googleUtmRows.push(r);
+        // Tenta dimensões possíveis para extrair UTM/key-values do GAM (a API nova
+        // renomeou várias dimensões; tentamos em ordem de preferência).
+        const candidateDims: Array<"KEY_VALUES_NAME" | "CUSTOM_CRITERIA" | "AD_REQUEST_CUSTOM_CRITERIA"> = [
+          "KEY_VALUES_NAME",
+          "CUSTOM_CRITERIA",
+          "AD_REQUEST_CUSTOM_CRITERIA",
+        ];
+        for (const dim of candidateDims) {
+          try {
+            const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, dim as any, debug))))
+              .flat();
+            customCriteriaAvailable = true;
+            customCriteriaDimUsed = dim;
+            for (const r of customCriteriaRows) {
+              const parsed = parseGamAttribution(r.name);
+              if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
+              if (parsed?.cid) allUtmRows.push(r);
+              if (parsed?.source === "google") googleUtmRows.push(r);
+            }
+            debug.push(`[${networkCode}/${dim}] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
+            break;
+          } catch (e) {
+            debug.push(`[${networkCode}/${dim}] indisponível: ${String(e).slice(0, 200)}`);
           }
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
-        } catch (e) {
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
 
         // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
