@@ -212,8 +212,8 @@ Deno.serve(async (req) => {
   }
 });
 
-interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
-
+interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; }
+interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
