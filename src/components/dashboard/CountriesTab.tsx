@@ -13,6 +13,7 @@ interface Row {
   campaign_id: string;
   country_code: string;
   country_name: string | null;
+  country_criterion_id: string | null;
   cost: number;
   clicks: number;
   impressions: number;
@@ -24,6 +25,7 @@ interface Props { fxUsdBrl: number; }
 const REV_SHARE_NET = 0.68; // 32% rev share
 
 type SortKey = "cost" | "revenue" | "roi" | "clicks" | "impressions";
+type ViewMode = "country" | "campaign";
 
 export function CountriesTab({ fxUsdBrl }: Props) {
   const [rows, setRows] = useState<Row[]>([]);
