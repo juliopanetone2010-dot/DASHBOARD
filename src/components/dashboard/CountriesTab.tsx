@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
