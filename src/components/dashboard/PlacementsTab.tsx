@@ -469,7 +469,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {r.revenueSource === "utm" && <Badge variant="outline" className="text-[9px]">UTM</Badge>}
-                            {r.revenueSource === "campaign_estimate" && <Badge variant="secondary" className="text-[9px]">estimado</Badge>}
                             {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
