@@ -343,7 +343,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                 const key = v as DatePresetKey;
                 setPreset(key);
                 const r = DATE_PRESETS.find((p) => p.key === key)!.range();
-                useDashboardFiltersSet({ ...globalFilters, fromDate: r.from, toDate: r.to });
+                setGlobalFilters({ ...globalFilters, fromDate: r.from, toDate: r.to });
               }}
             >
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
