@@ -99,8 +99,7 @@ const IndexInner = () => {
   }, [engine?.alerts.length]);
 
   const handleRefresh = async () => {
-    await data.refresh();
-    toast({ title: "Dados atualizados" });
+    await syncDashboardData(filters);
   };
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
