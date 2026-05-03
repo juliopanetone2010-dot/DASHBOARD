@@ -590,20 +590,12 @@ function parseGamDate(value: any): string | null {
   return null;
 }
 
-async function parseJsonResponse(
-  res: Response,
-  step: string,
-  networkCode: string,
-  groupDim: string,
-) {
+async function parseJsonResponse(res: Response, step: string, tag: string) {
   const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
+  try { return JSON.parse(text); }
+  catch {
     const preview = text.replace(/\s+/g, " ").slice(0, 300);
-    throw new Error(
-      `[${networkCode}/${groupDim}] ${step} retornou resposta não-JSON (status ${res.status}, content-type ${res.headers.get("content-type") ?? "sem content-type"}): ${preview}`,
-    );
+    throw new Error(`[${tag}] ${step} retornou resposta não-JSON (status ${res.status}): ${preview}`);
   }
 }
 
