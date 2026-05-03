@@ -25,7 +25,7 @@ import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
-import { REV_SHARE_PCT } from "@/engine/rules";
+import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
