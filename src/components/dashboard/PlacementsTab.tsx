@@ -16,6 +16,7 @@ import type { Campaign, GoogleAccount } from "@/types/domain";
 interface AdsPlacementRow {
   id: string;
   placement: string;
+  placement_clean: string | null;
   display_name: string | null;
   target_url: string | null;
   placement_type: string | null;
@@ -30,6 +31,8 @@ interface AdsPlacementRow {
   ctr: number;
   avg_cpc: number;
 }
+
+interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; }
 
 interface AggRow {
   placement: string;
