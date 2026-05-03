@@ -40,8 +40,42 @@ const IndexInner = () => {
   const { user } = useAuth();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
-  const { filters, setFilters } = useDashboardFilters();
+  const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
+
+  // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
+  const extraRevQuery = useQuery({
+    queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("utm_source, revenue_usd, date")
+        .gte("date", range.from)
+        .lte("date", range.to);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows } = await q.limit(5000);
+      let push = 0, other = 0;
+      for (const r of rows ?? []) {
+        const usd = Number((r as any).revenue_usd) || 0;
+        const src = String((r as any).utm_source ?? "").toLowerCase();
+        if (src === "google") continue;
+        if (src === "push") push += usd; else other += usd;
+      }
+      return { push, other };
+    },
+    staleTime: 30_000,
+  });
+
+  const fxQuery = useQuery<number>({
+    queryKey: ["fx-usd-brl"],
+    queryFn: async () => {
+      const r = await fetch("https://open.er-api.com/v6/latest/USD");
+      const j = await r.json();
+      const rate = Number(j?.rates?.BRL);
+      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+    },
+    staleTime: 60 * 60 * 1000,
+  });
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
