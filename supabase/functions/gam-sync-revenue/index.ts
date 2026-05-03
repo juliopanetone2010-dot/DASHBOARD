@@ -321,7 +321,7 @@ async function fetchUtmKeyIds(
   networkCode: string,
   accessToken: string,
   debug: string[],
-): Promise<{ utm_source: string | null; utm_campaign: string | null; utm_placement: string | null }> {
+): Promise<UtmKeyIds> {
   const wanted: Record<string, string | null> = { utm_source: null, utm_campaign: null, utm_placement: null };
   let pageToken: string | undefined;
   let pages = 0;
@@ -347,6 +347,44 @@ async function fetchUtmKeyIds(
   } while (pageToken);
   debug.push(`[customTargetingKeys] utm_source=${wanted.utm_source} utm_campaign=${wanted.utm_campaign} utm_placement=${wanted.utm_placement}`);
   return wanted as any;
+}
+
+async function collectUtmAttribution(args: {
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
+}): Promise<AttributionResult> {
+  const { networkCode, accessToken, ranges, utmKeyIds, debug } = args;
+  const empty: AttributionResult = { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+  if (!utmKeyIds.utm_source) {
+    debug.push(`[${networkCode}/UTM] chave utm_source ausente; sem atribuição real por origem`);
+    return empty;
+  }
+
+  const campaignCandidates = utmKeyIds.utm_campaign
+    ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_campaign, "utm_source", "utm_campaign", debug)
+    : [];
+  const placementCandidates = utmKeyIds.utm_placement
+    ? await runUtmPairCandidates(networkCode, accessToken, ranges, utmKeyIds.utm_source, utmKeyIds.utm_placement, "utm_source", "utm_placement", debug)
+    : [];
+
+  const campaignPick = campaignCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid)) ?? campaignCandidates[0];
+  const placementPick = placementCandidates.find((c) => c.rows.some((r) => r.source === "google" && r.cid && r.placement)) ?? placementCandidates[0];
+
+  const directCampaignRows = campaignPick?.rows ?? [];
+  const placementRows = placementPick?.rows.filter((r) => r.placement) ?? [];
+  const directGoogleRows = directCampaignRows.filter((r) => r.source === "google" && r.cid);
+  const placementGoogleRows = placementRows.filter((r) => r.source === "google" && r.cid);
+  const googleCampaignRows = directGoogleRows.length > 0 ? directGoogleRows : placementGoogleRows;
+  const retentionRows = directCampaignRows.some((r) => r.cid) ? directCampaignRows.filter((r) => r.cid) : placementRows.filter((r) => r.cid);
+
+  await debugKeyValuesName(networkCode, accessToken, ranges, debug);
+  debug.push(`[${networkCode}/ATTRIBUTION] campanha=${campaignPick?.label ?? "none"}; placement=${placementPick?.label ?? "none"}; google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${placementGoogleRows.length}`);
+  return {
+    retentionRows,
+    googleCampaignRows,
+    googlePlacementRows: placementGoogleRows,
+    campaignSource: directGoogleRows.length > 0 ? (campaignPick?.label ?? "none") : (placementGoogleRows.length > 0 ? `${placementPick?.label ?? "placement"}→campaign_id_from_utm_placement` : "none"),
+    placementSource: placementPick?.label ?? "none",
+  };
 }
 
 async function persistCampaignSourceRevenueFromUtm(
