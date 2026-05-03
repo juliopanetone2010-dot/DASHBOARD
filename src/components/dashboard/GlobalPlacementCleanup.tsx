@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, Trash2, ShieldAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Trash2, ShieldAlert, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ interface PreviewCampaign {
   name: string;
   google_account_id: string;
   cost_brl: number;
+  revenue_usd: number;
   matched_utm: boolean;
 }
 interface PreviewItem {
@@ -27,32 +28,73 @@ interface PreviewItem {
   type: string;
   cost_brl: number;
   revenue_brl: number;
+  revenue_usd: number;
   profit_brl: number;
   roi_pct: number;
   clicks: number;
   impressions: number;
+  match_utm: boolean;
+  reason: string;
   campaigns: PreviewCampaign[];
 }
-interface PreviewResp {
-  ok?: boolean;
-  error?: string;
-  items?: PreviewItem[];
-  stats?: { eligible: number; total: number; bad?: number; period?: { from: string; to: string } };
+interface PreviewStats {
+  eligible: number; total: number; bad?: number; grouped?: number;
+  skipped_safety?: number; ads_rows?: number; gam_rows?: number;
+  period?: { from: string; to: string };
 }
+interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [items, setItems] = useState<PreviewItem[]>([]);
-  const [stats, setStats] = useState<PreviewResp["stats"]>();
+  const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showDebug, setShowDebug] = useState(false);
+  const [showDebug, setShowDebug] = useState(true);
   const [minDays, setMinDays] = useState(20);
   const [maxRoi, setMaxRoi] = useState(-10);
-  const [minCost, setMinCost] = useState(50);
-  const [minClicks, setMinClicks] = useState(100);
+  const [minCost, setMinCost] = useState(20);
+  const [minClicks, setMinClicks] = useState(20);
   const [lookback, setLookback] = useState(30);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [lastRun, setLastRun] = useState<string | null>(null);
+
+  // carrega config persistida
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("rules_config")
+        .select("placement_auto_cleanup_enabled, placement_cleanup_min_days, placement_cleanup_max_roi_pct, placement_cleanup_min_cost_brl, placement_cleanup_min_clicks, placement_cleanup_last_run_at")
+        .maybeSingle();
+      if (data) {
+        setAutoEnabled(!!data.placement_auto_cleanup_enabled);
+        setMinDays(Number(data.placement_cleanup_min_days ?? 20));
+        setMaxRoi(Number(data.placement_cleanup_max_roi_pct ?? -10));
+        setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
+        setMinClicks(Number(data.placement_cleanup_min_clicks ?? 20));
+        setLastRun(data.placement_cleanup_last_run_at ?? null);
+      }
+    })();
+  }, []);
+
+  const persistConfig = async (patch: Record<string, unknown>) => {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.from("rules_config").update(patch).eq("user_id", u.user.id);
+  };
+
+  const toggleAuto = async (on: boolean) => {
+    setAutoEnabled(on);
+    await persistConfig({
+      placement_auto_cleanup_enabled: on,
+      placement_cleanup_min_days: minDays,
+      placement_cleanup_max_roi_pct: maxRoi,
+      placement_cleanup_min_cost_brl: minCost,
+      placement_cleanup_min_clicks: minClicks,
+    });
+    toast({ title: on ? "Limpeza automática ativada (24h)" : "Limpeza automática desativada" });
+  };
 
   const runPreview = async () => {
     setLoading(true);
@@ -77,9 +119,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const list = data?.items ?? [];
       setItems(list);
       setStats(data?.stats);
-      // por padrão seleciona apenas WEBSITE (apps/youtube precisam aprovação manual)
       setSelected(new Set(list.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
       setOpen(true);
+      // persiste filtros
+      await persistConfig({
+        placement_cleanup_min_days: minDays,
+        placement_cleanup_max_roi_pct: maxRoi,
+        placement_cleanup_min_cost_brl: minCost,
+        placement_cleanup_min_clicks: minClicks,
+      });
     } finally {
       setLoading(false);
     }
@@ -99,7 +147,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
 
   const runApply = async () => {
     if (selected.size === 0) { toast({ title: "Nenhum placement selecionado" }); return; }
-    if (!confirm(`Aplicar exclusão (negative placement) em ${selected.size} placement(s) nas campanhas afetadas?`)) return;
+    if (!confirm(`Aplicar exclusão (negative placement) em ${selected.size} placement(s)?`)) return;
     setApplying(true);
     try {
       const payload = items
@@ -108,7 +156,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           placement: i.placement, type: i.type,
           campaigns: i.campaigns.map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id })),
         }));
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; details?: unknown }>(
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
         { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl } },
       );
@@ -128,37 +176,50 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
 
   const totalCost = items.reduce((a, i) => a + i.cost_brl, 0);
   const totalLoss = items.reduce((a, i) => a + i.profit_brl, 0);
+  const noMatch = items.filter((i) => !i.match_utm).length;
 
   return (
-    <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-wrap items-center gap-3">
-      <ShieldAlert className="h-5 w-5 text-danger" />
-      <div className="flex-1 min-w-[260px]">
-        <div className="text-sm font-semibold">Limpeza global de placements</div>
-        <div className="text-xs text-muted-foreground">
-          Analisa todas as campanhas <b>ENABLED</b> com pelo menos <b>{minDays} dias</b> rodando, agrupa placements e marca os com ROI ≤ {maxRoi}% (custo ≥ R$ {minCost} <i>ou</i> {minClicks} cliques). Apps e YouTube ficam de fora da exclusão automática.
+    <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <ShieldAlert className="h-5 w-5 text-danger" />
+        <div className="flex-1 min-w-[260px]">
+          <div className="text-sm font-semibold">Limpeza global de placements</div>
+          <div className="text-xs text-muted-foreground">
+            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim placements com ROI ≤ {maxRoi}% (custo ≥ R$ {minCost} <i>ou</i> {minClicks} cliques). Apps/YouTube ficam de fora da exclusão automática.
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2 mt-2">
-          <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
-          <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
-          <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-          <label className="text-[11px] text-muted-foreground flex items-center gap-1">Cliques mín <Input type="number" value={minClicks} onChange={(e) => setMinClicks(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-          <label className="text-[11px] text-muted-foreground flex items-center gap-1">Período (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
+          <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
+          <div className="text-xs">
+            <div className="font-medium">Auto cleanup 24h</div>
+            <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
+          </div>
         </div>
+        <Button onClick={runPreview} disabled={loading} variant="destructive">
+          {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+          Executar limpeza agora
+        </Button>
       </div>
-      <Button onClick={runPreview} disabled={loading} variant="destructive">
-        {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-        Limpar placements ruins (global)
-      </Button>
+
+      <div className="flex flex-wrap gap-2">
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Cliques mín <Input type="number" value={minClicks} onChange={(e) => setMinClicks(+e.target.value)} className="h-6 w-20 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Período (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-6xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Preview · placements ruins</DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
-              <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas elegíveis</Badge>
-              <Badge variant="destructive">{items.length} placements ruins</Badge>
-              <Badge variant="secondary">Custo total: {fmtBRL(totalCost)} · Prejuízo: {fmtBRL(totalLoss)}</Badge>
+              <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas</Badge>
+              <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
+              <Badge variant="destructive">{items.length} ruins</Badge>
+              {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
+              <Badge variant="secondary">Custo: {fmtBRL(totalCost)} · Prejuízo: {fmtBRL(totalLoss)}</Badge>
               <span className="ml-auto flex items-center gap-2 text-xs">
                 Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
               </span>
@@ -181,29 +242,24 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   <TableHead className="text-right">Receita</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
-                  <TableHead className="text-right">Campanhas</TableHead>
-                  {showDebug && <TableHead>Match UTM</TableHead>}
+                  <TableHead className="text-right">Camp.</TableHead>
+                  {showDebug && <TableHead>Match</TableHead>}
+                  {showDebug && <TableHead>Motivo</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {items.length === 0 && (
-                  <TableRow><TableCell colSpan={showDebug ? 10 : 9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={showDebug ? 11 : 9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
                 )}
                 {items.map((i) => {
                   const isApp = i.type !== "WEBSITE";
                   return (
                     <TableRow key={i.placement} className={cn(isApp && "opacity-60")}>
                       <TableCell>
-                        <Checkbox
-                          checked={selected.has(i.placement)}
-                          disabled={isApp}
-                          onCheckedChange={() => toggle(i.placement)}
-                        />
+                        <Checkbox checked={selected.has(i.placement)} disabled={isApp} onCheckedChange={() => toggle(i.placement)} />
                       </TableCell>
                       <TableCell className="font-mono text-xs max-w-[260px] truncate" title={i.placement}>{i.placement}</TableCell>
-                      <TableCell className="text-xs">
-                        {i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
-                      </TableCell>
+                      <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmtNumber(i.clicks)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmtBRL(i.cost_brl)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmtBRL(i.revenue_brl)}</TableCell>
@@ -215,7 +271,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                           <ul className="text-left mt-1 space-y-0.5">
                             {i.campaigns.map((c) => (
                               <li key={c.campaign_id} className="text-[10px]">
-                                {c.name} <span className="text-muted-foreground">({fmtBRL(c.cost_brl)})</span>
+                                {c.name} <span className="text-muted-foreground">({fmtBRL(c.cost_brl)} · ${c.revenue_usd.toFixed(2)})</span>
                                 {!c.matched_utm && <span className="text-warning"> · sem UTM</span>}
                               </li>
                             ))}
@@ -223,10 +279,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         </details>
                       </TableCell>
                       {showDebug && (
-                        <TableCell className="text-[10px] font-mono">
-                          {i.campaigns.filter((c) => c.matched_utm).length}/{i.campaigns.length}
+                        <TableCell className="text-[10px]">
+                          {i.match_utm
+                            ? <Badge variant="outline" className="text-[9px]">true</Badge>
+                            : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                         </TableCell>
                       )}
+                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
                     </TableRow>
                   );
                 })}
