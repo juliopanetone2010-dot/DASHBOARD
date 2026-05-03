@@ -202,30 +202,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       await supabase.functions.invoke("gam-sync-revenue", {
         body: { from, to, account_ids: accountIds },
       });
-      const { data, error: qErr } = await supabase
-        .from("ads_placements")
-        .select("*")
-        .eq("campaign_id", cid)
-        .gte("date", from)
-        .lte("date", to)
-        .order("date", { ascending: false })
-        .limit(5000);
-      if (qErr) {
-        toast({ title: "Erro ao carregar", description: qErr.message, variant: "destructive" });
-        return;
-      }
-      setRows((data ?? []) as AdsPlacementRow[]);
+      const adsData = await fetchAllAdsPlacements(cid, from, to);
+      setRows(adsData);
       setLimit(PAGE_SIZE);
 
       // Receita do GAM atribuída via UTM Google (campaign_id + placement).
-      const { data: gamData } = await supabase
-        .from("gam_placement_revenue")
-        .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
-        .eq("campaign_id", cid)
-        .eq("utm_source", "google")
-        .gte("date", from)
-        .lte("date", to);
-      setGamRows((gamData ?? []) as GamRevRow[]);
+      const gamData = await fetchAllGamPlacementRevenue(cid, from, to);
+      setGamRows(gamData);
 
       // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
       // já atribuída pelo GAM e distribui pelos placements por cliques/impressões.
@@ -245,6 +228,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       const map: Record<string, "blacklist" | "favorite"> = {};
       for (const a of acts ?? []) map[(a as any).placement] = (a as any).action;
       setActions(map);
+    } catch (e) {
+      toast({ title: "Erro ao carregar placements", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
