@@ -710,7 +710,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir (blacklist)" onClick={() => toggleAction(r.placement, "blacklist")}>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir no Google Ads (negative placement)" onClick={() => toggleAction(r.placement, "blacklist", r)}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
