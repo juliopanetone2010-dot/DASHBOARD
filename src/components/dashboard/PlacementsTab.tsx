@@ -35,6 +35,8 @@ interface AdsPlacementRow {
 
 interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
+interface ApplyUtmResult { error?: string; success?: number; total?: number; failed?: number; }
+interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
 
 interface AggRow {
   placement: string;
@@ -142,14 +144,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         toast({ title: "Erro ao aplicar UTM", description: error.message, variant: "destructive" });
         return;
       }
-      const r = data as any;
+      const r = data as ApplyUtmResult | null;
       if (r?.error) {
         toast({ title: "Erro", description: r.error, variant: "destructive" });
         return;
       }
       toast({
         title: "UTM aplicado",
-        description: `${r.success}/${r.total} campanhas atualizadas${r.failed ? ` (${r.failed} falha(s))` : ""}.`,
+        description: `${r?.success ?? 0}/${r?.total ?? 0} campanhas atualizadas${r?.failed ? ` (${r.failed} falha(s))` : ""}.`,
       });
     } finally {
       setApplyingUtm(false);
@@ -226,7 +228,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .select("placement, action")
         .eq("campaign_id", cid);
       const map: Record<string, "blacklist" | "favorite"> = {};
-      for (const a of acts ?? []) map[(a as any).placement] = (a as any).action;
+      for (const a of (acts ?? []) as PlacementActionRow[]) map[a.placement] = a.action;
       setActions(map);
     } catch (e) {
       toast({ title: "Erro ao carregar placements", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
@@ -288,13 +290,13 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.cpc = a.clicks > 0 ? costUsd / a.clicks : 0;
     }
     return values;
-  }, [rows, gamRevenueByPlacement, campaignMetricRows, fxUsdBrl]);
+  }, [rows, gamRevenueByPlacement, fxUsdBrl]);
 
   const sorted = useMemo(() => {
     const arr = [...aggregated];
     arr.sort((a, b) => {
-      const va = (a as any)[sortKey] ?? 0;
-      const vb = (b as any)[sortKey] ?? 0;
+      const va = a[sortKey] ?? 0;
+      const vb = b[sortKey] ?? 0;
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return arr;
