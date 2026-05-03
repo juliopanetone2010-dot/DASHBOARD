@@ -284,12 +284,12 @@ async function distributeGamRevenueToCampaigns(
     debug.push(`[daily_metrics] sem vínculo Ads↔site para distribuir receita GAM`);
     return;
   }
-  const linkedAccountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
-  const accountIds = requestedAccountIds.length > 0
-    ? linkedAccountIds.filter((id: string) => requestedAccountIds.includes(id))
-    : linkedAccountIds;
+  // IMPORTANTE: a receita do GAM é total do site — sempre distribuímos entre TODAS as
+  // contas Ads vinculadas ao site, independente do filtro de UI. Filtrar aqui causaria
+  // receita "vazando" para outras contas via leftover.
+  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
-    debug.push(`[daily_metrics] nenhuma conta Ads selecionada está vinculada ao site`);
+    debug.push(`[daily_metrics] nenhuma conta Ads vinculada ao site`);
     return;
   }
 
