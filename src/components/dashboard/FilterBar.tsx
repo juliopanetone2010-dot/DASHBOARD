@@ -1,5 +1,13 @@
-import { Filter, X, Zap } from "lucide-react";
+import { ChevronDown, Filter, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Campaign, GoogleAccount, Site } from "@/types/domain";
@@ -36,7 +44,7 @@ export function presetFromRange(from: string, to: string): DatePresetKey | null 
 }
 
 export interface DashboardFilters {
-  googleAccountId: string; // "all" or id
+  googleAccountIds: string[]; // empty = all accounts
   siteId: string;          // "all" or id
   campaignId: string;      // "all" or campaign_id (text)
   fromDate: string;        // "" or yyyy-mm-dd
@@ -44,7 +52,7 @@ export interface DashboardFilters {
 }
 
 export const EMPTY_FILTERS: DashboardFilters = {
-  googleAccountId: "all",
+  googleAccountIds: [],
   siteId: "all",
   campaignId: "all",
   fromDate: "",
@@ -64,8 +72,25 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
   const set = <K extends keyof DashboardFilters>(k: K, v: DashboardFilters[K]) =>
     onChange({ ...filters, [k]: v });
 
+  const selectedAccountIds = filters.googleAccountIds;
+  const allAccountsSelected = selectedAccountIds.length === 0;
+  const accountLabel = allAccountsSelected
+    ? "Todas as contas"
+    : selectedAccountIds.length === 1
+      ? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.account_name
+        ?? googleAccounts.find((a) => a.id === selectedAccountIds[0])?.customer_id
+        ?? "1 conta selecionada"
+      : `${selectedAccountIds.length} contas selecionadas`;
+
+  const toggleAccount = (id: string) => {
+    const next = selectedAccountIds.includes(id)
+      ? selectedAccountIds.filter((accountId) => accountId !== id)
+      : [...selectedAccountIds, id];
+    set("googleAccountIds", next);
+  };
+
   const isDirty =
-    filters.googleAccountId !== "all" ||
+    filters.googleAccountIds.length > 0 ||
     filters.siteId !== "all" ||
     filters.campaignId !== "all" ||
     filters.fromDate !== "" ||
@@ -108,17 +133,31 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Conta Ads</label>
-          <Select value={filters.googleAccountId} onValueChange={(v) => set("googleAccountId", v)}>
-            <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas as contas</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" className="h-9 w-[210px] justify-between gap-2 px-3 font-normal">
+                <span className="truncate">{accountLabel}</span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[240px]" align="start">
+              <DropdownMenuCheckboxItem checked={allAccountsSelected} onCheckedChange={() => set("googleAccountIds", [])}>
+                Todas as contas
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
               {googleAccounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.account_name ?? a.customer_id}
-                </SelectItem>
+                <DropdownMenuCheckboxItem
+                  key={a.id}
+                  checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
+                  onCheckedChange={() => toggleAccount(a.id)}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  <span className="truncate">{a.account_name ?? a.customer_id}</span>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {!allAccountsSelected && <Badge variant="secondary">{selectedAccountIds.length} selecionada(s)</Badge>}
         </div>
 
         <div className="space-y-1">

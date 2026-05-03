@@ -18,11 +18,23 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
     let datePreset = "LAST_7_DAYS";
+    let dateFrom: string | null = null;
+    let dateTo: string | null = null;
+    let requestedSiteId: string | null = null;
+    let requestedAccountIds: string[] = [];
+    let includeYesterdayFallback = false;
     let testMode = false;
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
+      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
+      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
+      requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
+      requestedAccountIds = Array.isArray((body as any)?.account_ids)
+        ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
+        : [];
+      includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
     } catch (_) { /* */ }
 
@@ -51,16 +63,18 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: sites, error: sErr } = await admin
+    let sitesQuery = admin
       .from("sites")
       .select("id, name, domain, network_code")
       .eq("user_id", userId);
+    if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
+    const { data: sites, error: sErr } = await sitesQuery;
     if (sErr) return json({ error: sErr.message });
     if (!sites || sites.length === 0) return json({ error: "Nenhum site cadastrado" });
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
-    // Sistema padronizado em USD. Receita do GAM já vem em USD; gasto do Ads (BRL) é convertido para USD na distribuição.
+    // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
 
     // Agrupa sites por network_code
@@ -75,9 +89,9 @@ Deno.serve(async (req) => {
 
     for (const [networkCode, networkSites] of byNetwork) {
       try {
-        // Roda dois reports: por AD_UNIT_NAME e por PLACEMENT_NAME
-        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
-        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
+        const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
+        const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
+        const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
 
         const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
         const totals = canonicalRows.reduce(
@@ -118,7 +132,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug);
+          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds);
         }
 
         summary.push({
@@ -130,6 +144,9 @@ Deno.serve(async (req) => {
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
+          date_range: ranges.map((r) => r.debugLabel),
+          site_id: requestedSiteId ?? null,
+          rows_returned: canonicalRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
@@ -138,13 +155,20 @@ Deno.serve(async (req) => {
     }
 
     const hasErrors = summary.some((s) => typeof s.error === "string");
+    const gamDebug = {
+      gam_called: true,
+      rows_returned: summary.reduce((acc, s) => acc + Number(s.rows_returned ?? 0), 0),
+      date_range: summary.flatMap((s) => Array.isArray(s.date_range) ? s.date_range : []),
+      site: requestedSiteId ?? "all",
+      error: summary.find((s) => typeof s.error === "string")?.error ?? null,
+    };
 
     // Atualiza last_synced_at/status sem marcar como conectado quando o GAM recusou a chamada
     await admin.from("gam_accounts")
       .update({ last_synced_at: new Date().toISOString(), status: hasErrors ? "pending" : "connected" })
       .eq("user_id", userId);
 
-    return json({ ok: true, date_preset: datePreset, summary, debug });
+    return json({ ok: true, date_preset: datePreset, summary, gam_debug: gamDebug, debug });
   } catch (e) {
     console.error("[gam-sync-revenue] uncaught", e);
     return json({ error: String(e), debug });
@@ -154,6 +178,8 @@ Deno.serve(async (req) => {
 interface ReportRow { date: string | null; name: string; impressions: number; revenue: number; }
 
 interface FxRates { usdBrl: number; }
+
+interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
 
 async function getFxRates(debug: string[]): Promise<FxRates> {
   try {
@@ -170,12 +196,27 @@ async function getFxRates(debug: string[]): Promise<FxRates> {
   return { usdBrl: 5.5 };
 }
 
-// Converte um valor da moeda original para USD
-function toUsd(amount: number, currency: string | null | undefined, fx: FxRates): number {
-  const cur = (currency ?? "USD").toUpperCase();
-  if (cur === "USD") return amount;
-  if (cur === "BRL") return fx.usdBrl > 0 ? amount / fx.usdBrl : amount;
-  return amount;
+function buildGamRanges(datePreset: string, from: string | null, to: string | null, includeYesterdayFallback: boolean): GamRange[] {
+  const valid = (d: string | null) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  const fixed = (start: string, end: string): GamRange => ({
+    dateRange: { fixed: { startDate: dateObj(start), endDate: dateObj(end) } },
+    debugLabel: `${start}..${end}`,
+  });
+  const ranges = valid(from) && valid(to)
+    ? [fixed(from!, to!)]
+    : [{ dateRange: { relative: datePreset }, debugLabel: datePreset }];
+  if (includeYesterdayFallback) {
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const iso = y.toISOString().slice(0, 10);
+    if (!ranges.some((r) => r.debugLabel.includes(iso))) ranges.push(fixed(iso, iso));
+  }
+  return ranges;
+}
+
+function dateObj(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return { year, month, day };
 }
 
 async function distributeGamRevenueToCampaigns(
@@ -185,6 +226,7 @@ async function distributeGamRevenueToCampaigns(
   rows: ReportRow[],
   _fx: FxRates,
   debug: string[],
+  requestedAccountIds: string[] = [],
 ) {
   if (!siteId || rows.length === 0) return;
 
@@ -208,7 +250,14 @@ async function distributeGamRevenueToCampaigns(
     return;
   }
 
-  const accountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  const linkedAccountIds = links.map((l: any) => l.google_account_id).filter(Boolean);
+  const accountIds = requestedAccountIds.length > 0
+    ? linkedAccountIds.filter((id: string) => requestedAccountIds.includes(id))
+    : linkedAccountIds;
+  if (accountIds.length === 0) {
+    debug.push(`[daily_metrics] nenhuma conta Ads selecionada está vinculada ao site`);
+    return;
+  }
   for (const [date, totals] of totalsByDate) {
     const { data: metrics, error: metricsErr } = await admin
       .from("daily_metrics")
@@ -244,7 +293,7 @@ async function distributeGamRevenueToCampaigns(
 async function runReport(
   networkCode: string,
   accessToken: string,
-  datePreset: string,
+  range: GamRange,
   groupDim: "AD_UNIT_NAME" | "PLACEMENT_NAME",
   debug: string[],
 ): Promise<ReportRow[]> {
@@ -262,7 +311,7 @@ async function runReport(
         "ADSENSE_IMPRESSIONS",
         "ADSENSE_REVENUE",
       ],
-      dateRange: { relative: datePreset },
+      dateRange: range.dateRange,
     },
   };
   const createRes = await fetch(
@@ -348,8 +397,8 @@ async function runReport(
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       // Impressões: AdServer + AdExchange + AdSense
       const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      // GAM retorna receita em USD nesta conta. Mantemos em USD (moeda padrão do sistema).
-      const revenue = num(m[1]) + num(m[3]) + num(m[5]);
+      // GAM retorna receita em micros de USD. Armazenamos em USD nativo.
+      const revenue = (num(m[1]) + num(m[3]) + num(m[5])) / 1_000_000;
       allRows.push({ date, name, impressions, revenue });
     }
     pageToken = rowsJson.nextPageToken;

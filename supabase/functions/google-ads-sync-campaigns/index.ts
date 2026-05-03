@@ -1,26 +1,9 @@
 // Sincroniza:
 // 1) Sub-contas (customer_client) de cada MCC
-// 2) Campanhas + métricas (YESTERDAY) de cada conta não-manager
-// Moeda padrão do sistema = USD. Convertemos spend (BRL/etc) para USD usando cotação em tempo real.
+// 2) Campanhas + métricas de cada conta não-manager
+// Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-
-async function getUsdBrlRate(): Promise<number> {
-  try {
-    const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
-    const data = await res.json();
-    const rate = Number(data?.USDBRL?.bid);
-    if (Number.isFinite(rate) && rate > 0) return rate;
-  } catch (_) { /* */ }
-  return 5.5;
-}
-
-function toUsd(amount: number, currency: string | null | undefined, usdBrl: number): number {
-  const cur = (currency ?? "USD").toUpperCase();
-  if (cur === "USD") return amount;
-  if (cur === "BRL") return usdBrl > 0 ? amount / usdBrl : amount;
-  return amount;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -35,12 +18,16 @@ Deno.serve(async (req) => {
     let datePreset: string | null = null;
     let dateFrom: string | null = null;
     let dateTo: string | null = null;
+    let accountIds: string[] = [];
     try {
       const body = await req.json().catch(() => ({}));
       if (body && typeof body === "object") {
         datePreset = (body as any).date_preset ?? null;
         dateFrom = (body as any).from ?? null;
         dateTo = (body as any).to ?? null;
+        accountIds = Array.isArray((body as any).account_ids)
+          ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
+          : [];
       }
     } catch (_) { /* no body */ }
 
@@ -100,10 +87,6 @@ Deno.serve(async (req) => {
       if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
       return j.access_token as string;
     };
-
-    // Cotação USD↔BRL para conversão de spend para USD (moeda padrão do sistema)
-    const usdBrlRate = await getUsdBrlRate();
-    debugLogs.push(`fx USD/BRL=${usdBrlRate}`);
 
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
@@ -216,7 +199,9 @@ Deno.serve(async (req) => {
         let totalMetrics = 0;
         const accountResults: Array<Record<string, unknown>> = [];
 
+        const rootSelected = accountIds.includes(root.id);
         for (const leaf of leafAccounts) {
+          if (accountIds.length > 0 && !rootSelected && !accountIds.includes(leaf.id)) continue;
           try {
             const headers: Record<string, string> = {
               Authorization: `Bearer ${accessToken}`,
@@ -276,7 +261,7 @@ Deno.serve(async (req) => {
                     status: info.status.toLowerCase(),
                     channel_type: info.channel,
                   },
-                  { onConflict: "user_id,campaign_id" },
+                  { onConflict: "user_id,google_account_id,campaign_id" },
                 );
               if (!campErr) totalCampaigns++;
             }
@@ -285,27 +270,42 @@ Deno.serve(async (req) => {
             for (const r of results) {
               // Spend mantido na moeda nativa da conta (Ads geralmente BRL nesta conta)
               const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
-              const revenue = Number(r.metrics.conversionsValue ?? 0);
               const clicks = Number(r.metrics.clicks ?? 0);
               const impressions = Number(r.metrics.impressions ?? 0);
               const conversions = Number(r.metrics.conversions ?? 0);
-              const profit = revenue - spend;
-              const roi = spend > 0 ? ((revenue - spend) / spend) * 100 : 0;
-              const roas = spend > 0 ? revenue / spend : 0;
-              const ecpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+              const baseMetric = {
+                spend,
+                clicks,
+                impressions,
+                conversions,
+              };
 
-              const { error: mErr } = await admin
+              const { data: existingMetric } = await admin
                 .from("daily_metrics")
-                .upsert(
+                .select("id")
+                .eq("user_id", userId)
+                .eq("google_account_id", leaf.id)
+                .eq("campaign_id", r.campaign.id)
+                .eq("date", r.segments.date)
+                .maybeSingle();
+
+              const { error: mErr } = existingMetric?.id
+                ? await admin.from("daily_metrics").update(baseMetric).eq("id", existingMetric.id)
+                : await admin
+                .from("daily_metrics")
+                .insert(
                   {
                     user_id: userId,
                     google_account_id: leaf.id,
                     campaign_id: r.campaign.id,
                     date: r.segments.date,
-                    spend, revenue, profit, roi, roas,
-                    clicks, impressions, conversions, ecpm,
+                    ...baseMetric,
+                    revenue: 0,
+                    profit: -spend,
+                    roi: spend > 0 ? -100 : 0,
+                    roas: 0,
+                    ecpm: 0,
                   },
-                  { onConflict: "user_id,campaign_id,date" },
                 );
               if (!mErr) totalMetrics++;
             }

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
   TrendingUp, Wallet, Settings, Plug, LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,41 +31,30 @@ const Index = () => {
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
-    const accountCampaignIds = new Set(
-      filters.googleAccountId === "all"
-        ? data.campaigns.map((c) => c.campaign_id)
-        : data.campaigns
-            .filter((c) => c.google_account_id === filters.googleAccountId)
-            .map((c) => c.campaign_id),
-    );
-
-    const siteCampaignIds = new Set(
+    const selectedAccountIds = filters.googleAccountIds;
+    const linkedAccountIds = new Set(
       filters.siteId === "all"
-        ? data.campaigns.map((c) => c.campaign_id)
-        : (() => {
-            const linkedAccIds = data.links
-              .filter((l) => l.site_id === filters.siteId)
-              .map((l) => l.google_account_id);
-            return data.campaigns
-              .filter((c) => linkedAccIds.includes(c.google_account_id ?? ""))
-              .map((c) => c.campaign_id);
-          })(),
+        ? []
+        : data.links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id),
     );
-
-    const matchCampaign = (cid: string) =>
+    const matchAccount = (accountId?: string | null) =>
+      selectedAccountIds.length === 0 || (accountId ? selectedAccountIds.includes(accountId) : false);
+    const matchSiteAccount = (accountId?: string | null) =>
+      filters.siteId === "all" || (accountId ? linkedAccountIds.has(accountId) : false);
+    const matchCampaign = (cid: string, accountId?: string | null) =>
       (filters.campaignId === "all" || filters.campaignId === cid) &&
-      accountCampaignIds.has(cid) && siteCampaignIds.has(cid);
+      matchAccount(accountId) && matchSiteAccount(accountId);
 
     const inDateRange = (date: string) =>
       (!filters.fromDate || date >= filters.fromDate) &&
       (!filters.toDate || date <= filters.toDate);
 
-    const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id));
+    const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id, c.google_account_id));
     const metrics: DailyMetric[] = data.metrics.filter(
-      (m) => matchCampaign(m.campaign_id) && inDateRange(m.date),
+      (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
     const placements: Placement[] = data.placements.filter((p) => {
-      const cidOk = !p.campaign_id || matchCampaign(p.campaign_id);
+      const cidOk = filters.campaignId === "all" || p.campaign_id === filters.campaignId;
       const siteOk = filters.siteId === "all" || p.site_id === filters.siteId
         || data.sites.find((s) => s.id === filters.siteId)?.name === p.site;
       return cidOk && siteOk && inDateRange(p.date);
@@ -98,6 +88,49 @@ const Index = () => {
   const handleRefresh = async () => {
     await data.refresh();
     toast({ title: "Dados atualizados" });
+  };
+
+  const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
+    const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
+    const from = nextFilters.fromDate || undefined;
+    const to = nextFilters.toDate || undefined;
+    const body = {
+      from,
+      to,
+      site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
+      account_ids: nextFilters.googleAccountIds,
+      include_yesterday_fallback: preset === "today",
+    };
+
+    toast({ title: "Sincronizando", description: preset === "today" ? "Hoje + fallback GAM de ontem" : "Filtros atualizados" });
+    const [adsRes, gamRes] = await Promise.all([
+      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>("google-ads-sync-campaigns", { body }),
+      supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>("gam-sync-revenue", { body }),
+    ]);
+
+    if (import.meta.env.DEV) {
+      console.info("[dashboard-sync] Google Ads", adsRes.data ?? adsRes.error);
+      console.info("[dashboard-sync] GAM", gamRes.data ?? gamRes.error);
+    }
+
+    const adsErr = adsRes.error?.message ?? adsRes.data?.error;
+    const gamErr = gamRes.error?.message ?? gamRes.data?.error;
+    if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
+    if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
+    if (!adsErr && !gamErr) {
+      toast({ title: "Dados atualizados", description: preset === "today" ? "GAM pode atrasar. Mostrando último dado disponível." : undefined });
+    }
+    await data.refresh();
+  }, [data]);
+
+  const handleFilterChange = (nextFilters: DashboardFilters) => {
+    const shouldSync =
+      nextFilters.siteId !== filters.siteId ||
+      nextFilters.fromDate !== filters.fromDate ||
+      nextFilters.toDate !== filters.toDate ||
+      nextFilters.googleAccountIds.join("|") !== filters.googleAccountIds.join("|");
+    setFilters(nextFilters);
+    if (shouldSync) void syncDashboardData(nextFilters);
   };
 
   const handleAcknowledge = async (id: string) => {
@@ -167,37 +200,21 @@ const Index = () => {
           <TabsContent value="dashboard" className="space-y-6 mt-6">
             <FilterBar
               filters={filters}
-              onChange={setFilters}
+              onChange={handleFilterChange}
               googleAccounts={data.googleAccounts}
               sites={data.sites}
               campaigns={data.campaigns}
-              onPresetApply={async (key, gaql) => {
-                toast({ title: "Sincronizando", description: `Período: ${gaql.replace(/_/g, " ")}` });
-                // GAM não tem dados em tempo real → quando "Hoje", buscar também "Ontem" como fallback
-                const gamPreset = key === "today" ? "YESTERDAY" : gaql;
-                const [adsRes, gamRes] = await Promise.all([
-                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
-                    "google-ads-sync-campaigns",
-                    { body: { date_preset: gaql } },
-                  ),
-                  supabase.functions.invoke<{ ok?: boolean; error?: string }>(
-                    "gam-sync-revenue",
-                    { body: { date_preset: gamPreset } },
-                  ),
-                ]);
-                const adsErr = adsRes.error?.message ?? adsRes.data?.error;
-                const gamErr = gamRes.error?.message ?? gamRes.data?.error;
-                if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
-                if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
-                if (!adsErr && !gamErr) {
-                  toast({
-                    title: "Dados atualizados",
-                    description: key === "today" ? "GAM pode atrasar; usando ontem como fallback." : undefined,
-                  });
-                }
-                await data.refresh();
-              }}
             />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Receita: USD nativo (GAM)</Badge>
+              {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
+                <Badge variant="secondary">Dados podem atrasar até algumas horas</Badge>
+              )}
+              {totals.revenue === 0 && (
+                <Badge variant="secondary">GAM pode atrasar. Mostrando último dado disponível.</Badge>
+              )}
+            </div>
 
             {/* Métricas */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
