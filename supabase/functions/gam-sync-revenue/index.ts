@@ -63,17 +63,18 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: sites, error: sErr } = await admin
+    let sitesQuery = admin
       .from("sites")
       .select("id, name, domain, network_code")
-      .eq("user_id", userId)
-      .filter("id", requestedSiteId ? "eq" : "neq", requestedSiteId ?? "00000000-0000-0000-0000-000000000000");
+      .eq("user_id", userId);
+    if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
+    const { data: sites, error: sErr } = await sitesQuery;
     if (sErr) return json({ error: sErr.message });
     if (!sites || sites.length === 0) return json({ error: "Nenhum site cadastrado" });
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
-    // Sistema padronizado em USD. Receita do GAM já vem em USD; gasto do Ads (BRL) é convertido para USD na distribuição.
+    // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
 
     // Agrupa sites por network_code
@@ -88,9 +89,9 @@ Deno.serve(async (req) => {
 
     for (const [networkCode, networkSites] of byNetwork) {
       try {
-        // Roda dois reports: por AD_UNIT_NAME e por PLACEMENT_NAME
-        const adUnitRows = await runReport(networkCode, accessToken, datePreset, "AD_UNIT_NAME", debug);
-        const placementRows = await runReport(networkCode, accessToken, datePreset, "PLACEMENT_NAME", debug);
+        const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
+        const adUnitRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_UNIT_NAME", debug)))).flat();
+        const placementRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "PLACEMENT_NAME", debug)))).flat();
 
         const canonicalRows = adUnitRows.length > 0 ? adUnitRows : placementRows;
         const totals = canonicalRows.reduce(
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug);
+          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds);
         }
 
         summary.push({
@@ -143,6 +144,9 @@ Deno.serve(async (req) => {
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
+          date_range: ranges.map((r) => r.debugLabel),
+          site_id: requestedSiteId ?? null,
+          rows_returned: canonicalRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
