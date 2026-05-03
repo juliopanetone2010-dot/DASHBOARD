@@ -142,10 +142,17 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
   const fetchPlacements = async (cid: string) => {
     setLoading(true);
+    setRows([]);
+    setGamRows([]);
+    setCampaignMetricRows([]);
     try {
-      const range = DATE_PRESETS.find((p) => p.key === preset)!.range();
+      const from = range.from;
+      const to = range.to;
+      if (import.meta.env.DEV) {
+        console.info("[placements] fetch", { campaign: cid, from, to, accounts: accountIds, version });
+      }
       const { error } = await supabase.functions.invoke("google-ads-sync-placements", {
-        body: { campaign_id: cid, from: range.from, to: range.to },
+        body: { campaign_id: cid, from, to },
       });
       if (error) {
         toast({ title: "Erro ao sincronizar", description: error.message, variant: "destructive" });
@@ -153,14 +160,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       }
       // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
       await supabase.functions.invoke("gam-sync-revenue", {
-        body: { from: range.from, to: range.to, account_ids: accountIds },
+        body: { from, to, account_ids: accountIds },
       });
       const { data, error: qErr } = await supabase
         .from("ads_placements")
         .select("*")
         .eq("campaign_id", cid)
-        .gte("date", range.from)
-        .lte("date", range.to)
+        .gte("date", from)
+        .lte("date", to)
         .order("date", { ascending: false })
         .limit(5000);
       if (qErr) {
@@ -176,8 +183,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
         .eq("campaign_id", cid)
         .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to);
+        .gte("date", from)
+        .lte("date", to);
       setGamRows((gamData ?? []) as GamRevRow[]);
 
       // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
@@ -186,8 +193,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         .from("daily_metrics")
         .select("revenue, clicks, impressions, date")
         .eq("campaign_id", cid)
-        .gte("date", range.from)
-        .lte("date", range.to);
+        .gte("date", from)
+        .lte("date", to);
       setCampaignMetricRows((metricData ?? []) as CampaignMetricRow[]);
 
       // Carrega ações (blacklist/favorite) para os placements desta campanha
@@ -206,7 +213,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   useEffect(() => {
     if (campaignId) void fetchPlacements(campaignId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignId, preset]);
+  }, [campaignId, range.from, range.to, version]);
 
   // Receita GAM por placement (já agrupada via UTM no backend)
   const gamRevenueByPlacement = useMemo(() => {
