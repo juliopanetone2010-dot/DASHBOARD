@@ -290,7 +290,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
                   const websiteList = list.filter((i) => i.type === "WEBSITE");
-                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(i.placement));
+                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
                   return (
                     <Fragment key={camp.campaign_id}>
@@ -328,9 +328,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   const isApp = i.type !== "WEBSITE";
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={`${camp.campaign_id}-${i.placement}`} className={cn(isApp && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(isApp && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(i.placement)} disabled={isApp} onCheckedChange={() => toggle(i.placement)} />
+                                        <Checkbox checked={selected.has(itemKey(i))} disabled={isApp} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">{i.type}{isApp && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}</TableCell>
