@@ -107,25 +107,25 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
-              <TableHead className="text-right">Gasto</TableHead>
-              <TableHead className="text-right">Receita</TableHead>
-              <TableHead className="text-right">Lucro</TableHead>
-              <TableHead className="text-right">ROI</TableHead>
-              <TableHead className="text-right">ROAS</TableHead>
-              <TableHead className="text-right">Cliques</TableHead>
-              <TableHead className="text-right">Conv.</TableHead>
+              <SortHead k="spend" label="Gasto" />
+              <SortHead k="revenue" label="Receita" />
+              <SortHead k="profit" label="Lucro" />
+              <SortHead k="roi" label="ROI" />
+              <SortHead k="roas" label="ROAS" />
+              <SortHead k="clicks" label="Cliques" />
+              <SortHead k="conversions" label="Conv." />
               <TableHead className="w-[180px] text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {campaigns.length === 0 && (
+            {sortedCampaigns.length === 0 && (
               <TableRow>
                 <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
             )}
-            {campaigns.map((c) => {
+            {sortedCampaigns.map((c) => {
               const positive = c.profit >= 0;
               const isPaused = c.status === "paused";
               const rowKey = c.campaign_id;
