@@ -516,16 +516,20 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
   const tokenCache = new Map<string, string>();
   for (const a of accs ?? []) accMap.set(a.id, a);
 
-  const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string }[] }>();
+  const ops = new Map<string, { acc: any; campaign_id: string; placements: { placement: string; type: string; app_id: string | null }[] }>();
   for (const it of items) {
-    if (it.type !== "WEBSITE") continue;
+    // permite WEBSITE e MOBILE_APPLICATION (app só com app_id válido)
+    if (it.type !== "WEBSITE" && it.type !== "MOBILE_APPLICATION") continue;
+    if (it.type === "MOBILE_APPLICATION" && !it.app_id) continue;
     for (const c of it.campaigns) {
       const acc = accMap.get(c.google_account_id);
       if (!acc?.refresh_token) continue;
       const k = `${c.google_account_id}|${c.campaign_id}`;
       let g = ops.get(k);
       if (!g) { g = { acc, campaign_id: c.campaign_id, placements: [] }; ops.set(k, g); }
-      if (!g.placements.some((p) => p.placement === it.placement)) g.placements.push({ placement: it.placement, type: it.type });
+      if (!g.placements.some((p) => p.placement === it.placement)) {
+        g.placements.push({ placement: it.placement, type: it.type, app_id: it.app_id ?? null });
+      }
     }
   }
 
@@ -541,13 +545,21 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         "Content-Type": "application/json",
       };
       if (g.acc.login_customer_id) headers["login-customer-id"] = g.acc.login_customer_id;
-      const operations = g.placements.map((p) => ({
-        create: {
+      const operations = g.placements.map((p) => {
+        const base = {
           campaign: `customers/${g.acc.customer_id}/campaigns/${g.campaign_id}`,
           negative: true,
-          placement: { url: p.placement.startsWith("http") ? p.placement : `https://${p.placement}` },
-        },
-      }));
+        };
+        if (p.type === "MOBILE_APPLICATION" && p.app_id) {
+          return { create: { ...base, mobileApplication: { appId: p.app_id } } };
+        }
+        return {
+          create: {
+            ...base,
+            placement: { url: p.placement.startsWith("http") ? p.placement : `https://${p.placement}` },
+          },
+        };
+      });
       const r = await fetch(
         `https://googleads.googleapis.com/v21/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
         { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
