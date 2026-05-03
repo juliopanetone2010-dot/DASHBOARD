@@ -74,7 +74,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     (async () => {
       const { data } = await supabase
         .from("rules_config")
-        .select("placement_auto_cleanup_enabled, placement_cleanup_min_days, placement_cleanup_max_roi_pct, placement_cleanup_min_cost_brl, placement_cleanup_min_clicks, placement_cleanup_last_run_at")
+        .select("placement_auto_cleanup_enabled, placement_cleanup_min_days, placement_cleanup_max_roi_pct, placement_cleanup_min_cost_brl, placement_cleanup_last_run_at")
         .maybeSingle();
       if (data) {
         setAutoEnabled(!!data.placement_auto_cleanup_enabled);
@@ -154,7 +154,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
   const toggleAll = (on: boolean) => {
     if (!on) return setSelected(new Set());
-    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map((i) => i.placement)));
+    setSelected(new Set(items.filter((i) => i.type === "WEBSITE").map(itemKey)));
   };
 
   const runApply = async () => {
