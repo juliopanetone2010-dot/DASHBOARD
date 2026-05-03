@@ -231,11 +231,9 @@ const Index = () => {
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  presetFromRange(filters.fromDate, filters.toDate) === "today"
-                    ? "USD nativo · GAM pode atrasar (mostrando até ontem)"
-                    : totals.revenue === 0
-                      ? "USD nativo · Sem dados do GAM ou atraso de processamento"
-                      : "USD nativo"
+                  totals.revenue === 0
+                    ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
+                    : "USD nativo"
                 }
               />
               <MetricCard
