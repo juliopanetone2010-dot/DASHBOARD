@@ -498,6 +498,22 @@ function rootDomain(host: string): string {
 
 function round(n: number) { return Math.round(n * 100) / 100; }
 
+// Extrai app id no formato Google Ads: "1-com.pacote" (Android) ou "2-123456789" (iOS).
+function extractAppId(placementRaw: string, type?: string | null): string | null {
+  if (type !== "MOBILE_APPLICATION") return null;
+  const raw = (placementRaw || "").trim();
+  if (!raw) return null;
+  const m1 = raw.match(/mobileapp::([12]-[A-Za-z0-9._-]+)/i);
+  if (m1) return m1[1];
+  const m2 = raw.match(/^([12]-[A-Za-z0-9._-]+)$/);
+  if (m2) return m2[1];
+  // fallback: se vier só pacote tipo "com.whatsapp" assume Android
+  if (/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i.test(raw)) return `1-${raw}`;
+  // iOS numeric
+  if (/^\d{6,}$/.test(raw)) return `2-${raw}`;
+  return null;
+}
+
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {
     status: 200,
