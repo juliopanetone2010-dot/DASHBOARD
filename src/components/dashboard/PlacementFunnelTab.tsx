@@ -261,6 +261,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
             <span className="ml-1 text-[10px] tabular-nums opacity-70">{counts[s]}</span>
           </button>
         ))}
+
+        <MultiPicker label="Contas" items={accounts} selected={accountFilter} onChange={setAccountFilter} />
+        <MultiPicker label="Sites" items={sites.map((s) => ({ id: s.id, name: s.name }))} selected={siteFilter} onChange={setSiteFilter} />
+
         <div className="flex-1 min-w-[220px] flex items-center gap-2 ml-auto">
           <Filter className="h-3.5 w-3.5 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filtrar por placement ou campanha..." className="h-8 text-xs" />
