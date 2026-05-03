@@ -99,8 +99,9 @@ Deno.serve(async (req) => {
           runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
         ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
 
-        // 1) Descobre IDs dos targeting keys utm_source, utm_campaign, utm_placement
-        const utmKeyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
+        // Não precisamos mais descobrir IDs de custom targeting keys.
+        // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
+        const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug });
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
