@@ -229,7 +229,7 @@ export function IntegrationsPanel(props: Props) {
           Suas tags Ads devem usar:&nbsp;
           <code className="font-mono">utm_campaign={'{campaignid}'}</code>,&nbsp;
           <code className="font-mono">utm_content={'{creative}'}</code>,&nbsp;
-          <code className="font-mono">utm_placement={'{campaignid}_placement'}</code>.
+          <code className="font-mono">utm_placement={'{campaignid}_{placement}'}</code>.
           O sistema cruza <code>placement_key</code> do GAM com <code>campaign_id</code> do Ads
           via vínculo conta↔site para atribuir receita à campanha correta e calcular ROI.
         </p>

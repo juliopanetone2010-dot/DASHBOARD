@@ -37,7 +37,7 @@ export function LinksPanel({ links, accounts, sites, onAdd, onRemove }: Props) {
         <h3 className="font-semibold flex items-center gap-2"><Link2 className="h-4 w-4" /> Vínculos Ads ↔ Site</h3>
         <p className="text-xs text-muted-foreground mt-0.5">
           Mapeamento usado para casar receita do site com a campanha Ads correta.
-          O match real acontece via UTM: <code>utm_campaign=campaignid</code>, <code>utm_placement=campaignid_placement</code>.
+          O match real acontece via UTM: <code>utm_campaign=campaignid</code>, <code>utm_placement=campaignid_placement</code> ou <code>campaignid_placement</code> no key-value do GAM.
         </p>
       </div>
 
