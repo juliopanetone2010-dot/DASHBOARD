@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
-        const totals = googleRows.reduce(
+        const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
         );
@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges));
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleRows, fxRates, debug, expandFixedDates(ranges));
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges));
         }
 
         summary.push({
@@ -144,7 +144,10 @@ Deno.serve(async (req) => {
           placement_rows: placementRows.length,
           utm_rows: utmRows.length,
           utm_keys_found: utmKeyIds,
-          google_rows: googleRows.length,
+          google_rows: googleCampaignRows.length,
+          google_placement_rows: googlePlacementRows.length,
+          attribution_source: attribution.campaignSource,
+          placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
           currency: "USD",
           usd_brl_rate: fxRates.usdBrl,
@@ -152,7 +155,7 @@ Deno.serve(async (req) => {
           total_impressions: totals.impressions,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
-          rows_returned: googleRows.length,
+          rows_returned: googleCampaignRows.length,
           ecpm: totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0,
         });
       } catch (e) {
