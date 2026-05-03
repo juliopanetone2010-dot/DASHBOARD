@@ -95,20 +95,32 @@ Deno.serve(async (req) => {
         let googleUtmRows: ReportRow[] = [];
         const allUtmRows: ReportRow[] = [];
         let customCriteriaAvailable = false;
+        let customCriteriaDimUsed: string | null = null;
         const sourceCounts: Record<string, number> = {};
-        try {
-          const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, "AD_REQUEST_CUSTOM_CRITERIA", debug))))
-            .flat()
-          customCriteriaAvailable = true;
-          for (const r of customCriteriaRows) {
-            const parsed = parseGamAttribution(r.name);
-            if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
-            if (parsed?.cid) allUtmRows.push(r);
-            if (parsed?.source === "google") googleUtmRows.push(r);
+        // Tenta dimensões possíveis para extrair UTM/key-values do GAM (a API nova
+        // renomeou várias dimensões; tentamos em ordem de preferência).
+        const candidateDims: Array<"KEY_VALUES_NAME" | "CUSTOM_CRITERIA" | "AD_REQUEST_CUSTOM_CRITERIA"> = [
+          "KEY_VALUES_NAME",
+          "CUSTOM_CRITERIA",
+          "AD_REQUEST_CUSTOM_CRITERIA",
+        ];
+        for (const dim of candidateDims) {
+          try {
+            const customCriteriaRows = (await Promise.all(ranges.map((range) => runReport(networkCode, accessToken, range, dim as any, debug))))
+              .flat();
+            customCriteriaAvailable = true;
+            customCriteriaDimUsed = dim;
+            for (const r of customCriteriaRows) {
+              const parsed = parseGamAttribution(r.name);
+              if (parsed?.source) sourceCounts[parsed.source] = (sourceCounts[parsed.source] ?? 0) + 1;
+              if (parsed?.cid) allUtmRows.push(r);
+              if (parsed?.source === "google") googleUtmRows.push(r);
+            }
+            debug.push(`[${networkCode}/${dim}] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
+            break;
+          } catch (e) {
+            debug.push(`[${networkCode}/${dim}] indisponível: ${String(e).slice(0, 200)}`);
           }
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] sources=${JSON.stringify(sourceCounts)}; google=${googleUtmRows.length}; total_with_cid=${allUtmRows.length}`);
-        } catch (e) {
-          debug.push(`[${networkCode}/AD_REQUEST_CUSTOM_CRITERIA] indisponível: ${String(e)}`);
         }
 
         // Para ROI de Ads, só usamos receita com utm_source=google. Receita de push/retenção
@@ -154,7 +166,15 @@ Deno.serve(async (req) => {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenue(admin, userId, networkSites[0]?.id, allUtmRows, debug, expandFixedDates(ranges));
-          await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
+          if (customCriteriaAvailable && canonicalRows.length > 0) {
+            await distributeGamRevenueToCampaigns(admin, userId, networkSites[0]?.id, canonicalRows, fxRates, debug, requestedAccountIds, expandFixedDates(ranges));
+          } else {
+            // Fallback: GAM não expõe dimensão de UTM (ou veio vazia). Em vez de zerar
+            // o Dashboard, distribuímos a receita total do GAM (placementRows) por
+            // share de gasto entre as campanhas Ads vinculadas ao site.
+            debug.push(`[fallback] sem UTM dim disponível (dim=${customCriteriaDimUsed ?? "nenhuma"}). Rateando receita total do GAM por share de gasto.`);
+            await distributeGamTotalsBySpend(admin, userId, networkSites[0]?.id, adUnitRows, fxRates, debug, expandFixedDates(ranges));
+          }
         }
 
         summary.push({
@@ -498,6 +518,80 @@ async function distributeGamRevenueToCampaigns(
       );
     }
     debug.push(`[daily_metrics] ${date}: ${matchedIds.size} match direto via utm_source=google; ${leftover.toFixed(4)} USD sem match ignorado (não rateado)`);
+  }
+}
+
+// Fallback quando GAM não expõe dimensão de UTM:
+// distribui a receita total do GAM entre as campanhas Ads vinculadas ao site,
+// proporcional ao gasto de cada campanha no dia. NÃO grava em
+// gam_campaign_source_revenue (sem origem confiável), apenas atualiza daily_metrics
+// para que Dashboard volte a mostrar receita/ROI.
+async function distributeGamTotalsBySpend(
+  admin: any,
+  userId: string,
+  siteId: string | undefined,
+  placementRows: ReportRow[],
+  fx: FxRates,
+  debug: string[],
+  syncDates: string[] = [],
+) {
+  if (!siteId) return;
+  const { data: links } = await admin
+    .from("account_site_links")
+    .select("google_account_id")
+    .eq("user_id", userId)
+    .eq("site_id", siteId);
+  const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
+  if (accountIds.length === 0) {
+    debug.push(`[fallback] sem vínculo Ads↔site`);
+    return;
+  }
+
+  // Receita total por dia (USD) somando todos os placement rows do GAM
+  const revByDate = new Map<string, number>();
+  for (const r of placementRows) {
+    if (!r.date) continue;
+    revByDate.set(r.date, (revByDate.get(r.date) ?? 0) + r.revenue);
+  }
+  const allDates = new Set<string>([...syncDates, ...revByDate.keys()]);
+
+  for (const date of allDates) {
+    const totalUsd = revByDate.get(date) ?? 0;
+    const { data: metrics } = await admin
+      .from("daily_metrics")
+      .select("id, spend, impressions")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("google_account_id", accountIds);
+    if (!metrics?.length) continue;
+    const totalSpend = (metrics as any[]).reduce((acc, m) => acc + Number(m.spend ?? 0), 0);
+    const totalImpr = (metrics as any[]).reduce((acc, m) => acc + Number(m.impressions ?? 0), 0);
+    const updates: any[] = [];
+    for (const m of metrics as any[]) {
+      const spend = Number(m.spend ?? 0);
+      const impr = Number(m.impressions ?? 0);
+      const weight = totalSpend > 0
+        ? spend / totalSpend
+        : (totalImpr > 0 ? impr / totalImpr : 0);
+      const revenueUsd = totalUsd * weight;
+      const revenueBrl = revenueUsd * fx.usdBrl;
+      const profit = revenueBrl - spend;
+      const roi = spend > 0 ? (profit / spend) * 100 : 0;
+      const roas = spend > 0 ? revenueBrl / spend : 0;
+      const ecpm = impr > 0 ? (revenueBrl / impr) * 1000 : 0;
+      updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
+    }
+    const CHUNK = 25;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+      await Promise.all(
+        updates.slice(i, i + CHUNK).map((u) =>
+          admin.from("daily_metrics").update({
+            revenue: u.revenue, profit: u.profit, roi: u.roi, roas: u.roas, ecpm: u.ecpm,
+          }).eq("id", u.id)
+        ),
+      );
+    }
+    debug.push(`[fallback] ${date}: ${updates.length} campanha(s) atualizada(s) com share de gasto sobre ${totalUsd.toFixed(2)} USD`);
   }
 }
 
