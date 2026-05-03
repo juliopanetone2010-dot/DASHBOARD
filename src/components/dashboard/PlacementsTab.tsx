@@ -187,7 +187,11 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   }, [aggregated, sortKey, sortDir]);
 
   const visible = sorted.slice(0, limit);
-  const hasGamRevenue = gamRevenueByHost.size > 0;
+  const hasGamRevenue = gamRevenueByPlacement.size > 0;
+  const matchedCount = useMemo(
+    () => aggregated.filter((a) => gamRevenueByPlacement.has(a.placement)).length,
+    [aggregated, gamRevenueByPlacement],
+  );
 
   const top = useMemo(
     () => [...aggregated].filter((a) => a.cost > 0).sort((a, b) => b.roi - a.roi).slice(0, 5),
