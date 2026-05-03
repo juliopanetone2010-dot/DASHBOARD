@@ -769,6 +769,7 @@ export type Database = {
           min_roi_pct: number
           min_spend_threshold: number
           placement_auto_cleanup_enabled: boolean
+          placement_cleanup_interval_days: number
           placement_cleanup_last_run_at: string | null
           placement_cleanup_max_roi_pct: number
           placement_cleanup_min_clicks: number
@@ -797,6 +798,7 @@ export type Database = {
           min_roi_pct?: number
           min_spend_threshold?: number
           placement_auto_cleanup_enabled?: boolean
+          placement_cleanup_interval_days?: number
           placement_cleanup_last_run_at?: string | null
           placement_cleanup_max_roi_pct?: number
           placement_cleanup_min_clicks?: number
@@ -825,6 +827,7 @@ export type Database = {
           min_roi_pct?: number
           min_spend_threshold?: number
           placement_auto_cleanup_enabled?: boolean
+          placement_cleanup_interval_days?: number
           placement_cleanup_last_run_at?: string | null
           placement_cleanup_max_roi_pct?: number
           placement_cleanup_min_clicks?: number

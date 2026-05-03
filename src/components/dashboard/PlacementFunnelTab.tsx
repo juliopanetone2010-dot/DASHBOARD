@@ -57,8 +57,9 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [lookback, setLookback] = useState(30);
+  const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoIntervalDays, setAutoIntervalDays] = useState(15);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<AccountOpt[]>([]);
@@ -69,11 +70,12 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const loadConfig = async () => {
     const { data } = await supabase
       .from("rules_config")
-      .select("placement_auto_cleanup_enabled, placement_cleanup_last_run_at")
+      .select("placement_auto_cleanup_enabled, placement_cleanup_last_run_at, placement_cleanup_interval_days")
       .maybeSingle();
     if (data) {
       setAutoEnabled(!!data.placement_auto_cleanup_enabled);
       setLastRun(data.placement_cleanup_last_run_at ?? null);
+      setAutoIntervalDays(Number((data as any).placement_cleanup_interval_days ?? 15));
     }
     const [{ data: accs }, { data: siteRows }, { data: linkRows }] = await Promise.all([
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id").order("account_name", { ascending: true }),
@@ -120,7 +122,17 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     await supabase.from("rules_config").update({ placement_auto_cleanup_enabled: on }).eq("user_id", u.user.id);
-    toast({ title: on ? "Esteira automática ligada (diária)" : "Esteira automática desligada" });
+    toast({ title: on ? `Esteira automática ligada (a cada ${autoIntervalDays}d)` : "Esteira automática desligada" });
+  };
+
+  const updateAutoInterval = async (days: number) => {
+    const v = Math.max(1, Math.min(180, Math.round(days)));
+    setAutoIntervalDays(v);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.from("rules_config")
+      .update({ placement_cleanup_interval_days: v } as any)
+      .eq("user_id", u.user.id);
   };
 
   const evaluateNow = async () => {
@@ -234,16 +246,34 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
             Funil: <b>test</b> (&lt;R$30) → <b>learning</b> (R$30–100, ROI &gt; -40%) → <b>good/bad</b> (≥R$100) → <b>blocked</b> (≥R$150 e ROI ≤ -30%). Só bloqueia quando claramente ruim.
           </div>
         </div>
-        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
-          Período
-          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 30))} className="h-7 w-16 text-xs" />
-          <span className="text-[10px]">dias</span>
-        </label>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">Período:</span>
+          {[
+            { label: "Hoje", v: 1 },
+            { label: "Ontem", v: 2 },
+            { label: "15d", v: 15 },
+            { label: "30d", v: 30 },
+          ].map((p) => (
+            <button key={p.label} onClick={() => setLookback(p.v)}
+              className={cn("text-[11px] rounded-md border px-2 py-1 transition-colors",
+                lookback === p.v ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
+              {p.label}
+            </button>
+          ))}
+          <Input type="number" value={lookback} onChange={(e) => setLookback(Math.max(1, +e.target.value || 15))} className="h-7 w-16 text-xs" />
+          <span className="text-[10px] text-muted-foreground">dias</span>
+        </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
           <Switch checked={autoEnabled} onCheckedChange={toggleAuto} />
           <div className="text-xs">
-            <div className="font-medium">Esteira automática</div>
-            <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
+            <div className="font-medium flex items-center gap-1">
+              Esteira automática a cada
+              <Input type="number" value={autoIntervalDays} onChange={(e) => updateAutoInterval(+e.target.value || 15)} className="h-6 w-14 text-xs px-1" />
+              dias
+            </div>
+            <div className="text-muted-foreground text-[10px]">
+              checagem diária • {lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}
+            </div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={evaluateNow} disabled={evaluating}>
@@ -416,7 +446,7 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
                   <TableCell className="text-right tabular-nums">{fmtBRL(g.cost)}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmtBRL(g.rev)}</TableCell>
                   <TableCell className={cn("text-right tabular-nums", g.profit < 0 && "text-danger")}>{fmtBRL(g.profit)}</TableCell>
-                  <TableCell className={cn("text-right tabular-nums font-semibold", g.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(g.roi)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums font-semibold", g.cost === 0 ? "text-muted-foreground" : g.roi < 0 ? "text-danger" : "text-success")}>{g.cost === 0 ? "—" : fmtPercent(g.roi)}</TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex gap-1">
                       {g.good > 0 && <Badge className="bg-success-soft text-success border-success/20">{g.good} bom</Badge>}

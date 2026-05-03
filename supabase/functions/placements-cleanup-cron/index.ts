@@ -12,20 +12,28 @@ Deno.serve(async (req) => {
 
   const { data: users, error } = await admin
     .from("rules_config")
-    .select("user_id")
+    .select("user_id, placement_cleanup_interval_days, placement_cleanup_last_run_at")
     .eq("placement_auto_cleanup_enabled", true);
   if (error) return json({ error: error.message });
 
+  const now = Date.now();
   const results: any[] = [];
   for (const u of users ?? []) {
+    const intervalDays = Math.max(1, Number(u.placement_cleanup_interval_days ?? 15));
+    const last = u.placement_cleanup_last_run_at ? new Date(u.placement_cleanup_last_run_at).getTime() : 0;
+    const dueIn = (now - last) / 86400_000;
+    if (last && dueIn < intervalDays) {
+      results.push({ user_id: u.user_id, skipped: true, days_since_last: +dueIn.toFixed(2), interval_days: intervalDays });
+      continue;
+    }
     try {
       const r = await fetch(`${SUPABASE_URL}/functions/v1/placements-evaluate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
-        body: JSON.stringify({ mode: "apply", user_id: u.user_id, lookback_days: 30 }),
+        body: JSON.stringify({ mode: "apply", user_id: u.user_id, lookback_days: intervalDays }),
       });
       const j = await r.json();
-      results.push({ user_id: u.user_id, ok: r.ok, summary: j?.summary, newly_blocked: j?.newly_blocked });
+      results.push({ user_id: u.user_id, ok: r.ok, summary: j?.summary, newly_blocked: j?.newly_blocked, interval_days: intervalDays });
       await admin.from("rules_config")
         .update({ placement_cleanup_last_run_at: new Date().toISOString() })
         .eq("user_id", u.user_id);
