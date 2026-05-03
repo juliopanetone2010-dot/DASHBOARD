@@ -25,7 +25,7 @@ const daysAgo = (n: number) => {
   return d;
 };
 
-export type DatePresetKey = "today" | "yesterday" | "last_3_days" | "last_7_days" | "last_30_days";
+export type DatePresetKey = "today" | "yesterday" | "last_3_days" | "last_7_days" | "last_15_days" | "last_30_days";
 
 export const DATE_PRESETS: Array<{ key: DatePresetKey; label: string; gaql: string; range: () => { from: string; to: string } }> = [
   { key: "today", label: "Hoje", gaql: "TODAY", range: () => ({ from: toISO(new Date()), to: toISO(new Date()) }) },
@@ -33,6 +33,7 @@ export const DATE_PRESETS: Array<{ key: DatePresetKey; label: string; gaql: stri
   // Google Ads convenção: "Últimos N dias" = N dias completos anteriores, SEM hoje
   { key: "last_3_days", label: "Últimos 3 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(3)), to: toISO(daysAgo(1)) }) },
   { key: "last_7_days", label: "Últimos 7 dias", gaql: "LAST_7_DAYS", range: () => ({ from: toISO(daysAgo(7)), to: toISO(daysAgo(1)) }) },
+  { key: "last_15_days", label: "Últimos 15 dias", gaql: "LAST_30_DAYS", range: () => ({ from: toISO(daysAgo(15)), to: toISO(daysAgo(1)) }) },
   { key: "last_30_days", label: "Últimos 30 dias", gaql: "LAST_30_DAYS", range: () => ({ from: toISO(daysAgo(30)), to: toISO(daysAgo(1)) }) },
 ];
 
