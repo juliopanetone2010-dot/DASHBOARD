@@ -452,7 +452,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           <div className="flex flex-wrap items-center gap-2">
             {hasGamRevenue ? (
               <Badge variant="outline" className="text-xs">
-                Receita atribuída: {matchedCount}/{aggregated.length} placement(s)
+                Receita atribuída: {matchedCount}/{aggregated.length} placement(s) · valores em USD
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
@@ -469,7 +469,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
               <div>receita campanha (fallback): <b>{campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0).toFixed(4)} USD</b></div>
               <div>matched/com receita: <b>{matchedCount}</b> · sem receita: <b>{aggregated.length - matchedCount}</b></div>
-              <div>fx USD→BRL: <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
+              <div>custo convertido BRL→USD por fx <b>{fxUsdBrl}</b> · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
             </div>
           )}
 
@@ -536,14 +536,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.clicks)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.ctr.toFixed(2)}%</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtCurrency(r.cpc)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(r.cpc)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.conversions.toFixed(1)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtCurrency(r.cost)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtUSD(r.cost)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {matched ? fmtCurrency(r.revenue) : "—"}
+                          {matched ? fmtUSD(r.revenue) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-medium", matched ? (r.profit >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
-                          {matched ? fmtCurrency(r.profit) : "—"}
+                          {matched ? fmtUSD(r.profit) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", matched ? (r.roi >= 0 ? "text-success" : "text-danger") : "text-muted-foreground")}>
                           {matched ? fmtPercent(r.roi) : "—"}
