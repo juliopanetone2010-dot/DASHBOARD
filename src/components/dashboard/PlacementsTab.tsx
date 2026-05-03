@@ -228,31 +228,12 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
-    const campaignGrossUsd = campaignMetricRows.reduce((sum, m) => sum + Number(m.revenue ?? 0), 0);
-    const directGrossUsd = [...gamRevenueByPlacement.values()].reduce((sum, v) => sum + v, 0);
-    const fallbackGrossUsd = Math.max(campaignGrossUsd - directGrossUsd, 0);
-    const unmatched = values.filter((a) => !gamRevenueByPlacement.has(a.placement));
-    const totalClicks = unmatched.reduce((sum, a) => sum + a.clicks, 0);
-    const totalImpressions = unmatched.reduce((sum, a) => sum + a.impressions, 0);
-    const totalCost = unmatched.reduce((sum, a) => sum + a.cost, 0);
-
     for (const a of values) {
       const directUsd = gamRevenueByPlacement.get(a.placement) ?? 0;
-      let grossUsd = directUsd;
       if (directUsd > 0) {
         a.revenueSource = "utm";
-      } else if (fallbackGrossUsd > 0 && unmatched.length > 0) {
-        const weight = totalClicks > 0
-          ? a.clicks / totalClicks
-          : totalImpressions > 0
-            ? a.impressions / totalImpressions
-            : totalCost > 0
-              ? a.cost / totalCost
-              : 1 / unmatched.length;
-        grossUsd = fallbackGrossUsd * weight;
-        a.revenueSource = grossUsd > 0 ? "campaign_estimate" : "none";
       }
-      const revBrl = grossUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
+      const revBrl = directUsd * fxUsdBrl * (1 - REV_SHARE_PCT);
       a.revenue = revBrl;
       a.profit = revBrl - a.cost;
       a.roi = a.cost > 0 ? (a.profit / a.cost) * 100 : 0;
@@ -273,7 +254,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   }, [aggregated, sortKey, sortDir]);
 
   const visible = sorted.slice(0, limit);
-  const hasGamRevenue = gamRevenueByPlacement.size > 0 || campaignMetricRows.some((m) => Number(m.revenue ?? 0) > 0);
+  const hasGamRevenue = gamRevenueByPlacement.size > 0;
   const matchedCount = useMemo(
     () => aggregated.filter((a) => a.revenueSource !== "none").length,
     [aggregated],
