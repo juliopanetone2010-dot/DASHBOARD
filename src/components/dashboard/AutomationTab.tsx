@@ -151,11 +151,15 @@ export function AutomationTab() {
 
   const save = async () => {
     if (!cfg) return;
+    const safeCfg = { ...cfg };
+    if (!Number.isFinite(Number(safeCfg.auto_stoploss_min_roi)) || Number(safeCfg.auto_stoploss_min_roi) >= 0) {
+      safeCfg.auto_stoploss_min_roi = -20;
+    }
     setSaving(true);
-    const { error } = await supabase.from("rules_config").update(cfg as any).eq("user_id", cfg.user_id);
+    const { error } = await supabase.from("rules_config").update(safeCfg as any).eq("user_id", safeCfg.user_id);
     setSaving(false);
     if (error) toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
-    else toast({ title: "Configurações salvas" });
+    else { setCfg(safeCfg); toast({ title: "Configurações salvas" }); }
   };
 
   const run = async (force = false) => {
@@ -430,10 +434,22 @@ export function AutomationTab() {
 }
 
 function Num({ label, k, cfg, set, step = "0.01" }: { label: string; k: string; cfg: any; set: (k: string, v: any) => void; step?: string }) {
+  const isStopLossRoi = k === "auto_stoploss_min_roi";
   return (
     <div className="space-y-1.5">
       <Label htmlFor={k}>{label}</Label>
-      <Input id={k} type="number" step={step} value={cfg[k] ?? 0} onChange={(e) => set(k, parseFloat(e.target.value) || 0)} />
+      <Input
+        id={k}
+        type="number"
+        step={step}
+        max={isStopLossRoi ? -0.01 : undefined}
+        value={cfg[k] ?? 0}
+        onChange={(e) => {
+          const parsed = parseFloat(e.target.value) || 0;
+          set(k, isStopLossRoi && parsed >= 0 ? -20 : parsed);
+        }}
+      />
+      {isStopLossRoi && <p className="text-xs text-muted-foreground">Tem que ser negativo. Ex.: -20 pausa só abaixo de -20%.</p>}
     </div>
   );
 }
