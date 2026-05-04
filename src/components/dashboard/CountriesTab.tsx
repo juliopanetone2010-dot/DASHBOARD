@@ -165,10 +165,17 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   // Garante que o total = total do dashboard.
 
   const { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals } = useMemo(() => {
-    // index custo por (camp,date)
+    // Totais por (camp,date) para escolher a base de rateio
+    // Ordem de preferência: conversões → cliques → impressões → custo (último recurso)
+    const convByCampDate = new Map<string, number>();
+    const clicksByCampDate = new Map<string, number>();
+    const imprByCampDate = new Map<string, number>();
     const costByCampDate = new Map<string, number>();
     for (const r of countryRows) {
       const k = `${r.campaign_id}|${r.date}`;
+      convByCampDate.set(k, (convByCampDate.get(k) ?? 0) + (Number(r.conversions) || 0));
+      clicksByCampDate.set(k, (clicksByCampDate.get(k) ?? 0) + (Number(r.clicks) || 0));
+      imprByCampDate.set(k, (imprByCampDate.get(k) ?? 0) + (Number(r.impressions) || 0));
       costByCampDate.set(k, (costByCampDate.get(k) ?? 0) + (Number(r.cost) || 0));
     }
     // index receita por (camp,date) — daily_metrics
@@ -204,17 +211,30 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         cellMap.set(k, cell);
       }
       const cost = Number(r.cost) || 0;
+      const conv = Number(r.conversions) || 0;
+      const clicks = Number(r.clicks) || 0;
+      const impr = Number(r.impressions) || 0;
       cell.cost += cost;
-      cell.clicks += Number(r.clicks) || 0;
-      cell.impressions += Number(r.impressions) || 0;
-      cell.conversions += Number(r.conversions) || 0;
+      cell.clicks += clicks;
+      cell.impressions += impr;
+      cell.conversions += conv;
 
       const cdKey = `${r.campaign_id}|${r.date}`;
-      const totalCost = costByCampDate.get(cdKey) || 0;
       const revUsd = revByCampDate.get(cdKey) || 0;
-      if (totalCost > 0 && revUsd > 0) {
-        const share = cost / totalCost;
-        cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
+      if (revUsd > 0) {
+        // Escolhe a base de rateio com fallback: conversões → cliques → impressões → custo
+        const totalConv = convByCampDate.get(cdKey) || 0;
+        const totalClicks = clicksByCampDate.get(cdKey) || 0;
+        const totalImpr = imprByCampDate.get(cdKey) || 0;
+        const totalCost = costByCampDate.get(cdKey) || 0;
+        let share = 0;
+        if (totalConv > 0) share = conv / totalConv;
+        else if (totalClicks > 0) share = clicks / totalClicks;
+        else if (totalImpr > 0) share = impr / totalImpr;
+        else if (totalCost > 0) share = cost / totalCost;
+        if (share > 0) {
+          cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
+        }
       }
       if (!cell.country_criterion_id && r.country_criterion_id) {
         cell.country_criterion_id = r.country_criterion_id;
@@ -365,7 +385,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
               Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída
-              proporcional ao custo de cada país. Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
+              proporcional a conversões por país (fallback: cliques → impressões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
             </div>
           </div>
           <div className="flex items-center gap-2">
