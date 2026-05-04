@@ -30,6 +30,8 @@ Deno.serve(async (req) => {
     const lookbackDays = Math.max(1, Math.min(180, Number(body?.lookback_days ?? 30)));
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const targetUserId: string | undefined = body?.user_id;
+    const siteId: string | null = typeof body?.site_id === "string" && body.site_id ? body.site_id : null;
+    const accountId: string | null = typeof body?.google_account_id === "string" && body.google_account_id ? body.google_account_id : null;
     const explicitFrom: string | undefined = typeof body?.from === "string" ? body.from : undefined;
     const explicitTo: string | undefined = typeof body?.to === "string" ? body.to : undefined;
 
