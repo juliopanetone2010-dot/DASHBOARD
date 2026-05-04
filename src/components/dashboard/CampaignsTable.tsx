@@ -262,6 +262,12 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
+
+                          <RestartCampaignButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                            onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
+                          />
                         </>
                       )}
                     </div>
