@@ -50,8 +50,10 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(50);
   const [minCountries, setMinCountries] = useState(3);
-  const [minCampCost, setMinCampCost] = useState(500);
+  const [minCampCost, setMinCampCost] = useState(400);
   const [lookback, setLookback] = useState(15);
+  const [recentChangeDays, setRecentChangeDays] = useState(7);
+  const [minCampAgeDays, setMinCampAgeDays] = useState(10);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   const itemKey = (i: GeoItem) => `${i.campaign_id}|${i.country_code}`;
