@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Play, Save, RefreshCw, Bot, Check, ChevronsUpDown } from "lucide-react";
+import { Loader2, Play, Save, RefreshCw, Bot, Check, ChevronsUpDown, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,6 +86,26 @@ export function AutomationTab() {
 
   const filteredStates = useMemo(() => states.filter((s) => matchCampaign(String(s.campaign_id))), [states, campMeta, accountFilter, allowedAccountIds]);
   const filteredLogs = useMemo(() => logs.filter((l) => matchCampaign(String(l.campaign_id))), [logs, campMeta, accountFilter, allowedAccountIds]);
+
+  type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "last_roi", dir: "desc" });
+  const toggleSort = (key: SortKey) => setSort((p) => p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" });
+  const sortedStates = useMemo(() => {
+    const arr = [...filteredStates];
+    const dir = sort.dir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      let av: any, bv: any;
+      if (sort.key === "name") { av = (campMeta[a.campaign_id]?.name ?? "").toLowerCase(); bv = (campMeta[b.campaign_id]?.name ?? "").toLowerCase(); }
+      else if (sort.key === "last_roi" || sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
+      else if (sort.key === "last_action_date" || sort.key === "cooldown_until") { av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0; bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0; }
+      else { av = String(a[sort.key] ?? ""); bv = String(b[sort.key] ?? ""); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [filteredStates, sort, campMeta]);
+  const SortIcon = ({ k }: { k: SortKey }) => sort.key !== k ? <ArrowUpDown className="inline h-3 w-3 ml-1 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="inline h-3 w-3 ml-1" /> : <ArrowDown className="inline h-3 w-3 ml-1" />;
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
 
@@ -219,18 +239,18 @@ export function AutomationTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Campanha</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">ROI</TableHead>
-                  <TableHead>Tendência</TableHead>
-                  <TableHead>Standby</TableHead>
-                  <TableHead>Última ação</TableHead>
-                  <TableHead>Cooldown até</TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("last_action_date")}>Última ação<SortIcon k="last_action_date" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("cooldown_until")}>Cooldown até<SortIcon k="cooldown_until" /></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
-                {filteredStates.map((s) => {
+                {sortedStates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
+                {sortedStates.map((s) => {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
                   return (
                     <TableRow key={s.id}>
