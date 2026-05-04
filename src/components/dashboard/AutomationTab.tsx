@@ -188,7 +188,7 @@ export function AutomationTab() {
             <h2 className="text-lg font-semibold flex items-center gap-2">
               Automação de campanhas
               {cfg.automation_dry_run && <Badge variant="secondary">Dry-run</Badge>}
-              {cfg.automation_enabled ? <Badge className="bg-success/15 text-success">Ativa</Badge> : <Badge variant="outline">Inativa</Badge>}
+              {siteAutomationActive ? <Badge className="bg-success/15 text-success">Ativa no site</Badge> : <Badge variant="outline">Inativa no site</Badge>}
             </h2>
             <p className="text-sm text-muted-foreground">
               Esteira inteligente: testing → learning → standby → scaling/bad → paused.
@@ -198,7 +198,7 @@ export function AutomationTab() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={load} className="gap-2"><RefreshCw className="h-4 w-4" />Atualizar</Button>
-          <Button size="sm" onClick={() => run(true)} disabled={running} className="gap-2">
+          <Button size="sm" onClick={() => run(true)} disabled={running || siteFilter === "all" || selectedLinkedAccounts.length === 0} className="gap-2">
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Rodar agora
           </Button>
         </div>
@@ -259,6 +259,19 @@ export function AutomationTab() {
           <Button variant="ghost" size="sm" onClick={() => { setSiteFilter("all"); setAccountFilter([]); }}>Limpar filtros</Button>
         )}
         <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h3 className="font-semibold">Automação por site</h3>
+          <p className="text-sm text-muted-foreground">
+            {siteFilter === "all" ? "Selecione um site para ativar ou rodar a automação." : `${selectedLinkedAccounts.length} conta(s) vinculada(s) ao site selecionado.`}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Ativar automação para este site</span>
+          <Switch checked={siteAutomationActive} disabled={saving || siteFilter === "all" || selectedLinkedAccounts.length === 0} onCheckedChange={upsertSiteAutomation} />
+        </div>
       </div>
 
       {/* Esteira (counts) */}
