@@ -955,11 +955,18 @@ interface RunReportArgs {
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
+  deadlineAt?: number;
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
+  const ensureBudget = (minimumMs = 8_000) => {
+    if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
+      throw new Error(`[${tag}] aborted before Edge timeout`);
+    }
+  };
+  ensureBudget(20_000);
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
@@ -1005,6 +1012,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
 
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
+    ensureBudget(10_000);
     await new Promise((r) => setTimeout(r, 2000));
     const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await parseJsonResponse(opRes, "poll", tag);
@@ -1021,6 +1029,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
   do {
+    ensureBudget(10_000);
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
