@@ -80,7 +80,8 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
 
       for (const [campaignId, campLogs] of byCampaign) {
-        const minFromDate = new Date(Math.min(...campLogs.map((l) => new Date(l.executed_at).getTime() + 86400_000)));
+        // Janela completa: [exec - windowDays, exec - 1] ∪ [exec + 1, min(exec + windowDays, ontem)]
+        const minFromDate = new Date(Math.min(...campLogs.map((l) => new Date(l.executed_at).getTime() - windowDays * 86400_000)));
         const maxToDate = new Date(Math.max(...campLogs.map((l) => Math.min(new Date(l.executed_at).getTime() + windowDays * 86400_000, yesterday.getTime()))));
         let arr: any[] = [];
         if (minFromDate <= maxToDate) {
@@ -94,42 +95,48 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           arr = metrics ?? [];
         }
 
-        for (const log of campLogs) {
-          const start = new Date(new Date(log.executed_at).getTime() + 86400_000);
-          const endTs = Math.min(new Date(log.executed_at).getTime() + windowDays * 86400_000, yesterday.getTime());
-          const hasWindow = start.getTime() <= endTs;
-          let cost = 0;
-          let grossProfit = 0;
-          let grossRevBrl = 0;
-          let daysCovered = 0;
-          if (hasWindow) {
-            const fromIso = isoDate(start);
-            const toIso = isoDate(new Date(endTs));
-            daysCovered = Math.max(0, Math.floor((endTs - start.getTime()) / 86400_000) + 1);
-            for (const m of arr) {
-              if (m.date < fromIso || m.date > toIso) continue;
-              const sp = Number(m.spend ?? 0);
-              const pr = Number(m.profit ?? 0);
-              cost += sp;
-              grossProfit += pr;
-              grossRevBrl += sp + pr;
-            }
+        const aggregate = (fromIso: string, toIso: string) => {
+          let cost = 0, grossRevBrl = 0;
+          for (const m of arr) {
+            if (m.date < fromIso || m.date > toIso) continue;
+            const sp = Number(m.spend ?? 0);
+            const pr = Number(m.profit ?? 0);
+            cost += sp;
+            grossRevBrl += sp + pr;
           }
-          const revenue_after = grossRevBrl * NET_FACTOR;
-          const profit_after = revenue_after - cost;
-          const roi_after = cost > 0 ? (profit_after / cost) * 100 : 0;
-          const roi_before = Number(log.roi_before ?? 0);
-          const delta = roi_after - roi_before;
+          const revenue = grossRevBrl * NET_FACTOR;
+          const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0;
+          return { cost, revenue, roi };
+        };
+
+        for (const log of campLogs) {
+          const execTs = new Date(log.executed_at).getTime();
+          // ANTES: [exec - windowDays, exec - 1d]
+          const beforeFrom = isoDate(new Date(execTs - windowDays * 86400_000));
+          const beforeTo = isoDate(new Date(execTs - 86400_000));
+          const before = aggregate(beforeFrom, beforeTo);
+
+          // DEPOIS: [exec + 1d, min(exec + windowDays, ontem)]
+          const afterStartTs = execTs + 86400_000;
+          const afterEndTs = Math.min(execTs + windowDays * 86400_000, yesterday.getTime());
+          const hasAfter = afterStartTs <= afterEndTs;
+          const after = hasAfter
+            ? aggregate(isoDate(new Date(afterStartTs)), isoDate(new Date(afterEndTs)))
+            : { cost: 0, revenue: 0, roi: 0 };
+          const daysCovered = hasAfter ? Math.floor((afterEndTs - afterStartTs) / 86400_000) + 1 : 0;
+
+          const delta = after.roi - before.roi;
           let classification: ImpactRow["classification"];
-          if (!hasWindow || cost === 0) classification = "pending";
+          if (!hasAfter || after.cost === 0) classification = "pending";
           else if (Math.abs(delta) < NEUTRAL_THRESHOLD) classification = "neutral";
           else if (delta > 0) classification = "up";
           else classification = "down";
+
           out.push({
-            log,
-            cost_after: cost,
-            revenue_after,
-            roi_after,
+            log: { ...log, roi_before: before.cost > 0 ? before.roi : log.roi_before, cost_before: before.cost, revenue_before: before.revenue },
+            cost_after: after.cost,
+            revenue_after: after.revenue,
+            roi_after: after.roi,
             delta,
             classification,
             daysCovered,
