@@ -499,6 +499,7 @@ const IndexInner = () => {
                 <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
                 <div>spend_brl        : <b>{totals.spend.toFixed(2)}</b></div>
                 <div>roi              : <b>{totals.roi.toFixed(2)}%</b> · roas <b>{totals.roas.toFixed(2)}x</b></div>
+                <div>fx_usd_brl       : <b>{usdBrl.toFixed(4)}</b> · site_currency: <b>{selectedSite?.gam_currency ?? "—"}</b> · override: <b>{String((selectedSite as any)?.gam_currency_override ?? false)}</b></div>
                 <div>campaigns: {engine?.aggregates.length ?? 0} · metrics rows: {filtered.metrics.length} · placements: {filtered.placements.length}</div>
               </div>
             )}
