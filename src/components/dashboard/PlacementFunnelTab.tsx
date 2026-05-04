@@ -142,34 +142,48 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       setRows(latestCycleRows);
       const { from, to } = rangeFromLookback(lookback);
       const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
+
+      // Calcula contas permitidas (mesmo filtro do display) para bater com a dashboard
+      let allowed: Set<string> | null = null;
+      if (accountFilter.size > 0) allowed = new Set(accountFilter);
+      if (siteFilter.size > 0) {
+        const fromSites = new Set<string>();
+        for (const st of sites) if (siteFilter.has(st.id)) for (const a of st.account_ids) fromSites.add(a);
+        allowed = allowed ? new Set([...allowed].filter((a) => fromSites.has(a))) : fromSites;
+      }
+
       const metrics: any[] = [];
       let m = 0;
       for (;;) {
-        const { data, error } = await supabase
+        let q = supabase
           .from("daily_metrics")
-          .select("campaign_id, spend, profit")
+          .select("campaign_id, google_account_id, spend, revenue, profit")
           .gte("date", from)
-          .lte("date", to)
-          .range(m, m + 999);
+          .lte("date", to);
+        if (allowed && allowed.size > 0) q = q.in("google_account_id", [...allowed]);
+        const { data, error } = await q.range(m, m + 999);
         if (error) throw error;
         const page = data ?? [];
         metrics.push(...page);
         if (page.length < 1000) break;
         m += 1000;
       }
-      const byCampaign = new Map<string, CampaignMetricSummary>();
+      // Mesma fórmula da dashboard (engine/rules.ts aggregateByCampaign):
+      // grossRevBrl = profit + spend ; revenue_brl_net = grossRevBrl * NET_FACTOR
+      // profit_net  = profit - grossRevBrl * REV_SHARE
+      const byCampaign = new Map<string, CampaignMetricSummary & { grossRevBrl: number }>();
       for (const r of metrics) {
         const cid = String(r.campaign_id);
         const c = campMap.get(cid);
-        const cur = byCampaign.get(cid) ?? { campaign_id: cid, name: c?.name ?? cid, google_account_id: c?.google_account_id ?? null, cost: 0, rev: 0, profit: 0, roi: 0 };
+        const cur = byCampaign.get(cid) ?? { campaign_id: cid, name: c?.name ?? cid, google_account_id: c?.google_account_id ?? null, cost: 0, rev: 0, profit: 0, roi: 0, grossRevBrl: 0 };
         const spend = Number(r.spend ?? 0);
         const grossProfit = Number(r.profit ?? 0);
-        const grossRevenueBrl = spend + grossProfit;
         cur.cost += spend;
-        cur.rev += grossRevenueBrl * NET_FACTOR;
+        cur.grossRevBrl += spend + grossProfit;
         byCampaign.set(cid, cur);
       }
       for (const c of byCampaign.values()) {
+        c.rev = c.grossRevBrl * NET_FACTOR;
         c.profit = c.rev - c.cost;
         c.roi = c.cost > 0 ? (c.profit / c.cost) * 100 : 0;
       }
@@ -180,7 +194,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   };
 
   useEffect(() => { loadConfig(); }, []);
-  useEffect(() => { load(); }, [lookback, campaigns.length]);
+  useEffect(() => { load(); }, [lookback, campaigns.length, accountFilter, siteFilter, sites]);
 
   const toggleAuto = async (on: boolean) => {
     setAutoEnabled(on);
