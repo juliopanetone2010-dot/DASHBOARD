@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { NET_FACTOR } from "@/engine/rules";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { GeoCleanupPanel } from "@/components/dashboard/GeoCleanupPanel";
 
 interface CountryRow {
   campaign_id: string;
@@ -380,6 +381,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
   return (
     <div className="space-y-4">
+      <GeoCleanupPanel fxUsdBrl={fxUsdBrl} siteId={siteId === "all" ? null : siteId} />
       {/* Header + filtros */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
