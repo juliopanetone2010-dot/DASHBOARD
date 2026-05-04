@@ -115,7 +115,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
               <SortHead k="roas" label="ROAS" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
-              <TableHead className="w-[180px] text-right">Ações</TableHead>
+              <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
