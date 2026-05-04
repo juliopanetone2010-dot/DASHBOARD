@@ -91,6 +91,25 @@ Deno.serve(async (req) => {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
 
+        // Auto-detect Network currency (respeita override manual)
+        const detectedCurrency = await fetchNetworkCurrency(networkCode, accessToken, debug);
+        if (detectedCurrency) {
+          for (const s of networkSites) {
+            if (!(s as any).gam_currency_override && String((s as any).gam_currency ?? "USD").toUpperCase() !== detectedCurrency) {
+              await admin.from("sites").update({
+                gam_currency: detectedCurrency,
+                gam_currency_detected_at: new Date().toISOString(),
+              }).eq("id", s.id);
+              (s as any).gam_currency = detectedCurrency;
+              debug.push(`[currency] site=${s.name} updated → ${detectedCurrency}`);
+            } else if (!(s as any).gam_currency_override) {
+              await admin.from("sites").update({
+                gam_currency_detected_at: new Date().toISOString(),
+              }).eq("id", s.id);
+            }
+          }
+        }
+
         // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
         const adUnitRows = (await Promise.all(ranges.map((range) =>
           runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug })
