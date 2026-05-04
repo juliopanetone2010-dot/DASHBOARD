@@ -96,6 +96,13 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [siteCampaignIds, setSiteCampaignIds] = useState<Map<string, Set<string>>>(new Map());
   const { filters: dashboardFilters } = useDashboardFilters();
 
+  useEffect(() => {
+    setSiteFilter((prev) => {
+      if (dashboardFilters.siteId === "all") return prev.size === 0 ? prev : new Set();
+      return prev.size === 1 && prev.has(dashboardFilters.siteId) ? prev : new Set([dashboardFilters.siteId]);
+    });
+  }, [dashboardFilters.siteId]);
+
   const loadConfig = async () => {
     const { data } = await supabase
       .from("rules_config")
@@ -253,9 +260,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     try {
       // Mesma janela da Dashboard: Hoje é hoje; Ontem é ontem; últimos N dias são dias completos até ontem.
       const { from, to } = rangeFromLookback(lookback);
+      const selectedSiteId = siteFilter.size === 1 ? [...siteFilter][0] : null;
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
-        { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl, site_id: selectedSiteId ?? undefined } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao avaliar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -339,8 +347,9 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const accountFiltered = useMemo(() => {
     return rows.filter((r) => {
       const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
-      const siteOk = !allowedSiteCampaignIds || r.site_id && siteFilter.has(r.site_id) || allowedSiteCampaignIds.has(r.campaign_id);
-      return accountOk && siteOk;
+      const hasSelectedSite = !!r.site_id && siteFilter.has(r.site_id);
+      const hasAttributedCampaign = !!allowedSiteCampaignIds?.has(r.campaign_id);
+      return !!accountOk && (!allowedSiteCampaignIds || hasSelectedSite || hasAttributedCampaign);
     });
   }, [rows, allowedAccountIds, allowedSiteCampaignIds, siteFilter]);
 
