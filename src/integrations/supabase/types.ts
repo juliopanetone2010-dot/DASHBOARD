@@ -199,6 +199,7 @@ export type Database = {
           created_at: string
           decision: string | null
           error: string | null
+          google_account_id: string | null
           id: string
           lifecycle_from: string | null
           lifecycle_to: string | null
@@ -206,6 +207,7 @@ export type Database = {
           reason: string | null
           revenue: number | null
           roi: number | null
+          site_id: string | null
           user_id: string
         }
         Insert: {
@@ -215,6 +217,7 @@ export type Database = {
           created_at?: string
           decision?: string | null
           error?: string | null
+          google_account_id?: string | null
           id?: string
           lifecycle_from?: string | null
           lifecycle_to?: string | null
@@ -222,6 +225,7 @@ export type Database = {
           reason?: string | null
           revenue?: number | null
           roi?: number | null
+          site_id?: string | null
           user_id: string
         }
         Update: {
@@ -231,6 +235,7 @@ export type Database = {
           created_at?: string
           decision?: string | null
           error?: string | null
+          google_account_id?: string | null
           id?: string
           lifecycle_from?: string | null
           lifecycle_to?: string | null
@@ -238,6 +243,7 @@ export type Database = {
           reason?: string | null
           revenue?: number | null
           roi?: number | null
+          site_id?: string | null
           user_id?: string
         }
         Relationships: []
@@ -260,6 +266,7 @@ export type Database = {
           last_scale_date: string | null
           lifecycle_status: string
           roi_trend: string | null
+          site_id: string | null
           updated_at: string
           user_id: string
         }
@@ -280,6 +287,7 @@ export type Database = {
           last_scale_date?: string | null
           lifecycle_status?: string
           roi_trend?: string | null
+          site_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -300,6 +308,7 @@ export type Database = {
           last_scale_date?: string | null
           lifecycle_status?: string
           roi_trend?: string | null
+          site_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1010,6 +1019,42 @@ export type Database = {
           placement_cleanup_min_clicks?: number
           placement_cleanup_min_cost_brl?: number
           placement_cleanup_min_days?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      site_automation_config: {
+        Row: {
+          automation_dry_run: boolean
+          automation_enabled: boolean
+          created_at: string
+          google_account_id: string
+          id: string
+          last_run_at: string | null
+          site_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          created_at?: string
+          google_account_id: string
+          id?: string
+          last_run_at?: string | null
+          site_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          created_at?: string
+          google_account_id?: string
+          id?: string
+          last_run_at?: string | null
+          site_id?: string
           updated_at?: string
           user_id?: string
         }
