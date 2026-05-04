@@ -329,10 +329,20 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     return allowed; // null = sem restrição
   }, [accountFilter, siteFilter, sites]);
 
+  const allowedSiteCampaignIds = useMemo(() => {
+    if (siteFilter.size === 0) return null;
+    const campaignIds = new Set<string>();
+    for (const sid of siteFilter) for (const cid of siteCampaignIds.get(sid) ?? []) campaignIds.add(cid);
+    return campaignIds;
+  }, [siteFilter, siteCampaignIds]);
+
   const accountFiltered = useMemo(() => {
-    if (!allowedAccountIds) return rows;
-    return rows.filter((r) => r.google_account_id && allowedAccountIds.has(r.google_account_id));
-  }, [rows, allowedAccountIds]);
+    return rows.filter((r) => {
+      const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
+      const siteOk = !allowedSiteCampaignIds || r.site_id && siteFilter.has(r.site_id) || allowedSiteCampaignIds.has(r.campaign_id);
+      return accountOk && siteOk;
+    });
+  }, [rows, allowedAccountIds, allowedSiteCampaignIds, siteFilter]);
 
   const counts = useMemo(() => {
     const c = { all: accountFiltered.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
