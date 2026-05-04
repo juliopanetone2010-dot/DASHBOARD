@@ -255,23 +255,59 @@ export function useDashboardData(): DashboardData {
       return { ...store, fetchedAt: Date.now() };
     }
 
-    const accountIds = filters.googleAccountIds;
-    const hasAccountFilter = accountIds.length > 0;
+    // ISOLAMENTO POR SITE: quando há site selecionado, derivamos as contas Ads
+    // vinculadas a ele a partir de account_site_links e usamos isso para filtrar
+    // campanhas e métricas — independentemente do filters.googleAccountIds (que
+    // pode estar vazio em first paint enquanto o site vem do localStorage).
+    const siteFilterActive = !!filters.siteId && filters.siteId !== "all";
+    let siteAccountIds: string[] = [];
+    if (siteFilterActive) {
+      const { data: linkRows } = await supabase
+        .from("account_site_links")
+        .select("google_account_id")
+        .eq("site_id", filters.siteId);
+      siteAccountIds = (linkRows ?? []).map((r: any) => r.google_account_id).filter(Boolean);
+    }
+
+    // Combina filtro manual de contas com as contas vinculadas ao site
+    const manualAccountIds = filters.googleAccountIds;
+    let effectiveAccountIds: string[] | null = null;
+    if (siteFilterActive && manualAccountIds.length > 0) {
+      effectiveAccountIds = manualAccountIds.filter((id) => siteAccountIds.includes(id));
+    } else if (siteFilterActive) {
+      effectiveAccountIds = siteAccountIds;
+    } else if (manualAccountIds.length > 0) {
+      effectiveAccountIds = manualAccountIds;
+    }
+
+    if (import.meta.env.DEV) {
+      console.info("[dashboard] site isolation", {
+        siteId: filters.siteId, siteAccountIds, manualAccountIds, effectiveAccountIds,
+      });
+    }
 
     let metricsQuery = supabase
       .from("daily_metrics")
       .select("*")
       .gte("date", range.from)
       .lte("date", range.to);
-    if (hasAccountFilter) metricsQuery = metricsQuery.in("google_account_id", accountIds);
-
     let campaignsQuery = supabase.from("campaigns").select("*").order("name");
-    if (hasAccountFilter) campaignsQuery = campaignsQuery.in("google_account_id", accountIds);
+
+    if (effectiveAccountIds) {
+      // Se filtro de site retornou zero contas, não mostramos nada (em vez de tudo)
+      if (effectiveAccountIds.length === 0) {
+        metricsQuery = metricsQuery.eq("google_account_id", "00000000-0000-0000-0000-000000000000");
+        campaignsQuery = campaignsQuery.eq("google_account_id", "00000000-0000-0000-0000-000000000000");
+      } else {
+        metricsQuery = metricsQuery.in("google_account_id", effectiveAccountIds);
+        campaignsQuery = campaignsQuery.in("google_account_id", effectiveAccountIds);
+      }
+    }
 
     let placementsQuery = supabase.from("placements").select("*")
       .gte("date", range.from).lte("date", range.to)
       .order("date", { ascending: false }).limit(5000);
-    if (filters.siteId && filters.siteId !== "all") {
+    if (siteFilterActive) {
       placementsQuery = placementsQuery.eq("site_id", filters.siteId);
     }
 
