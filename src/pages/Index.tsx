@@ -113,6 +113,32 @@ const IndexInner = () => {
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
+
+  // Viewability + eCPM por site (GAM)
+  const siteMetricsQuery = useQuery({
+    queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
+    enabled: filters.siteId !== "all",
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("site_metrics_daily")
+        .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
+        .eq("site_id", filters.siteId)
+        .gte("date", range.from).lte("date", range.to)
+        .order("date", { ascending: false })
+        .limit(400);
+      const totals = (data ?? []).reduce((a, r: any) => ({
+        impr: a.impr + Number(r.impressions ?? 0),
+        meas: a.meas + Number(r.measurable_impressions ?? 0),
+        view: a.view + Number(r.viewable_impressions ?? 0),
+        rev: a.rev + Number(r.revenue_native ?? 0),
+        currency: r.currency || a.currency,
+      }), { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
+      const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
+      const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
+      return { viewability, ecpmNative, currency: totals.currency, impressions: totals.impr };
+    },
+    staleTime: 60_000,
+  });
   // Atribuição por site quando uma conta Ads serve N sites:
   // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
@@ -473,6 +499,7 @@ const IndexInner = () => {
                 <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
                 <div>spend_brl        : <b>{totals.spend.toFixed(2)}</b></div>
                 <div>roi              : <b>{totals.roi.toFixed(2)}%</b> · roas <b>{totals.roas.toFixed(2)}x</b></div>
+                <div>fx_usd_brl       : <b>{usdBrl.toFixed(4)}</b> · site_currency: <b>{selectedSite?.gam_currency ?? "—"}</b> · override: <b>{String((selectedSite as any)?.gam_currency_override ?? false)}</b></div>
                 <div>campaigns: {engine?.aggregates.length ?? 0} · metrics rows: {filtered.metrics.length} · placements: {filtered.placements.length}</div>
               </div>
             )}
@@ -512,7 +539,38 @@ const IndexInner = () => {
               />
             </section>
 
-            {/* Linha 2: gráfico + alertas */}
+            {filters.siteId !== "all" && siteMetricsQuery.data && (
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Viewability (GAM)"
+                  value={`${siteMetricsQuery.data.viewability.toFixed(1)}%`}
+                  icon={BarChart3}
+                  hint="Active View · viewable / measurable"
+                />
+                <MetricCard
+                  label="eCPM (GAM)"
+                  value={
+                    siteMetricsQuery.data.currency === "BRL"
+                      ? fmtCurrency(siteMetricsQuery.data.ecpmNative)
+                      : fmtUSD(siteMetricsQuery.data.ecpmNative)
+                  }
+                  icon={DollarSign}
+                  hint={`${siteMetricsQuery.data.currency} nativo · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
+                />
+                <MetricCard
+                  label="Moeda base"
+                  value="BRL"
+                  icon={Globe}
+                  hint={`Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
+                />
+                <MetricCard
+                  label="Site"
+                  value={selectedSite?.name ?? "—"}
+                  icon={MapPin}
+                  hint={selectedSite?.domain ?? ""}
+                />
+              </section>
+            )}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
                 <RoiChart metrics={filtered.metrics} />

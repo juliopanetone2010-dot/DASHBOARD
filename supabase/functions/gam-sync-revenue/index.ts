@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code, gam_currency")
+      .select("id, name, domain, network_code, gam_currency, gam_currency_override")
       .eq("user_id", userId);
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
     const { data: sites, error: sErr } = await sitesQuery;
@@ -90,6 +90,25 @@ Deno.serve(async (req) => {
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
+
+        // Auto-detect Network currency (respeita override manual)
+        const detectedCurrency = await fetchNetworkCurrency(networkCode, accessToken, debug);
+        if (detectedCurrency) {
+          for (const s of networkSites) {
+            if (!(s as any).gam_currency_override && String((s as any).gam_currency ?? "USD").toUpperCase() !== detectedCurrency) {
+              await admin.from("sites").update({
+                gam_currency: detectedCurrency,
+                gam_currency_detected_at: new Date().toISOString(),
+              }).eq("id", s.id);
+              (s as any).gam_currency = detectedCurrency;
+              debug.push(`[currency] site=${s.name} updated → ${detectedCurrency}`);
+            } else if (!(s as any).gam_currency_override) {
+              await admin.from("sites").update({
+                gam_currency_detected_at: new Date().toISOString(),
+              }).eq("id", s.id);
+            }
+          }
+        }
 
         // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
         const adUnitRows = (await Promise.all(ranges.map((range) =>
@@ -137,12 +156,45 @@ Deno.serve(async (req) => {
         // para exibir em BRL) continua correto, sem dupla conversão.
         const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
 
+        // Viewability + eCPM por site/dia
+        let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];
+        try {
+          viewabilityRows = (await Promise.all(ranges.map((range) =>
+            runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE"],
+              metrics: [
+                "AD_SERVER_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+                "AD_SERVER_REVENUE",
+              ],
+              debug,
+            })
+          ))).flat().map((r: any) => ({
+            date: r.date,
+            impressions: r.impressions,
+            measurable: Number(r._raw_measurable ?? 0),
+            viewable: Number(r._raw_viewable ?? 0),
+            revenue: r.revenue,
+          }));
+        } catch (e) {
+          debug.push(`[${networkCode}] viewability report falhou: ${String(e).slice(0, 200)}`);
+        }
+
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
         }
+
+        const vTot = viewabilityRows.reduce((a, r) => ({
+          impr: a.impr + r.impressions, meas: a.meas + r.measurable, view: a.view + r.viewable, rev: a.rev + r.revenue,
+        }), { impr: 0, meas: 0, view: 0, rev: 0 });
+        const viewabilityPct = vTot.meas > 0 ? (vTot.view / vTot.meas) * 100 : 0;
+        const ecpmNative = vTot.impr > 0 ? (vTot.rev / vTot.impr) * 1000 : 0;
 
         summary.push({
           network_code: networkCode,
@@ -156,10 +208,13 @@ Deno.serve(async (req) => {
           attribution_source: attribution.campaignSource,
           placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
-          currency: "USD",
+          currency: siteCurrency,
+          detected_currency: detectedCurrency ?? null,
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
+          viewability_pct: viewabilityPct,
+          ecpm_native: ecpmNative,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
           rows_returned: googleCampaignRows.length,
@@ -191,7 +246,7 @@ Deno.serve(async (req) => {
   }
 });
 
-interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; }
+interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; _raw_measurable?: number; _raw_viewable?: number; }
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
@@ -935,9 +990,26 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      const impressions = metrics ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
-      const revenue = metrics ? normalizeGamRevenue(num(m[1])) : normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
-      allRows.push({ date, dims: dimStrings, impressions, revenue });
+      // Detecta padrão Active View: [IMPRESSIONS, MEASURABLE, VIEWABLE, REVENUE]
+      const isActiveView = !!metrics && metrics.length === 4
+        && metrics[1].includes("MEASURABLE") && metrics[2].includes("VIEWABLE");
+      let impressions: number;
+      let revenue: number;
+      let _raw_measurable: number | undefined;
+      let _raw_viewable: number | undefined;
+      if (isActiveView) {
+        impressions = num(m[0]);
+        _raw_measurable = num(m[1]);
+        _raw_viewable = num(m[2]);
+        revenue = normalizeGamRevenue(num(m[3]));
+      } else if (metrics) {
+        impressions = num(m[0]);
+        revenue = normalizeGamRevenue(num(m[1]));
+      } else {
+        impressions = num(m[0]) + num(m[2]) + num(m[4]);
+        revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
+      }
+      allRows.push({ date, dims: dimStrings, impressions, revenue, _raw_measurable, _raw_viewable });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
@@ -1032,4 +1104,63 @@ function json(payload: unknown) {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Lê o currencyCode da Network GAM (para auto-detecção de moeda por site)
+async function fetchNetworkCurrency(networkCode: string, accessToken: string, debug: string[]): Promise<string | null> {
+  try {
+    const res = await fetch(`${GAM_BASE}/networks/${networkCode}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      debug.push(`[network ${networkCode}] currency lookup failed (${res.status}): ${text.slice(0, 150)}`);
+      return null;
+    }
+    const j = JSON.parse(text);
+    const cc = String(j?.currencyCode ?? "").toUpperCase();
+    if (cc) {
+      debug.push(`[network ${networkCode}] detected currency=${cc}`);
+      return cc;
+    }
+  } catch (e) {
+    debug.push(`[network ${networkCode}] currency lookup erro: ${String(e)}`);
+  }
+  return null;
+}
+
+async function persistSiteMetricsDaily(
+  admin: any,
+  userId: string,
+  siteId: string | null | undefined,
+  currency: string,
+  rows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }>,
+  debug: string[],
+) {
+  if (!siteId || rows.length === 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+  // Agrega por data (caso múltiplos ranges retornem mesmo dia)
+  const byDate = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+  for (const r of rows) {
+    const d = r.date ?? today;
+    const cur = byDate.get(d) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+    cur.impr += r.impressions; cur.meas += r.measurable; cur.view += r.viewable; cur.rev += r.revenue;
+    byDate.set(d, cur);
+  }
+  const payload = [...byDate.entries()].map(([date, v]) => ({
+    user_id: userId,
+    site_id: siteId,
+    date,
+    impressions: v.impr,
+    measurable_impressions: v.meas,
+    viewable_impressions: v.view,
+    revenue_native: v.rev,
+    currency,
+    ecpm_native: v.impr > 0 ? (v.rev / v.impr) * 1000 : 0,
+    updated_at: new Date().toISOString(),
+  }));
+  for (let i = 0; i < payload.length; i += 500) {
+    await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
+  }
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
 }
