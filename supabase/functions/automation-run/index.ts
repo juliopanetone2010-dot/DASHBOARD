@@ -116,6 +116,10 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     .maybeSingle();
   if (!link) return { window: { from: fromIso, to: toIso }, dry_run: dryRun, skipped: "site_account_not_linked" };
 
+  // Garante que budget_micros e target_cpa_micros estão atualizados antes de decidir.
+  // Sem isso, delivery_ratio fica null e a automação não consegue tomar ações de CPA/scale.
+  const budgetSync = await syncCampaignBudgets(admin, userId, accountId);
+
   const { data: metrics } = await admin
     .from("daily_metrics")
     .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions")
