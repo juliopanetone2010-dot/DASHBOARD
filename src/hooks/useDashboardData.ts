@@ -255,17 +255,30 @@ export function useDashboardData(): DashboardData {
       return { ...store, fetchedAt: Date.now() };
     }
 
+    const accountIds = filters.googleAccountIds;
+    const hasAccountFilter = accountIds.length > 0;
+
     let metricsQuery = supabase
       .from("daily_metrics")
       .select("*")
       .gte("date", range.from)
       .lte("date", range.to);
-    if (filters.googleAccountIds.length > 0) metricsQuery = metricsQuery.in("google_account_id", filters.googleAccountIds);
+    if (hasAccountFilter) metricsQuery = metricsQuery.in("google_account_id", accountIds);
+
+    let campaignsQuery = supabase.from("campaigns").select("*").order("name");
+    if (hasAccountFilter) campaignsQuery = campaignsQuery.in("google_account_id", accountIds);
+
+    let placementsQuery = supabase.from("placements").select("*")
+      .gte("date", range.from).lte("date", range.to)
+      .order("date", { ascending: false }).limit(5000);
+    if (filters.siteId && filters.siteId !== "all") {
+      placementsQuery = placementsQuery.eq("site_id", filters.siteId);
+    }
 
     const [c, m, p, r, a, ga, gam, s, l] = await Promise.all([
-      supabase.from("campaigns").select("*").order("name"),
+      campaignsQuery,
       metricsQuery.order("date", { ascending: false }).limit(5000),
-      supabase.from("placements").select("*").gte("date", range.from).lte("date", range.to).order("date", { ascending: false }).limit(5000),
+      placementsQuery,
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("google_accounts").select("*").order("account_name"),
