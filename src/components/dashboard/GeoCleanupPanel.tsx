@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useState } from "react";
-import { Loader2, Globe, Play, ShieldAlert } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Loader2, Globe, Play, ShieldAlert, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -176,6 +176,28 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
   const removeOnly = items.filter((i) => i.status === "remove");
   const monitorOnly = items.filter((i) => i.status === "monitor");
 
+  // Agrupa por campanha
+  const grouped = useMemo(() => {
+    const map = new Map<string, { campaign_id: string; campaign_name: string; countries_in_campaign: number; campaign_cost_brl: number; rows: GeoItem[]; toRemove: number }>();
+    for (const i of items) {
+      const g = map.get(i.campaign_id) ?? {
+        campaign_id: i.campaign_id,
+        campaign_name: i.campaign_name,
+        countries_in_campaign: i.countries_in_campaign,
+        campaign_cost_brl: i.campaign_cost_brl,
+        rows: [],
+        toRemove: 0,
+      };
+      g.rows.push(i);
+      if (i.status === "remove") g.toRemove++;
+      map.set(i.campaign_id, g);
+    }
+    return [...map.values()].sort((a, b) => b.toRemove - a.toRemove || b.campaign_cost_brl - a.campaign_cost_brl);
+  }, [items]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (cid: string) => setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+
   return (
     <div className="rounded-xl border border-warning/40 bg-warning/5 p-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -216,7 +238,7 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
             <DialogTitle>Preview · países por campanha</DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
-              <Badge variant="outline">{stats?.campaigns ?? 0} campanhas</Badge>
+              <Badge variant="outline">{grouped.length} campanhas</Badge>
               <Badge variant="destructive">🔴 {removeOnly.length} remover</Badge>
               <Badge variant="outline" className="border-warning text-warning">🟡 {monitorOnly.length} monitorar</Badge>
               <Badge variant="outline" className="border-success text-success">🟢 {stats?.ok ?? 0} ok</Badge>
@@ -228,46 +250,97 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead className="w-10"></TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="w-10"></TableHead>
                   <TableHead>Campanha</TableHead>
-                  <TableHead>País</TableHead>
-                  <TableHead className="text-right">Custo país</TableHead>
-                  <TableHead className="text-right">Receita</TableHead>
-                  <TableHead className="text-right">ROI</TableHead>
-                  <TableHead className="text-right">Países camp.</TableHead>
-                  <TableHead>Motivo</TableHead>
+                  <TableHead className="text-right">Países</TableHead>
+                  <TableHead className="text-right">Custo camp.</TableHead>
+                  <TableHead className="text-right">A remover</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.length === 0 && (
-                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
+                {grouped.length === 0 && (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
                 )}
-                {items.map((i) => {
-                  const k = itemKey(i);
-                  const canSelect = i.status === "remove" && !!i.country_criterion_id;
+                {grouped.map((g) => {
+                  const isOpen = expanded.has(g.campaign_id);
+                  const removable = g.rows.filter((r) => r.status === "remove" && r.country_criterion_id);
+                  const allSelected = removable.length > 0 && removable.every((r) => selected.has(itemKey(r)));
+                  const toggleAllCamp = () => {
+                    setSelected((s) => {
+                      const n = new Set(s);
+                      if (allSelected) removable.forEach((r) => n.delete(itemKey(r)));
+                      else removable.forEach((r) => n.add(itemKey(r)));
+                      return n;
+                    });
+                  };
                   return (
-                    <TableRow key={k} className={cn(i.status === "remove" && "bg-danger/5")}>
-                      <TableCell>
-                        {canSelect ? (
-                          <Checkbox checked={selected.has(k)} onCheckedChange={() => toggle(k)} />
-                        ) : null}
-                      </TableCell>
-                      <TableCell>
-                        {i.status === "remove" && <Badge variant="destructive">🔴 Remover</Badge>}
-                        {i.status === "monitor" && <Badge variant="outline" className="border-warning text-warning">🟡 Monitorar</Badge>}
-                        {i.status === "ok" && <Badge variant="outline" className="border-success text-success">🟢 OK</Badge>}
-                      </TableCell>
-                      <TableCell className="text-sm">{i.campaign_name}</TableCell>
-                      <TableCell className="text-sm">
-                        <span className="font-mono text-xs text-muted-foreground mr-1">{i.country_code}</span>
-                        {i.country_name}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtBRL(i.cost_brl)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtBRL(i.revenue_brl)}</TableCell>
-                      <TableCell className={cn("text-right tabular-nums font-semibold", i.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(i.roi_pct)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{i.countries_in_campaign}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{i.reason}</TableCell>
-                    </TableRow>
+                    <Fragment key={g.campaign_id}>
+                      <TableRow className="bg-muted/20 hover:bg-muted/30 cursor-pointer" onClick={() => toggleExpand(g.campaign_id)}>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {removable.length > 0 && (
+                            <Checkbox checked={allSelected} onCheckedChange={toggleAllCamp} />
+                          )}
+                        </TableCell>
+                        <TableCell><Eye className={cn("h-4 w-4 transition-transform", isOpen && "rotate-90")} /></TableCell>
+                        <TableCell className="font-medium text-sm">{g.campaign_name}</TableCell>
+                        <TableCell className="text-right tabular-nums text-sm">{g.countries_in_campaign}</TableCell>
+                        <TableCell className="text-right tabular-nums text-sm">{fmtBRL(g.campaign_cost_brl)}</TableCell>
+                        <TableCell className="text-right">
+                          {g.toRemove > 0 ? <Badge variant="destructive">{g.toRemove}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                      {isOpen && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="bg-background p-0">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-10"></TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>País</TableHead>
+                                  <TableHead className="text-right">Custo</TableHead>
+                                  <TableHead className="text-right">Receita</TableHead>
+                                  <TableHead className="text-right">ROI</TableHead>
+                                  <TableHead>Motivo</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {g.rows
+                                  .slice()
+                                  .sort((a, b) => {
+                                    const order = { remove: 0, monitor: 1, ok: 2 } as const;
+                                    return order[a.status] - order[b.status] || a.roi_pct - b.roi_pct;
+                                  })
+                                  .map((i) => {
+                                    const k = itemKey(i);
+                                    const canSelect = i.status === "remove" && !!i.country_criterion_id;
+                                    return (
+                                      <TableRow key={k} className={cn(i.status === "remove" && "bg-danger/5")}>
+                                        <TableCell>{canSelect ? <Checkbox checked={selected.has(k)} onCheckedChange={() => toggle(k)} /> : null}</TableCell>
+                                        <TableCell>
+                                          {i.status === "remove" && <Badge variant="destructive">🔴 Remover</Badge>}
+                                          {i.status === "monitor" && <Badge variant="outline" className="border-warning text-warning">🟡 Monitorar</Badge>}
+                                          {i.status === "ok" && <Badge variant="outline" className="border-success text-success">🟢 OK</Badge>}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                          <span className="font-mono text-xs text-muted-foreground mr-1">{i.country_code}</span>
+                                          {i.country_name}
+                                        </TableCell>
+                                        <TableCell className="text-right tabular-nums">{fmtBRL(i.cost_brl)}</TableCell>
+                                        <TableCell className="text-right tabular-nums">{fmtBRL(i.revenue_brl)}</TableCell>
+                                        <TableCell className={cn("text-right tabular-nums font-semibold", i.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(i.roi_pct)}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{i.reason}</TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                              </TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   );
                 })}
               </TableBody>
