@@ -29,7 +29,8 @@ interface ImpactRow {
   revenue_after: number;
   roi_after: number;
   delta: number;
-  classification: "up" | "down" | "neutral";
+  classification: "up" | "down" | "neutral" | "pending";
+  daysCovered: number;
 }
 
 const NEUTRAL_THRESHOLD = 5; // pp de ROI
@@ -95,27 +96,34 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
         for (const log of campLogs) {
           const start = new Date(new Date(log.executed_at).getTime() + 86400_000);
           const endTs = Math.min(new Date(log.executed_at).getTime() + windowDays * 86400_000, yesterday.getTime());
-          if (start.getTime() > endTs) continue;
-          const fromIso = isoDate(start);
-          const toIso = isoDate(new Date(endTs));
+          const hasWindow = start.getTime() <= endTs;
           let cost = 0;
           let grossProfit = 0;
           let grossRevBrl = 0;
-          for (const m of arr) {
-            if (m.date < fromIso || m.date > toIso) continue;
-            const sp = Number(m.spend ?? 0);
-            const pr = Number(m.profit ?? 0);
-            cost += sp;
-            grossProfit += pr;
-            grossRevBrl += sp + pr;
+          let daysCovered = 0;
+          if (hasWindow) {
+            const fromIso = isoDate(start);
+            const toIso = isoDate(new Date(endTs));
+            daysCovered = Math.max(0, Math.floor((endTs - start.getTime()) / 86400_000) + 1);
+            for (const m of arr) {
+              if (m.date < fromIso || m.date > toIso) continue;
+              const sp = Number(m.spend ?? 0);
+              const pr = Number(m.profit ?? 0);
+              cost += sp;
+              grossProfit += pr;
+              grossRevBrl += sp + pr;
+            }
           }
           const revenue_after = grossRevBrl * NET_FACTOR;
           const profit_after = revenue_after - cost;
           const roi_after = cost > 0 ? (profit_after / cost) * 100 : 0;
           const roi_before = Number(log.roi_before ?? 0);
           const delta = roi_after - roi_before;
-          const classification: ImpactRow["classification"] =
-            Math.abs(delta) < NEUTRAL_THRESHOLD ? "neutral" : delta > 0 ? "up" : "down";
+          let classification: ImpactRow["classification"];
+          if (!hasWindow || cost === 0) classification = "pending";
+          else if (Math.abs(delta) < NEUTRAL_THRESHOLD) classification = "neutral";
+          else if (delta > 0) classification = "up";
+          else classification = "down";
           out.push({
             log,
             cost_after: cost,
@@ -123,6 +131,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
             roi_after,
             delta,
             classification,
+            daysCovered,
           });
         }
       }
@@ -138,13 +147,14 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   useEffect(() => { load(); }, [filters.siteId, windowDays]);
 
   const summary = useMemo(() => {
-    let up = 0, down = 0, neutral = 0;
+    let up = 0, down = 0, neutral = 0, pending = 0;
     for (const r of rows) {
       if (r.classification === "up") up++;
       else if (r.classification === "down") down++;
+      else if (r.classification === "pending") pending++;
       else neutral++;
     }
-    return { up, down, neutral, total: rows.length };
+    return { up, down, neutral, pending, total: rows.length };
   }, [rows]);
 
   return (
@@ -173,6 +183,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           <Badge className="bg-success-soft text-success border-success/20">🟢 {summary.up}</Badge>
           <Badge className="bg-danger-soft text-danger border-danger/20">🔴 {summary.down}</Badge>
           <Badge variant="outline">⚪ {summary.neutral}</Badge>
+          {summary.pending > 0 && <Badge variant="outline">⏳ {summary.pending}</Badge>}
         </div>
 
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
@@ -235,6 +246,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
                     {status === "up" && <Badge className="bg-success-soft text-success border-success/20"><TrendingUp className="h-3 w-3 mr-1" />Melhorou</Badge>}
                     {status === "down" && <Badge className="bg-danger-soft text-danger border-danger/20"><TrendingDown className="h-3 w-3 mr-1" />Piorou</Badge>}
                     {status === "neutral" && <Badge variant="outline"><Minus className="h-3 w-3 mr-1" />Neutro</Badge>}
+                    {status === "pending" && <Badge variant="outline" title="Aguardando dados pós-limpeza">⏳ Aguardando</Badge>}
                   </TableCell>
                 </TableRow>
               );
