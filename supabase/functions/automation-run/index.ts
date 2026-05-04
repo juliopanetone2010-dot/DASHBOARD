@@ -367,15 +367,21 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
   if (roi >= Number(cfg.auto_scale_min_roi)) {
     if (inCooldown) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% (delivery ${deliveryPct}) em cooldown até ${prev.cooldown_until}`, roi, trend, delivery, avgDailySpend };
-    if (isSaturated || noBudgetData) {
+    if (noBudgetData) {
+      return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% mas orçamento diário não sincronizado — sem ação até ter delivery confiável`, roi, trend, delivery, avgDailySpend };
+    }
+    if (isSaturated) {
       return { lifecycle: "scaling", action: "scale", reason: `ROI ${round2(roi)}% e delivery ${deliveryPct} → +${cfg.auto_scale_budget_pct}% no orçamento`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
     }
     if (!cpaCooldownOk) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% mas delivery ${deliveryPct} <80% — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
     return { lifecycle: "scaling", action: "cpa_up", reason: `ROI ${round2(roi)}% mas delivery ${deliveryPct} <80% → +${cpaUpPct}% no CPA para destravar volume`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
   }
 
-  // B) ROI 10–30 → learning. Saturado: leve scale; subentrega: CPA up.
+  // B) ROI 10–30 → learning. Saturado: leve scale; subentrega: CPA up. Sem dado de orçamento → observar.
   if (roi >= 10 && roi < Number(cfg.auto_scale_min_roi)) {
+    if (noBudgetData) {
+      return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — orçamento diário não sincronizado, observando`, roi, trend, delivery, avgDailySpend };
+    }
     if (isSaturated) {
       if (inCooldown) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} em cooldown`, roi, trend, delivery, avgDailySpend };
       const lightPct = Math.max(5, Math.round((Number(cfg.auto_scale_budget_pct) || 20) / 2));
@@ -385,10 +391,13 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
     return { lifecycle: "learning", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} <80% → +${cpaUpPct}% CPA`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
   }
 
-  // C) ROI 1–10 (standby inteligente): saturado → CPA down (qualidade); subentrega → CPA up (volume).
+  // C) ROI 1–10 (standby inteligente): saturado → CPA down; subentrega → CPA up. Sem orçamento → observar.
   if (roi > 0 && roi < 10) {
     const enteredAt = prev?.entered_standby_at ? new Date(prev.entered_standby_at) : null;
     const daysIn = enteredAt ? Math.floor((Date.now() - enteredAt.getTime()) / 86400_000) : 0;
+    if (noBudgetData) {
+      return { lifecycle: "standby", action: "none", reason: `ROI ${round2(roi)}% (standby ${daysIn}d) — orçamento diário não sincronizado, observando`, roi, trend, delivery, avgDailySpend };
+    }
     if (!cpaCooldownOk) return { lifecycle: "standby", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} (standby ${daysIn}d) — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
     if (isSaturated) {
       return { lifecycle: "standby", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA (melhorar qualidade)`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
@@ -396,8 +405,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
     return { lifecycle: "standby", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → +${cpaUpPct}% CPA (buscar volume)`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
   }
 
-  // D) ROI -10 a 0: saturado → CPA down; subentrega → CPA up leve (+5%).
+  // D) ROI -10 a 0: saturado → CPA down; subentrega → CPA up leve. Sem orçamento → observar.
   if (roi >= -10 && roi <= 0) {
+    if (noBudgetData) {
+      return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — orçamento diário não sincronizado, observando`, roi, trend, delivery, avgDailySpend };
+    }
     if (!cpaCooldownOk) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
     if (isSaturated) {
       return { lifecycle: "learning", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
