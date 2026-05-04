@@ -81,6 +81,32 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     .lte("date", toIso)
     .limit(50000);
 
+  // Receita extra por campanha vinda do GAM (push + outras UTMs além de google) — em USD
+  const { data: gamExtra } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("campaign_id, utm_source, revenue_usd, date")
+    .eq("user_id", userId)
+    .gte("date", fromIso)
+    .lte("date", toIso)
+    .limit(50000);
+
+  // FX USD→BRL (mesma fonte do dashboard); fallback 5
+  let usdBrl = 5;
+  try {
+    const fx = await fetch("https://open.er-api.com/v6/latest/USD").then((r) => r.json());
+    const rate = Number(fx?.rates?.BRL);
+    if (Number.isFinite(rate) && rate > 0) usdBrl = rate;
+  } catch { /* fallback */ }
+
+  const extraBrlByCamp = new Map<string, number>();
+  for (const r of gamExtra ?? []) {
+    const src = String((r as any).utm_source ?? "").toLowerCase();
+    if (src === "google") continue; // já está embutido no profit do daily_metrics
+    const usd = Number((r as any).revenue_usd) || 0;
+    const cid = String((r as any).campaign_id);
+    extraBrlByCamp.set(cid, (extraBrlByCamp.get(cid) ?? 0) + usd * usdBrl); // gross BRL; rev share aplicado depois
+  }
+
   // Agrega por campanha
   const byCamp = new Map<string, {
     campaign_id: string; google_account_id: string | null;
@@ -100,6 +126,12 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     const netRev = grossRevBrl * NET_FACTOR;
     const roi = spend > 0 ? ((netRev - spend) / spend) * 100 : 0;
     agg.daily.push({ date: String(r.date), spend, profit, roi });
+  }
+
+  // Soma receita extra (push/outras) à receita bruta da campanha
+  for (const [cid, extra] of extraBrlByCamp.entries()) {
+    const agg = byCamp.get(cid);
+    if (agg) agg.grossRevBrl += extra;
   }
 
   // Carrega estado atual

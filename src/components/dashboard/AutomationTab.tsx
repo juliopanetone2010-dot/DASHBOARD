@@ -27,6 +27,7 @@ export function AutomationTab() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
+  const [campNames, setCampNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -38,6 +39,10 @@ export function AutomationTab() {
       .from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500);
     const { data: l } = await supabase
       .from("automation_logs").select("*").order("created_at", { ascending: false }).limit(200);
+    const { data: camps } = await supabase.from("campaigns").select("campaign_id, name").limit(2000);
+    const map: Record<string, string> = {};
+    for (const c of camps ?? []) map[String((c as any).campaign_id)] = String((c as any).name ?? "");
+    setCampNames(map);
     setCfg(c ?? null);
     setStates(s ?? []);
     setLogs(l ?? []);
@@ -135,7 +140,10 @@ export function AutomationTab() {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
                   return (
                     <TableRow key={s.id}>
-                      <TableCell className="font-mono text-xs">{s.campaign_id}</TableCell>
+                      <TableCell className="text-xs">
+                        <div className="font-medium">{campNames[s.campaign_id] || "(sem nome)"}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
+                      </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
                       <TableCell className="text-right font-mono">{s.last_roi != null ? `${Number(s.last_roi).toFixed(1)}%` : "—"}</TableCell>
                       <TableCell className="text-xs">{s.roi_trend ?? "—"}</TableCell>
@@ -169,7 +177,10 @@ export function AutomationTab() {
                 {logs.map((l) => (
                   <TableRow key={l.id}>
                     <TableCell className="text-xs whitespace-nowrap">{new Date(l.created_at).toLocaleString("pt-BR")}</TableCell>
-                    <TableCell className="font-mono text-xs">{l.campaign_id}</TableCell>
+                    <TableCell className="text-xs">
+                      <div className="font-medium">{campNames[l.campaign_id] || "(sem nome)"}</div>
+                      <div className="font-mono text-[10px] text-muted-foreground">{l.campaign_id}</div>
+                    </TableCell>
                     <TableCell className="text-xs"><Badge variant="outline">{l.action}</Badge></TableCell>
                     <TableCell className="text-xs">
                       <Badge variant={l.decision === "executed" ? "default" : l.decision === "failed" ? "destructive" : "secondary"}>{l.decision}</Badge>
