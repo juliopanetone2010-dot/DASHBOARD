@@ -63,7 +63,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const persist = async (patch: Record<string, unknown>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    await supabase.from("rules_config").update(patch).eq("user_id", u.user.id);
+    await (supabase.from("rules_config") as any).update(patch).eq("user_id", u.user.id);
   };
 
   const loadPreview = async () => {
