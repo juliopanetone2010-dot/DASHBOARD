@@ -220,10 +220,21 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
 
     const dailyBudget = meta?.budget_micros ? Number(meta.budget_micros) / 1_000_000 : 0;
-    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id), dailyBudget);
-    decisions++;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
+
+    // ===== RAMO WINNER (isolado da automação padrão) =====
+    if (isWinnerLifecycle(fromStatus)) {
+      const result = await runWinnerCycle({
+        admin, userId, siteId, accountId, agg, meta, prevState, dailyBudget, dryRun, userJwt,
+      });
+      decisions++;
+      if (result.executed) executed++;
+      continue;
+    }
+
+    const decision = classify(agg, cfg, prevState, dailyBudget);
+    decisions++;
 
     const nowIso = new Date().toISOString();
     const newState: any = {
