@@ -318,29 +318,19 @@ Deno.serve(async (req) => {
 
       if (testingIds.has(c.campaign_id)) {
         skippedTesting++;
-        isProtected = true;
-        reason = "campanha em testing";
-        status = roi <= maxRoiPct ? "monitor" : "ok";
+        continue;
       } else if (recentlyChangedIds.has(c.campaign_id)) {
         skippedRecentChange++;
-        isProtected = true;
-        reason = `países alterados nos últimos ${recentChangeDays}d`;
-        status = roi <= maxRoiPct ? "monitor" : "ok";
+        continue;
       } else if (minCampaignAgeDays > 0 && (campFirstSeen.get(c.campaign_id) ?? "9999") > ageCutoffIso) {
         skippedTooNew++;
-        isProtected = true;
-        reason = `campanha rodando há < ${minCampaignAgeDays}d`;
-        status = roi <= maxRoiPct ? "monitor" : "ok";
+        continue;
       } else if (camp.countries.size < minCountries) {
         skippedFewCountries++;
-        isProtected = true;
-        reason = `campanha tem ${camp.countries.size} país(es) (mín ${minCountries})`;
-        status = roi <= maxRoiPct ? "monitor" : "ok";
+        continue;
       } else if (camp.cost < minCampaignCostBrl) {
         skippedLowCampCost++;
-        isProtected = true;
-        reason = `campanha gastou < R$ ${minCampaignCostBrl}`;
-        status = roi <= maxRoiPct ? "monitor" : "ok";
+        continue;
       } else if (c.cost_brl < minCostBrl) {
         skippedLowCountryCost++;
         reason = `país com custo < R$ ${minCostBrl}`;
