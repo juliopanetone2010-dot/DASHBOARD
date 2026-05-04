@@ -226,7 +226,7 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive };
 }
 
 function classify(agg: any, cfg: any, prev: any): {
