@@ -113,15 +113,16 @@ const IndexInner = () => {
     refetchInterval: 5 * 60_000,
   });
   // Atribuição por site quando uma conta Ads serve N sites:
-  // shareByCampaignSite[campaign][site] = % da receita GAM daquele campaign que veio do site.
+  // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
       const { data: rows } = await supabase
-        .from("gam_campaign_source_revenue")
+        .from("gam_placement_revenue")
         .select("campaign_id, site_id, revenue_usd")
         .not("site_id", "is", null)
+        .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
         .limit(50000);
       const totalByCamp = new Map<string, number>();
