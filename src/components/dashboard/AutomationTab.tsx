@@ -108,9 +108,9 @@ export function AutomationTab() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { testing: 0, learning: 0, standby: 0, scaling: 0, bad: 0, paused: 0 };
-    for (const s of states) c[s.lifecycle_status] = (c[s.lifecycle_status] ?? 0) + 1;
+    for (const s of filteredStates) c[s.lifecycle_status] = (c[s.lifecycle_status] ?? 0) + 1;
     return c;
-  }, [states]);
+  }, [filteredStates]);
 
   if (loading || !cfg) return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando…</div>;
 
@@ -138,6 +138,63 @@ export function AutomationTab() {
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Rodar agora
           </Button>
         </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="rounded-xl border border-border bg-card p-4 flex flex-wrap items-end gap-4">
+        <div className="space-y-1.5 min-w-[200px]">
+          <Label className="text-xs">Site</Label>
+          <Select value={siteFilter} onValueChange={setSiteFilter}>
+            <SelectTrigger><SelectValue placeholder="Todos os sites" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os sites</SelectItem>
+              {sites.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 min-w-[260px]">
+          <Label className="text-xs">Contas Google Ads</Label>
+          <Popover open={accountPopOpen} onOpenChange={setAccountPopOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                <span className="truncate">
+                  {accountFilter.length === 0 ? "Todas as contas" : accountFilter.length === 1
+                    ? accounts.find((a) => a.id === accountFilter[0])?.name ?? "1 conta"
+                    : `${accountFilter.length} contas`}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[320px] p-0" align="start">
+              <div className="max-h-[280px] overflow-y-auto py-1">
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                  onClick={() => setAccountFilter([])}
+                >
+                  <Check className={cn("h-4 w-4", accountFilter.length === 0 ? "opacity-100" : "opacity-0")} />
+                  Todas as contas
+                </button>
+                {accounts.map((a) => {
+                  const checked = accountFilter.includes(a.id);
+                  return (
+                    <button
+                      key={a.id}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                      onClick={() => setAccountFilter((prev) => checked ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
+                    >
+                      <Check className={cn("h-4 w-4", checked ? "opacity-100" : "opacity-0")} />
+                      <span className="truncate">{a.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        {(siteFilter !== "all" || accountFilter.length > 0) && (
+          <Button variant="ghost" size="sm" onClick={() => { setSiteFilter("all"); setAccountFilter([]); }}>Limpar filtros</Button>
+        )}
+        <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
       </div>
 
       {/* Esteira (counts) */}
@@ -172,13 +229,13 @@ export function AutomationTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {states.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
-                {states.map((s) => {
+                {filteredStates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
+                {filteredStates.map((s) => {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
                   return (
                     <TableRow key={s.id}>
                       <TableCell className="text-xs">
-                        <div className="font-medium">{campNames[s.campaign_id] || "(sem nome)"}</div>
+                        <div className="font-medium">{campMeta[s.campaign_id]?.name || "(sem nome)"}</div>
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
@@ -210,12 +267,12 @@ export function AutomationTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Sem logs ainda.</TableCell></TableRow>}
-                {logs.map((l) => (
+                {filteredLogs.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Sem logs ainda.</TableCell></TableRow>}
+                {filteredLogs.map((l) => (
                   <TableRow key={l.id}>
                     <TableCell className="text-xs whitespace-nowrap">{new Date(l.created_at).toLocaleString("pt-BR")}</TableCell>
                     <TableCell className="text-xs">
-                      <div className="font-medium">{campNames[l.campaign_id] || "(sem nome)"}</div>
+                      <div className="font-medium">{campMeta[l.campaign_id]?.name || "(sem nome)"}</div>
                       <div className="font-mono text-[10px] text-muted-foreground">{l.campaign_id}</div>
                     </TableCell>
                     <TableCell className="text-xs"><Badge variant="outline">{l.action}</Badge></TableCell>
