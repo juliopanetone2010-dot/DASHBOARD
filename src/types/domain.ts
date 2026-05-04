@@ -111,6 +111,8 @@ export interface Site {
   network_code: string;
   gam_account_id?: string | null;
   status: string;
+  /** Moeda do GAM deste site. 'USD' (padrão) ou 'BRL' (não converter). */
+  gam_currency?: string | null;
 }
 
 export interface AccountSiteLink {
