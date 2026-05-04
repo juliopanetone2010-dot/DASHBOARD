@@ -331,6 +331,16 @@ const IndexInner = () => {
     roas: totalRoas,
   };
   const profitPositive = totals.profit >= 0;
+  // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
+  // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
+  const selectedSite = filters.siteId !== "all"
+    ? data.sites.find((s) => s.id === filters.siteId)
+    : null;
+  const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
+  const revenueDisplay = isBrlSite ? totals.revenue * usdBrl : totals.revenue;
+  const extraPushDisplay = isBrlSite ? extraPushUsd * NET_FACTOR * usdBrl : extraPushUsd * NET_FACTOR;
+  const extraOtherDisplay = isBrlSite ? extraOtherUsd * NET_FACTOR * usdBrl : extraOtherUsd * NET_FACTOR;
+  const fmtRevenue = (v: number) => isBrlSite ? fmtCurrency(v) : fmtUSD(v);
   // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
@@ -443,7 +453,7 @@ const IndexInner = () => {
 
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Receita líquida (rev share {(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
-              <Badge variant="outline">USD nativo (GAM)</Badge>
+              <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
@@ -477,13 +487,13 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtUSD(totals.revenue)}
+                value={fmtRevenue(revenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
                   totals.revenue === 0
-                    ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
-                    : `Google + Push + Outras · push ${fmtUSD(extraPushUsd * NET_FACTOR)} · outras ${fmtUSD(extraOtherUsd * NET_FACTOR)}`
+                    ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
+                    : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
               <MetricCard
