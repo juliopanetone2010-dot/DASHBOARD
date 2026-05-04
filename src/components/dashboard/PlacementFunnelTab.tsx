@@ -37,6 +37,7 @@ interface Row {
   impressions_total: number;
   conversions_total: number;
   first_seen_at: string;
+  last_evaluated_at: string;
   last_status_change_at: string;
 }
 
@@ -125,7 +126,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       for (;;) {
         const { data, error } = await supabase
           .from("placement_status")
-          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
+          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
           .order("cost_total", { ascending: false })
           .range(s, s + 999);
         if (error) throw error;
@@ -134,7 +135,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         if (rows.length < 1000) break;
         s += 1000;
       }
-      setRows(all);
+      const latestEval = all.reduce((max, r) => Math.max(max, new Date(r.last_evaluated_at ?? 0).getTime()), 0);
+      const latestCycleRows = latestEval > 0
+        ? all.filter((r) => latestEval - new Date(r.last_evaluated_at ?? 0).getTime() <= 10 * 60_000)
+        : all;
+      setRows(latestCycleRows);
       const { from, to } = rangeFromLookback(lookback);
       const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
       const metrics: any[] = [];
