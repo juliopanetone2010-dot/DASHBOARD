@@ -116,18 +116,20 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           const beforeTo = isoDate(new Date(execTs - 86400_000));
           const before = aggregate(beforeFrom, beforeTo);
 
-          // DEPOIS: [exec + 1d, min(exec + windowDays, ontem)]
+          // DEPOIS (simétrico): [exec + 1d, exec + windowDays] — só classifica se janela completa
           const afterStartTs = execTs + 86400_000;
-          const afterEndTs = Math.min(execTs + windowDays * 86400_000, yesterday.getTime());
-          const hasAfter = afterStartTs <= afterEndTs;
-          const after = hasAfter
-            ? aggregate(isoDate(new Date(afterStartTs)), isoDate(new Date(afterEndTs)))
+          const afterEndTs = execTs + windowDays * 86400_000;
+          const availableEndTs = Math.min(afterEndTs, yesterday.getTime());
+          const hasAnyAfter = afterStartTs <= availableEndTs;
+          const after = hasAnyAfter
+            ? aggregate(isoDate(new Date(afterStartTs)), isoDate(new Date(availableEndTs)))
             : { cost: 0, revenue: 0, roi: 0 };
-          const daysCovered = hasAfter ? Math.floor((afterEndTs - afterStartTs) / 86400_000) + 1 : 0;
+          const daysCovered = hasAnyAfter ? Math.floor((availableEndTs - afterStartTs) / 86400_000) + 1 : 0;
+          const isComplete = daysCovered >= windowDays;
 
           const delta = after.roi - before.roi;
           let classification: ImpactRow["classification"];
-          if (!hasAfter || after.cost === 0) classification = "pending";
+          if (!isComplete) classification = "pending";
           else if (Math.abs(delta) < NEUTRAL_THRESHOLD) classification = "neutral";
           else if (delta > 0) classification = "up";
           else classification = "down";
