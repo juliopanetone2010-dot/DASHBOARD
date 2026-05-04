@@ -1105,3 +1105,62 @@ function json(payload: unknown) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+// Lê o currencyCode da Network GAM (para auto-detecção de moeda por site)
+async function fetchNetworkCurrency(networkCode: string, accessToken: string, debug: string[]): Promise<string | null> {
+  try {
+    const res = await fetch(`${GAM_BASE}/networks/${networkCode}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      debug.push(`[network ${networkCode}] currency lookup failed (${res.status}): ${text.slice(0, 150)}`);
+      return null;
+    }
+    const j = JSON.parse(text);
+    const cc = String(j?.currencyCode ?? "").toUpperCase();
+    if (cc) {
+      debug.push(`[network ${networkCode}] detected currency=${cc}`);
+      return cc;
+    }
+  } catch (e) {
+    debug.push(`[network ${networkCode}] currency lookup erro: ${String(e)}`);
+  }
+  return null;
+}
+
+async function persistSiteMetricsDaily(
+  admin: any,
+  userId: string,
+  siteId: string | null | undefined,
+  currency: string,
+  rows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }>,
+  debug: string[],
+) {
+  if (!siteId || rows.length === 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+  // Agrega por data (caso múltiplos ranges retornem mesmo dia)
+  const byDate = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+  for (const r of rows) {
+    const d = r.date ?? today;
+    const cur = byDate.get(d) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+    cur.impr += r.impressions; cur.meas += r.measurable; cur.view += r.viewable; cur.rev += r.revenue;
+    byDate.set(d, cur);
+  }
+  const payload = [...byDate.entries()].map(([date, v]) => ({
+    user_id: userId,
+    site_id: siteId,
+    date,
+    impressions: v.impr,
+    measurable_impressions: v.meas,
+    viewable_impressions: v.view,
+    revenue_native: v.rev,
+    currency,
+    ecpm_native: v.impr > 0 ? (v.rev / v.impr) * 1000 : 0,
+    updated_at: new Date().toISOString(),
+  }));
+  for (let i = 0; i < payload.length; i += 500) {
+    await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
+  }
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
+}
