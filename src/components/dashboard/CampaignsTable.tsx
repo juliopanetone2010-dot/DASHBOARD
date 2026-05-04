@@ -143,6 +143,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
                       <span className="truncate max-w-[240px]">{c.name}</span>
+                      <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
