@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { NET_FACTOR } from "@/engine/rules";
 import { CleanupImpactPanel } from "./CleanupImpactPanel";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 
 interface Props { fxUsdBrl: number; }
 
@@ -23,6 +24,7 @@ interface Row {
   campaign_id: string;
   campaign_name: string | null;
   google_account_id: string | null;
+  site_id: string | null;
   placement: string;
   placement_type: string | null;
   status: Status;
@@ -91,6 +93,15 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetricSummary[]>([]);
   const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
   const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
+  const [siteCampaignIds, setSiteCampaignIds] = useState<Map<string, Set<string>>>(new Map());
+  const { filters: dashboardFilters } = useDashboardFilters();
+
+  useEffect(() => {
+    setSiteFilter((prev) => {
+      if (dashboardFilters.siteId === "all") return prev.size === 0 ? prev : new Set();
+      return prev.size === 1 && prev.has(dashboardFilters.siteId) ? prev : new Set([dashboardFilters.siteId]);
+    });
+  }, [dashboardFilters.siteId]);
 
   const loadConfig = async () => {
     const { data } = await supabase
@@ -127,7 +138,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       for (;;) {
         const { data, error } = await supabase
           .from("placement_status")
-          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
+          .select("id, campaign_id, campaign_name, google_account_id, site_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
           .order("cost_total", { ascending: false })
           .range(s, s + 999);
         if (error) throw error;
@@ -144,6 +155,26 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       const { from, to } = rangeFromLookback(lookback);
       const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
 
+      // Mapa real site → campanhas, vindo da receita GAM atribuída por UTM.
+      // Necessário quando vários sites usam a mesma conta Google Ads: filtrar só por conta mistura sites.
+      const { data: attributionRows } = await supabase
+        .from("gam_placement_revenue")
+        .select("site_id, campaign_id")
+        .not("site_id", "is", null)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      const localSiteCampaignIds = new Map<string, Set<string>>();
+      for (const r of attributionRows ?? []) {
+        const sid = String((r as any).site_id ?? "");
+        const cid = String((r as any).campaign_id ?? "");
+        if (!sid || !cid || cid === "__aggregate__") continue;
+        const set = localSiteCampaignIds.get(sid) ?? new Set<string>();
+        set.add(cid);
+        localSiteCampaignIds.set(sid, set);
+      }
+      setSiteCampaignIds(localSiteCampaignIds);
+
       // Calcula contas permitidas (mesmo filtro do display) para bater com a dashboard
       let allowed: Set<string> | null = null;
       if (accountFilter.size > 0) allowed = new Set(accountFilter);
@@ -151,6 +182,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         const fromSites = new Set<string>();
         for (const st of sites) if (siteFilter.has(st.id)) for (const a of st.account_ids) fromSites.add(a);
         allowed = allowed ? new Set([...allowed].filter((a) => fromSites.has(a))) : fromSites;
+      }
+      const allowedCampaigns = new Set<string>();
+      if (siteFilter.size > 0) {
+        for (const sid of siteFilter) for (const cid of localSiteCampaignIds.get(sid) ?? []) allowedCampaigns.add(cid);
       }
 
       const metrics: any[] = [];
@@ -162,6 +197,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
           .gte("date", from)
           .lte("date", to);
         if (allowed && allowed.size > 0) q = q.in("google_account_id", [...allowed]);
+        if (siteFilter.size > 0) {
+          q = allowedCampaigns.size > 0
+            ? q.in("campaign_id", [...allowedCampaigns])
+            : q.eq("campaign_id", "__no_site_campaign__");
+        }
         const { data, error } = await q.range(m, m + 999);
         if (error) throw error;
         const page = data ?? [];
@@ -220,9 +260,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     try {
       // Mesma janela da Dashboard: Hoje é hoje; Ontem é ontem; últimos N dias são dias completos até ontem.
       const { from, to } = rangeFromLookback(lookback);
+      const selectedSiteId = siteFilter.size === 1 ? [...siteFilter][0] : null;
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
-        { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl, site_id: selectedSiteId ?? undefined } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao avaliar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -296,10 +337,21 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     return allowed; // null = sem restrição
   }, [accountFilter, siteFilter, sites]);
 
+  const allowedSiteCampaignIds = useMemo(() => {
+    if (siteFilter.size === 0) return null;
+    const campaignIds = new Set<string>();
+    for (const sid of siteFilter) for (const cid of siteCampaignIds.get(sid) ?? []) campaignIds.add(cid);
+    return campaignIds;
+  }, [siteFilter, siteCampaignIds]);
+
   const accountFiltered = useMemo(() => {
-    if (!allowedAccountIds) return rows;
-    return rows.filter((r) => r.google_account_id && allowedAccountIds.has(r.google_account_id));
-  }, [rows, allowedAccountIds]);
+    return rows.filter((r) => {
+      const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
+      const hasSelectedSite = !!r.site_id && siteFilter.has(r.site_id);
+      const hasAttributedCampaign = !!allowedSiteCampaignIds?.has(r.campaign_id);
+      return !!accountOk && (!allowedSiteCampaignIds || hasSelectedSite || hasAttributedCampaign);
+    });
+  }, [rows, allowedAccountIds, allowedSiteCampaignIds, siteFilter]);
 
   const counts = useMemo(() => {
     const c = { all: accountFiltered.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
