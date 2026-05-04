@@ -601,6 +601,63 @@ export type Database = {
         }
         Relationships: []
       }
+      geo_cleanup_logs: {
+        Row: {
+          action: string
+          campaign_id: string
+          campaign_name: string | null
+          cost_brl: number | null
+          country_code: string
+          country_criterion_id: string | null
+          country_name: string | null
+          created_at: string
+          executed_at: string
+          google_account_id: string | null
+          id: string
+          lookback_days: number
+          revenue_brl: number | null
+          roi_pct: number | null
+          site_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action?: string
+          campaign_id: string
+          campaign_name?: string | null
+          cost_brl?: number | null
+          country_code: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          lookback_days?: number
+          revenue_brl?: number | null
+          roi_pct?: number | null
+          site_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          campaign_id?: string
+          campaign_name?: string | null
+          cost_brl?: number | null
+          country_code?: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          lookback_days?: number
+          revenue_brl?: number | null
+          roi_pct?: number | null
+          site_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       google_accounts: {
         Row: {
           account_name: string | null
@@ -978,6 +1035,14 @@ export type Database = {
           funnel_protect_recent_conv_days: number
           funnel_scale_min_roi: number
           funnel_test_max_cost: number
+          geo_auto_cleanup_enabled: boolean
+          geo_cleanup_interval_days: number
+          geo_cleanup_last_run_at: string | null
+          geo_cleanup_lookback_days: number
+          geo_cleanup_max_roi_pct: number
+          geo_cleanup_min_campaign_cost_brl: number
+          geo_cleanup_min_cost_brl: number
+          geo_cleanup_min_countries: number
           max_loss_roi_pct: number
           min_roi_pct: number
           min_spend_threshold: number
@@ -1028,6 +1093,14 @@ export type Database = {
           funnel_protect_recent_conv_days?: number
           funnel_scale_min_roi?: number
           funnel_test_max_cost?: number
+          geo_auto_cleanup_enabled?: boolean
+          geo_cleanup_interval_days?: number
+          geo_cleanup_last_run_at?: string | null
+          geo_cleanup_lookback_days?: number
+          geo_cleanup_max_roi_pct?: number
+          geo_cleanup_min_campaign_cost_brl?: number
+          geo_cleanup_min_cost_brl?: number
+          geo_cleanup_min_countries?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
@@ -1078,6 +1151,14 @@ export type Database = {
           funnel_protect_recent_conv_days?: number
           funnel_scale_min_roi?: number
           funnel_test_max_cost?: number
+          geo_auto_cleanup_enabled?: boolean
+          geo_cleanup_interval_days?: number
+          geo_cleanup_last_run_at?: string | null
+          geo_cleanup_lookback_days?: number
+          geo_cleanup_max_roi_pct?: number
+          geo_cleanup_min_campaign_cost_brl?: number
+          geo_cleanup_min_cost_brl?: number
+          geo_cleanup_min_countries?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
