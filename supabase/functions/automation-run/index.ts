@@ -115,7 +115,9 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  const days: number = Math.max(1, Number(cfg.auto_analysis_days) || 7);
+  // Buscamos sempre a janela máxima (7d). A janela efetiva é aplicada no classify()
+  // de acordo com o lifecycle atual da campanha (testing=2, scaling=3, learning/bad=5, standby=7).
+  const days: number = MAX_LIFECYCLE_WINDOW;
 
   const today = new Date();
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
