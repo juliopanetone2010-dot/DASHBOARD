@@ -19,6 +19,7 @@ import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
 import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
@@ -350,7 +351,17 @@ const IndexInner = () => {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <GlobalSiteSelector
+              sites={data.sites}
+              links={data.links}
+              onChange={(siteId) => {
+                const linked = siteId === "all"
+                  ? []
+                  : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
+                void syncDashboardData({ ...filters, siteId, googleAccountIds: linked });
+              }}
+            />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
