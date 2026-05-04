@@ -990,9 +990,26 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      const impressions = metrics ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
-      const revenue = metrics ? normalizeGamRevenue(num(m[1])) : normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
-      allRows.push({ date, dims: dimStrings, impressions, revenue });
+      // Detecta padrão Active View: [IMPRESSIONS, MEASURABLE, VIEWABLE, REVENUE]
+      const isActiveView = !!metrics && metrics.length === 4
+        && metrics[1].includes("MEASURABLE") && metrics[2].includes("VIEWABLE");
+      let impressions: number;
+      let revenue: number;
+      let _raw_measurable: number | undefined;
+      let _raw_viewable: number | undefined;
+      if (isActiveView) {
+        impressions = num(m[0]);
+        _raw_measurable = num(m[1]);
+        _raw_viewable = num(m[2]);
+        revenue = normalizeGamRevenue(num(m[3]));
+      } else if (metrics) {
+        impressions = num(m[0]);
+        revenue = normalizeGamRevenue(num(m[1]));
+      } else {
+        impressions = num(m[0]) + num(m[2]) + num(m[4]);
+        revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
+      }
+      allRows.push({ date, dims: dimStrings, impressions, revenue, _raw_measurable, _raw_viewable });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
