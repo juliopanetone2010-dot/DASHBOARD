@@ -177,10 +177,10 @@ Deno.serve(async (req) => {
       agg.set(k, {
         campaign_id, placement,
         type: ex?.placement_type ?? "WEBSITE",
-        cost: Number(ex?.cost_total ?? 0),
-        clicks: Number(ex?.clicks_total ?? 0),
-        impressions: Number(ex?.impressions_total ?? 0),
-        conversions: Number(ex?.conversions_total ?? 0),
+        cost: 0,
+        clicks: 0,
+        impressions: 0,
+        conversions: 0,
         lastConvDate: null,
         firstDate: ex?.first_seen_at ? String(ex.first_seen_at).slice(0, 10) : from,
       });
