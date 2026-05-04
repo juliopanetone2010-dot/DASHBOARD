@@ -3,24 +3,35 @@
 // - Calcula ROI dos últimos N dias com NET_FACTOR (mesma lógica do dashboard)
 // - Classifica em: testing | learning | standby | scaling | bad | paused
 // - Decide ação (pause | scale | cpa_up | cpa_down | none) respeitando cooldowns
-// - DRY-RUN por padrão: só grava em automation_logs, não chama Google Ads
-// - Quando dry-run=false, dispara google-ads-mutate
+// - Executa SOMENTE para pares site_id + google_account_id habilitados em site_automation_config
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const NET_FACTOR = 0.935;
 
 type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+type SiteAutomationConfig = {
+  id: string;
+  user_id: string;
+  site_id: string;
+  google_account_id: string;
+  automation_enabled: boolean;
+  automation_dry_run: boolean;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const body = await req.json().catch(() => ({} as any));
-    const force = !!body?.force;          // ignora cooldown e roda mesmo desabilitado
+    const force = !!body?.force;
+    const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
+    const selectedAccountIds = Array.isArray(body?.google_account_ids)
+      ? body.google_account_ids.map((id: unknown) => String(id)).filter(Boolean)
+      : [];
     let onlyUserId: string | undefined = body?.user_id;
 
-    // Se chamado com Authorization de um usuário (botão "Rodar agora"), restringe àquele user
+    // Se chamado com Authorization de um usuário (botão "Rodar agora"), restringe àquele user.
     const authHeader = req.headers.get("Authorization");
     let userJwt: string | null = null;
     if (authHeader?.startsWith("Bearer ")) {
@@ -30,29 +41,50 @@ Deno.serve(async (req) => {
       if (sub) { onlyUserId = sub; userJwt = authHeader.replace("Bearer ", ""); }
     }
 
+    if (force && !selectedSiteId) {
+      return json({ error: "Selecione um site antes de rodar a automação." }, 400);
+    }
+
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Busca todas as configs (cron multiusuário) ou só de um user
-    let q = admin.from("rules_config").select("*");
-    if (onlyUserId) q = q.eq("user_id", onlyUserId);
-    const { data: configs, error: cfgErr } = await q;
-    if (cfgErr) throw cfgErr;
+    // Regras numéricas continuam em rules_config; habilitação agora é por site/conta.
+    let rulesQuery = admin.from("rules_config").select("*");
+    if (onlyUserId) rulesQuery = rulesQuery.eq("user_id", onlyUserId);
+    const { data: rules, error: rulesErr } = await rulesQuery;
+    if (rulesErr) throw rulesErr;
+    const rulesByUser = new Map<string, any>();
+    for (const cfg of rules ?? []) rulesByUser.set(cfg.user_id, cfg);
+
+    let siteCfgQuery = admin.from("site_automation_config").select("*");
+    if (onlyUserId) siteCfgQuery = siteCfgQuery.eq("user_id", onlyUserId);
+    if (selectedSiteId) siteCfgQuery = siteCfgQuery.eq("site_id", selectedSiteId);
+    if (selectedAccountIds.length > 0) siteCfgQuery = siteCfgQuery.in("google_account_id", selectedAccountIds);
+    if (!force) siteCfgQuery = siteCfgQuery.eq("automation_enabled", true);
+
+    const { data: siteConfigs, error: siteCfgErr } = await siteCfgQuery;
+    if (siteCfgErr) throw siteCfgErr;
 
     const summary: any[] = [];
-    for (const cfg of configs ?? []) {
-      if (!force && !cfg.automation_enabled) {
-        summary.push({ user_id: cfg.user_id, skipped: "automation_disabled" });
+    for (const siteCfg of (siteConfigs ?? []) as SiteAutomationConfig[]) {
+      const rulesCfg = rulesByUser.get(siteCfg.user_id);
+      if (!rulesCfg) {
+        summary.push({ user_id: siteCfg.user_id, site_id: siteCfg.site_id, google_account_id: siteCfg.google_account_id, skipped: "rules_missing" });
         continue;
       }
-      const result = await runForUser(admin, cfg, userJwt);
-      summary.push({ user_id: cfg.user_id, ...result });
+      if (!force && !siteCfg.automation_enabled) {
+        summary.push({ user_id: siteCfg.user_id, site_id: siteCfg.site_id, google_account_id: siteCfg.google_account_id, skipped: "site_automation_disabled" });
+        continue;
+      }
+      const cfg = { ...rulesCfg, automation_dry_run: siteCfg.automation_dry_run };
+      const result = await runForSiteAccount(admin, cfg, siteCfg, userJwt);
+      summary.push({ user_id: siteCfg.user_id, site_id: siteCfg.site_id, google_account_id: siteCfg.google_account_id, ...result });
       await admin
-        .from("rules_config")
-        .update({ automation_last_run_at: new Date().toISOString() })
-        .eq("user_id", cfg.user_id);
+        .from("site_automation_config")
+        .update({ last_run_at: new Date().toISOString() })
+        .eq("id", siteCfg.id);
     }
 
     return json({ ok: true, runs: summary });
@@ -61,38 +93,46 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForUser(admin: any, cfg: any, userJwt: string | null) {
-  const userId = cfg.user_id;
+async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationConfig, userJwt: string | null) {
+  const userId = siteCfg.user_id;
+  const siteId = siteCfg.site_id;
+  const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
   const days: number = Math.max(1, Number(cfg.auto_analysis_days) || 7);
 
-  // Janela: dia anterior a hoje (sempre até ontem)
   const today = new Date();
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
   const from = new Date(today); from.setUTCDate(today.getUTCDate() - days);
   const fromIso = isoDate(from);
   const toIso = isoDate(yest);
 
+  const { data: link } = await admin
+    .from("account_site_links")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .eq("google_account_id", accountId)
+    .maybeSingle();
+  if (!link) return { window: { from: fromIso, to: toIso }, dry_run: dryRun, skipped: "site_account_not_linked" };
+
   const { data: metrics } = await admin
     .from("daily_metrics")
     .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions")
     .eq("user_id", userId)
+    .eq("google_account_id", accountId)
     .gte("date", fromIso)
     .lte("date", toIso)
     .limit(50000);
 
-  // Agrega por campanha — usa SOMENTE daily_metrics (mesma fonte da tabela de campanhas do dashboard).
-  // Receita extra (push/outras UTMs do GAM) entra só no total agregado do dashboard, não por campanha,
-  // então também NÃO somamos aqui — assim o ROI bate exatamente com a coluna ROI do dashboard.
   const byCamp = new Map<string, {
-    campaign_id: string; google_account_id: string | null;
+    campaign_id: string; google_account_id: string;
     spend: number; grossRevBrl: number; days: Set<string>;
     daily: { date: string; spend: number; profit: number; roi: number }[];
   }>();
   for (const r of metrics ?? []) {
     const cid = String(r.campaign_id);
     let agg = byCamp.get(cid);
-    if (!agg) { agg = { campaign_id: cid, google_account_id: r.google_account_id ?? null, spend: 0, grossRevBrl: 0, days: new Set(), daily: [] }; byCamp.set(cid, agg); }
+    if (!agg) { agg = { campaign_id: cid, google_account_id: accountId, spend: 0, grossRevBrl: 0, days: new Set(), daily: [] }; byCamp.set(cid, agg); }
     const spend = Number(r.spend) || 0;
     const profit = Number(r.profit) || 0;
     const grossRevBrl = spend + profit;
@@ -104,38 +144,55 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     agg.daily.push({ date: String(r.date), spend, profit, roi });
   }
 
-  // Carrega estado atual
   const { data: states } = await admin
-    .from("campaign_automation").select("*").eq("user_id", userId);
+    .from("campaign_automation")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("google_account_id", accountId)
+    .eq("site_id", siteId);
   const stateByCamp = new Map<string, any>();
-  for (const s of states ?? []) stateByCamp.set(s.campaign_id, s);
+  for (const s of states ?? []) stateByCamp.set(String(s.campaign_id), s);
 
-  // Carrega nomes de campanhas (status real)
   const { data: campRows } = await admin
-    .from("campaigns").select("campaign_id, name, status").eq("user_id", userId);
+    .from("campaigns")
+    .select("campaign_id, name, status, google_account_id")
+    .eq("user_id", userId)
+    .eq("google_account_id", accountId);
   const campMeta = new Map<string, any>();
-  for (const c of campRows ?? []) campMeta.set(c.campaign_id, c);
+  for (const c of campRows ?? []) campMeta.set(String(c.campaign_id), c);
 
-  let decisions = 0; let executed = 0; let skippedInactive = 0;
+  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0;
   for (const agg of byCamp.values()) {
     const meta = campMeta.get(agg.campaign_id);
-    // Só avalia campanhas atualmente ATIVAS no Google Ads (enabled)
     const status = String(meta?.status ?? "").toLowerCase();
     if (!meta || (status !== "enabled" && status !== "active")) {
       skippedInactive++;
       continue;
     }
+
+    const resolvedSiteId = await resolveCampaignSiteId(admin, userId, agg.campaign_id, accountId);
+    if (!resolvedSiteId) {
+      skippedAmbiguousSite++;
+      await logSkip(admin, userId, siteId, accountId, agg, meta, "site_unresolved", "Campanha sem site confirmado; automação bloqueada por segurança.");
+      continue;
+    }
+    if (resolvedSiteId !== siteId) {
+      skippedSiteMismatch++;
+      await logSkip(admin, userId, siteId, accountId, agg, meta, "site_mismatch", `Campanha pertence ao site ${resolvedSiteId}, não ao site selecionado ${siteId}.`);
+      continue;
+    }
+
     const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id));
     decisions++;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
-    // Atualiza estado
     const nowIso = new Date().toISOString();
     const newState: any = {
       user_id: userId,
+      site_id: siteId,
       campaign_id: agg.campaign_id,
-      google_account_id: agg.google_account_id,
+      google_account_id: accountId,
       lifecycle_status: decision.lifecycle,
       last_roi: round2(decision.roi),
       roi_trend: decision.trend,
@@ -163,16 +220,15 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
       newState.last_action_date = nowIso;
     }
 
-    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,campaign_id" });
+    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,google_account_id,campaign_id" });
 
-    // Executa (se não dry-run e ação real)
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
       if (dryRun || !userJwt) execStatus = "dry_run";
       else {
         try {
-          await applyMutation(userJwt, agg.campaign_id, decision, cfg);
+          await applyMutation(userJwt, agg.campaign_id, accountId, siteId, decision, cfg);
           execStatus = "executed"; executed++;
         } catch (e) { execStatus = "failed"; execError = String(e instanceof Error ? e.message : e); }
       }
@@ -182,6 +238,8 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
 
     await admin.from("automation_logs").insert({
       user_id: userId,
+      site_id: siteId,
+      google_account_id: accountId,
       campaign_id: agg.campaign_id,
       action: decision.action === "none" ? "classify" : decision.action,
       reason: decision.reason,
@@ -191,12 +249,55 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
       revenue: round2(agg.grossRevBrl * NET_FACTOR),
       lifecycle_from: fromStatus,
       lifecycle_to: decision.lifecycle,
-      payload: { trend: decision.trend, days: agg.days.size, name: meta?.name ?? null, daily: agg.daily.slice(-days) },
+      payload: { trend: decision.trend, days: agg.days.size, name: meta?.name ?? null, site_id: siteId, google_account_id: accountId, daily: agg.daily.slice(-days) },
       error: execError,
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite };
+}
+
+async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
+  const { data: revenueSites } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("site_id, revenue_usd")
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .not("site_id", "is", null)
+    .limit(1000);
+
+  const bySite = new Map<string, number>();
+  for (const row of revenueSites ?? []) {
+    const sid = String(row.site_id ?? "");
+    if (!sid) continue;
+    bySite.set(sid, (bySite.get(sid) ?? 0) + (Number(row.revenue_usd) || 0));
+  }
+  if (bySite.size === 1) return [...bySite.keys()][0];
+  if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  const { data: links } = await admin
+    .from("account_site_links")
+    .select("site_id")
+    .eq("user_id", userId)
+    .eq("google_account_id", accountId);
+  const linkedSites = [...new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean))];
+  return linkedSites.length === 1 ? linkedSites[0] : null;
+}
+
+async function logSkip(admin: any, userId: string, siteId: string, accountId: string, agg: any, meta: any, code: string, reason: string) {
+  await admin.from("automation_logs").insert({
+    user_id: userId,
+    site_id: siteId,
+    google_account_id: accountId,
+    campaign_id: agg.campaign_id,
+    action: "classify",
+    reason,
+    decision: "skipped",
+    roi: null,
+    cost: round2(agg.spend),
+    revenue: round2(agg.grossRevBrl * NET_FACTOR),
+    payload: { code, name: meta?.name ?? null, selected_site_id: siteId, google_account_id: accountId },
+  });
 }
 
 function classify(agg: any, cfg: any, prev: any): {
@@ -208,7 +309,6 @@ function classify(agg: any, cfg: any, prev: any): {
   const netRev = agg.grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
 
-  // Tendência: compara primeira metade vs segunda metade da janela
   const sorted = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const mid = Math.floor(sorted.length / 2);
   const avg = (arr: any[]) => arr.length ? arr.reduce((s, x) => s + x.roi, 0) / arr.length : 0;
@@ -217,25 +317,20 @@ function classify(agg: any, cfg: any, prev: any): {
   const diff = r2 - r1;
   const trend: "up" | "down" | "flat" = Math.abs(diff) < 5 ? "flat" : diff > 0 ? "up" : "down";
 
-  // Proteções: dados insuficientes -> testing, sem ação
   if (days < Math.min(2, Number(cfg.auto_analysis_days) || 7) || cost < Number(cfg.auto_stoploss_min_cost)) {
     return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (dias=${days}, custo=${round2(cost)})`, roi, trend };
   }
 
-  // Em cooldown? não age (mas reclassifica)
   const inCooldown = prev?.cooldown_until && new Date(prev.cooldown_until) > new Date();
 
-  // SCALING
   if (roi >= Number(cfg.auto_scale_min_roi)) {
     if (inCooldown) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% em cooldown até ${prev.cooldown_until}`, roi, trend };
     return { lifecycle: "scaling", action: "scale", reason: `ROI ${round2(roi)}% ≥ ${cfg.auto_scale_min_roi}% → +${cfg.auto_scale_budget_pct}%`, roi, trend };
   }
 
-  // STANDBY: ROI lateralizado
   const low = Number(cfg.auto_standby_roi_low);
   const high = Number(cfg.auto_standby_roi_high);
   if (roi >= low && roi <= high && days >= Number(cfg.auto_standby_enter_days)) {
-    // Já em standby há muito tempo + roi negativo → pausa
     if (prev?.lifecycle_status === "standby") {
       const enteredAt = prev.entered_standby_at ? new Date(prev.entered_standby_at) : null;
       const daysIn = enteredAt ? Math.floor((Date.now() - enteredAt.getTime()) / 86400_000) : 0;
@@ -246,12 +341,10 @@ function classify(agg: any, cfg: any, prev: any): {
     return { lifecycle: "standby", action: "none", reason: `ROI ${round2(roi)}% lateral (${low}–${high}%) há ${days}d`, roi, trend };
   }
 
-  // STOP LOSS: ROI abaixo do mínimo + dias suficientes + tendência ruim
   if (roi < Number(cfg.auto_stoploss_min_roi) && days >= Number(cfg.auto_stoploss_days) && trend !== "up") {
     return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% < ${cfg.auto_stoploss_min_roi}% por ${days}d (tendência ${trend}) → pausar`, roi, trend };
   }
 
-  // CPA: ROI entre 0 e scale_min_roi → tenta CPA up
   if (roi >= 0 && roi < Number(cfg.auto_scale_min_roi)) {
     const lastCpa = prev?.last_cpa_action_date ? new Date(prev.last_cpa_action_date) : null;
     const daysSinceCpa = lastCpa ? Math.floor((Date.now() - lastCpa.getTime()) / 86400_000) : 999;
@@ -267,9 +360,9 @@ function classify(agg: any, cfg: any, prev: any): {
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — observando`, roi, trend };
 }
 
-async function applyMutation(userJwt: string, campaignId: string, decision: any, cfg: any) {
+async function applyMutation(userJwt: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any) {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
-  const body: any = { campaign_id: campaignId };
+  const body: any = { campaign_id: campaignId, google_account_id: accountId, site_id: siteId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
   else if (decision.action === "scale") { body.action = "adjust_budget"; body.delta_pct = Number(cfg.auto_scale_budget_pct) || 20; }
   else if (decision.action === "cpa_up") { body.action = "adjust_cpa"; body.delta_pct = Number(cfg.auto_cpa_up_pct) || 10; }
