@@ -39,7 +39,7 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters } = useDashboardFilters();
-  const [windowDays, setWindowDays] = useState(3);
+  const [windowDays, setWindowDays] = useState(7);
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<CleanupLog[]>([]);
   const [rows, setRows] = useState<ImpactRow[]>([]);
