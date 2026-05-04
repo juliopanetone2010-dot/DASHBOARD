@@ -159,32 +159,56 @@ Deno.serve(async (req) => {
         // Viewability + eCPM por site/dia (report dedicado, separado de revenue para evitar rejeição do GAM)
         let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];
         let viewabilityError: string | null = null;
-        try {
-          const raw = (await Promise.all(ranges.map((range) =>
-            runReport({
-              networkCode, accessToken, range,
-              dimensions: ["DATE"],
-              metrics: [
-                "TOTAL_IMPRESSIONS",
-                "TOTAL_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "TOTAL_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "TOTAL_REVENUE",
-              ],
-              debug,
-            })
-          ))).flat();
-          debug.push(`[${networkCode}] viewability raw rows=${raw.length}`);
-          viewabilityRows = raw.map((r: any) => ({
-            date: r.date,
-            impressions: r.impressions,
-            measurable: Number(r._raw_measurable ?? 0),
-            viewable: Number(r._raw_viewable ?? 0),
-            revenue: r.revenue,
-          }));
-        } catch (e) {
-          viewabilityError = String(e).slice(0, 400);
-          debug.push(`[${networkCode}] viewability report falhou: ${viewabilityError}`);
+        // Tenta múltiplos conjuntos de métricas — o GAM aceita prefixos diferentes
+        // (AD_SERVER_, AD_EXCHANGE_) dependendo do tipo de inventário do site.
+        // Combinamos os dois para cobrir Ad Server direto + Ad Exchange.
+        const viewabilityVariants: Array<{ label: string; metrics: string[] }> = [
+          {
+            label: "AD_SERVER",
+            metrics: [
+              "AD_SERVER_IMPRESSIONS",
+              "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+              "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+              "AD_SERVER_REVENUE",
+            ],
+          },
+          {
+            label: "AD_EXCHANGE",
+            metrics: [
+              "AD_EXCHANGE_IMPRESSIONS",
+              "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+              "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+              "AD_EXCHANGE_REVENUE",
+            ],
+          },
+        ];
+        const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+        for (const variant of viewabilityVariants) {
+          try {
+            const raw = (await Promise.all(ranges.map((range) =>
+              runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug })
+            ))).flat();
+            debug.push(`[${networkCode}] viewability ${variant.label} rows=${raw.length}`);
+            for (const r of raw as any[]) {
+              const key = r.date ?? "_";
+              const cur = aggMap.get(key) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+              cur.impr += Number(r.impressions ?? 0);
+              cur.meas += Number(r._raw_measurable ?? 0);
+              cur.view += Number(r._raw_viewable ?? 0);
+              cur.rev += Number(r.revenue ?? 0);
+              aggMap.set(key, cur);
+            }
+          } catch (e) {
+            const msg = String(e).slice(0, 200);
+            viewabilityError = msg;
+            debug.push(`[${networkCode}] viewability ${variant.label} falhou: ${msg}`);
+          }
         }
+        viewabilityRows = [...aggMap.entries()].map(([d, v]) => ({
+          date: d === "_" ? null : d,
+          impressions: v.impr, measurable: v.meas, viewable: v.view, revenue: v.rev,
+        }));
+
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
