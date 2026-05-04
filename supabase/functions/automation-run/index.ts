@@ -259,18 +259,22 @@ function classify(agg: any, cfg: any, prev: any): {
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — observando`, roi, trend };
 }
 
-async function applyMutation(admin: any, userId: string, campaignId: string, decision: any, cfg: any) {
+async function applyMutation(userJwt: string, campaignId: string, decision: any, cfg: any) {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
-  let body: any = { campaign_id: campaignId };
+  const body: any = { campaign_id: campaignId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
   else if (decision.action === "scale") { body.action = "adjust_budget"; body.delta_pct = Number(cfg.auto_scale_budget_pct) || 20; }
   else if (decision.action === "cpa_up") { body.action = "adjust_cpa"; body.delta_pct = Number(cfg.auto_cpa_up_pct) || 10; }
   else if (decision.action === "cpa_down") { body.action = "adjust_cpa"; body.delta_pct = -(Number(cfg.auto_cpa_down_pct) || 10); }
   else return;
 
-  // Para o cron precisaríamos de um JWT do user; no dry-run isso não é chamado.
-  // A execução real fica disponível via "Rodar agora" do dashboard (que já vem com Authorization do user).
-  throw new Error("execução real ainda não implementada para o cron — use 'Rodar agora' no dashboard ou mantenha dry-run.");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${userJwt}` },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j?.error) throw new Error(j?.error || `mutate failed: ${res.status}`);
 }
 
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
