@@ -356,13 +356,13 @@ async function duplicateCampaign(
 
   const channelType: string = cRow.campaign?.advertisingChannelType ?? "DISPLAY";
   const channelSubType: string | undefined = cRow.campaign?.advertisingChannelSubType;
-  const biddingType: string = cRow.campaign?.biddingStrategyType ?? "MAXIMIZE_CONVERSIONS";
-  const targetCpaMicros: string | undefined =
-    cRow.campaign?.targetCpa?.targetCpaMicros ?? cRow.campaign?.maximizeConversions?.targetCpaMicros;
-  const targetRoas: number | undefined = cRow.campaign?.targetRoas?.targetRoas
-    ? Number(cRow.campaign.targetRoas.targetRoas) : undefined;
+  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial (fase de aprendizado limpa).
+  const biddingType: string = "MAXIMIZE_CONVERSIONS";
+  const targetCpaMicros: string | undefined = undefined;
+  const targetRoas: number | undefined = undefined;
   const sourceBudgetMicros = Number(cRow.campaignBudget?.amountMicros ?? 0);
-  const newBudgetMicros = Math.max(10_000, Math.round(sourceBudgetMicros * budgetMultiplier / 10000) * 10000);
+  // Orçamento fixo: R$ 30/dia (baixo risco). budget_multiplier do body é ignorado para winner.
+  const newBudgetMicros = 30_000_000;
 
   // PMax e algumas Display campaigns têm sub-types e assets que não conseguimos clonar 100%.
   // Bloqueamos PMax explicitamente.
