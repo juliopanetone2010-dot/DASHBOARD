@@ -37,7 +37,7 @@ export function SiteSyncBanner({ siteId, siteName }: Props) {
         <div className="flex-1">
           <div className="font-medium">Coletando dados de {siteName ?? "site"}…</div>
           <div className="text-xs text-muted-foreground">
-            Buscando todo o histórico de campanhas, placements e receita vinculado ao gasto do Google Ads. Pode levar alguns minutos.
+            Buscando campanhas, placements e receita desde o primeiro dia em que a campanha do Google Ads foi marcada com o parâmetro UTM deste site.
           </div>
         </div>
       </div>
