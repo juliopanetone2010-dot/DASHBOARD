@@ -165,10 +165,10 @@ Deno.serve(async (req) => {
               networkCode, accessToken, range,
               dimensions: ["DATE"],
               metrics: [
-                "AD_SERVER_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "AD_SERVER_REVENUE",
+                "TOTAL_IMPRESSIONS",
+                "TOTAL_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+                "TOTAL_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+                "TOTAL_REVENUE",
               ],
               debug,
             })
