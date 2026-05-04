@@ -45,7 +45,7 @@ export function IntegrationsPanel(props: Props) {
     setSyncingGam(true);
     const { data, error } = await supabase.functions.invoke<{
       ok?: boolean; error?: string; summary?: any[]; debug?: string[];
-    }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS" } });
+    }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS", revenue_only: true } });
     setSyncingGam(false);
     console.log("[gam-sync-revenue] response", data, error);
     if (error || data?.error) {
