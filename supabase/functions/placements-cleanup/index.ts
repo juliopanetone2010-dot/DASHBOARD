@@ -54,6 +54,16 @@ Deno.serve(async (req) => {
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const targetUserId: string | undefined = body?.user_id;
+    const siteId: string | null = typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
+    const accountIds: string[] = Array.isArray(body?.google_account_ids)
+      ? body.google_account_ids.map((x: unknown) => String(x)).filter(Boolean)
+      : [];
+
+    // Quando vier do client (não do cron interno), exigimos site_id para evitar afetar outros sites.
+    const isCron = isService && !!targetUserId;
+    if (!isCron && !siteId) {
+      return json({ error: "Site obrigatório: selecione um site antes de rodar a limpeza global." });
+    }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -85,11 +95,31 @@ Deno.serve(async (req) => {
     const to = iso(toDate);
     const cutoff = iso(cutoffDate);
 
-    const { data: camps, error: cErr } = await admin
+    // Restringe contas Ads ao escopo do site selecionado.
+    let allowedAccountIds: string[] | null = null;
+    if (siteId) {
+      const { data: links, error: linkErr } = await admin
+        .from("account_site_links")
+        .select("google_account_id")
+        .eq("user_id", userId)
+        .eq("site_id", siteId);
+      if (linkErr) return json({ error: linkErr.message });
+      allowedAccountIds = [...new Set((links ?? []).map((l) => String(l.google_account_id)))];
+      if (accountIds.length > 0) allowedAccountIds = allowedAccountIds.filter((id) => accountIds.includes(id));
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } }, info: "Nenhuma conta Ads vinculada ao site." });
+      }
+    } else if (accountIds.length > 0) {
+      allowedAccountIds = accountIds;
+    }
+
+    let campsQuery = admin
       .from("campaigns")
       .select("campaign_id, name, status, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
+    if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    const { data: camps, error: cErr } = await campsQuery;
     if (cErr) return json({ error: cErr.message });
 
     const campMap = new Map<string, CampMeta>();

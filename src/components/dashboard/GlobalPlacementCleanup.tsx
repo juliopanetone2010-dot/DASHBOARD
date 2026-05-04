@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,7 @@ interface PreviewStats {
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
+  const { filters } = useDashboardFilters();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -119,6 +121,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const runPreview = async () => {
+    if (!filters.siteId || filters.siteId === "all") {
+      toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     setItems([]);
     setSelected(new Set());
@@ -131,6 +137,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           min_cost_brl: minCost,
           lookback_days: lookback,
           fx_usd_brl: fxUsdBrl,
+          site_id: filters.siteId,
+          google_account_ids: filters.googleAccountIds,
         },
       });
       if (error || data?.error) {
@@ -186,7 +194,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
-        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
