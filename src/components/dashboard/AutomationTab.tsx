@@ -81,6 +81,11 @@ export function AutomationTab() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  // Sincroniza com o seletor global de site (header)
+  useEffect(() => {
+    setSiteFilter(globalFilters.siteId || "all");
+    setAccountFilter([]);
+  }, [globalFilters.siteId]);
 
   const allowedAccountIds = useMemo(() => {
     if (siteFilter === "all") return null;
