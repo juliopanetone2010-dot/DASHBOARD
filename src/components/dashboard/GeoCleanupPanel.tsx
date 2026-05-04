@@ -183,8 +183,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza de países</div>
           <div className="text-xs text-muted-foreground">
-            Marca como remover países com ROI ≤ {maxRoi}% e custo ≥ R$ {minCost} dentro de campanhas com ≥ {minCountries} países e gasto ≥ R$ {minCampCost} (últimos {lookback}d).
-            Campanhas em <b>testing</b> são ignoradas.
+            Marca como remover países com ROI ≤ {maxRoi}% e custo ≥ R$ {minCost} dentro de campanhas com ≥ {minCountries} países, gasto ≥ R$ {minCampCost} e rodando há ≥ {minCampAgeDays}d (últimos {lookback}d).
+            Campanhas em <b>testing</b> ou alteradas nos últimos <b>{recentChangeDays}d</b> são ignoradas.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
