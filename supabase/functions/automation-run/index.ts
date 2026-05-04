@@ -289,7 +289,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
         daily_budget: round2(dailyBudget),
         avg_daily_spend: round2(decision.avgDailySpend ?? 0),
         delivery_driven: !!decision.delivery_driven,
-        daily: agg.daily.slice(-days),
+        window_days: decision.window_days ?? null,
+        daily: agg.daily.slice(-(decision.window_days ?? days)),
       },
       error: execError,
     });
