@@ -755,6 +755,9 @@ export type Database = {
           auto_pause_enabled: boolean
           boost_roi_pct: number
           budget_increase_pct: number
+          funnel_auto_enabled: boolean
+          funnel_auto_interval_days: number
+          funnel_auto_last_run_at: string | null
           funnel_block_max_roi: number
           funnel_block_min_cost: number
           funnel_decision_bad_roi: number
@@ -784,6 +787,9 @@ export type Database = {
           auto_pause_enabled?: boolean
           boost_roi_pct?: number
           budget_increase_pct?: number
+          funnel_auto_enabled?: boolean
+          funnel_auto_interval_days?: number
+          funnel_auto_last_run_at?: string | null
           funnel_block_max_roi?: number
           funnel_block_min_cost?: number
           funnel_decision_bad_roi?: number
@@ -813,6 +819,9 @@ export type Database = {
           auto_pause_enabled?: boolean
           boost_roi_pct?: number
           budget_increase_pct?: number
+          funnel_auto_enabled?: boolean
+          funnel_auto_interval_days?: number
+          funnel_auto_last_run_at?: string | null
           funnel_block_max_roi?: number
           funnel_block_min_cost?: number
           funnel_decision_bad_roi?: number
