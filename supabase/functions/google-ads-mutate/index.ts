@@ -16,6 +16,8 @@ Deno.serve(async (req) => {
     const campaignId = String((body as any)?.campaign_id ?? "");
     const newStatus = String((body as any)?.status ?? "").toUpperCase(); // ENABLED|PAUSED
     const deltaPct = Number((body as any)?.delta_pct ?? 0); // e.g. +10 / -10
+    const requestedSiteId = typeof (body as any)?.site_id === "string" ? String((body as any).site_id) : null;
+    const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
     if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country"].includes(action)) {
@@ -48,6 +50,15 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (cErr || !camp) return json({ error: "Campanha não encontrada" });
     if (!camp.google_account_id) return json({ error: "Campanha sem conta Ads vinculada" });
+    if (requestedAccountId && requestedAccountId !== camp.google_account_id) {
+      return json({ error: "Bloqueado: campanha não pertence à conta selecionada" });
+    }
+
+    const resolvedSiteId = await resolveCampaignSiteId(admin, userId, campaignId, camp.google_account_id);
+    if (!resolvedSiteId) return json({ error: "Bloqueado: campanha sem site confirmado" });
+    if (requestedSiteId && requestedSiteId !== resolvedSiteId) {
+      return json({ error: "Bloqueado: campanha não pertence ao site selecionado" });
+    }
 
     const { data: acc, error: aErr } = await admin
       .from("google_accounts")
@@ -84,7 +95,7 @@ Deno.serve(async (req) => {
         user_id: userId,
         campaign_id: camp.campaign_id,
         action_type: action,
-        payload: payload as any,
+        payload: { ...(payload as any), site_id: resolvedSiteId, google_account_id: camp.google_account_id },
         status,
         executed_at: new Date().toISOString(),
         error: error ?? null,
@@ -299,6 +310,33 @@ Deno.serve(async (req) => {
     return json({ error: String(e) });
   }
 });
+
+async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
+  const { data: revenueSites } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("site_id, revenue_usd")
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .not("site_id", "is", null)
+    .limit(1000);
+
+  const bySite = new Map<string, number>();
+  for (const row of revenueSites ?? []) {
+    const sid = String(row.site_id ?? "");
+    if (!sid) continue;
+    bySite.set(sid, (bySite.get(sid) ?? 0) + (Number(row.revenue_usd) || 0));
+  }
+  if (bySite.size === 1) return [...bySite.keys()][0];
+  if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  const { data: links } = await admin
+    .from("account_site_links")
+    .select("site_id")
+    .eq("user_id", userId)
+    .eq("google_account_id", accountId);
+  const linkedSites = [...new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean))];
+  return linkedSites.length === 1 ? linkedSites[0] : null;
+}
 
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {

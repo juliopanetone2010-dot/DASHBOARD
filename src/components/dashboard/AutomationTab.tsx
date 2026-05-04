@@ -34,6 +34,7 @@ export function AutomationTab() {
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
+  const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
   const [siteFilter, setSiteFilter] = useState<string>("all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
@@ -43,7 +44,7 @@ export function AutomationTab() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }] = await Promise.all([
+    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }] = await Promise.all([
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
@@ -51,6 +52,7 @@ export function AutomationTab() {
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id"),
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
+      supabase.from("site_automation_config").select("*"),
     ]);
     const meta: Record<string, { name: string; google_account_id: string | null }> = {};
     const activeIds = new Set<string>();
@@ -64,6 +66,7 @@ export function AutomationTab() {
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id || "(sem nome)" })));
     setSites((sts ?? []).map((s: any) => ({ id: s.id, name: s.name })));
     setLinks((lks ?? []) as any);
+    setSiteAutomation((sac ?? []) as any[]);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
@@ -84,8 +87,13 @@ export function AutomationTab() {
     return true;
   };
 
-  const filteredStates = useMemo(() => states.filter((s) => matchCampaign(String(s.campaign_id))), [states, campMeta, accountFilter, allowedAccountIds]);
-  const filteredLogs = useMemo(() => logs.filter((l) => matchCampaign(String(l.campaign_id))), [logs, campMeta, accountFilter, allowedAccountIds]);
+  const matchAutomationRow = (row: any) => {
+    if (siteFilter !== "all" && row.site_id && row.site_id !== siteFilter) return false;
+    return matchCampaign(String(row.campaign_id));
+  };
+
+  const filteredStates = useMemo(() => states.filter(matchAutomationRow), [states, campMeta, accountFilter, allowedAccountIds, siteFilter]);
+  const filteredLogs = useMemo(() => logs.filter(matchAutomationRow), [logs, campMeta, accountFilter, allowedAccountIds, siteFilter]);
 
   type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "last_roi", dir: "desc" });
@@ -109,6 +117,38 @@ export function AutomationTab() {
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
 
+  const selectedLinkedAccounts = useMemo(() => {
+    if (siteFilter === "all") return [];
+    const linked = links.filter((l) => l.site_id === siteFilter).map((l) => l.google_account_id);
+    return accountFilter.length > 0 ? linked.filter((id) => accountFilter.includes(id)) : linked;
+  }, [siteFilter, links, accountFilter]);
+
+  const activeSiteAccountKeys = useMemo(() => new Set(
+    siteAutomation.filter((row) => row.automation_enabled).map((row) => `${row.site_id}|${row.google_account_id}`),
+  ), [siteAutomation]);
+
+  const siteAutomationActive = siteFilter !== "all" && selectedLinkedAccounts.length > 0
+    && selectedLinkedAccounts.every((accountId) => activeSiteAccountKeys.has(`${siteFilter}|${accountId}`));
+
+  const upsertSiteAutomation = async (enabled: boolean) => {
+    if (!cfg || siteFilter === "all" || selectedLinkedAccounts.length === 0) {
+      toast({ title: "Selecione um site", description: "A automação só pode ser ativada para um site específico.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    const rows = selectedLinkedAccounts.map((accountId) => ({
+      user_id: cfg.user_id,
+      site_id: siteFilter,
+      google_account_id: accountId,
+      automation_enabled: enabled,
+      automation_dry_run: !!cfg.automation_dry_run,
+    }));
+    const { error } = await supabase.from("site_automation_config").upsert(rows, { onConflict: "user_id,site_id,google_account_id" });
+    setSaving(false);
+    if (error) toast({ title: "Erro ao salvar automação do site", description: error.message, variant: "destructive" });
+    else { toast({ title: enabled ? "Automação ativada para este site" : "Automação desativada para este site" }); await load(); }
+  };
+
   const save = async () => {
     if (!cfg) return;
     setSaving(true);
@@ -119,8 +159,12 @@ export function AutomationTab() {
   };
 
   const run = async (force = false) => {
+    if (siteFilter === "all" || selectedLinkedAccounts.length === 0) {
+      toast({ title: "Selecione um site", description: "Rodar agora exige um site específico para evitar afetar outras campanhas.", variant: "destructive" });
+      return;
+    }
     setRunning(true);
-    const { data, error } = await supabase.functions.invoke("automation-run", { body: { force } });
+    const { data, error } = await supabase.functions.invoke("automation-run", { body: { force, site_id: siteFilter, google_account_ids: selectedLinkedAccounts } });
     setRunning(false);
     if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
     else { toast({ title: "Automação executada", description: JSON.stringify((data as any)?.runs?.[0] ?? {}) }); await load(); }
@@ -144,7 +188,7 @@ export function AutomationTab() {
             <h2 className="text-lg font-semibold flex items-center gap-2">
               Automação de campanhas
               {cfg.automation_dry_run && <Badge variant="secondary">Dry-run</Badge>}
-              {cfg.automation_enabled ? <Badge className="bg-success/15 text-success">Ativa</Badge> : <Badge variant="outline">Inativa</Badge>}
+              {siteAutomationActive ? <Badge className="bg-success/15 text-success">Ativa no site</Badge> : <Badge variant="outline">Inativa no site</Badge>}
             </h2>
             <p className="text-sm text-muted-foreground">
               Esteira inteligente: testing → learning → standby → scaling/bad → paused.
@@ -154,7 +198,7 @@ export function AutomationTab() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={load} className="gap-2"><RefreshCw className="h-4 w-4" />Atualizar</Button>
-          <Button size="sm" onClick={() => run(true)} disabled={running} className="gap-2">
+          <Button size="sm" onClick={() => run(true)} disabled={running || siteFilter === "all" || selectedLinkedAccounts.length === 0} className="gap-2">
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Rodar agora
           </Button>
         </div>
@@ -215,6 +259,19 @@ export function AutomationTab() {
           <Button variant="ghost" size="sm" onClick={() => { setSiteFilter("all"); setAccountFilter([]); }}>Limpar filtros</Button>
         )}
         <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h3 className="font-semibold">Automação por site</h3>
+          <p className="text-sm text-muted-foreground">
+            {siteFilter === "all" ? "Selecione um site para ativar ou rodar a automação." : `${selectedLinkedAccounts.length} conta(s) vinculada(s) ao site selecionado.`}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Ativar automação para este site</span>
+          <Switch checked={siteAutomationActive} disabled={saving || siteFilter === "all" || selectedLinkedAccounts.length === 0} onCheckedChange={upsertSiteAutomation} />
+        </div>
       </div>
 
       {/* Esteira (counts) */}
@@ -313,7 +370,6 @@ export function AutomationTab() {
           <div className="rounded-xl border border-border bg-card p-5 space-y-4">
             <h3 className="font-semibold">Geral</h3>
             <div className="grid md:grid-cols-2 gap-4">
-              <Toggle label="Automação ativa" hint="Habilita execução pelo cron diário (04:00 BRT)." checked={!!cfg.automation_enabled} onChange={(v) => set("automation_enabled", v)} />
               <Toggle label="Modo dry-run" hint="Apenas registra decisões em logs, NÃO executa no Google Ads." checked={!!cfg.automation_dry_run} onChange={(v) => set("automation_dry_run", v)} />
               <Num label="Dias de análise" k="auto_analysis_days" cfg={cfg} set={set} step="1" />
             </div>
