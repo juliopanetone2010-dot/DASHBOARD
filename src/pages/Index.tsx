@@ -538,7 +538,38 @@ const IndexInner = () => {
               />
             </section>
 
-            {/* Linha 2: gráfico + alertas */}
+            {filters.siteId !== "all" && siteMetricsQuery.data && (
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Viewability (GAM)"
+                  value={`${siteMetricsQuery.data.viewability.toFixed(1)}%`}
+                  icon={BarChart3}
+                  hint="Active View · viewable / measurable"
+                />
+                <MetricCard
+                  label="eCPM (GAM)"
+                  value={
+                    siteMetricsQuery.data.currency === "BRL"
+                      ? fmtCurrency(siteMetricsQuery.data.ecpmNative)
+                      : fmtUSD(siteMetricsQuery.data.ecpmNative)
+                  }
+                  icon={DollarSign}
+                  hint={`${siteMetricsQuery.data.currency} nativo · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
+                />
+                <MetricCard
+                  label="Moeda base"
+                  value="BRL"
+                  icon={Globe}
+                  hint={`Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
+                />
+                <MetricCard
+                  label="Site"
+                  value={selectedSite?.name ?? "—"}
+                  icon={MapPin}
+                  hint={selectedSite?.domain ?? ""}
+                />
+              </section>
+            )}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
                 <RoiChart metrics={filtered.metrics} />
