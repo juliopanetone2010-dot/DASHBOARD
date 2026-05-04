@@ -1,6 +1,6 @@
 // Auto-onboard de um novo site:
 // 1) Marca status=processing
-// 2) Em background, dispara: google-ads-sync-campaigns + gam-sync-revenue (últimos 7 dias)
+// 2) Em background, dispara: google-ads-sync-campaigns + gam-sync-revenue (janela ampla — todo histórico vinculado ao gasto Ads)
 // 3) Para cada campanha do site, dispara google-ads-sync-placements
 // 4) Atualiza sites.sync_status=completed/failed
 //
