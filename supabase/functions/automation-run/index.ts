@@ -155,7 +155,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
   const { data: campRows } = await admin
     .from("campaigns")
-    .select("campaign_id, name, status, google_account_id")
+    .select("campaign_id, name, status, google_account_id, budget_micros")
     .eq("user_id", userId)
     .eq("google_account_id", accountId);
   const campMeta = new Map<string, any>();
