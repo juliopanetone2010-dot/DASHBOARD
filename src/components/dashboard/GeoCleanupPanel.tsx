@@ -206,6 +206,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Mín. países/camp. <Input type="number" value={minCountries} onChange={(e) => setMinCountries(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín camp. BRL <Input type="number" value={minCampCost} onChange={(e) => setMinCampCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Janela (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Idade mín camp. (d) <Input type="number" value={minCampAgeDays} onChange={(e) => setMinCampAgeDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Ignorar se alterada (d) <Input type="number" value={recentChangeDays} onChange={(e) => setRecentChangeDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
