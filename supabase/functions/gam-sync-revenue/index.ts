@@ -24,9 +24,9 @@ Deno.serve(async (req) => {
     let requestedAccountIds: string[] = [];
     let includeYesterdayFallback = false;
     let testMode = false;
-    let revenueOnly = false;
-    let skipLegacyReports = false;
-    let skipViewability = false;
+    let revenueOnly = true;
+    let skipLegacyReports = true;
+    let skipViewability = true;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -42,7 +42,8 @@ Deno.serve(async (req) => {
         : [];
       includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
-      revenueOnly = Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
+      const includeFullReports = Boolean((body as any)?.include_full_reports);
+      revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
       skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
       skipViewability = revenueOnly || Boolean((body as any)?.skip_viewability);
     } catch (_) { /* */ }
@@ -137,7 +138,7 @@ Deno.serve(async (req) => {
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt });
+        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
