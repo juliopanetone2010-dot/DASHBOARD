@@ -117,6 +117,38 @@ export function AutomationTab() {
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
 
+  const selectedLinkedAccounts = useMemo(() => {
+    if (siteFilter === "all") return [];
+    const linked = links.filter((l) => l.site_id === siteFilter).map((l) => l.google_account_id);
+    return accountFilter.length > 0 ? linked.filter((id) => accountFilter.includes(id)) : linked;
+  }, [siteFilter, links, accountFilter]);
+
+  const activeSiteAccountKeys = useMemo(() => new Set(
+    siteAutomation.filter((row) => row.automation_enabled).map((row) => `${row.site_id}|${row.google_account_id}`),
+  ), [siteAutomation]);
+
+  const siteAutomationActive = siteFilter !== "all" && selectedLinkedAccounts.length > 0
+    && selectedLinkedAccounts.every((accountId) => activeSiteAccountKeys.has(`${siteFilter}|${accountId}`));
+
+  const upsertSiteAutomation = async (enabled: boolean) => {
+    if (!cfg || siteFilter === "all" || selectedLinkedAccounts.length === 0) {
+      toast({ title: "Selecione um site", description: "A automação só pode ser ativada para um site específico.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    const rows = selectedLinkedAccounts.map((accountId) => ({
+      user_id: cfg.user_id,
+      site_id: siteFilter,
+      google_account_id: accountId,
+      automation_enabled: enabled,
+      automation_dry_run: !!cfg.automation_dry_run,
+    }));
+    const { error } = await supabase.from("site_automation_config").upsert(rows, { onConflict: "user_id,site_id,google_account_id" });
+    setSaving(false);
+    if (error) toast({ title: "Erro ao salvar automação do site", description: error.message, variant: "destructive" });
+    else { toast({ title: enabled ? "Automação ativada para este site" : "Automação desativada para este site" }); await load(); }
+  };
+
   const save = async () => {
     if (!cfg) return;
     setSaving(true);
@@ -127,8 +159,12 @@ export function AutomationTab() {
   };
 
   const run = async (force = false) => {
+    if (siteFilter === "all" || selectedLinkedAccounts.length === 0) {
+      toast({ title: "Selecione um site", description: "Rodar agora exige um site específico para evitar afetar outras campanhas.", variant: "destructive" });
+      return;
+    }
     setRunning(true);
-    const { data, error } = await supabase.functions.invoke("automation-run", { body: { force } });
+    const { data, error } = await supabase.functions.invoke("automation-run", { body: { force, site_id: siteFilter, google_account_ids: selectedLinkedAccounts } });
     setRunning(false);
     if (error) toast({ title: "Erro", description: error.message, variant: "destructive" });
     else { toast({ title: "Automação executada", description: JSON.stringify((data as any)?.runs?.[0] ?? {}) }); await load(); }
