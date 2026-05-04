@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
+import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
@@ -321,6 +322,9 @@ const IndexInner = () => {
             <TabsTrigger value="retention" className="gap-1.5">
               <Repeat className="h-3.5 w-3.5" /> Retenção / Push
             </TabsTrigger>
+            <TabsTrigger value="automation" className="gap-1.5">
+              <Bot className="h-3.5 w-3.5" /> Automação
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
@@ -513,6 +517,10 @@ const IndexInner = () => {
 
           <TabsContent value="retention" className="mt-6">
             <RetentionTab campaigns={data.campaigns} />
+          </TabsContent>
+
+          <TabsContent value="automation" className="mt-6">
+            <AutomationTab />
           </TabsContent>
 
           <TabsContent value="rules" className="mt-6">
