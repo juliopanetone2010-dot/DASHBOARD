@@ -116,18 +116,20 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           const beforeTo = isoDate(new Date(execTs - 86400_000));
           const before = aggregate(beforeFrom, beforeTo);
 
-          // DEPOIS: [exec + 1d, min(exec + windowDays, ontem)]
+          // DEPOIS (simétrico): [exec + 1d, exec + windowDays] — só classifica se janela completa
           const afterStartTs = execTs + 86400_000;
-          const afterEndTs = Math.min(execTs + windowDays * 86400_000, yesterday.getTime());
-          const hasAfter = afterStartTs <= afterEndTs;
-          const after = hasAfter
-            ? aggregate(isoDate(new Date(afterStartTs)), isoDate(new Date(afterEndTs)))
+          const afterEndTs = execTs + windowDays * 86400_000;
+          const availableEndTs = Math.min(afterEndTs, yesterday.getTime());
+          const hasAnyAfter = afterStartTs <= availableEndTs;
+          const after = hasAnyAfter
+            ? aggregate(isoDate(new Date(afterStartTs)), isoDate(new Date(availableEndTs)))
             : { cost: 0, revenue: 0, roi: 0 };
-          const daysCovered = hasAfter ? Math.floor((afterEndTs - afterStartTs) / 86400_000) + 1 : 0;
+          const daysCovered = hasAnyAfter ? Math.floor((availableEndTs - afterStartTs) / 86400_000) + 1 : 0;
+          const isComplete = daysCovered >= windowDays;
 
           const delta = after.roi - before.roi;
           let classification: ImpactRow["classification"];
-          if (!hasAfter || after.cost === 0) classification = "pending";
+          if (!isComplete) classification = "pending";
           else if (Math.abs(delta) < NEUTRAL_THRESHOLD) classification = "neutral";
           else if (delta > 0) classification = "up";
           else classification = "down";
@@ -172,13 +174,13 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Impacto da limpeza de placements</div>
           <div className="text-xs text-muted-foreground">
-            Compara ROI da campanha {windowDays} dias antes vs depois da limpeza. Considera dados até ontem. Só mostra limpezas do site selecionado.
+            Compara ROI {windowDays}d antes vs {windowDays}d depois da limpeza (janelas simétricas). Só classifica quando há dados completos pós-limpeza.
           </div>
         </div>
 
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-muted-foreground">Janela:</span>
-          {[{v:1,l:"ontem"},{v:7,l:"7d"},{v:15,l:"15d"},{v:30,l:"30d"}].map((d) => (
+          {[{v:1,l:"1d"},{v:2,l:"2d"},{v:3,l:"3d"},{v:7,l:"7d"},{v:15,l:"15d"},{v:30,l:"30d"}].map((d) => (
             <button key={d.v} onClick={() => setWindowDays(d.v)}
               className={cn("text-[11px] rounded-md border px-2 py-1 transition-colors",
                 windowDays === d.v ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
@@ -254,7 +256,11 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
                     {status === "up" && <Badge className="bg-success-soft text-success border-success/20"><TrendingUp className="h-3 w-3 mr-1" />Melhorou</Badge>}
                     {status === "down" && <Badge className="bg-danger-soft text-danger border-danger/20"><TrendingDown className="h-3 w-3 mr-1" />Piorou</Badge>}
                     {status === "neutral" && <Badge variant="outline"><Minus className="h-3 w-3 mr-1" />Neutro</Badge>}
-                    {status === "pending" && <Badge variant="outline" title="Aguardando dados pós-limpeza">⏳ Aguardando</Badge>}
+                    {status === "pending" && (
+                      <Badge variant="outline" title={`Faltam ${windowDays - r.daysCovered} dia(s) para completar a janela de ${windowDays}d`}>
+                        ⏳ Faltam {windowDays - r.daysCovered}d
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               );
