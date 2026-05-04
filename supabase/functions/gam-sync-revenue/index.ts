@@ -246,7 +246,7 @@ Deno.serve(async (req) => {
   }
 });
 
-interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; }
+interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; _raw_measurable?: number; _raw_viewable?: number; }
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
