@@ -239,18 +239,18 @@ export function AutomationTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Campanha</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">ROI</TableHead>
-                  <TableHead>Tendência</TableHead>
-                  <TableHead>Standby</TableHead>
-                  <TableHead>Última ação</TableHead>
-                  <TableHead>Cooldown até</TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("last_action_date")}>Última ação<SortIcon k="last_action_date" /></TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("cooldown_until")}>Cooldown até<SortIcon k="cooldown_until" /></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
-                {filteredStates.map((s) => {
+                {sortedStates.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
+                {sortedStates.map((s) => {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
                   return (
                     <TableRow key={s.id}>
