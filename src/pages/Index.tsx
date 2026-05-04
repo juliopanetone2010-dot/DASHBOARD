@@ -48,6 +48,7 @@ const IndexInner = () => {
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
+  const allSites = useAllSitesOnboarding(!!user);
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
   const extraRevQuery = useQuery({
