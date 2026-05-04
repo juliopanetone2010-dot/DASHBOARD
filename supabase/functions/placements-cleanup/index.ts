@@ -54,6 +54,16 @@ Deno.serve(async (req) => {
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const targetUserId: string | undefined = body?.user_id;
+    const siteId: string | null = typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
+    const accountIds: string[] = Array.isArray(body?.google_account_ids)
+      ? body.google_account_ids.map((x: unknown) => String(x)).filter(Boolean)
+      : [];
+
+    // Quando vier do client (não do cron interno), exigimos site_id para evitar afetar outros sites.
+    const isCron = isService && !!targetUserId;
+    if (!isCron && !siteId) {
+      return json({ error: "Site obrigatório: selecione um site antes de rodar a limpeza global." });
+    }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
