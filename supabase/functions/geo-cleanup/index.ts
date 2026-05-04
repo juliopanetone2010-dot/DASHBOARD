@@ -28,9 +28,11 @@ Deno.serve(async (req) => {
     const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 50));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const minCountries = Math.max(1, Number(body?.min_countries ?? 3));
-    const minCampaignCostBrl = Math.max(0, Number(body?.min_campaign_cost_brl ?? 500));
+    const minCampaignCostBrl = Math.max(0, Number(body?.min_campaign_cost_brl ?? 400));
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
+    const recentChangeDays = Math.max(0, Number(body?.recent_change_days ?? 7));
+    const minCampaignAgeDays = Math.max(0, Number(body?.min_campaign_age_days ?? 10));
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null =
       typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
@@ -117,7 +119,41 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Linhas de país
+    // Campanhas com mudança recente de países (últimos N dias) → ignorar
+    const recentlyChangedIds = new Set<string>();
+    if (recentChangeDays > 0) {
+      const sinceIso = new Date(Date.now() - recentChangeDays * 86400_000).toISOString();
+      for (const chunk of chunkArr(campIds, 200)) {
+        const { data } = await admin
+          .from("geo_cleanup_logs")
+          .select("campaign_id, executed_at")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .gte("executed_at", sinceIso);
+        for (const r of data ?? []) recentlyChangedIds.add(String(r.campaign_id));
+      }
+    }
+
+    // Idade da campanha: primeiro dia com dados em daily_metrics
+    const campFirstSeen = new Map<string, string>();
+    if (minCampaignAgeDays > 0) {
+      for (const chunk of chunkArr(campIds, 200)) {
+        const { data } = await admin
+          .from("daily_metrics")
+          .select("campaign_id, date")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .order("date", { ascending: true })
+          .limit(50000);
+        for (const r of data ?? []) {
+          const id = String(r.campaign_id);
+          const d = String(r.date);
+          const prev = campFirstSeen.get(id);
+          if (!prev || d < prev) campFirstSeen.set(id, d);
+        }
+      }
+    }
+    const ageCutoffIso = new Date(Date.now() - minCampaignAgeDays * 86400_000).toISOString().slice(0, 10);
     type CountryRow = {
       campaign_id: string;
       date: string;
@@ -266,6 +302,8 @@ Deno.serve(async (req) => {
     let skippedFewCountries = 0;
     let skippedLowCampCost = 0;
     let skippedLowCountryCost = 0;
+    let skippedRecentChange = 0;
+    let skippedTooNew = 0;
 
     for (const c of cells.values()) {
       const meta = campMap.get(c.campaign_id);
@@ -282,6 +320,16 @@ Deno.serve(async (req) => {
         skippedTesting++;
         isProtected = true;
         reason = "campanha em testing";
+        status = roi <= maxRoiPct ? "monitor" : "ok";
+      } else if (recentlyChangedIds.has(c.campaign_id)) {
+        skippedRecentChange++;
+        isProtected = true;
+        reason = `países alterados nos últimos ${recentChangeDays}d`;
+        status = roi <= maxRoiPct ? "monitor" : "ok";
+      } else if (minCampaignAgeDays > 0 && (campFirstSeen.get(c.campaign_id) ?? "9999") > ageCutoffIso) {
+        skippedTooNew++;
+        isProtected = true;
+        reason = `campanha rodando há < ${minCampaignAgeDays}d`;
         status = roi <= maxRoiPct ? "monitor" : "ok";
       } else if (camp.countries.size < minCountries) {
         skippedFewCountries++;
@@ -338,8 +386,10 @@ Deno.serve(async (req) => {
       skipped_few_countries: skippedFewCountries,
       skipped_low_camp_cost: skippedLowCampCost,
       skipped_low_country_cost: skippedLowCountryCost,
+      skipped_recent_change: skippedRecentChange,
+      skipped_too_new: skippedTooNew,
       period: { from, to },
-      thresholds: { max_roi_pct: maxRoiPct, min_cost_brl: minCostBrl, min_countries: minCountries, min_campaign_cost_brl: minCampaignCostBrl },
+      thresholds: { max_roi_pct: maxRoiPct, min_cost_brl: minCostBrl, min_countries: minCountries, min_campaign_cost_brl: minCampaignCostBrl, recent_change_days: recentChangeDays, min_campaign_age_days: minCampaignAgeDays },
     };
 
     if (mode === "preview") return json({ ok: true, items, stats });

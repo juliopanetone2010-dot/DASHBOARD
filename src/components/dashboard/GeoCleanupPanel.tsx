@@ -50,8 +50,10 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(50);
   const [minCountries, setMinCountries] = useState(3);
-  const [minCampCost, setMinCampCost] = useState(500);
+  const [minCampCost, setMinCampCost] = useState(400);
   const [lookback, setLookback] = useState(15);
+  const [recentChangeDays, setRecentChangeDays] = useState(7);
+  const [minCampAgeDays, setMinCampAgeDays] = useState(10);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   const itemKey = (i: GeoItem) => `${i.campaign_id}|${i.country_code}`;
@@ -113,6 +115,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
             min_countries: minCountries,
             min_campaign_cost_brl: minCampCost,
             lookback_days: lookback,
+            recent_change_days: recentChangeDays,
+            min_campaign_age_days: minCampAgeDays,
             fx_usd_brl: fxUsdBrl,
           },
         },
@@ -179,8 +183,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza de países</div>
           <div className="text-xs text-muted-foreground">
-            Marca como remover países com ROI ≤ {maxRoi}% e custo ≥ R$ {minCost} dentro de campanhas com ≥ {minCountries} países e gasto ≥ R$ {minCampCost} (últimos {lookback}d).
-            Campanhas em <b>testing</b> são ignoradas.
+            Marca como remover países com ROI ≤ {maxRoi}% e custo ≥ R$ {minCost} dentro de campanhas com ≥ {minCountries} países, gasto ≥ R$ {minCampCost} e rodando há ≥ {minCampAgeDays}d (últimos {lookback}d).
+            Campanhas em <b>testing</b> ou alteradas nos últimos <b>{recentChangeDays}d</b> são ignoradas.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
@@ -202,6 +206,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Mín. países/camp. <Input type="number" value={minCountries} onChange={(e) => setMinCountries(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín camp. BRL <Input type="number" value={minCampCost} onChange={(e) => setMinCampCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Janela (d) <Input type="number" value={lookback} onChange={(e) => setLookback(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Idade mín camp. (d) <Input type="number" value={minCampAgeDays} onChange={(e) => setMinCampAgeDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">Ignorar se alterada (d) <Input type="number" value={recentChangeDays} onChange={(e) => setRecentChangeDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
