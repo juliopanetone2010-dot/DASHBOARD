@@ -395,7 +395,7 @@ Deno.serve(async (req) => {
       } else if (minCampaignAgeDays > 0 && (campFirstSeen.get(c.campaign_id) ?? "9999") > ageCutoffIso) {
         skippedTooNew++;
         continue;
-      } else if (camp.countries.size < minCountries) {
+      } else if ((realTargetCount.get(c.campaign_id) ?? camp.countries.size) < minCountries) {
         skippedFewCountries++;
         continue;
       } else if (camp.cost < minCampaignCostBrl) {
