@@ -115,7 +115,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
               <SortHead k="roas" label="ROAS" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
-              <TableHead className="w-[180px] text-right">Ações</TableHead>
+              <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -182,8 +182,8 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(Math.round(c.conversions))}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
+                  <TableCell className="text-right pr-6">
+                    <div className="flex justify-end gap-1.5 flex-nowrap">
                       {loading ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : (
