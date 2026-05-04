@@ -87,6 +87,26 @@ export function AutomationTab() {
   const filteredStates = useMemo(() => states.filter((s) => matchCampaign(String(s.campaign_id))), [states, campMeta, accountFilter, allowedAccountIds]);
   const filteredLogs = useMemo(() => logs.filter((l) => matchCampaign(String(l.campaign_id))), [logs, campMeta, accountFilter, allowedAccountIds]);
 
+  type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "last_roi", dir: "desc" });
+  const toggleSort = (key: SortKey) => setSort((p) => p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" });
+  const sortedStates = useMemo(() => {
+    const arr = [...filteredStates];
+    const dir = sort.dir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      let av: any, bv: any;
+      if (sort.key === "name") { av = (campMeta[a.campaign_id]?.name ?? "").toLowerCase(); bv = (campMeta[b.campaign_id]?.name ?? "").toLowerCase(); }
+      else if (sort.key === "last_roi" || sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
+      else if (sort.key === "last_action_date" || sort.key === "cooldown_until") { av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0; bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0; }
+      else { av = String(a[sort.key] ?? ""); bv = String(b[sort.key] ?? ""); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [filteredStates, sort, campMeta]);
+  const SortIcon = ({ k }: { k: SortKey }) => sort.key !== k ? <ArrowUpDown className="inline h-3 w-3 ml-1 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="inline h-3 w-3 ml-1" /> : <ArrowDown className="inline h-3 w-3 ml-1" />;
+
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
 
   const save = async () => {
