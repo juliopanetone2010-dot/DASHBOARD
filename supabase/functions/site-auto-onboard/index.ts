@@ -1,6 +1,6 @@
 // Auto-onboard de um novo site:
 // 1) Marca status=processing
-// 2) Em background, dispara: google-ads-sync-campaigns + gam-sync-revenue (últimos 7 dias)
+// 2) Em background, dispara: google-ads-sync-campaigns + gam-sync-revenue (janela ampla — todo histórico vinculado ao gasto Ads)
 // 3) Para cada campanha do site, dispara google-ads-sync-placements
 // 4) Atualiza sites.sync_status=completed/failed
 //
@@ -41,7 +41,9 @@ async function callFn(name: string, body: unknown, authHeader: string) {
 
 async function runBackground(siteId: string, userId: string, authHeader: string) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const from = isoDaysAgo(7);
+  // Janela ampla: 90 dias (limite prático do Google Ads para detail_placement_view).
+  // Cobre todo o histórico relevante de gasto + receita atribuível.
+  const from = isoDaysAgo(90);
   const to = isoDaysAgo(0);
 
   try {
@@ -53,7 +55,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       .eq("site_id", siteId);
     const accountIds = (links ?? []).map((l: { google_account_id: string }) => l.google_account_id);
 
-    // 1. campanhas (Google Ads) — sincroniza últimos 7d para essas contas
+    // 1. campanhas (Google Ads) — sincroniza últimos 90d para essas contas
     const ads = await callFn(
       "google-ads-sync-campaigns",
       { from, to, site_id: siteId, account_ids: accountIds },
@@ -61,10 +63,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
 
-    // 2. receita GAM (últimos 7d) p/ esse site
+    // 2. receita GAM (últimos 90d) p/ esse site — usa from/to em vez de preset
     const gam = await callFn(
       "gam-sync-revenue",
-      { from, to, site_id: siteId, account_ids: accountIds, date_preset: "LAST_7_DAYS" },
+      { from, to, site_id: siteId, account_ids: accountIds },
       authHeader,
     );
     console.log("[auto-onboard] gam sync", { siteId, status: gam.status });

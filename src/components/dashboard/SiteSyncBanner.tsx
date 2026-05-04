@@ -37,7 +37,7 @@ export function SiteSyncBanner({ siteId, siteName }: Props) {
         <div className="flex-1">
           <div className="font-medium">Coletando dados de {siteName ?? "site"}…</div>
           <div className="text-xs text-muted-foreground">
-            Buscando campanhas, placements e receita dos últimos 7 dias. Aguarde alguns minutos.
+            Buscando todo o histórico de campanhas, placements e receita vinculado ao gasto do Google Ads. Pode levar alguns minutos.
           </div>
         </div>
       </div>
