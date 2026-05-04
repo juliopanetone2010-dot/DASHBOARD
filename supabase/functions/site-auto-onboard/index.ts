@@ -56,28 +56,33 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // (UTM source) a alguma campanha Ads deste site. Se não houver, faz primeiro
     // um sync de receita para descobrir, e depois recalcula. Limite máx 90 dias
     // (limite prático do Google Ads detail_placement_view).
+    // Janela máx de 30 dias, mas só recua até onde as campanhas Ads do site
+    // já estavam com UTM correto (ou seja, há receita GAM atribuída ao site_id).
+    const cap = isoDaysAgo(30);
+
+    // Probe de 30 dias para detectar a primeira data com receita atribuída
+    const gamProbe = await callFn(
+      "gam-sync-revenue",
+      { from: cap, to, site_id: siteId, account_ids: accountIds },
+      authHeader,
+    );
+    console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
+
     async function detectFromDate(): Promise<string> {
       const { data: rev } = await admin
         .from("gam_placement_revenue")
         .select("date")
         .eq("user_id", userId)
         .eq("site_id", siteId)
+        .gte("date", cap)
         .order("date", { ascending: true })
         .limit(1);
       const earliest = rev?.[0]?.date as string | undefined;
-      const cap = isoDaysAgo(90);
-      if (!earliest) return cap;
+      // Se não há receita atribuída no período, não sincroniza histórico
+      // (UTMs ainda não estavam corretas) — usa apenas hoje.
+      if (!earliest) return to;
       return earliest < cap ? cap : earliest;
     }
-
-    // Probe curto (últimos 14 dias) só para descobrir a primeira data com receita
-    // atribuída ao site. Evita chamada longa de 90d que estoura o timeout (150s).
-    const gamProbe = await callFn(
-      "gam-sync-revenue",
-      { from: isoDaysAgo(14), to, site_id: siteId, account_ids: accountIds },
-      authHeader,
-    );
-    console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
 
     const from = await detectFromDate();
     console.log("[auto-onboard] window", { siteId, from, to });
