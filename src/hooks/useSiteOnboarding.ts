@@ -25,7 +25,7 @@ export function useSiteOnboarding(siteId: string) {
     queryFn: async (): Promise<SiteSyncState | null> => {
       const { data: site } = await supabase
         .from("sites")
-        .select("id, sync_status, sync_error, sync_started_at, last_full_sync_at, gam_account_id")
+        .select("id, sync_status, sync_error, sync_started_at, last_full_sync_at, gam_account_id, network_code")
         .eq("id", siteId)
         .maybeSingle();
       if (!site) return null;
@@ -39,7 +39,8 @@ export function useSiteOnboarding(siteId: string) {
         startedAt: site.sync_started_at ?? null,
         lastFullSyncAt: site.last_full_sync_at ?? null,
         hasAdsLink: (adsLinks ?? 0) > 0,
-        hasGamLink: !!site.gam_account_id,
+        // GAM é acessado via network_code + service account JSON (não usa gam_account_id por usuário).
+        hasGamLink: !!site.network_code || !!site.gam_account_id,
       };
     },
     refetchInterval: (q) => (q.state.data?.status === "processing" ? 5_000 : false),
