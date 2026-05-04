@@ -487,13 +487,13 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtUSD(totals.revenue)}
+                value={fmtRevenue(revenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
                   totals.revenue === 0
-                    ? "USD nativo · Sem dados ainda do GAM (pode levar algumas horas)"
-                    : `Google + Push + Outras · push ${fmtUSD(extraPushUsd * NET_FACTOR)} · outras ${fmtUSD(extraOtherUsd * NET_FACTOR)}`
+                    ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
+                    : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
               <MetricCard
