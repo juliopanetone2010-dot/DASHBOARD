@@ -334,7 +334,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, budget_sync: budgetSync };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, skipped_restart_flow: skippedRestartFlow, budget_sync: budgetSync };
 }
 
 // Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,
