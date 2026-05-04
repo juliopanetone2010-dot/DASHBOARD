@@ -161,10 +161,10 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
-      if (dryRun) execStatus = "dry_run";
+      if (dryRun || !userJwt) execStatus = "dry_run";
       else {
         try {
-          await applyMutation(admin, userId, agg.campaign_id, decision, cfg);
+          await applyMutation(userJwt, agg.campaign_id, decision, cfg);
           execStatus = "executed"; executed++;
         } catch (e) { execStatus = "failed"; execError = String(e instanceof Error ? e.message : e); }
       }
