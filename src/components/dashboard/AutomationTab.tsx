@@ -34,6 +34,7 @@ const STATUS_VARIANT: Record<Lifecycle, { label: string; cls: string }> = {
 };
 
 export function AutomationTab() {
+  const { filters: globalFilters } = useDashboardFilters();
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -42,7 +43,7 @@ export function AutomationTab() {
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
   const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
-  const [siteFilter, setSiteFilter] = useState<string>("all");
+  const [siteFilter, setSiteFilter] = useState<string>(globalFilters.siteId || "all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
   const [loading, setLoading] = useState(true);
