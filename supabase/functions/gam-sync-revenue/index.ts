@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code, gam_currency")
+      .select("id, name, domain, network_code, gam_currency, gam_currency_override")
       .eq("user_id", userId);
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
     const { data: sites, error: sErr } = await sitesQuery;
