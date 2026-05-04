@@ -491,9 +491,9 @@ async function fetchUtmKeyIds(
 }
 
 async function collectUtmAttribution(args: {
-  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number;
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean;
 }): Promise<AttributionResult> {
-  const { networkCode, accessToken, ranges, debug, deadlineAt } = args;
+  const { networkCode, accessToken, ranges, debug, deadlineAt, fastMode } = args;
   const label = "KEY_VALUES_NAME";
 
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
@@ -502,9 +502,11 @@ async function collectUtmAttribution(args: {
   let reportRows: ReportRow[] = [];
   try {
     const metricGroups = [
-      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      ...(fastMode ? [] : [
+        { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+        { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      ]),
     ];
     for (const group of metricGroups) {
       try {
