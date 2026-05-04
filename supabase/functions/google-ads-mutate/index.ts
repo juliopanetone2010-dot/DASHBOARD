@@ -313,7 +313,7 @@ Deno.serve(async (req) => {
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
   const { data: revenueSites } = await admin
-    .from("gam_campaign_source_revenue")
+    .from("gam_placement_revenue")
     .select("site_id, revenue_usd")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
@@ -329,13 +329,7 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   if (bySite.size === 1) return [...bySite.keys()][0];
   if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
-  const { data: links } = await admin
-    .from("account_site_links")
-    .select("site_id")
-    .eq("user_id", userId)
-    .eq("google_account_id", accountId);
-  const linkedSites = [...new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean))];
-  return linkedSites.length === 1 ? linkedSites[0] : null;
+  return null;
 }
 
 function json(payload: unknown) {
