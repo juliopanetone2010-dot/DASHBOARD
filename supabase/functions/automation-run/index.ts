@@ -490,11 +490,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
     if (noBudgetData) {
       return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — orçamento diário não sincronizado, observando`, roi, trend, delivery, avgDailySpend };
     }
-    if (!cpaCooldownOk) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
     if (isSaturated) {
-      return { lifecycle: "learning", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
+      if (!cpaCooldownOk) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
+      return { lifecycle: "learning", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA (cortar prejuízo)`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
     }
-    return { lifecycle: "learning", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → +5% CPA (leve)`, roi, trend, delivery, avgDailySpend, delivery_driven: true, _lightCpaPct: 5 } as any;
+    return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando (ROI negativo, sem subir CPA)`, roi, trend, delivery, avgDailySpend };
   }
 
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando`, roi, trend, delivery, avgDailySpend };
