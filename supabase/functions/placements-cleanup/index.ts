@@ -95,11 +95,31 @@ Deno.serve(async (req) => {
     const to = iso(toDate);
     const cutoff = iso(cutoffDate);
 
-    const { data: camps, error: cErr } = await admin
+    // Restringe contas Ads ao escopo do site selecionado.
+    let allowedAccountIds: string[] | null = null;
+    if (siteId) {
+      const { data: links, error: linkErr } = await admin
+        .from("account_site_links")
+        .select("google_account_id")
+        .eq("user_id", userId)
+        .eq("site_id", siteId);
+      if (linkErr) return json({ error: linkErr.message });
+      allowedAccountIds = [...new Set((links ?? []).map((l) => String(l.google_account_id)))];
+      if (accountIds.length > 0) allowedAccountIds = allowedAccountIds.filter((id) => accountIds.includes(id));
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } }, info: "Nenhuma conta Ads vinculada ao site." });
+      }
+    } else if (accountIds.length > 0) {
+      allowedAccountIds = accountIds;
+    }
+
+    let campsQuery = admin
       .from("campaigns")
       .select("campaign_id, name, status, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
+    if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    const { data: camps, error: cErr } = await campsQuery;
     if (cErr) return json({ error: cErr.message });
 
     const campMap = new Map<string, CampMeta>();
