@@ -321,6 +321,16 @@ Deno.serve(async (req) => {
         isProtected = true;
         reason = "campanha em testing";
         status = roi <= maxRoiPct ? "monitor" : "ok";
+      } else if (recentlyChangedIds.has(c.campaign_id)) {
+        skippedRecentChange++;
+        isProtected = true;
+        reason = `países alterados nos últimos ${recentChangeDays}d`;
+        status = roi <= maxRoiPct ? "monitor" : "ok";
+      } else if (minCampaignAgeDays > 0 && (campFirstSeen.get(c.campaign_id) ?? "9999") > ageCutoffIso) {
+        skippedTooNew++;
+        isProtected = true;
+        reason = `campanha rodando há < ${minCampaignAgeDays}d`;
+        status = roi <= maxRoiPct ? "monitor" : "ok";
       } else if (camp.countries.size < minCountries) {
         skippedFewCountries++;
         isProtected = true;
