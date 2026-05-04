@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code")
+      .select("id, name, domain, network_code, gam_currency")
       .eq("user_id", userId);
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
     const { data: sites, error: sErr } = await sitesQuery;
@@ -131,11 +131,17 @@ Deno.serve(async (req) => {
           }
         };
 
+        const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
+        // Quando o GAM do site reporta em BRL nativo, normalizamos para "USD-equivalente"
+        // dividindo por FX antes de gravar — assim todo o app downstream (que multiplica por FX
+        // para exibir em BRL) continua correto, sem dupla conversão.
+        const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
+
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges));
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges));
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges), ingestionDivisor);
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
         }
 
         summary.push({
@@ -688,6 +694,7 @@ async function persistCampaignSourceRevenueFromUtm(
   rows: AttributedRow[],
   debug: string[],
   syncDates: string[] = [],
+  ingestionDivisor: number = 1,
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
@@ -695,14 +702,13 @@ async function persistCampaignSourceRevenueFromUtm(
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
-    // Quando não conseguimos extrair campaign_id (utm_campaign=(not applicable)),
-    // ainda agregamos a receita por source com cid sintético para alimentar a aba Retenção/Push.
     const cid = r.cid ?? "__aggregate__";
     const key = `${cid}|${date}|${source}`;
     const cur = buckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
     };
-    cur.revenue_usd += r.revenue; cur.impressions += r.impressions;
+    cur.revenue_usd += r.revenue / ingestionDivisor;
+    cur.impressions += r.impressions;
     buckets.set(key, cur);
   }
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
@@ -718,7 +724,7 @@ async function persistCampaignSourceRevenueFromUtm(
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
   const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${aggregated} agregadas sem cid); receita por source=${JSON.stringify(sources)}`);
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
@@ -730,6 +736,8 @@ async function applyGoogleUtmRevenue(
   fx: FxRates,
   debug: string[],
   syncDates: string[] = [],
+  ingestionDivisor: number = 1,
+  siteCurrency: string = "USD",
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
@@ -740,13 +748,15 @@ async function applyGoogleUtmRevenue(
   for (const r of googleCampaignRows) {
     const date = r.date ?? today;
     if (!r.cid) continue;
+    // Normaliza para "USD-equivalente" (se site reporta BRL, divide por FX)
+    const revNorm = r.revenue / ingestionDivisor;
     const tot = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
-    tot.revenue += r.revenue; tot.impressions += r.impressions;
+    tot.revenue += revNorm; tot.impressions += r.impressions;
     googleTotalByDate.set(date, tot);
     if (!directByDateCid.has(date)) directByDateCid.set(date, new Map());
     const inner = directByDateCid.get(date)!;
     const cur = inner.get(r.cid) ?? { revenue: 0, impressions: 0 };
-    cur.revenue += r.revenue; cur.impressions += r.impressions;
+    cur.revenue += revNorm; cur.impressions += r.impressions;
     inner.set(r.cid, cur);
   }
 
@@ -758,7 +768,8 @@ async function applyGoogleUtmRevenue(
       user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
       date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
     };
-    pb.revenue_usd += r.revenue; pb.impressions += r.impressions;
+    pb.revenue_usd += r.revenue / ingestionDivisor;
+    pb.impressions += r.impressions;
     placementBuckets.set(key, pb);
   }
 
@@ -771,7 +782,7 @@ async function applyGoogleUtmRevenue(
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
     }
-    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) gravadas (apenas utm_source=google)`);
+    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
   }
 
   const { data: links } = await admin
@@ -805,7 +816,7 @@ async function applyGoogleUtmRevenue(
     const matchDebug: string[] = [];
     for (const m of metrics as any[]) {
       const direct = directMap.get(String(m.campaign_id));
-      let revenueUsd = direct?.revenue ?? 0;
+      const revenueUsd = direct?.revenue ?? 0; // já normalizado para USD-equivalente
       if (direct) matchedIds.add(String(m.campaign_id));
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
@@ -815,7 +826,7 @@ async function applyGoogleUtmRevenue(
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
-      matchDebug.push(`cid=${m.campaign_id}|match=${!!direct}|rev_usd=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
+      matchDebug.push(`cid=${m.campaign_id}|match=${!!direct}|rev_usd_eq=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
     }
     const CHUNK = 25;
     for (let i = 0; i < updates.length; i += CHUNK) {
@@ -827,7 +838,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} match UTM Google; total atribuído=$${attributedRev.toFixed(2)} de total Google=$${totalGoogle.revenue.toFixed(2)}`);
+    debug.push(`[daily_metrics] ${date}: site_currency=${siteCurrency} ${matchedIds.size}/${metrics.length} match UTM Google; total atribuído(USD-eq)=$${attributedRev.toFixed(2)} de total(USD-eq)=$${totalGoogle.revenue.toFixed(2)}`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
