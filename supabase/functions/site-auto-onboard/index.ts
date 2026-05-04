@@ -70,11 +70,11 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       return earliest < cap ? cap : earliest;
     }
 
-    // Primeira passagem: puxa receita GAM dos últimos 90d para descobrir desde quando
-    // a campanha está marcada com o parâmetro UTM
+    // Probe curto (últimos 14 dias) só para descobrir a primeira data com receita
+    // atribuída ao site. Evita chamada longa de 90d que estoura o timeout (150s).
     const gamProbe = await callFn(
       "gam-sync-revenue",
-      { from: isoDaysAgo(90), to, site_id: siteId, account_ids: accountIds },
+      { from: isoDaysAgo(14), to, site_id: siteId, account_ids: accountIds },
       authHeader,
     );
     console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
@@ -82,7 +82,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     const from = await detectFromDate();
     console.log("[auto-onboard] window", { siteId, from, to });
 
-    // 1. campanhas (Google Ads) — sincroniza últimos 90d para essas contas
+    // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
       { from, to, site_id: siteId, account_ids: accountIds },
@@ -90,13 +90,27 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
 
-    // 2. receita GAM (últimos 90d) p/ esse site — usa from/to em vez de preset
-    const gam = await callFn(
-      "gam-sync-revenue",
-      { from, to, site_id: siteId, account_ids: accountIds },
-      authHeader,
-    );
-    console.log("[auto-onboard] gam sync", { siteId, status: gam.status });
+    // 2. receita GAM em chunks de 14 dias para não estourar o timeout (150s)
+    const chunkDays = 14;
+    const fromDate = new Date(from + "T00:00:00Z");
+    const toDate = new Date(to + "T00:00:00Z");
+    const chunks: Array<{ from: string; to: string }> = [];
+    for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + chunkDays)) {
+      const cFrom = d.toISOString().slice(0, 10);
+      const cEndDate = new Date(d);
+      cEndDate.setUTCDate(cEndDate.getUTCDate() + chunkDays - 1);
+      if (cEndDate > toDate) cEndDate.setTime(toDate.getTime());
+      const cTo = cEndDate.toISOString().slice(0, 10);
+      chunks.push({ from: cFrom, to: cTo });
+    }
+    for (const c of chunks) {
+      const gam = await callFn(
+        "gam-sync-revenue",
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds },
+        authHeader,
+      );
+      console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
+    }
 
     // 3. placements por campanha do site
     const { data: campaigns } = await admin
