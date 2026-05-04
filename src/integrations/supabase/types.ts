@@ -1513,9 +1513,13 @@ export type Database = {
           gam_currency_detected_at: string | null
           gam_currency_override: boolean
           id: string
+          last_full_sync_at: string | null
           name: string
           network_code: string
           status: string
+          sync_error: string | null
+          sync_started_at: string | null
+          sync_status: string
           updated_at: string
           user_id: string
         }
@@ -1527,9 +1531,13 @@ export type Database = {
           gam_currency_detected_at?: string | null
           gam_currency_override?: boolean
           id?: string
+          last_full_sync_at?: string | null
           name: string
           network_code: string
           status?: string
+          sync_error?: string | null
+          sync_started_at?: string | null
+          sync_status?: string
           updated_at?: string
           user_id: string
         }
@@ -1541,9 +1549,13 @@ export type Database = {
           gam_currency_detected_at?: string | null
           gam_currency_override?: boolean
           id?: string
+          last_full_sync_at?: string | null
           name?: string
           network_code?: string
           status?: string
+          sync_error?: string | null
+          sync_started_at?: string | null
+          sync_status?: string
           updated_at?: string
           user_id?: string
         }
