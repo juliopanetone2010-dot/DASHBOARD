@@ -158,7 +158,9 @@ Deno.serve(async (req) => {
         .filter((r) => r.adGroup.targetCpaMicros && Number(r.adGroup.targetCpaMicros) > 0)
         .map((r) => {
           const current = Number(r.adGroup.targetCpaMicros);
-          const next = Math.max(1, Math.round(current * (1 + deltaPct / 100)));
+          // Google Ads exige target_cpa_micros múltiplo de 10000 (billable unit = 0.01 da moeda)
+          const raw = current * (1 + deltaPct / 100);
+          const next = Math.max(10000, Math.round(raw / 10000) * 10000);
           return {
             update: {
               resourceName: `customers/${acc.customer_id}/adGroups/${r.adGroup.id}`,
