@@ -165,8 +165,10 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   // Garante que o total = total do dashboard.
 
   const { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals } = useMemo(() => {
-    // Totais por (camp,date) para escolher a base de rateio
-    // Ordem de preferência: conversões → cliques → impressões → custo (último recurso)
+    // Estratégia (Opção A): receita por país = eCPM da campanha no dia × (impressões do país / 1000)
+    // O eCPM da campanha é derivado do daily_metrics: revenue_usd_total / impressões_totais_da_campanha_no_dia.
+    // Depois normalizamos para que a soma da receita dos países por (camp,date) bata com o total do daily_metrics.
+    // Isso faz o ROI variar por país pois CPM é constante na campanha mas o CPC/custo por país varia.
     const convByCampDate = new Map<string, number>();
     const clicksByCampDate = new Map<string, number>();
     const imprByCampDate = new Map<string, number>();
@@ -222,15 +224,16 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const cdKey = `${r.campaign_id}|${r.date}`;
       const revUsd = revByCampDate.get(cdKey) || 0;
       if (revUsd > 0) {
-        // Escolhe a base de rateio com fallback: conversões → cliques → impressões → custo
-        const totalConv = convByCampDate.get(cdKey) || 0;
-        const totalClicks = clicksByCampDate.get(cdKey) || 0;
+        // Opção A: distribuir receita proporcional a IMPRESSÕES (equivale a eCPM constante × impressões do país).
+        // Fallback: cliques → conversões → custo, caso não haja impressões.
         const totalImpr = imprByCampDate.get(cdKey) || 0;
+        const totalClicks = clicksByCampDate.get(cdKey) || 0;
+        const totalConv = convByCampDate.get(cdKey) || 0;
         const totalCost = costByCampDate.get(cdKey) || 0;
         let share = 0;
-        if (totalConv > 0) share = conv / totalConv;
+        if (totalImpr > 0) share = impr / totalImpr;
         else if (totalClicks > 0) share = clicks / totalClicks;
-        else if (totalImpr > 0) share = impr / totalImpr;
+        else if (totalConv > 0) share = conv / totalConv;
         else if (totalCost > 0) share = cost / totalCost;
         if (share > 0) {
           cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
@@ -384,8 +387,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           <div className="flex-1 min-w-[260px]">
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
-              Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída
-              proporcional a conversões por país (fallback: cliques → impressões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
+              Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída por
+              eCPM × impressões do país (fallback: cliques → conversões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
             </div>
           </div>
           <div className="flex items-center gap-2">
