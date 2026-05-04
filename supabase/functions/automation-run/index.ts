@@ -258,6 +258,9 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 }
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
+  // Resolução SEGURA: somente via revenue real do GAM.
+  // Se a campanha nunca gerou revenue em nenhum site do GAM, NÃO assumimos que pertence ao site
+  // cujo Google Ads está linkado — ela pode pertencer a outro site cujo GAM não está vinculado aqui.
   const { data: revenueSites } = await admin
     .from("gam_campaign_source_revenue")
     .select("site_id, revenue_usd")
@@ -275,13 +278,8 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   if (bySite.size === 1) return [...bySite.keys()][0];
   if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
-  const { data: links } = await admin
-    .from("account_site_links")
-    .select("site_id")
-    .eq("user_id", userId)
-    .eq("google_account_id", accountId);
-  const linkedSites = [...new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean))];
-  return linkedSites.length === 1 ? linkedSites[0] : null;
+  // Sem revenue GAM = não conseguimos confirmar o site. Não tocar.
+  return null;
 }
 
 async function logSkip(admin: any, userId: string, siteId: string, accountId: string, agg: any, meta: any, code: string, reason: string) {
