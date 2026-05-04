@@ -136,6 +136,53 @@ Deno.serve(async (req) => {
       geoCostByCampDate.set(k, (geoCostByCampDate.get(k) ?? 0) + r.cost);
     }
 
+    // Resolve países desconhecidos via Google Ads API (geo_target_constant)
+    const unknownIds = new Set<string>();
+    for (const r of all) {
+      if (r.country_id && !COUNTRY_BY_ID[r.country_id]) unknownIds.add(r.country_id);
+    }
+    const resolved = new Map<string, { code: string; name: string }>();
+    if (unknownIds.size > 0) {
+      // Usa qualquer conta com token disponível para resolver constantes (são globais)
+      const firstAcc = [...accMap.values()].find((a) => a?.refresh_token && a?.customer_id);
+      if (firstAcc) {
+        try {
+          const token = await getToken(firstAcc.refresh_token, tokenCache);
+          const headers: Record<string, string> = {
+            Authorization: `Bearer ${token}`,
+            "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+            "Content-Type": "application/json",
+          };
+          if (firstAcc.login_customer_id) headers["login-customer-id"] = firstAcc.login_customer_id;
+          const resourceList = [...unknownIds]
+            .map((id) => `'geoTargetConstants/${id}'`).join(",");
+          const q = `
+            SELECT geo_target_constant.id, geo_target_constant.name,
+                   geo_target_constant.country_code, geo_target_constant.target_type
+            FROM geo_target_constant
+            WHERE geo_target_constant.resource_name IN (${resourceList})
+          `;
+          const rr = await fetch(
+            `https://googleads.googleapis.com/v21/customers/${firstAcc.customer_id}/googleAds:search`,
+            { method: "POST", headers, body: JSON.stringify({ query: q }) },
+          );
+          const jj = await rr.json();
+          if (rr.ok) {
+            for (const row of jj.results ?? []) {
+              const gid = String(row.geoTargetConstant?.id ?? "");
+              const name = String(row.geoTargetConstant?.name ?? "");
+              const code = String(row.geoTargetConstant?.countryCode ?? "ZZ");
+              if (gid) resolved.set(gid, { code, name });
+            }
+          } else {
+            console.error("[sync-countries] geo_target_constant resolve error", JSON.stringify(jj));
+          }
+        } catch (e) {
+          console.error("[sync-countries] geo resolve threw", e);
+        }
+      }
+    }
+
     // Monta upsert (deduplicado por campaign+date+country_code)
     const dedup = new Map<string, any>();
     for (const r of all) {
@@ -143,7 +190,10 @@ Deno.serve(async (req) => {
       const totalCost = geoCostByCampDate.get(k) || 1;
       const revenueTotal = revByCampDate.get(k) ?? 0;
       const revenueShare = totalCost > 0 ? (r.cost / totalCost) * revenueTotal : 0;
-      const country = COUNTRY_BY_ID[r.country_id] ?? { code: "ZZ", name: `ID ${r.country_id || "?"}` };
+      const country =
+        COUNTRY_BY_ID[r.country_id] ??
+        resolved.get(r.country_id) ??
+        { code: "ZZ", name: `ID ${r.country_id || "?"}` };
       const meta = campMeta.get(r.campaign_id);
       const dk = `${r.campaign_id}|${r.date}|${country.code}`;
       const existing = dedup.get(dk);
