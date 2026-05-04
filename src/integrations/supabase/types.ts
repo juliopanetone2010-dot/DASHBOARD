@@ -559,6 +559,33 @@ export type Database = {
         }
         Relationships: []
       }
+      exchange_rates: {
+        Row: {
+          from_currency: string
+          id: string
+          rate: number
+          source: string | null
+          to_currency: string
+          updated_at: string
+        }
+        Insert: {
+          from_currency: string
+          id?: string
+          rate: number
+          source?: string | null
+          to_currency: string
+          updated_at?: string
+        }
+        Update: {
+          from_currency?: string
+          id?: string
+          rate?: number
+          source?: string | null
+          to_currency?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       gam_accounts: {
         Row: {
           account_name: string | null
@@ -1309,6 +1336,51 @@ export type Database = {
         }
         Relationships: []
       }
+      site_metrics_daily: {
+        Row: {
+          created_at: string
+          currency: string
+          date: string
+          ecpm_native: number
+          id: string
+          impressions: number
+          measurable_impressions: number
+          revenue_native: number
+          site_id: string
+          updated_at: string
+          user_id: string
+          viewable_impressions: number
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          date: string
+          ecpm_native?: number
+          id?: string
+          impressions?: number
+          measurable_impressions?: number
+          revenue_native?: number
+          site_id: string
+          updated_at?: string
+          user_id: string
+          viewable_impressions?: number
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          date?: string
+          ecpm_native?: number
+          id?: string
+          impressions?: number
+          measurable_impressions?: number
+          revenue_native?: number
+          site_id?: string
+          updated_at?: string
+          user_id?: string
+          viewable_impressions?: number
+        }
+        Relationships: []
+      }
       site_placement_config: {
         Row: {
           automation_dry_run: boolean
@@ -1354,6 +1426,8 @@ export type Database = {
           domain: string
           gam_account_id: string | null
           gam_currency: string
+          gam_currency_detected_at: string | null
+          gam_currency_override: boolean
           id: string
           name: string
           network_code: string
@@ -1366,6 +1440,8 @@ export type Database = {
           domain: string
           gam_account_id?: string | null
           gam_currency?: string
+          gam_currency_detected_at?: string | null
+          gam_currency_override?: boolean
           id?: string
           name: string
           network_code: string
@@ -1378,6 +1454,8 @@ export type Database = {
           domain?: string
           gam_account_id?: string | null
           gam_currency?: string
+          gam_currency_detected_at?: string | null
+          gam_currency_override?: boolean
           id?: string
           name?: string
           network_code?: string
