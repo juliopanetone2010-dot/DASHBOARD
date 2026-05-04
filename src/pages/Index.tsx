@@ -29,6 +29,7 @@ import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
+import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
@@ -47,6 +48,7 @@ const IndexInner = () => {
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
+  const allSites = useAllSitesOnboarding(!!user);
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
   const extraRevQuery = useQuery({
@@ -416,6 +418,22 @@ const IndexInner = () => {
             />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => allSites.syncAll(true)}
+              disabled={!allSites.totalCount}
+              className="gap-2"
+              title="Roda o onboarding (campanhas + receita + placements) para todos os sites"
+            >
+              <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              Sincronizar todos os sites
+              {allSites.processingCount > 0 && (
+                <Badge variant="secondary" className="ml-1">
+                  {allSites.processingCount}/{allSites.totalCount}
+                </Badge>
+              )}
             </Button>
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={data.loading} className="gap-2">
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
