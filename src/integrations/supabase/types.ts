@@ -380,6 +380,78 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_expansion_logs: {
+        Row: {
+          action: string
+          budget_micros: number | null
+          cost_brl: number | null
+          country_code: string
+          country_criterion_id: string | null
+          country_name: string | null
+          created_at: string
+          error: string | null
+          executed_at: string
+          google_account_id: string | null
+          id: string
+          new_campaign_id: string | null
+          new_campaign_name: string | null
+          original_campaign_id: string
+          original_campaign_name: string | null
+          payload: Json | null
+          revenue_brl: number | null
+          roi_pct: number | null
+          site_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          action?: string
+          budget_micros?: number | null
+          cost_brl?: number | null
+          country_code: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          error?: string | null
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          new_campaign_id?: string | null
+          new_campaign_name?: string | null
+          original_campaign_id: string
+          original_campaign_name?: string | null
+          payload?: Json | null
+          revenue_brl?: number | null
+          roi_pct?: number | null
+          site_id?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          budget_micros?: number | null
+          cost_brl?: number | null
+          country_code?: string
+          country_criterion_id?: string | null
+          country_name?: string | null
+          created_at?: string
+          error?: string | null
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          new_campaign_id?: string | null
+          new_campaign_name?: string | null
+          original_campaign_id?: string
+          original_campaign_name?: string | null
+          payload?: Json | null
+          revenue_brl?: number | null
+          roi_pct?: number | null
+          site_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaigns: {
         Row: {
           budget_micros: number | null
@@ -1043,6 +1115,15 @@ export type Database = {
           geo_cleanup_min_campaign_cost_brl: number
           geo_cleanup_min_cost_brl: number
           geo_cleanup_min_countries: number
+          geo_expansion_budget_multiplier: number
+          geo_expansion_enabled: boolean
+          geo_expansion_interval_days: number
+          geo_expansion_last_run_at: string | null
+          geo_expansion_lookback_days: number
+          geo_expansion_min_campaign_cost_brl: number
+          geo_expansion_min_countries: number
+          geo_expansion_min_country_cost_brl: number
+          geo_expansion_min_roi_pct: number
           max_loss_roi_pct: number
           min_roi_pct: number
           min_spend_threshold: number
@@ -1101,6 +1182,15 @@ export type Database = {
           geo_cleanup_min_campaign_cost_brl?: number
           geo_cleanup_min_cost_brl?: number
           geo_cleanup_min_countries?: number
+          geo_expansion_budget_multiplier?: number
+          geo_expansion_enabled?: boolean
+          geo_expansion_interval_days?: number
+          geo_expansion_last_run_at?: string | null
+          geo_expansion_lookback_days?: number
+          geo_expansion_min_campaign_cost_brl?: number
+          geo_expansion_min_countries?: number
+          geo_expansion_min_country_cost_brl?: number
+          geo_expansion_min_roi_pct?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
@@ -1159,6 +1249,15 @@ export type Database = {
           geo_cleanup_min_campaign_cost_brl?: number
           geo_cleanup_min_cost_brl?: number
           geo_cleanup_min_countries?: number
+          geo_expansion_budget_multiplier?: number
+          geo_expansion_enabled?: boolean
+          geo_expansion_interval_days?: number
+          geo_expansion_last_run_at?: string | null
+          geo_expansion_lookback_days?: number
+          geo_expansion_min_campaign_cost_brl?: number
+          geo_expansion_min_countries?: number
+          geo_expansion_min_country_cost_brl?: number
+          geo_expansion_min_roi_pct?: number
           max_loss_roi_pct?: number
           min_roi_pct?: number
           min_spend_threshold?: number
