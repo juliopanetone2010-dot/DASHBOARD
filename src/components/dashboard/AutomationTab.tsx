@@ -50,7 +50,7 @@ export function AutomationTab() {
   const save = async () => {
     if (!cfg) return;
     setSaving(true);
-    const { error } = await supabase.from("rules_config").update(cfg).eq("user_id", cfg.user_id);
+    const { error } = await supabase.from("rules_config").update(cfg as any).eq("user_id", cfg.user_id);
     setSaving(false);
     if (error) toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
     else toast({ title: "Configurações salvas" });
