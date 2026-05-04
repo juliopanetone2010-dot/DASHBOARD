@@ -355,10 +355,11 @@ const IndexInner = () => {
             <GlobalSiteSelector
               sites={data.sites}
               links={data.links}
-              onChange={() => {
-                // Após trocar o site, dispara o sync completo com os filtros já atualizados
-                // (setFilters é síncrono, mas precisamos do próximo tick)
-                setTimeout(() => void syncDashboardData({ ...filters }), 0);
+              onChange={(siteId) => {
+                const linked = siteId === "all"
+                  ? []
+                  : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
+                void syncDashboardData({ ...filters, siteId, googleAccountIds: linked });
               }}
             />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
