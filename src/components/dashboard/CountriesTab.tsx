@@ -224,15 +224,16 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const cdKey = `${r.campaign_id}|${r.date}`;
       const revUsd = revByCampDate.get(cdKey) || 0;
       if (revUsd > 0) {
-        // Escolhe a base de rateio com fallback: conversões → cliques → impressões → custo
-        const totalConv = convByCampDate.get(cdKey) || 0;
-        const totalClicks = clicksByCampDate.get(cdKey) || 0;
+        // Opção A: distribuir receita proporcional a IMPRESSÕES (equivale a eCPM constante × impressões do país).
+        // Fallback: cliques → conversões → custo, caso não haja impressões.
         const totalImpr = imprByCampDate.get(cdKey) || 0;
+        const totalClicks = clicksByCampDate.get(cdKey) || 0;
+        const totalConv = convByCampDate.get(cdKey) || 0;
         const totalCost = costByCampDate.get(cdKey) || 0;
         let share = 0;
-        if (totalConv > 0) share = conv / totalConv;
+        if (totalImpr > 0) share = impr / totalImpr;
         else if (totalClicks > 0) share = clicks / totalClicks;
-        else if (totalImpr > 0) share = impr / totalImpr;
+        else if (totalConv > 0) share = conv / totalConv;
         else if (totalCost > 0) share = cost / totalCost;
         if (share > 0) {
           cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
