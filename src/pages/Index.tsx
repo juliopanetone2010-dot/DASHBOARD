@@ -115,17 +115,28 @@ const IndexInner = () => {
   });
 
   // Viewability + eCPM por site (GAM)
+  // IMPORTANTE: incluímos "hoje" no range (alguns presets como "Últimos 7 dias" param em ontem),
+  // pois a sync do GAM grava o dia corrente também.
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     enabled: filters.siteId !== "all",
     queryFn: async () => {
-      const { data } = await supabase
+      const todayISO = new Date().toISOString().slice(0, 10);
+      const toIncl = range.to >= todayISO ? range.to : todayISO;
+      const { data, error } = await supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
         .eq("site_id", filters.siteId)
-        .gte("date", range.from).lte("date", range.to)
+        .gte("date", range.from).lte("date", toIncl)
         .order("date", { ascending: false })
         .limit(400);
+      if (error) {
+        console.error("[site-metrics-daily] query error", error);
+        throw error;
+      }
+      if (import.meta.env.DEV) {
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: toIncl, count: data?.length ?? 0, sample: data?.[0] });
+      }
       const totals = (data ?? []).reduce((a, r: any) => ({
         impr: a.impr + Number(r.impressions ?? 0),
         meas: a.meas + Number(r.measurable_impressions ?? 0),
@@ -137,7 +148,8 @@ const IndexInner = () => {
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
       return { viewability, ecpmNative, currency: totals.currency, impressions: totals.impr };
     },
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000,
   });
   // Atribuição por site quando uma conta Ads serve N sites:
   // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
