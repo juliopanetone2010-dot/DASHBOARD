@@ -39,12 +39,18 @@ export function AutomationTab() {
       .from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500);
     const { data: l } = await supabase
       .from("automation_logs").select("*").order("created_at", { ascending: false }).limit(200);
-    const { data: camps } = await supabase.from("campaigns").select("campaign_id, name").limit(2000);
+    const { data: camps } = await supabase.from("campaigns").select("campaign_id, name, status").limit(2000);
     const map: Record<string, string> = {};
-    for (const c of camps ?? []) map[String((c as any).campaign_id)] = String((c as any).name ?? "");
+    const activeIds = new Set<string>();
+    for (const c of camps ?? []) {
+      const cid = String((c as any).campaign_id);
+      map[cid] = String((c as any).name ?? "");
+      const st = String((c as any).status ?? "").toLowerCase();
+      if (st === "enabled" || st === "active") activeIds.add(cid);
+    }
     setCampNames(map);
     setCfg(c ?? null);
-    setStates(s ?? []);
+    setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
     setLoading(false);
   };

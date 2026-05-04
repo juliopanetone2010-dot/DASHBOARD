@@ -146,11 +146,17 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
   const campMeta = new Map<string, any>();
   for (const c of campRows ?? []) campMeta.set(c.campaign_id, c);
 
-  let decisions = 0; let executed = 0;
+  let decisions = 0; let executed = 0; let skippedInactive = 0;
   for (const agg of byCamp.values()) {
+    const meta = campMeta.get(agg.campaign_id);
+    // Só avalia campanhas atualmente ATIVAS no Google Ads (enabled)
+    const status = String(meta?.status ?? "").toLowerCase();
+    if (!meta || (status !== "enabled" && status !== "active")) {
+      skippedInactive++;
+      continue;
+    }
     const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id));
     decisions++;
-    const meta = campMeta.get(agg.campaign_id);
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
@@ -220,7 +226,7 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive };
 }
 
 function classify(agg: any, cfg: any, prev: any): {
