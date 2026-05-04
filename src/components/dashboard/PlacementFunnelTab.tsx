@@ -365,6 +365,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
 
       <FunnelByCampaign
         rows={filtered}
+        campaignMetrics={campaignMetrics}
         loading={loading}
         busyId={busyId}
         daysSince={daysSince}
@@ -442,6 +443,7 @@ function MultiPicker({ label, items, selected, onChange }: {
 
 interface FBProps {
   rows: Row[];
+  campaignMetrics: CampaignMetricSummary[];
   loading: boolean;
   busyId: string | null;
   daysSince: (iso: string) => string;
@@ -450,10 +452,11 @@ interface FBProps {
   onReset: (id: string) => void;
 }
 
-function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondChance, onReset }: FBProps) {
+function FunnelByCampaign({ rows, campaignMetrics, loading, busyId, daysSince, onBlock, onSecondChance, onReset }: FBProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => {
+    const dashboardByCampaign = new Map(campaignMetrics.map((c) => [c.campaign_id, c]));
     const m = new Map<string, { campaign_id: string; name: string; items: Row[] }>();
     for (const r of rows) {
       const cid = r.campaign_id;
@@ -462,10 +465,11 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
       g.items.push(r);
     }
     const list = [...m.values()].map((g) => {
-      const cost = g.items.reduce((a, x) => a + (x.cost_total || 0), 0);
-      const rev = g.items.reduce((a, x) => a + (x.revenue_total || 0), 0);
-      const profit = rev - cost;
-      const roi = cost > 0 ? (profit / cost) * 100 : 0;
+      const dashboard = dashboardByCampaign.get(g.campaign_id);
+      const cost = dashboard?.cost ?? g.items.reduce((a, x) => a + (x.cost_total || 0), 0);
+      const rev = dashboard?.rev ?? g.items.reduce((a, x) => a + (x.revenue_total || 0), 0);
+      const profit = dashboard?.profit ?? (rev - cost);
+      const roi = dashboard?.roi ?? (cost > 0 ? (profit / cost) * 100 : 0);
       const blocked = g.items.filter((x) => x.status === "blocked").length;
       const bad = g.items.filter((x) => x.status === "bad").length;
       const good = g.items.filter((x) => x.status === "good").length;
@@ -473,7 +477,7 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
     });
     list.sort((a, b) => b.cost - a.cost);
     return list;
-  }, [rows]);
+  }, [rows, campaignMetrics]);
 
   const toggle = (cid: string) => setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
 
