@@ -277,7 +277,84 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, budget_sync: budgetSync };
+}
+
+// Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,
+// para que a automação tenha delivery_ratio confiável antes de decidir ações.
+async function syncCampaignBudgets(admin: any, userId: string, accountId: string): Promise<{ updated: number; error?: string }> {
+  try {
+    const { data: acc } = await admin
+      .from("google_accounts")
+      .select("customer_id, login_customer_id, refresh_token")
+      .eq("id", accountId)
+      .maybeSingle();
+    if (!acc?.refresh_token || !acc?.customer_id) return { updated: 0, error: "no_refresh_token" };
+
+    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
+    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
+    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
+
+    const tokRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: acc.refresh_token,
+        grant_type: "refresh_token",
+      }),
+    });
+    const tokJson = await tokRes.json();
+    if (!tokRes.ok) return { updated: 0, error: `token: ${JSON.stringify(tokJson).slice(0, 200)}` };
+    const accessToken = tokJson.access_token as string;
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      "developer-token": devToken,
+      "Content-Type": "application/json",
+    };
+    if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+
+    const query = `
+      SELECT campaign.id, campaign.name, campaign.status,
+             campaign_budget.amount_micros,
+             campaign.target_cpa.target_cpa_micros,
+             campaign.maximize_conversions.target_cpa_micros
+      FROM campaign
+      WHERE campaign.status = 'ENABLED'
+    `;
+    const res = await fetch(
+      `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+      { method: "POST", headers, body: JSON.stringify({ query }) },
+    );
+    const json = await res.json();
+    if (!res.ok) return { updated: 0, error: `search: ${JSON.stringify(json).slice(0, 200)}` };
+
+    const rows = (json.results ?? []) as any[];
+    const updates = rows.map((r) => ({
+      user_id: userId,
+      google_account_id: accountId,
+      campaign_id: String(r.campaign.id),
+      name: r.campaign.name ?? `Campaign ${r.campaign.id}`,
+      status: String(r.campaign.status ?? "enabled").toLowerCase(),
+      budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
+      target_cpa_micros: r.campaign.targetCpa?.targetCpaMicros
+        ? Number(r.campaign.targetCpa.targetCpaMicros)
+        : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null),
+    }));
+    let updated = 0;
+    for (let i = 0; i < updates.length; i += 200) {
+      const slice = updates.slice(i, i + 200);
+      const { error } = await admin
+        .from("campaigns")
+        .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id" });
+      if (!error) updated += slice.length;
+    }
+    return { updated };
+  } catch (e) {
+    return { updated: 0, error: String(e instanceof Error ? e.message : e) };
+  }
 }
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
