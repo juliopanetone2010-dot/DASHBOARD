@@ -419,6 +419,22 @@ const IndexInner = () => {
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => allSites.syncAll(true)}
+              disabled={!allSites.totalCount}
+              className="gap-2"
+              title="Roda o onboarding (campanhas + receita + placements) para todos os sites"
+            >
+              <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              Sincronizar todos os sites
+              {allSites.processingCount > 0 && (
+                <Badge variant="secondary" className="ml-1">
+                  {allSites.processingCount}/{allSites.totalCount}
+                </Badge>
+              )}
+            </Button>
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={data.loading} className="gap-2">
               <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Atualizar
