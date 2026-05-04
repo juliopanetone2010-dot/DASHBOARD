@@ -253,7 +253,9 @@ export type Database = {
           campaign_id: string
           cooldown_until: string | null
           created_at: string
+          daily_budget: number | null
           days_in_standby: number
+          delivery_ratio: number | null
           entered_standby_at: string | null
           google_account_id: string | null
           id: string
@@ -261,6 +263,8 @@ export type Database = {
           last_action_date: string | null
           last_cpa_action: string | null
           last_cpa_action_date: string | null
+          last_delivery_action: string | null
+          last_delivery_action_date: string | null
           last_evaluated_at: string
           last_roi: number | null
           last_scale_date: string | null
@@ -274,7 +278,9 @@ export type Database = {
           campaign_id: string
           cooldown_until?: string | null
           created_at?: string
+          daily_budget?: number | null
           days_in_standby?: number
+          delivery_ratio?: number | null
           entered_standby_at?: string | null
           google_account_id?: string | null
           id?: string
@@ -282,6 +288,8 @@ export type Database = {
           last_action_date?: string | null
           last_cpa_action?: string | null
           last_cpa_action_date?: string | null
+          last_delivery_action?: string | null
+          last_delivery_action_date?: string | null
           last_evaluated_at?: string
           last_roi?: number | null
           last_scale_date?: string | null
@@ -295,7 +303,9 @@ export type Database = {
           campaign_id?: string
           cooldown_until?: string | null
           created_at?: string
+          daily_budget?: number | null
           days_in_standby?: number
+          delivery_ratio?: number | null
           entered_standby_at?: string | null
           google_account_id?: string | null
           id?: string
@@ -303,6 +313,8 @@ export type Database = {
           last_action_date?: string | null
           last_cpa_action?: string | null
           last_cpa_action_date?: string | null
+          last_delivery_action?: string | null
+          last_delivery_action_date?: string | null
           last_evaluated_at?: string
           last_roi?: number | null
           last_scale_date?: string | null

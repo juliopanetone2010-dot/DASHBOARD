@@ -155,7 +155,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
   const { data: campRows } = await admin
     .from("campaigns")
-    .select("campaign_id, name, status, google_account_id")
+    .select("campaign_id, name, status, google_account_id, budget_micros")
     .eq("user_id", userId)
     .eq("google_account_id", accountId);
   const campMeta = new Map<string, any>();
@@ -182,7 +182,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       continue;
     }
 
-    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id));
+    const dailyBudget = meta?.budget_micros ? Number(meta.budget_micros) / 1_000_000 : 0;
+    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id), dailyBudget);
     decisions++;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
@@ -196,6 +197,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       lifecycle_status: decision.lifecycle,
       last_roi: round2(decision.roi),
       roi_trend: decision.trend,
+      delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
+      daily_budget: round2(dailyBudget),
       last_evaluated_at: nowIso,
     };
     if (decision.lifecycle === "standby" && fromStatus !== "standby") {
@@ -218,6 +221,10 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     if (decision.action !== "none") {
       newState.last_action = decision.action;
       newState.last_action_date = nowIso;
+      if (decision.delivery_driven) {
+        newState.last_delivery_action = decision.action;
+        newState.last_delivery_action_date = nowIso;
+      }
     }
 
     await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
@@ -249,7 +256,18 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       revenue: round2(agg.grossRevBrl * NET_FACTOR),
       lifecycle_from: fromStatus,
       lifecycle_to: decision.lifecycle,
-      payload: { trend: decision.trend, days: agg.days.size, name: meta?.name ?? null, site_id: siteId, google_account_id: accountId, daily: agg.daily.slice(-days) },
+      payload: {
+        trend: decision.trend,
+        days: agg.days.size,
+        name: meta?.name ?? null,
+        site_id: siteId,
+        google_account_id: accountId,
+        delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
+        daily_budget: round2(dailyBudget),
+        avg_daily_spend: round2(decision.avgDailySpend ?? 0),
+        delivery_driven: !!decision.delivery_driven,
+        daily: agg.daily.slice(-days),
+      },
       error: execError,
     });
   }
@@ -298,9 +316,10 @@ async function logSkip(admin: any, userId: string, siteId: string, accountId: st
   });
 }
 
-function classify(agg: any, cfg: any, prev: any): {
+function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   lifecycle: Lifecycle; action: "none" | "pause" | "scale" | "cpa_up" | "cpa_down";
   reason: string; roi: number; trend: "up" | "down" | "flat";
+  delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
 } {
   const days = agg.days.size;
   const cost = agg.spend;
@@ -315,55 +334,81 @@ function classify(agg: any, cfg: any, prev: any): {
   const diff = r2 - r1;
   const trend: "up" | "down" | "flat" = Math.abs(diff) < 5 ? "flat" : diff > 0 ? "up" : "down";
 
+  // DELIVERY: gasto médio diário vs orçamento diário configurado.
+  const avgDailySpend = days > 0 ? cost / days : 0;
+  const delivery = dailyBudget > 0 ? avgDailySpend / dailyBudget : null;
+  const deliveryPct = delivery == null ? "?" : `${Math.round(delivery * 100)}%`;
+  const HIGH_DELIVERY = 0.8;
+  const isSaturated = delivery != null && delivery >= HIGH_DELIVERY;
+  const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
+  const noBudgetData = delivery == null;
+
   if (days < Math.min(2, Number(cfg.auto_analysis_days) || 7) || cost < Number(cfg.auto_stoploss_min_cost)) {
-    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (dias=${days}, custo=${round2(cost)})`, roi, trend };
+    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend };
   }
 
   const inCooldown = prev?.cooldown_until && new Date(prev.cooldown_until) > new Date();
+  const cpaUpPct = Number(cfg.auto_cpa_up_pct) || 10;
+  const cpaDownPct = Number(cfg.auto_cpa_down_pct) || 10;
+  const lastCpa = prev?.last_cpa_action_date ? new Date(prev.last_cpa_action_date) : null;
+  const daysSinceCpa = lastCpa ? Math.floor((Date.now() - lastCpa.getTime()) / 86400_000) : 999;
+  const cpaCooldownOk = daysSinceCpa >= Number(cfg.auto_cpa_review_days);
 
-  if (roi >= Number(cfg.auto_scale_min_roi)) {
-    if (inCooldown) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% em cooldown até ${prev.cooldown_until}`, roi, trend };
-    return { lifecycle: "scaling", action: "scale", reason: `ROI ${round2(roi)}% ≥ ${cfg.auto_scale_min_roi}% → +${cfg.auto_scale_budget_pct}%`, roi, trend };
-  }
-
-  const low = Number(cfg.auto_standby_roi_low);
-  const high = Number(cfg.auto_standby_roi_high);
-  if (roi >= low && roi <= high && days >= Number(cfg.auto_standby_enter_days)) {
-    if (prev?.lifecycle_status === "standby") {
-      const enteredAt = prev.entered_standby_at ? new Date(prev.entered_standby_at) : null;
-      const daysIn = enteredAt ? Math.floor((Date.now() - enteredAt.getTime()) / 86400_000) : 0;
-      if (daysIn >= Number(cfg.auto_standby_max_days) && roi < 0) {
-        return { lifecycle: "paused", action: "pause", reason: `Standby ${daysIn}d com ROI ${round2(roi)}% < 0 → pausar`, roi, trend };
-      }
-    }
-    return { lifecycle: "standby", action: "none", reason: `ROI ${round2(roi)}% lateral (${low}–${high}%) há ${days}d`, roi, trend };
-  }
-
+  // E) Stop-loss prevalece quando ROI muito ruim e tendência não melhora.
   if (roi < Number(cfg.auto_stoploss_min_roi) && days >= Number(cfg.auto_stoploss_days) && trend !== "up") {
-    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% < ${cfg.auto_stoploss_min_roi}% por ${days}d (tendência ${trend}) → pausar`, roi, trend };
+    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% < ${cfg.auto_stoploss_min_roi}% por ${days}d (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
   }
 
-  if (roi >= 0 && roi < Number(cfg.auto_scale_min_roi)) {
-    const lastCpa = prev?.last_cpa_action_date ? new Date(prev.last_cpa_action_date) : null;
-    const daysSinceCpa = lastCpa ? Math.floor((Date.now() - lastCpa.getTime()) / 86400_000) : 999;
-    if (daysSinceCpa < Number(cfg.auto_cpa_review_days)) {
-      return { lifecycle: "learning", action: "none", reason: `Aguardando review de CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend };
+  // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
+  if (roi >= Number(cfg.auto_scale_min_roi)) {
+    if (inCooldown) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% (delivery ${deliveryPct}) em cooldown até ${prev.cooldown_until}`, roi, trend, delivery, avgDailySpend };
+    if (isSaturated || noBudgetData) {
+      return { lifecycle: "scaling", action: "scale", reason: `ROI ${round2(roi)}% e delivery ${deliveryPct} → +${cfg.auto_scale_budget_pct}% no orçamento`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
     }
-    if (prev?.last_cpa_action === "cpa_up" && trend !== "up") {
-      return { lifecycle: "learning", action: "cpa_down", reason: `CPA up não melhorou (trend ${trend}) → reduzir CPA -${cfg.auto_cpa_down_pct}%`, roi, trend };
-    }
-    return { lifecycle: "learning", action: "cpa_up", reason: `ROI ${round2(roi)}% entre 0 e ${cfg.auto_scale_min_roi}% → aumentar CPA +${cfg.auto_cpa_up_pct}%`, roi, trend };
+    if (!cpaCooldownOk) return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% mas delivery ${deliveryPct} <80% — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
+    return { lifecycle: "scaling", action: "cpa_up", reason: `ROI ${round2(roi)}% mas delivery ${deliveryPct} <80% → +${cpaUpPct}% no CPA para destravar volume`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
   }
 
-  return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% — observando`, roi, trend };
+  // B) ROI 10–30 → learning. Saturado: leve scale; subentrega: CPA up.
+  if (roi >= 10 && roi < Number(cfg.auto_scale_min_roi)) {
+    if (isSaturated) {
+      if (inCooldown) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} em cooldown`, roi, trend, delivery, avgDailySpend };
+      const lightPct = Math.max(5, Math.round((Number(cfg.auto_scale_budget_pct) || 20) / 2));
+      return { lifecycle: "learning", action: "scale", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → leve scale +${lightPct}%`, roi, trend, delivery, avgDailySpend, delivery_driven: true, _lightScalePct: lightPct } as any;
+    }
+    if (!cpaCooldownOk) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
+    return { lifecycle: "learning", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} <80% → +${cpaUpPct}% CPA`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
+  }
+
+  // C) ROI 1–10 (standby inteligente): saturado → CPA down (qualidade); subentrega → CPA up (volume).
+  if (roi > 0 && roi < 10) {
+    const enteredAt = prev?.entered_standby_at ? new Date(prev.entered_standby_at) : null;
+    const daysIn = enteredAt ? Math.floor((Date.now() - enteredAt.getTime()) / 86400_000) : 0;
+    if (!cpaCooldownOk) return { lifecycle: "standby", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} (standby ${daysIn}d) — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
+    if (isSaturated) {
+      return { lifecycle: "standby", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA (melhorar qualidade)`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
+    }
+    return { lifecycle: "standby", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → +${cpaUpPct}% CPA (buscar volume)`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
+  }
+
+  // D) ROI -10 a 0: saturado → CPA down; subentrega → CPA up leve (+5%).
+  if (roi >= -10 && roi <= 0) {
+    if (!cpaCooldownOk) return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — aguardando review CPA (${daysSinceCpa}/${cfg.auto_cpa_review_days}d)`, roi, trend, delivery, avgDailySpend };
+    if (isSaturated) {
+      return { lifecycle: "learning", action: "cpa_down", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → -${cpaDownPct}% CPA`, roi, trend, delivery, avgDailySpend, delivery_driven: true };
+    }
+    return { lifecycle: "learning", action: "cpa_up", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} → +5% CPA (leve)`, roi, trend, delivery, avgDailySpend, delivery_driven: true, _lightCpaPct: 5 } as any;
+  }
+
+  return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando`, roi, trend, delivery, avgDailySpend };
 }
 
 async function applyMutation(userJwt: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any) {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
   const body: any = { campaign_id: campaignId, google_account_id: accountId, site_id: siteId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
-  else if (decision.action === "scale") { body.action = "adjust_budget"; body.delta_pct = Number(cfg.auto_scale_budget_pct) || 20; }
-  else if (decision.action === "cpa_up") { body.action = "adjust_cpa"; body.delta_pct = Number(cfg.auto_cpa_up_pct) || 10; }
+  else if (decision.action === "scale") { body.action = "adjust_budget"; body.delta_pct = Number(decision._lightScalePct) || Number(cfg.auto_scale_budget_pct) || 20; }
+  else if (decision.action === "cpa_up") { body.action = "adjust_cpa"; body.delta_pct = Number(decision._lightCpaPct) || Number(cfg.auto_cpa_up_pct) || 10; }
   else if (decision.action === "cpa_down") { body.action = "adjust_cpa"; body.delta_pct = -(Number(cfg.auto_cpa_down_pct) || 10); }
   else return;
 
