@@ -158,7 +158,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       // Mapa real site → campanhas, vindo da receita GAM atribuída por UTM.
       // Necessário quando vários sites usam a mesma conta Google Ads: filtrar só por conta mistura sites.
       const { data: attributionRows } = await supabase
-        .from("gam_campaign_source_revenue")
+        .from("gam_placement_revenue")
         .select("site_id, campaign_id")
         .not("site_id", "is", null)
         .gte("date", from)
