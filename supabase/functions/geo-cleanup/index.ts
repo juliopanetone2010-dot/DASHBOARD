@@ -119,7 +119,41 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Linhas de país
+    // Campanhas com mudança recente de países (últimos N dias) → ignorar
+    const recentlyChangedIds = new Set<string>();
+    if (recentChangeDays > 0) {
+      const sinceIso = new Date(Date.now() - recentChangeDays * 86400_000).toISOString();
+      for (const chunk of chunkArr(campIds, 200)) {
+        const { data } = await admin
+          .from("geo_cleanup_logs")
+          .select("campaign_id, executed_at")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .gte("executed_at", sinceIso);
+        for (const r of data ?? []) recentlyChangedIds.add(String(r.campaign_id));
+      }
+    }
+
+    // Idade da campanha: primeiro dia com dados em daily_metrics
+    const campFirstSeen = new Map<string, string>();
+    if (minCampaignAgeDays > 0) {
+      for (const chunk of chunkArr(campIds, 200)) {
+        const { data } = await admin
+          .from("daily_metrics")
+          .select("campaign_id, date")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .order("date", { ascending: true })
+          .limit(50000);
+        for (const r of data ?? []) {
+          const id = String(r.campaign_id);
+          const d = String(r.date);
+          const prev = campFirstSeen.get(id);
+          if (!prev || d < prev) campFirstSeen.set(id, d);
+        }
+      }
+    }
+    const ageCutoffIso = new Date(Date.now() - minCampaignAgeDays * 86400_000).toISOString().slice(0, 10);
     type CountryRow = {
       campaign_id: string;
       date: string;
