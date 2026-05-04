@@ -29,7 +29,8 @@ interface ImpactRow {
   revenue_after: number;
   roi_after: number;
   delta: number;
-  classification: "up" | "down" | "neutral";
+  classification: "up" | "down" | "neutral" | "pending";
+  daysCovered: number;
 }
 
 const NEUTRAL_THRESHOLD = 5; // pp de ROI
