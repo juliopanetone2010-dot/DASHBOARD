@@ -24,6 +24,12 @@ Deno.serve(async (req) => {
     let requestedAccountIds: string[] = [];
     let includeYesterdayFallback = false;
     let testMode = false;
+    let revenueOnly = false;
+    let skipLegacyReports = false;
+    let skipViewability = false;
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + 115_000;
+    const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
@@ -36,6 +42,9 @@ Deno.serve(async (req) => {
         : [];
       includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
+      revenueOnly = Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
+      skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
+      skipViewability = revenueOnly || Boolean((body as any)?.skip_viewability);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -110,18 +119,25 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
-        const adUnitRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug })
-        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
-        const placementRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
-        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        // Reports legados (ad unit + placement) são pesados e não entram no ROI.
+        // Em sincronizações automáticas usamos revenue_only para evitar timeout de 150s.
+        let adUnitRows: Array<ReportRow & { name: string }> = [];
+        let placementRows: Array<ReportRow & { name: string }> = [];
+        if (!skipLegacyReports && hasBudget(45_000)) {
+          adUnitRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug, deadlineAt })
+          ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+          placementRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug, deadlineAt })
+          ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        } else {
+          debug.push(`[${networkCode}] legacy placement/ad-unit reports skipped (revenue_only=${revenueOnly})`);
+        }
 
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug });
+        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt });
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
@@ -183,10 +199,12 @@ Deno.serve(async (req) => {
           },
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
-        for (const variant of viewabilityVariants) {
+        if (skipViewability || !hasBudget(35_000)) {
+          debug.push(`[${networkCode}] viewability skipped (revenue_only=${revenueOnly})`);
+        } else for (const variant of viewabilityVariants) {
           try {
             const raw = (await Promise.all(ranges.map((range) =>
-              runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug })
+              runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug, deadlineAt })
             ))).flat();
             debug.push(`[${networkCode}] viewability ${variant.label} rows=${raw.length}`);
             for (const r of raw as any[]) {
@@ -236,6 +254,7 @@ Deno.serve(async (req) => {
           attribution_source: attribution.campaignSource,
           placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
+          revenue_only: revenueOnly,
           currency: siteCurrency,
           detected_currency: detectedCurrency ?? null,
           usd_brl_rate: fxRates.usdBrl,
