@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const NET_FACTOR = 0.935;
+const DEFAULT_STOPLOSS_ROI = -20;
 
 type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
 type SiteAutomationConfig = {
@@ -325,6 +326,9 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const cost = agg.spend;
   const netRev = agg.grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
+  const stopLossRoi = normalizeStopLossRoi(cfg.auto_stoploss_min_roi);
+  const stopLossDays = Math.max(1, Number(cfg.auto_stoploss_days) || 7);
+  const stopLossMinCost = Math.max(0, Number(cfg.auto_stoploss_min_cost) || 0);
 
   const sorted = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const mid = Math.floor(sorted.length / 2);
@@ -343,7 +347,7 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
   const noBudgetData = delivery == null;
 
-  if (days < Math.min(2, Number(cfg.auto_analysis_days) || 7) || cost < Number(cfg.auto_stoploss_min_cost)) {
+  if (days < Math.min(2, Number(cfg.auto_analysis_days) || 7) || cost < stopLossMinCost) {
     return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend };
   }
 
@@ -354,9 +358,10 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const daysSinceCpa = lastCpa ? Math.floor((Date.now() - lastCpa.getTime()) / 86400_000) : 999;
   const cpaCooldownOk = daysSinceCpa >= Number(cfg.auto_cpa_review_days);
 
-  // E) Stop-loss prevalece quando ROI muito ruim e tendência não melhora.
-  if (roi < Number(cfg.auto_stoploss_min_roi) && days >= Number(cfg.auto_stoploss_days) && trend !== "up") {
-    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% < ${cfg.auto_stoploss_min_roi}% por ${days}d (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
+  // E) Stop-loss prevalece SOMENTE quando o ROI agregado cruza o limite negativo configurado.
+  // Se a configuração vier vazia/0 por legado, usamos -20% para impedir pausa cega em ROI levemente negativo.
+  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up") {
+    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% <= ${stopLossRoi}% por ${days}d (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
   }
 
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
@@ -423,6 +428,11 @@ async function applyMutation(userJwt: string, campaignId: string, accountId: str
 
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
 function round2(n: number) { return Math.round((Number(n) || 0) * 100) / 100; }
+function normalizeStopLossRoi(value: unknown) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw >= 0) return DEFAULT_STOPLOSS_ROI;
+  return raw;
+}
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
