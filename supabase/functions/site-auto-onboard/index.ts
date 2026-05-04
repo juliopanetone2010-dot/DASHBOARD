@@ -1,0 +1,186 @@
+// Auto-onboard de um novo site:
+// 1) Marca status=processing
+// 2) Em background, dispara: google-ads-sync-campaigns + gam-sync-revenue (últimos 7 dias)
+// 3) Para cada campanha do site, dispara google-ads-sync-placements
+// 4) Atualiza sites.sync_status=completed/failed
+//
+// Retorna 202 imediatamente para não travar a UI.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+function isoDaysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+async function callFn(name: string, body: unknown, authHeader: string) {
+  const url = `${SUPABASE_URL}/functions/v1/${name}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader,
+      apikey: SERVICE_ROLE,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const text = await r.text();
+  let parsed: unknown = text;
+  try { parsed = JSON.parse(text); } catch { /* ignore */ }
+  return { ok: r.ok, status: r.status, body: parsed };
+}
+
+async function runBackground(siteId: string, userId: string, authHeader: string) {
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const from = isoDaysAgo(7);
+  const to = isoDaysAgo(0);
+
+  try {
+    // contas Ads vinculadas ao site
+    const { data: links } = await admin
+      .from("account_site_links")
+      .select("google_account_id")
+      .eq("user_id", userId)
+      .eq("site_id", siteId);
+    const accountIds = (links ?? []).map((l: { google_account_id: string }) => l.google_account_id);
+
+    // 1. campanhas (Google Ads) — sincroniza últimos 7d para essas contas
+    const ads = await callFn(
+      "google-ads-sync-campaigns",
+      { from, to, site_id: siteId, account_ids: accountIds },
+      authHeader,
+    );
+    console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
+
+    // 2. receita GAM (últimos 7d) p/ esse site
+    const gam = await callFn(
+      "gam-sync-revenue",
+      { from, to, site_id: siteId, account_ids: accountIds, date_preset: "LAST_7_DAYS" },
+      authHeader,
+    );
+    console.log("[auto-onboard] gam sync", { siteId, status: gam.status });
+
+    // 3. placements por campanha do site
+    const { data: campaigns } = await admin
+      .from("campaigns")
+      .select("campaign_id, google_account_id")
+      .eq("user_id", userId)
+      .in("google_account_id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"])
+      .limit(50);
+
+    let placementsOk = 0;
+    for (const c of campaigns ?? []) {
+      const r = await callFn(
+        "google-ads-sync-placements",
+        { campaign_id: c.campaign_id, from, to },
+        authHeader,
+      );
+      if (r.ok) placementsOk++;
+    }
+    console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
+
+    await admin
+      .from("sites")
+      .update({
+        sync_status: "completed",
+        sync_error: null,
+        last_full_sync_at: new Date().toISOString(),
+      })
+      .eq("id", siteId)
+      .eq("user_id", userId);
+  } catch (e) {
+    console.error("[auto-onboard] failed", e);
+    await admin
+      .from("sites")
+      .update({
+        sync_status: "failed",
+        sync_error: e instanceof Error ? e.message : String(e),
+      })
+      .eq("id", siteId)
+      .eq("user_id", userId);
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { site_id, force } = await req.json().catch(() => ({}));
+    if (!site_id || typeof site_id !== "string") {
+      return new Response(JSON.stringify({ error: "site_id required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+    const { data: site } = await admin
+      .from("sites")
+      .select("id, sync_status, sync_started_at, last_full_sync_at")
+      .eq("id", site_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!site) {
+      return new Response(JSON.stringify({ error: "site not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Se já está rodando há menos de 5 min, devolve idempotente
+    const startedAt = site.sync_started_at ? new Date(site.sync_started_at).getTime() : 0;
+    const ageMin = (Date.now() - startedAt) / 60000;
+    if (!force && site.sync_status === "processing" && ageMin < 5) {
+      return new Response(JSON.stringify({ status: "processing", message: "already running" }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // Se já completado e não forçado, no-op
+    if (!force && site.sync_status === "completed" && site.last_full_sync_at) {
+      return new Response(JSON.stringify({ status: "completed", message: "already onboarded" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await admin
+      .from("sites")
+      .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
+      .eq("id", site_id)
+      .eq("user_id", user.id);
+
+    // @ts-ignore EdgeRuntime is available in Supabase edge functions
+    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader));
+
+    return new Response(JSON.stringify({ status: "processing", site_id }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
