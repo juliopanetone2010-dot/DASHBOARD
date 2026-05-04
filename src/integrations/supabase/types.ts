@@ -191,6 +191,120 @@ export type Database = {
         }
         Relationships: []
       }
+      automation_logs: {
+        Row: {
+          action: string
+          campaign_id: string
+          cost: number | null
+          created_at: string
+          decision: string | null
+          error: string | null
+          id: string
+          lifecycle_from: string | null
+          lifecycle_to: string | null
+          payload: Json | null
+          reason: string | null
+          revenue: number | null
+          roi: number | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          campaign_id: string
+          cost?: number | null
+          created_at?: string
+          decision?: string | null
+          error?: string | null
+          id?: string
+          lifecycle_from?: string | null
+          lifecycle_to?: string | null
+          payload?: Json | null
+          reason?: string | null
+          revenue?: number | null
+          roi?: number | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          campaign_id?: string
+          cost?: number | null
+          created_at?: string
+          decision?: string | null
+          error?: string | null
+          id?: string
+          lifecycle_from?: string | null
+          lifecycle_to?: string | null
+          payload?: Json | null
+          reason?: string | null
+          revenue?: number | null
+          roi?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      campaign_automation: {
+        Row: {
+          campaign_id: string
+          cooldown_until: string | null
+          created_at: string
+          days_in_standby: number
+          entered_standby_at: string | null
+          google_account_id: string | null
+          id: string
+          last_action: string | null
+          last_action_date: string | null
+          last_cpa_action: string | null
+          last_cpa_action_date: string | null
+          last_evaluated_at: string
+          last_roi: number | null
+          last_scale_date: string | null
+          lifecycle_status: string
+          roi_trend: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          cooldown_until?: string | null
+          created_at?: string
+          days_in_standby?: number
+          entered_standby_at?: string | null
+          google_account_id?: string | null
+          id?: string
+          last_action?: string | null
+          last_action_date?: string | null
+          last_cpa_action?: string | null
+          last_cpa_action_date?: string | null
+          last_evaluated_at?: string
+          last_roi?: number | null
+          last_scale_date?: string | null
+          lifecycle_status?: string
+          roi_trend?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          cooldown_until?: string | null
+          created_at?: string
+          days_in_standby?: number
+          entered_standby_at?: string | null
+          google_account_id?: string | null
+          id?: string
+          last_action?: string | null
+          last_action_date?: string | null
+          last_cpa_action?: string | null
+          last_cpa_action_date?: string | null
+          last_evaluated_at?: string
+          last_roi?: number | null
+          last_scale_date?: string | null
+          lifecycle_status?: string
+          roi_trend?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_country_metrics: {
         Row: {
           campaign_id: string
@@ -751,8 +865,26 @@ export type Database = {
       rules_config: {
         Row: {
           analysis_days: number
+          auto_analysis_days: number
           auto_boost_enabled: boolean
+          auto_cpa_down_pct: number
+          auto_cpa_review_days: number
+          auto_cpa_up_pct: number
           auto_pause_enabled: boolean
+          auto_scale_budget_pct: number
+          auto_scale_interval_days: number
+          auto_scale_min_roi: number
+          auto_standby_enter_days: number
+          auto_standby_exit_roi: number
+          auto_standby_max_days: number
+          auto_standby_roi_high: number
+          auto_standby_roi_low: number
+          auto_stoploss_days: number
+          auto_stoploss_min_cost: number
+          auto_stoploss_min_roi: number
+          automation_dry_run: boolean
+          automation_enabled: boolean
+          automation_last_run_at: string | null
           boost_roi_pct: number
           budget_increase_pct: number
           funnel_auto_enabled: boolean
@@ -783,8 +915,26 @@ export type Database = {
         }
         Insert: {
           analysis_days?: number
+          auto_analysis_days?: number
           auto_boost_enabled?: boolean
+          auto_cpa_down_pct?: number
+          auto_cpa_review_days?: number
+          auto_cpa_up_pct?: number
           auto_pause_enabled?: boolean
+          auto_scale_budget_pct?: number
+          auto_scale_interval_days?: number
+          auto_scale_min_roi?: number
+          auto_standby_enter_days?: number
+          auto_standby_exit_roi?: number
+          auto_standby_max_days?: number
+          auto_standby_roi_high?: number
+          auto_standby_roi_low?: number
+          auto_stoploss_days?: number
+          auto_stoploss_min_cost?: number
+          auto_stoploss_min_roi?: number
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          automation_last_run_at?: string | null
           boost_roi_pct?: number
           budget_increase_pct?: number
           funnel_auto_enabled?: boolean
@@ -815,8 +965,26 @@ export type Database = {
         }
         Update: {
           analysis_days?: number
+          auto_analysis_days?: number
           auto_boost_enabled?: boolean
+          auto_cpa_down_pct?: number
+          auto_cpa_review_days?: number
+          auto_cpa_up_pct?: number
           auto_pause_enabled?: boolean
+          auto_scale_budget_pct?: number
+          auto_scale_interval_days?: number
+          auto_scale_min_roi?: number
+          auto_standby_enter_days?: number
+          auto_standby_exit_roi?: number
+          auto_standby_max_days?: number
+          auto_standby_roi_high?: number
+          auto_standby_roi_low?: number
+          auto_stoploss_days?: number
+          auto_stoploss_min_cost?: number
+          auto_stoploss_min_roi?: number
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          automation_last_run_at?: string | null
           boost_roi_pct?: number
           budget_increase_pct?: number
           funnel_auto_enabled?: boolean
