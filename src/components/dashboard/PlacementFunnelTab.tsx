@@ -198,19 +198,8 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const evaluateNow = async () => {
     setEvaluating(true);
     try {
-      // Calcula janela explícita conforme o preset escolhido
-      const today = new Date();
-      const iso = (d: Date) => d.toISOString().slice(0, 10);
-      let from: string, to: string;
-      if (lookback === 1) { // Hoje
-        from = to = iso(today);
-      } else if (lookback === 2) { // Ontem
-        const y = new Date(today.getTime() - 86400_000);
-        from = to = iso(y);
-      } else {
-        to = iso(today);
-        from = iso(new Date(today.getTime() - (lookback - 1) * 86400_000));
-      }
+      // Mesma janela da Dashboard: Hoje é hoje; Ontem é ontem; últimos N dias são dias completos até ontem.
+      const { from, to } = rangeFromLookback(lookback);
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
         { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl } },
