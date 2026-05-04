@@ -10,7 +10,9 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 const NET_FACTOR = 0.935;
 const DEFAULT_STOPLOSS_ROI = -20;
 
-type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+type Lifecycle =
+  | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
+  | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
 // Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
 // em campanhas novas/scaling e mais conservadoras em standby/bad.
@@ -21,11 +23,23 @@ const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
   scaling: 3,
   bad: 5,
   paused: 7,
+  winner_test: 7,
+  winner_scaling: 2,
+  winner_standby: 3,
+  winner_paused: 7,
 };
 const MAX_LIFECYCLE_WINDOW = 7;
+// Regras específicas do fluxo winner (separadas da automação padrão)
+const WINNER_TEST_DAYS = 7;          // janela de aprendizado pós-ativação
+const WINNER_SCALE_INTERVAL_DAYS = 2; // intervalo entre +20%
+const WINNER_SCALE_PCT = 20;          // percentual por escala
+const WINNER_DELIVERY_MIN = 0.7;      // >70% de delivery
 function windowForLifecycle(lc: Lifecycle | null | undefined): number {
   if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
   return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+}
+function isWinnerLifecycle(lc: Lifecycle | null | undefined): boolean {
+  return typeof lc === "string" && lc.startsWith("winner_");
 }
 type SiteAutomationConfig = {
   id: string;
