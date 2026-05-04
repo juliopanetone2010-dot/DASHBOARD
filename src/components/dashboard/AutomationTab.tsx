@@ -27,6 +27,7 @@ export function AutomationTab() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
+  const [campNames, setCampNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -38,6 +39,10 @@ export function AutomationTab() {
       .from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500);
     const { data: l } = await supabase
       .from("automation_logs").select("*").order("created_at", { ascending: false }).limit(200);
+    const { data: camps } = await supabase.from("campaigns").select("campaign_id, name").limit(2000);
+    const map: Record<string, string> = {};
+    for (const c of camps ?? []) map[String((c as any).campaign_id)] = String((c as any).name ?? "");
+    setCampNames(map);
     setCfg(c ?? null);
     setStates(s ?? []);
     setLogs(l ?? []);
