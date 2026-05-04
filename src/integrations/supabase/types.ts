@@ -273,6 +273,8 @@ export type Database = {
           site_id: string | null
           updated_at: string
           user_id: string
+          winner_country_code: string | null
+          winner_started_at: string | null
         }
         Insert: {
           campaign_id: string
@@ -298,6 +300,8 @@ export type Database = {
           site_id?: string | null
           updated_at?: string
           user_id: string
+          winner_country_code?: string | null
+          winner_started_at?: string | null
         }
         Update: {
           campaign_id?: string
@@ -323,6 +327,8 @@ export type Database = {
           site_id?: string | null
           updated_at?: string
           user_id?: string
+          winner_country_code?: string | null
+          winner_started_at?: string | null
         }
         Relationships: []
       }

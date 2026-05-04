@@ -356,13 +356,13 @@ async function duplicateCampaign(
 
   const channelType: string = cRow.campaign?.advertisingChannelType ?? "DISPLAY";
   const channelSubType: string | undefined = cRow.campaign?.advertisingChannelSubType;
-  const biddingType: string = cRow.campaign?.biddingStrategyType ?? "MAXIMIZE_CONVERSIONS";
-  const targetCpaMicros: string | undefined =
-    cRow.campaign?.targetCpa?.targetCpaMicros ?? cRow.campaign?.maximizeConversions?.targetCpaMicros;
-  const targetRoas: number | undefined = cRow.campaign?.targetRoas?.targetRoas
-    ? Number(cRow.campaign.targetRoas.targetRoas) : undefined;
+  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial (fase de aprendizado limpa).
+  const biddingType: string = "MAXIMIZE_CONVERSIONS";
+  const targetCpaMicros: string | undefined = undefined;
+  const targetRoas: number | undefined = undefined;
   const sourceBudgetMicros = Number(cRow.campaignBudget?.amountMicros ?? 0);
-  const newBudgetMicros = Math.max(10_000, Math.round(sourceBudgetMicros * budgetMultiplier / 10000) * 10000);
+  // Orçamento fixo: R$ 30/dia (baixo risco). budget_multiplier do body é ignorado para winner.
+  const newBudgetMicros = 30_000_000;
 
   // PMax e algumas Display campaigns têm sub-types e assets que não conseguimos clonar 100%.
   // Bloqueamos PMax explicitamente.
@@ -589,6 +589,18 @@ async function duplicateCampaign(
     status: "paused",
     channel_type: channelType,
     budget_micros: newBudgetMicros,
+  });
+
+  // 9) Seed lifecycle "winner_test" — automação padrão NÃO mexe nessa campanha.
+  //    O winner_started_at só é setado quando o usuário ativar (status=enabled).
+  await admin.from("campaign_automation").insert({
+    user_id: userId,
+    google_account_id: item.google_account_id,
+    site_id: siteId,
+    campaign_id: newCampaignId,
+    lifecycle_status: "winner_test",
+    winner_country_code: item.country_code,
+    winner_started_at: null,
   });
 
   return {

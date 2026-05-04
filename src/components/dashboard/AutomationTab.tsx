@@ -15,7 +15,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 type Cfg = Record<string, any>;
-type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+type Lifecycle =
+  | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
+  | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
 const STATUS_VARIANT: Record<Lifecycle, { label: string; cls: string }> = {
   testing:  { label: "Testando",  cls: "bg-muted text-muted-foreground" },
@@ -24,6 +26,10 @@ const STATUS_VARIANT: Record<Lifecycle, { label: string; cls: string }> = {
   scaling:  { label: "Escalando",  cls: "bg-success/15 text-success" },
   bad:      { label: "Ruim",       cls: "bg-destructive/15 text-destructive" },
   paused:   { label: "Pausada",    cls: "bg-muted/60 text-muted-foreground line-through" },
+  winner_test:    { label: "Winner • Teste 7d",    cls: "bg-accent/20 text-accent-foreground" },
+  winner_scaling: { label: "Winner • Escalando",   cls: "bg-success/20 text-success" },
+  winner_standby: { label: "Winner • Standby",     cls: "bg-warning/20 text-warning" },
+  winner_paused:  { label: "Winner • Pausada",     cls: "bg-muted/60 text-muted-foreground" },
 };
 
 export function AutomationTab() {

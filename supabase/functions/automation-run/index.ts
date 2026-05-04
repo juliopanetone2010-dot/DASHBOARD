@@ -10,7 +10,9 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 const NET_FACTOR = 0.935;
 const DEFAULT_STOPLOSS_ROI = -20;
 
-type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+type Lifecycle =
+  | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
+  | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
 // Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
 // em campanhas novas/scaling e mais conservadoras em standby/bad.
@@ -21,11 +23,23 @@ const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
   scaling: 3,
   bad: 5,
   paused: 7,
+  winner_test: 7,
+  winner_scaling: 2,
+  winner_standby: 3,
+  winner_paused: 7,
 };
 const MAX_LIFECYCLE_WINDOW = 7;
+// Regras específicas do fluxo winner (separadas da automação padrão)
+const WINNER_TEST_DAYS = 7;          // janela de aprendizado pós-ativação
+const WINNER_SCALE_INTERVAL_DAYS = 2; // intervalo entre +20%
+const WINNER_SCALE_PCT = 20;          // percentual por escala
+const WINNER_DELIVERY_MIN = 0.7;      // >70% de delivery
 function windowForLifecycle(lc: Lifecycle | null | undefined): number {
   if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
   return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+}
+function isWinnerLifecycle(lc: Lifecycle | null | undefined): boolean {
+  return typeof lc === "string" && lc.startsWith("winner_");
 }
 type SiteAutomationConfig = {
   id: string;
@@ -206,10 +220,21 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
 
     const dailyBudget = meta?.budget_micros ? Number(meta.budget_micros) / 1_000_000 : 0;
-    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id), dailyBudget);
-    decisions++;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
+
+    // ===== RAMO WINNER (isolado da automação padrão) =====
+    if (isWinnerLifecycle(fromStatus)) {
+      const result = await runWinnerCycle({
+        admin, userId, siteId, accountId, agg, meta, prevState, dailyBudget, dryRun, userJwt,
+      });
+      decisions++;
+      if (result.executed) executed++;
+      continue;
+    }
+
+    const decision = classify(agg, cfg, prevState, dailyBudget);
+    decisions++;
 
     const nowIso = new Date().toISOString();
     const newState: any = {
@@ -563,4 +588,139 @@ function normalizeStopLossRoi(value: unknown) {
 }
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+// ============================================================
+// FLUXO WINNER (campanhas duplicadas pela expansão por país)
+// ============================================================
+// Estados:
+//   winner_test     → 7 dias após ativação, sem mexer em nada (apenas observa)
+//   winner_scaling  → ROI ≥ 0 e delivery > 70% → +20% no orçamento a cada 2d
+//   winner_standby  → ROI < 0 ou queda forte → pausa escala, observa
+//   winner_paused   → campanha foi pausada manualmente / por instabilidade
+async function runWinnerCycle(args: {
+  admin: any; userId: string; siteId: string; accountId: string;
+  agg: any; meta: any; prevState: any; dailyBudget: number; dryRun: boolean; userJwt: string | null;
+}): Promise<{ executed: boolean }> {
+  const { admin, userId, siteId, accountId, agg, meta, prevState, dailyBudget, dryRun, userJwt } = args;
+  const nowIso = new Date().toISOString();
+  const fromStatus: Lifecycle = prevState?.lifecycle_status as Lifecycle;
+  const status = String(meta?.status ?? "").toLowerCase();
+
+  // 1) Marca início do teste de 7 dias quando o usuário ativa pela primeira vez.
+  let winnerStartedAt: Date | null = prevState?.winner_started_at ? new Date(prevState.winner_started_at) : null;
+  if (!winnerStartedAt && (status === "enabled" || status === "active")) {
+    winnerStartedAt = new Date();
+    await admin.from("campaign_automation").update({
+      winner_started_at: winnerStartedAt.toISOString(),
+      last_evaluated_at: nowIso,
+    }).eq("user_id", userId).eq("campaign_id", agg.campaign_id);
+  }
+
+  // 2) Calcula métricas com a janela do estado atual (winner_test=7, winner_scaling=2, winner_standby=3)
+  const windowDays = windowForLifecycle(fromStatus);
+  const sortedAll = [...agg.daily].sort((a: any, b: any) => a.date.localeCompare(b.date));
+  const sliced = sortedAll.slice(-windowDays);
+  const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
+  const grossRevBrl = sliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
+  const netRev = grossRevBrl * NET_FACTOR;
+  const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
+  const days = new Set(sliced.map((d: any) => d.date)).size;
+  const avgDailySpend = days > 0 ? cost / days : 0;
+  const delivery = dailyBudget > 0 ? avgDailySpend / dailyBudget : null;
+  const deliveryPct = delivery == null ? "?" : `${Math.round(delivery * 100)}%`;
+
+  // Tendência (winner_scaling usa para parar escala em queda)
+  const mid = Math.floor(sliced.length / 2);
+  const avg = (arr: any[]) => arr.length ? arr.reduce((s, x) => s + x.roi, 0) / arr.length : 0;
+  const r1 = avg(sliced.slice(0, mid));
+  const r2 = avg(sliced.slice(mid));
+  const diff = r2 - r1;
+  const trend: "up" | "down" | "flat" = Math.abs(diff) < 5 ? "flat" : diff > 0 ? "up" : "down";
+
+  let nextLifecycle: Lifecycle = fromStatus;
+  let action: "none" | "pause" | "scale" = "none";
+  let reason = "";
+
+  // Campanha ainda PAUSED → fica em winner_test até o usuário ativar.
+  if (status !== "enabled" && status !== "active") {
+    nextLifecycle = "winner_paused";
+    reason = "Aguardando ativação manual (winner)";
+  } else if (!winnerStartedAt) {
+    nextLifecycle = "winner_test";
+    reason = "Aguardando registro de ativação";
+  } else {
+    const daysSinceStart = Math.floor((Date.now() - winnerStartedAt.getTime()) / 86400_000);
+    if (daysSinceStart < WINNER_TEST_DAYS) {
+      nextLifecycle = "winner_test";
+      reason = `Fase de teste (${daysSinceStart}/${WINNER_TEST_DAYS}d) — sem alteração de orçamento`;
+    } else if (roi < 0 || trend === "down" || (delivery != null && delivery < WINNER_DELIVERY_MIN)) {
+      // ROI negativo, tendência de queda ou baixa entrega → standby (sem escalar)
+      nextLifecycle = "winner_standby";
+      reason = `ROI ${round2(roi)}% delivery ${deliveryPct} trend=${trend} → pausar escala (standby)`;
+    } else {
+      // ROI ≥ 0 + delivery > 70% + trend ok → escalar +20% se cooldown ok
+      const lastScale = prevState?.last_scale_date ? new Date(prevState.last_scale_date) : null;
+      const cdOk = !lastScale || (Date.now() - lastScale.getTime()) / 86400_000 >= WINNER_SCALE_INTERVAL_DAYS;
+      if (cdOk) {
+        nextLifecycle = "winner_scaling";
+        action = "scale";
+        reason = `ROI ${round2(roi)}% delivery ${deliveryPct} → +${WINNER_SCALE_PCT}% no orçamento (winner)`;
+      } else {
+        nextLifecycle = "winner_scaling";
+        reason = `ROI ${round2(roi)}% delivery ${deliveryPct} — em cooldown de escala (${WINNER_SCALE_INTERVAL_DAYS}d)`;
+      }
+    }
+  }
+
+  let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "skipped";
+  let execError: string | null = null;
+  if (action === "scale") {
+    if (dryRun) {
+      execStatus = "dry_run";
+    } else {
+      try {
+        await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, {
+          action: "scale", _lightScalePct: WINNER_SCALE_PCT,
+        }, { auto_scale_budget_pct: WINNER_SCALE_PCT });
+        execStatus = "executed";
+      } catch (e) { execStatus = "failed"; execError = String(e instanceof Error ? e.message : e); }
+    }
+  }
+
+  const upd: any = {
+    user_id: userId, site_id: siteId, campaign_id: agg.campaign_id, google_account_id: accountId,
+    lifecycle_status: nextLifecycle,
+    last_roi: round2(roi),
+    roi_trend: trend,
+    delivery_ratio: delivery == null ? null : round2(delivery),
+    daily_budget: round2(dailyBudget),
+    last_evaluated_at: nowIso,
+  };
+  if (winnerStartedAt) upd.winner_started_at = winnerStartedAt.toISOString();
+  if (execStatus === "executed" && action === "scale") {
+    upd.last_scale_date = nowIso;
+    upd.last_action = "scale";
+    upd.last_action_date = nowIso;
+  }
+  await admin.from("campaign_automation").upsert(upd, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
+
+  await admin.from("automation_logs").insert({
+    user_id: userId,
+    site_id: siteId,
+    google_account_id: accountId,
+    campaign_id: agg.campaign_id,
+    action: action === "none" ? "classify" : action,
+    reason,
+    decision: execStatus,
+    roi: round2(roi),
+    cost: round2(cost),
+    revenue: round2(netRev),
+    lifecycle_from: fromStatus,
+    lifecycle_to: nextLifecycle,
+    error: execError,
+    payload: { winner: true, days_since_start: winnerStartedAt ? Math.floor((Date.now() - winnerStartedAt.getTime()) / 86400_000) : null, delivery, trend },
+  });
+
+  return { executed: execStatus === "executed" };
 }
