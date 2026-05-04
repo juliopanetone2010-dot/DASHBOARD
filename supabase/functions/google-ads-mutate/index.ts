@@ -27,13 +27,23 @@ Deno.serve(async (req) => {
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-    );
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const token = authHeader.replace("Bearer ", "");
+    const systemUserId = req.headers.get("x-system-user-id");
+    let userId: string | undefined;
+
+    // Modo system: chamada interna do cron com service role + header x-system-user-id
+    if (token === serviceRoleKey && systemUserId) {
+      userId = systemUserId;
+    } else {
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+      );
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
