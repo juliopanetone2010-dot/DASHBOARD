@@ -591,6 +591,18 @@ async function duplicateCampaign(
     budget_micros: newBudgetMicros,
   });
 
+  // 9) Seed lifecycle "winner_test" — automação padrão NÃO mexe nessa campanha.
+  //    O winner_started_at só é setado quando o usuário ativar (status=enabled).
+  await admin.from("campaign_automation").insert({
+    user_id: userId,
+    google_account_id: item.google_account_id,
+    site_id: siteId,
+    campaign_id: newCampaignId,
+    lifecycle_status: "winner_test",
+    winner_country_code: item.country_code,
+    winner_started_at: null,
+  });
+
   return {
     ok: true,
     new_campaign_id: newCampaignId,
