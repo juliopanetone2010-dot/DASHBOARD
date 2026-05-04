@@ -386,8 +386,10 @@ Deno.serve(async (req) => {
       skipped_few_countries: skippedFewCountries,
       skipped_low_camp_cost: skippedLowCampCost,
       skipped_low_country_cost: skippedLowCountryCost,
+      skipped_recent_change: skippedRecentChange,
+      skipped_too_new: skippedTooNew,
       period: { from, to },
-      thresholds: { max_roi_pct: maxRoiPct, min_cost_brl: minCostBrl, min_countries: minCountries, min_campaign_cost_brl: minCampaignCostBrl },
+      thresholds: { max_roi_pct: maxRoiPct, min_cost_brl: minCostBrl, min_countries: minCountries, min_campaign_cost_brl: minCampaignCostBrl, recent_change_days: recentChangeDays, min_campaign_age_days: minCampaignAgeDays },
     };
 
     if (mode === "preview") return json({ ok: true, items, stats });
