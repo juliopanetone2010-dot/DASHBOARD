@@ -156,10 +156,11 @@ Deno.serve(async (req) => {
         // para exibir em BRL) continua correto, sem dupla conversão.
         const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
 
-        // Viewability + eCPM por site/dia
+        // Viewability + eCPM por site/dia (report dedicado, separado de revenue para evitar rejeição do GAM)
         let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];
+        let viewabilityError: string | null = null;
         try {
-          viewabilityRows = (await Promise.all(ranges.map((range) =>
+          const raw = (await Promise.all(ranges.map((range) =>
             runReport({
               networkCode, accessToken, range,
               dimensions: ["DATE"],
@@ -171,7 +172,9 @@ Deno.serve(async (req) => {
               ],
               debug,
             })
-          ))).flat().map((r: any) => ({
+          ))).flat();
+          debug.push(`[${networkCode}] viewability raw rows=${raw.length}`);
+          viewabilityRows = raw.map((r: any) => ({
             date: r.date,
             impressions: r.impressions,
             measurable: Number(r._raw_measurable ?? 0),
@@ -179,7 +182,8 @@ Deno.serve(async (req) => {
             revenue: r.revenue,
           }));
         } catch (e) {
-          debug.push(`[${networkCode}] viewability report falhou: ${String(e).slice(0, 200)}`);
+          viewabilityError = String(e).slice(0, 400);
+          debug.push(`[${networkCode}] viewability report falhou: ${viewabilityError}`);
         }
 
         if (!testMode) {
