@@ -280,7 +280,7 @@ const IndexInner = () => {
     const defaultRange = (() => {
       const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const d = new Date();
-      d.setDate(d.getDate() - 6);
+      d.setDate(d.getDate() - 29);
       return { from: toIso(d), to: toIso(new Date()) };
     })();
     const from = nextFilters.fromDate || defaultRange.from;
@@ -290,6 +290,7 @@ const IndexInner = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
+      revenue_only: true,
       // Para "Hoje", incluímos ontem como fallback (GAM atrasa horas).
       include_yesterday_fallback: preset === "today",
     };
