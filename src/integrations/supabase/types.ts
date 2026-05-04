@@ -458,6 +458,84 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_restart_flow: {
+        Row: {
+          applied_cpa: number | null
+          avg_cpa: number | null
+          campaign_id: string
+          created_at: string
+          current_budget: number | null
+          delivery_ratio: number | null
+          finished_at: string | null
+          google_account_id: string | null
+          id: string
+          initial_budget: number | null
+          last_action: string | null
+          last_action_at: string | null
+          notes: string | null
+          phase2_started_at: string | null
+          phase3_started_at: string | null
+          phase4_started_at: string | null
+          roi: number | null
+          site_id: string | null
+          stage: string
+          start_date: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          applied_cpa?: number | null
+          avg_cpa?: number | null
+          campaign_id: string
+          created_at?: string
+          current_budget?: number | null
+          delivery_ratio?: number | null
+          finished_at?: string | null
+          google_account_id?: string | null
+          id?: string
+          initial_budget?: number | null
+          last_action?: string | null
+          last_action_at?: string | null
+          notes?: string | null
+          phase2_started_at?: string | null
+          phase3_started_at?: string | null
+          phase4_started_at?: string | null
+          roi?: number | null
+          site_id?: string | null
+          stage?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          applied_cpa?: number | null
+          avg_cpa?: number | null
+          campaign_id?: string
+          created_at?: string
+          current_budget?: number | null
+          delivery_ratio?: number | null
+          finished_at?: string | null
+          google_account_id?: string | null
+          id?: string
+          initial_budget?: number | null
+          last_action?: string | null
+          last_action_at?: string | null
+          notes?: string | null
+          phase2_started_at?: string | null
+          phase3_started_at?: string | null
+          phase4_started_at?: string | null
+          roi?: number | null
+          site_id?: string | null
+          stage?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaigns: {
         Row: {
           budget_micros: number | null

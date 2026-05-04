@@ -190,6 +190,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const stateByCamp = new Map<string, any>();
   for (const s of states ?? []) stateByCamp.set(String(s.campaign_id), s);
 
+  // Campanhas com fluxo de reinício ativo são geridas apenas pelo `campaign-restart`.
+  const { data: restartFlows } = await admin
+    .from("campaign_restart_flow")
+    .select("campaign_id")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
+
   const { data: campRows } = await admin
     .from("campaigns")
     .select("campaign_id, name, status, google_account_id, budget_micros")
@@ -198,12 +206,17 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const campMeta = new Map<string, any>();
   for (const c of campRows ?? []) campMeta.set(String(c.campaign_id), c);
 
-  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0;
+  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0; let skippedRestartFlow = 0;
   for (const agg of byCamp.values()) {
     const meta = campMeta.get(agg.campaign_id);
     const status = String(meta?.status ?? "").toLowerCase();
     if (!meta || (status !== "enabled" && status !== "active")) {
       skippedInactive++;
+      continue;
+    }
+
+    if (restartActiveSet.has(agg.campaign_id)) {
+      skippedRestartFlow++;
       continue;
     }
 
@@ -321,7 +334,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, budget_sync: budgetSync };
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, skipped_restart_flow: skippedRestartFlow, budget_sync: budgetSync };
 }
 
 // Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,

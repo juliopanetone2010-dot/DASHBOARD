@@ -13,6 +13,7 @@ import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
+import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "clicks" | "conversions";
 type SortDir = "desc" | "asc";
@@ -26,6 +27,7 @@ interface Props {
 
 export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
+  const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
@@ -141,6 +143,7 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
                       <span className="truncate max-w-[240px]">{c.name}</span>
+                      <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
@@ -259,6 +262,12 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
+
+                          <RestartCampaignButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                            onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
+                          />
                         </>
                       )}
                     </div>
