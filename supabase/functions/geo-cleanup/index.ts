@@ -31,6 +31,8 @@ Deno.serve(async (req) => {
     const minCampaignCostBrl = Math.max(0, Number(body?.min_campaign_cost_brl ?? 500));
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
+    const recentChangeDays = Math.max(0, Number(body?.recent_change_days ?? 7));
+    const minCampaignAgeDays = Math.max(0, Number(body?.min_campaign_age_days ?? 10));
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null =
       typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
