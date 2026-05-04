@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { NET_FACTOR } from "@/engine/rules";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { GeoCleanupPanel } from "@/components/dashboard/GeoCleanupPanel";
 
 interface CountryRow {
   campaign_id: string;
