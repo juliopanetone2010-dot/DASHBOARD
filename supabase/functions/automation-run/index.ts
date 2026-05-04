@@ -104,12 +104,6 @@ async function runForUser(admin: any, cfg: any, userJwt: string | null) {
     agg.daily.push({ date: String(r.date), spend, profit, roi });
   }
 
-  // Soma receita extra (push/outras) à receita bruta da campanha
-  for (const [cid, extra] of extraBrlByCamp.entries()) {
-    const agg = byCamp.get(cid);
-    if (agg) agg.grossRevBrl += extra;
-  }
-
   // Carrega estado atual
   const { data: states } = await admin
     .from("campaign_automation").select("*").eq("user_id", userId);
