@@ -165,8 +165,10 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   // Garante que o total = total do dashboard.
 
   const { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals } = useMemo(() => {
-    // Totais por (camp,date) para escolher a base de rateio
-    // Ordem de preferência: conversões → cliques → impressões → custo (último recurso)
+    // Estratégia (Opção A): receita por país = eCPM da campanha no dia × (impressões do país / 1000)
+    // O eCPM da campanha é derivado do daily_metrics: revenue_usd_total / impressões_totais_da_campanha_no_dia.
+    // Depois normalizamos para que a soma da receita dos países por (camp,date) bata com o total do daily_metrics.
+    // Isso faz o ROI variar por país pois CPM é constante na campanha mas o CPC/custo por país varia.
     const convByCampDate = new Map<string, number>();
     const clicksByCampDate = new Map<string, number>();
     const imprByCampDate = new Map<string, number>();
