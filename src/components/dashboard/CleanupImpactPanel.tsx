@@ -39,7 +39,7 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters } = useDashboardFilters();
-  const [windowDays, setWindowDays] = useState(3);
+  const [windowDays, setWindowDays] = useState(7);
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<CleanupLog[]>([]);
   const [rows, setRows] = useState<ImpactRow[]>([]);
@@ -80,18 +80,19 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
 
       for (const [campaignId, campLogs] of byCampaign) {
-        // Define a janela mínima e máxima de datas necessárias
         const minFromDate = new Date(Math.min(...campLogs.map((l) => new Date(l.executed_at).getTime() + 86400_000)));
         const maxToDate = new Date(Math.max(...campLogs.map((l) => Math.min(new Date(l.executed_at).getTime() + windowDays * 86400_000, yesterday.getTime()))));
-        if (minFromDate > maxToDate) continue;
-        const { data: metrics } = await supabase
-          .from("daily_metrics")
-          .select("date, spend, revenue, profit")
-          .eq("campaign_id", campaignId)
-          .gte("date", isoDate(minFromDate))
-          .lte("date", isoDate(maxToDate))
-          .limit(2000);
-        const arr = metrics ?? [];
+        let arr: any[] = [];
+        if (minFromDate <= maxToDate) {
+          const { data: metrics } = await supabase
+            .from("daily_metrics")
+            .select("date, spend, revenue, profit")
+            .eq("campaign_id", campaignId)
+            .gte("date", isoDate(minFromDate))
+            .lte("date", isoDate(maxToDate))
+            .limit(2000);
+          arr = metrics ?? [];
+        }
 
         for (const log of campLogs) {
           const start = new Date(new Date(log.executed_at).getTime() + 86400_000);
@@ -170,11 +171,11 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
 
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-muted-foreground">Janela:</span>
-          {[2, 3, 5, 7].map((d) => (
-            <button key={d} onClick={() => setWindowDays(d)}
+          {[{v:1,l:"ontem"},{v:7,l:"7d"},{v:15,l:"15d"},{v:30,l:"30d"}].map((d) => (
+            <button key={d.v} onClick={() => setWindowDays(d.v)}
               className={cn("text-[11px] rounded-md border px-2 py-1 transition-colors",
-                windowDays === d ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
-              {d}d
+                windowDays === d.v ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
+              {d.l}
             </button>
           ))}
         </div>
