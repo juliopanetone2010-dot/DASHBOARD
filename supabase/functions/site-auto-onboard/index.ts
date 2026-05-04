@@ -68,15 +68,6 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // já estavam com UTM correto (ou seja, há receita GAM atribuída ao site_id).
     const cap = isoDaysAgo(30);
 
-    // Probe de 30 dias para detectar a primeira data com receita atribuída
-    const gamProbe = await callFn(
-      "gam-sync-revenue",
-      { from: cap, to, site_id: siteId, account_ids: accountIds, revenue_only: true },
-      authHeader,
-    );
-    console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
-    if (!gamProbe.ok) syncLog.errors.push(`gam probe ${gamProbe.status}: ${JSON.stringify(gamProbe.body).slice(0, 300)}`);
-
     async function detectFromDate(): Promise<string> {
       const { data: rev } = await admin
         .from("gam_placement_revenue")
@@ -87,9 +78,9 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
         .order("date", { ascending: true })
         .limit(1);
       const earliest = rev?.[0]?.date as string | undefined;
-      // Se não há receita atribuída no período, não sincroniza histórico
-      // (UTMs ainda não estavam corretas) — usa apenas hoje.
-      if (!earliest) return to;
+      // Se ainda não há receita atribuída salva, sincroniza os 30 dias em chunks pequenos.
+      // O GAM só grava receita quando encontra UTM/campaign/placement válido, então não traz órfãos.
+      if (!earliest) return cap;
       return earliest < cap ? cap : earliest;
     }
 
