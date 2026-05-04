@@ -18,7 +18,17 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;          // ignora cooldown e roda mesmo desabilitado
-    const onlyUserId: string | undefined = body?.user_id;
+    let onlyUserId: string | undefined = body?.user_id;
+
+    // Se chamado com Authorization de um usuário (botão "Rodar agora"), restringe àquele user
+    const authHeader = req.headers.get("Authorization");
+    let userJwt: string | null = null;
+    if (authHeader?.startsWith("Bearer ")) {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
+      const sub = claims?.claims?.sub;
+      if (sub) { onlyUserId = sub; userJwt = authHeader.replace("Bearer ", ""); }
+    }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
