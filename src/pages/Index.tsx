@@ -299,6 +299,12 @@ const IndexInner = () => {
     if (import.meta.env.DEV) {
       console.info("[dashboard-sync] request", { filter: nextFilters, appliedDate: { from, to }, queryKeys: { dashboard: ["dashboard", user?.id ?? "guest", from, to], retention: ["retention", from, to] } });
     }
+    if (nextFilters.siteId === "all") {
+      await allSites.syncAll(true);
+      await data.refresh();
+      toast({ title: "Sincronização geral iniciada", description: "Os sites serão atualizados em segundo plano." });
+      return;
+    }
     const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>(
       "google-ads-sync-campaigns",
       { body },
@@ -321,7 +327,7 @@ const IndexInner = () => {
       toast({ title: "Dados atualizados" });
     }
     await data.refresh();
-  }, [data]);
+  }, [allSites, data, user?.id]);
 
   const handleFilterChange = (nextFilters: DashboardFilters) => {
     const shouldSync =
