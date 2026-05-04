@@ -12,6 +12,7 @@ import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { NET_FACTOR } from "@/engine/rules";
+import { CleanupImpactPanel } from "./CleanupImpactPanel";
 
 interface Props { fxUsdBrl: number; }
 
@@ -392,6 +393,8 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         onSecondChance={(id) => updateStatus(id, "learning", "second_chance manual")}
         onReset={resetPlacement}
       />
+
+      <CleanupImpactPanel fxUsdBrl={fxUsdBrl} />
     </div>
   );
 }

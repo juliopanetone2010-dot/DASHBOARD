@@ -375,6 +375,48 @@ Deno.serve(async (req) => {
         }));
 
       const result = await applyNegativePlacements(admin, userId, selected);
+
+      // Registra log de impacto por campanha (snapshot ROI antes + qtd removida)
+      try {
+        const perCampaign = new Map<string, { count: number; placements: string[] }>();
+        for (const d of result.details ?? []) {
+          if (!d?.campaign_id || !d?.count) continue;
+          const cur = perCampaign.get(String(d.campaign_id)) ?? { count: 0, placements: [] };
+          cur.count += Number(d.count) || 0;
+          perCampaign.set(String(d.campaign_id), cur);
+        }
+        // Coleta nomes de placements aplicados por campanha (a partir do payload original)
+        for (const it of selected) {
+          for (const c of it.campaigns) {
+            const cur = perCampaign.get(String(c.campaign_id));
+            if (cur && !cur.placements.includes(it.placement)) cur.placements.push(it.placement);
+          }
+        }
+        const logs = [];
+        for (const [cid, info] of perCampaign) {
+          if (info.count <= 0) continue;
+          const meta = campMap.get(cid);
+          const totals = totalsMap.get(cid);
+          logs.push({
+            user_id: userId,
+            site_id: siteId,
+            google_account_id: meta?.google_account_id ?? null,
+            campaign_id: cid,
+            campaign_name: meta?.name ?? null,
+            placements_removed_count: info.count,
+            removed_placements: info.placements,
+            roi_before: totals?.roi_pct ?? null,
+            cost_before: totals?.cost_brl ?? null,
+            revenue_before: totals?.revenue_brl ?? null,
+            lookback_days: lookbackDays,
+            executed_at: new Date().toISOString(),
+          });
+        }
+        if (logs.length) await admin.from("placement_cleanup_logs").insert(logs);
+      } catch (e) {
+        console.error("[placements-cleanup] log impact error", e);
+      }
+
       return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats });
     }
 
