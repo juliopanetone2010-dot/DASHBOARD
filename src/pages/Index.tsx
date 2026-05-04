@@ -28,6 +28,7 @@ import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
+import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
@@ -517,6 +518,10 @@ const IndexInner = () => {
                 <div>fx_usd_brl       : <b>{usdBrl.toFixed(4)}</b> · site_currency: <b>{selectedSite?.gam_currency ?? "—"}</b> · override: <b>{String((selectedSite as any)?.gam_currency_override ?? false)}</b></div>
                 <div>campaigns: {engine?.aggregates.length ?? 0} · metrics rows: {filtered.metrics.length} · placements: {filtered.placements.length}</div>
               </div>
+            )}
+
+            {filters.siteId !== "all" && (
+              <SiteSyncBanner siteId={filters.siteId} siteName={selectedSite?.name} />
             )}
 
             {/* Métricas */}

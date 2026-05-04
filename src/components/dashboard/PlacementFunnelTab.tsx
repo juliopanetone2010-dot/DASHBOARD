@@ -521,7 +521,9 @@ function FunnelByCampaign({ rows, campaignMetrics, loading, busyId, daysSince, o
         <TableBody>
           {loading && (<TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="h-4 w-4 animate-spin inline mr-2" />Carregando...</TableCell></TableRow>)}
           {!loading && groups.length === 0 && (
-            <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhum placement. Clique em <b>Avaliar agora</b>.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+              Nenhum placement ainda. Selecione um site e clique em <b>Sincronizar dados do site</b> no banner — ou em <b>Avaliar agora</b> se já houver dados crus.
+            </TableCell></TableRow>
           )}
           {groups.map((g) => {
             const isOpen = expanded.has(g.campaign_id);
