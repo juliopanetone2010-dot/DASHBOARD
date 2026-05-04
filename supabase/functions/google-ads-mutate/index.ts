@@ -311,6 +311,33 @@ Deno.serve(async (req) => {
   }
 });
 
+async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
+  const { data: revenueSites } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("site_id, revenue_usd")
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .not("site_id", "is", null)
+    .limit(1000);
+
+  const bySite = new Map<string, number>();
+  for (const row of revenueSites ?? []) {
+    const sid = String(row.site_id ?? "");
+    if (!sid) continue;
+    bySite.set(sid, (bySite.get(sid) ?? 0) + (Number(row.revenue_usd) || 0));
+  }
+  if (bySite.size === 1) return [...bySite.keys()][0];
+  if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  const { data: links } = await admin
+    .from("account_site_links")
+    .select("site_id")
+    .eq("user_id", userId)
+    .eq("google_account_id", accountId);
+  const linkedSites = [...new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean))];
+  return linkedSites.length === 1 ? linkedSites[0] : null;
+}
+
 function json(payload: unknown) {
   return new Response(JSON.stringify(payload), {
     status: 200,
