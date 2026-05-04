@@ -68,13 +68,14 @@ export function useAllSitesOnboarding(enabled: boolean) {
   }, [enabled, sites, qc]);
 
   const syncAll = async (force = true) => {
-    if (!sites?.length) return;
+    const eligibleSites = (sites ?? []).filter((s) => s.ads_links > 0);
+    if (!eligibleSites.length) return;
     toast({
       title: "Sincronizando todos os sites",
-      description: `${sites.length} site(s) em fila. Pode levar alguns minutos.`,
+      description: `${eligibleSites.length} site(s) em fila. Pode levar alguns minutos.`,
     });
     await Promise.all(
-      sites.map((s) =>
+      eligibleSites.map((s) =>
         supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force } }),
       ),
     );
