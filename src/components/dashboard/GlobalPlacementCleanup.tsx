@@ -194,7 +194,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
         "placements-cleanup",
-        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl } },
+        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
