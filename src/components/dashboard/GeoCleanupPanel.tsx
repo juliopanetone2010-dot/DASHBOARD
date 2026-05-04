@@ -77,7 +77,7 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
   const persist = async (patch: Record<string, unknown>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    await supabase.from("rules_config").update(patch).eq("user_id", u.user.id);
+    await supabase.from("rules_config").update(patch as never).eq("user_id", u.user.id);
   };
 
   const toggleAuto = async (on: boolean) => {
