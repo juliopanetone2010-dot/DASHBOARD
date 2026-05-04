@@ -180,7 +180,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
 
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-muted-foreground">Janela:</span>
-          {[{v:1,l:"ontem"},{v:7,l:"7d"},{v:15,l:"15d"},{v:30,l:"30d"}].map((d) => (
+          {[{v:1,l:"1d"},{v:2,l:"2d"},{v:3,l:"3d"},{v:7,l:"7d"},{v:15,l:"15d"},{v:30,l:"30d"}].map((d) => (
             <button key={d.v} onClick={() => setWindowDays(d.v)}
               className={cn("text-[11px] rounded-md border px-2 py-1 transition-colors",
                 windowDays === d.v ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted")}>
