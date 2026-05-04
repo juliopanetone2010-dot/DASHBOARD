@@ -19,6 +19,7 @@ import { CampaignsTable } from "@/components/dashboard/CampaignsTable";
 import { RulesPanel } from "@/components/dashboard/RulesPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
+import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
 import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
@@ -350,7 +351,16 @@ const IndexInner = () => {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <GlobalSiteSelector
+              sites={data.sites}
+              links={data.links}
+              onChange={() => {
+                // Após trocar o site, dispara o sync completo com os filtros já atualizados
+                // (setFilters é síncrono, mas precisamos do próximo tick)
+                setTimeout(() => void syncDashboardData({ ...filters }), 0);
+              }}
+            />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
