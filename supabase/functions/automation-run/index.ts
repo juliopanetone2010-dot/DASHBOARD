@@ -218,10 +218,10 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
-      if (dryRun || !userJwt) execStatus = "dry_run";
+      if (dryRun) execStatus = "dry_run";
       else {
         try {
-          await applyMutation(userJwt, agg.campaign_id, accountId, siteId, decision, cfg);
+          await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, decision, cfg);
           execStatus = "executed"; executed++;
         } catch (e) { execStatus = "failed"; execError = String(e instanceof Error ? e.message : e); }
       }
