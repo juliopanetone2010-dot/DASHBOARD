@@ -56,4 +56,13 @@ export const COUNTRY_BY_ID: Record<string, { code: string; name: string }> = {
   "2372": { code: "IE", name: "Irlanda" },
   "2756": { code: "CH", name: "Suíça" },
   "2040": { code: "AT", name: "Áustria" },
+  "2344": { code: "HK", name: "Hong Kong" },
+  "2158": { code: "TW", name: "Taiwan" },
+  "2446": { code: "MO", name: "Macau" },
+  "2188": { code: "CR", name: "Costa Rica" },
+  "2591": { code: "PA", name: "Panamá" },
+  "2858": { code: "UY", name: "Uruguai" },
+  "2068": { code: "BO", name: "Bolívia" },
+  "2218": { code: "EC", name: "Equador" },
+  "2600": { code: "PY", name: "Paraguai" },
 };
