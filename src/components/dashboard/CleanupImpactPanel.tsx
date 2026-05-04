@@ -174,7 +174,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Impacto da limpeza de placements</div>
           <div className="text-xs text-muted-foreground">
-            Compara ROI da campanha {windowDays} dias antes vs depois da limpeza. Considera dados até ontem. Só mostra limpezas do site selecionado.
+            Compara ROI {windowDays}d antes vs {windowDays}d depois da limpeza (janelas simétricas). Só classifica quando há dados completos pós-limpeza.
           </div>
         </div>
 
