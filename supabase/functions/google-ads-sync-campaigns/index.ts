@@ -185,6 +185,9 @@ Deno.serve(async (req) => {
             campaign.name,
             campaign.status,
             campaign.advertising_channel_type,
+            campaign_budget.amount_micros,
+            campaign.target_cpa.target_cpa_micros,
+            campaign.maximize_conversions.target_cpa_micros,
             metrics.cost_micros,
             metrics.clicks,
             metrics.impressions,
@@ -236,18 +239,29 @@ Deno.serve(async (req) => {
             }
 
             const results = (camJson.results ?? []) as Array<{
-              campaign: { id: string; name: string; status: string; advertisingChannelType?: string };
+              campaign: {
+                id: string; name: string; status: string; advertisingChannelType?: string;
+                targetCpa?: { targetCpaMicros?: string };
+                maximizeConversions?: { targetCpaMicros?: string };
+              };
+              campaignBudget?: { amountMicros?: string };
               metrics: { costMicros?: string; clicks?: string; impressions?: string; conversions?: number; conversionsValue?: number };
               segments: { date: string };
             }>;
 
-            // Agrupa campanhas únicas
-            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string }>();
+            // Agrupa campanhas únicas (mantém último budget/cpa visto)
+            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null }>();
             for (const r of results) {
+              const budgetMicros = r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null;
+              const cpaMicros = r.campaign.targetCpa?.targetCpaMicros
+                ? Number(r.campaign.targetCpa.targetCpaMicros)
+                : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null);
               uniqueCampaigns.set(r.campaign.id, {
                 name: r.campaign.name,
                 status: r.campaign.status,
                 channel: r.campaign.advertisingChannelType ?? "DISPLAY",
+                budget_micros: budgetMicros,
+                target_cpa_micros: cpaMicros,
               });
             }
 
@@ -260,6 +274,8 @@ Deno.serve(async (req) => {
                 name: info.name,
                 status: info.status.toLowerCase(),
                 channel_type: info.channel,
+                budget_micros: info.budget_micros,
+                target_cpa_micros: info.target_cpa_micros,
               }));
               const { error: campErr } = await admin
                 .from("campaigns")
