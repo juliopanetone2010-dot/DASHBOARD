@@ -1353,6 +1353,7 @@ export type Database = {
           created_at: string
           domain: string
           gam_account_id: string | null
+          gam_currency: string
           id: string
           name: string
           network_code: string
@@ -1364,6 +1365,7 @@ export type Database = {
           created_at?: string
           domain: string
           gam_account_id?: string | null
+          gam_currency?: string
           id?: string
           name: string
           network_code: string
@@ -1375,6 +1377,7 @@ export type Database = {
           created_at?: string
           domain?: string
           gam_account_id?: string | null
+          gam_currency?: string
           id?: string
           name?: string
           network_code?: string
