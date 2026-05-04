@@ -280,7 +280,7 @@ const IndexInner = () => {
     const defaultRange = (() => {
       const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const d = new Date();
-      d.setDate(d.getDate() - 6);
+      d.setDate(d.getDate() - 29);
       return { from: toIso(d), to: toIso(new Date()) };
     })();
     const from = nextFilters.fromDate || defaultRange.from;
@@ -290,6 +290,7 @@ const IndexInner = () => {
       to,
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
+      revenue_only: true,
       // Para "Hoje", incluímos ontem como fallback (GAM atrasa horas).
       include_yesterday_fallback: preset === "today",
     };
@@ -297,6 +298,12 @@ const IndexInner = () => {
     toast({ title: "Sincronizando", description: "Filtros atualizados" });
     if (import.meta.env.DEV) {
       console.info("[dashboard-sync] request", { filter: nextFilters, appliedDate: { from, to }, queryKeys: { dashboard: ["dashboard", user?.id ?? "guest", from, to], retention: ["retention", from, to] } });
+    }
+    if (nextFilters.siteId === "all") {
+      await allSites.syncAll(true);
+      await data.refresh();
+      toast({ title: "Sincronização geral iniciada", description: "Os sites serão atualizados em segundo plano." });
+      return;
     }
     const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>(
       "google-ads-sync-campaigns",
@@ -320,7 +327,7 @@ const IndexInner = () => {
       toast({ title: "Dados atualizados" });
     }
     await data.refresh();
-  }, [data]);
+  }, [allSites, data, user?.id]);
 
   const handleFilterChange = (nextFilters: DashboardFilters) => {
     const shouldSync =

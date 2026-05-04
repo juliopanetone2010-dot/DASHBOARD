@@ -42,6 +42,14 @@ async function callFn(name: string, body: unknown, authHeader: string) {
 async function runBackground(siteId: string, userId: string, authHeader: string) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
   const to = isoDaysAgo(0);
+  const syncLog = {
+    siteId,
+    campaignRows: 0,
+    placementsOk: 0,
+    placementsTotal: 0,
+    gamChunks: [] as Array<{ from: string; to: string; status: number; ok: boolean }>,
+    errors: [] as string[],
+  };
 
   try {
     // contas Ads vinculadas ao site
@@ -60,14 +68,6 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // já estavam com UTM correto (ou seja, há receita GAM atribuída ao site_id).
     const cap = isoDaysAgo(30);
 
-    // Probe de 30 dias para detectar a primeira data com receita atribuída
-    const gamProbe = await callFn(
-      "gam-sync-revenue",
-      { from: cap, to, site_id: siteId, account_ids: accountIds },
-      authHeader,
-    );
-    console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
-
     async function detectFromDate(): Promise<string> {
       const { data: rev } = await admin
         .from("gam_placement_revenue")
@@ -78,9 +78,9 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
         .order("date", { ascending: true })
         .limit(1);
       const earliest = rev?.[0]?.date as string | undefined;
-      // Se não há receita atribuída no período, não sincroniza histórico
-      // (UTMs ainda não estavam corretas) — usa apenas hoje.
-      if (!earliest) return to;
+      // Se ainda não há receita atribuída salva, sincroniza os 30 dias em chunks pequenos.
+      // O GAM só grava receita quando encontra UTM/campaign/placement válido, então não traz órfãos.
+      if (!earliest) return cap;
       return earliest < cap ? cap : earliest;
     }
 
@@ -94,9 +94,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       authHeader,
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
+    if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
 
     // 2. receita GAM em chunks de 14 dias para não estourar o timeout (150s)
-    const chunkDays = 14;
+    const chunkDays = 7;
     const fromDate = new Date(from + "T00:00:00Z");
     const toDate = new Date(to + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
@@ -111,10 +112,12 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     for (const c of chunks) {
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
+      syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
+      if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
     }
 
     // 3. placements por campanha do site
@@ -124,6 +127,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       .eq("user_id", userId)
       .in("google_account_id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"])
       .limit(50);
+    syncLog.campaignRows = campaigns?.length ?? 0;
 
     let placementsOk = 0;
     for (const c of campaigns ?? []) {
@@ -134,7 +138,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       );
       if (r.ok) placementsOk++;
     }
+    syncLog.placementsOk = placementsOk;
+    syncLog.placementsTotal = campaigns?.length ?? 0;
     console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
+    console.log("[auto-onboard] sync log", syncLog);
 
     await admin
       .from("sites")

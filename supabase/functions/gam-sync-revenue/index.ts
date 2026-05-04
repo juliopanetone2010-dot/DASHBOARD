@@ -24,6 +24,12 @@ Deno.serve(async (req) => {
     let requestedAccountIds: string[] = [];
     let includeYesterdayFallback = false;
     let testMode = false;
+    let revenueOnly = true;
+    let skipLegacyReports = true;
+    let skipViewability = true;
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + 115_000;
+    const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
@@ -36,6 +42,10 @@ Deno.serve(async (req) => {
         : [];
       includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
+      const includeFullReports = Boolean((body as any)?.include_full_reports);
+      revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
+      skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
+      skipViewability = revenueOnly || Boolean((body as any)?.skip_viewability);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -110,18 +120,25 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Reports legados (ad unit + placement) — apenas para inspeção/UI de placements.
-        const adUnitRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug })
-        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
-        const placementRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug })
-        ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        // Reports legados (ad unit + placement) são pesados e não entram no ROI.
+        // Em sincronizações automáticas usamos revenue_only para evitar timeout de 150s.
+        let adUnitRows: Array<ReportRow & { name: string }> = [];
+        let placementRows: Array<ReportRow & { name: string }> = [];
+        if (!skipLegacyReports && hasBudget(45_000)) {
+          adUnitRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: ["DATE", "AD_UNIT_NAME"], debug, deadlineAt })
+          ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+          placementRows = (await Promise.all(ranges.map((range) =>
+            runReport({ networkCode, accessToken, range, dimensions: ["DATE", "PLACEMENT_NAME"], debug, deadlineAt })
+          ))).flat().map((r) => ({ ...r, name: r.dims[1] ?? "(unknown)" }));
+        } else {
+          debug.push(`[${networkCode}] legacy placement/ad-unit reports skipped (revenue_only=${revenueOnly})`);
+        }
 
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug });
+        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
@@ -183,10 +200,12 @@ Deno.serve(async (req) => {
           },
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
-        for (const variant of viewabilityVariants) {
+        if (skipViewability || !hasBudget(35_000)) {
+          debug.push(`[${networkCode}] viewability skipped (revenue_only=${revenueOnly})`);
+        } else for (const variant of viewabilityVariants) {
           try {
             const raw = (await Promise.all(ranges.map((range) =>
-              runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug })
+              runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug, deadlineAt })
             ))).flat();
             debug.push(`[${networkCode}] viewability ${variant.label} rows=${raw.length}`);
             for (const r of raw as any[]) {
@@ -236,6 +255,7 @@ Deno.serve(async (req) => {
           attribution_source: attribution.campaignSource,
           placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
+          revenue_only: revenueOnly,
           currency: siteCurrency,
           detected_currency: detectedCurrency ?? null,
           usd_brl_rate: fxRates.usdBrl,
@@ -471,9 +491,9 @@ async function fetchUtmKeyIds(
 }
 
 async function collectUtmAttribution(args: {
-  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean;
 }): Promise<AttributionResult> {
-  const { networkCode, accessToken, ranges, debug } = args;
+  const { networkCode, accessToken, ranges, debug, deadlineAt, fastMode } = args;
   const label = "KEY_VALUES_NAME";
 
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
@@ -482,9 +502,11 @@ async function collectUtmAttribution(args: {
   let reportRows: ReportRow[] = [];
   try {
     const metricGroups = [
-      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      ...(fastMode ? [] : [
+        { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+        { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      ]),
     ];
     for (const group of metricGroups) {
       try {
@@ -494,6 +516,7 @@ async function collectUtmAttribution(args: {
             dimensions: ["DATE", "KEY_VALUES_NAME"],
             metrics: group.metrics,
             debug,
+            deadlineAt,
           })
         ))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
@@ -935,11 +958,18 @@ interface RunReportArgs {
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
+  deadlineAt?: number;
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
+  const ensureBudget = (minimumMs = 8_000) => {
+    if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
+      throw new Error(`[${tag}] aborted before Edge timeout`);
+    }
+  };
+  ensureBudget(20_000);
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
@@ -985,6 +1015,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
 
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
+    ensureBudget(10_000);
     await new Promise((r) => setTimeout(r, 2000));
     const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await parseJsonResponse(opRes, "poll", tag);
@@ -1001,6 +1032,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
   do {
+    ensureBudget(10_000);
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
