@@ -302,6 +302,8 @@ Deno.serve(async (req) => {
     let skippedFewCountries = 0;
     let skippedLowCampCost = 0;
     let skippedLowCountryCost = 0;
+    let skippedRecentChange = 0;
+    let skippedTooNew = 0;
 
     for (const c of cells.values()) {
       const meta = campMap.get(c.campaign_id);
