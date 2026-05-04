@@ -135,12 +135,47 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         s += 1000;
       }
       setRows(all);
+      const { from, to } = rangeFromLookback(lookback);
+      const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
+      const metrics: any[] = [];
+      let m = 0;
+      for (;;) {
+        const { data, error } = await supabase
+          .from("daily_metrics")
+          .select("campaign_id, spend, profit")
+          .gte("date", from)
+          .lte("date", to)
+          .range(m, m + 999);
+        if (error) throw error;
+        const page = data ?? [];
+        metrics.push(...page);
+        if (page.length < 1000) break;
+        m += 1000;
+      }
+      const byCampaign = new Map<string, CampaignMetricSummary>();
+      for (const r of metrics) {
+        const cid = String(r.campaign_id);
+        const c = campMap.get(cid);
+        const cur = byCampaign.get(cid) ?? { campaign_id: cid, name: c?.name ?? cid, google_account_id: c?.google_account_id ?? null, cost: 0, rev: 0, profit: 0, roi: 0 };
+        const spend = Number(r.spend ?? 0);
+        const grossProfit = Number(r.profit ?? 0);
+        const grossRevenueBrl = spend + grossProfit;
+        cur.cost += spend;
+        cur.rev += grossRevenueBrl * NET_FACTOR;
+        byCampaign.set(cid, cur);
+      }
+      for (const c of byCampaign.values()) {
+        c.profit = c.rev - c.cost;
+        c.roi = c.cost > 0 ? (c.profit / c.cost) * 100 : 0;
+      }
+      setCampaignMetrics([...byCampaign.values()]);
     } catch (e: any) {
       toast({ title: "Erro ao carregar", description: e.message, variant: "destructive" });
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); loadConfig(); }, []);
+  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => { load(); }, [lookback, campaigns.length]);
 
   const toggleAuto = async (on: boolean) => {
     setAutoEnabled(on);
