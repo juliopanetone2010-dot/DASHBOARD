@@ -41,9 +41,6 @@ async function callFn(name: string, body: unknown, authHeader: string) {
 
 async function runBackground(siteId: string, userId: string, authHeader: string) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-  // Janela ampla: 90 dias (limite prático do Google Ads para detail_placement_view).
-  // Cobre todo o histórico relevante de gasto + receita atribuível.
-  const from = isoDaysAgo(90);
   const to = isoDaysAgo(0);
 
   try {
@@ -54,6 +51,36 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       .eq("user_id", userId)
       .eq("site_id", siteId);
     const accountIds = (links ?? []).map((l: { google_account_id: string }) => l.google_account_id);
+
+    // Janela dinâmica: começa na primeira data em que houve receita GAM atribuída
+    // (UTM source) a alguma campanha Ads deste site. Se não houver, faz primeiro
+    // um sync de receita para descobrir, e depois recalcula. Limite máx 90 dias
+    // (limite prático do Google Ads detail_placement_view).
+    async function detectFromDate(): Promise<string> {
+      const { data: rev } = await admin
+        .from("gam_placement_revenue")
+        .select("date")
+        .eq("user_id", userId)
+        .eq("site_id", siteId)
+        .order("date", { ascending: true })
+        .limit(1);
+      const earliest = rev?.[0]?.date as string | undefined;
+      const cap = isoDaysAgo(90);
+      if (!earliest) return cap;
+      return earliest < cap ? cap : earliest;
+    }
+
+    // Primeira passagem: puxa receita GAM dos últimos 90d para descobrir desde quando
+    // a campanha está marcada com o parâmetro UTM
+    const gamProbe = await callFn(
+      "gam-sync-revenue",
+      { from: isoDaysAgo(90), to, site_id: siteId, account_ids: accountIds },
+      authHeader,
+    );
+    console.log("[auto-onboard] gam probe", { siteId, status: gamProbe.status });
+
+    const from = await detectFromDate();
+    console.log("[auto-onboard] window", { siteId, from, to });
 
     // 1. campanhas (Google Ads) — sincroniza últimos 90d para essas contas
     const ads = await callFn(
