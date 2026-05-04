@@ -347,6 +347,7 @@ Deno.serve(async (req) => {
       if (statusChanged) {
         histInserts.push({
           user_id: userId,
+          site_id: siteId,
           placement_status_id: ex?.id ?? null,
           campaign_id: a.campaign_id,
           placement: a.placement,
