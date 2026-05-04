@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { NET_FACTOR } from "@/engine/rules";
 
 interface Props { fxUsdBrl: number; }
 
@@ -41,6 +42,26 @@ interface Row {
 
 interface AccountOpt { id: string; name: string; }
 interface SiteOpt { id: string; name: string; account_ids: string[]; }
+interface CampaignOpt { campaign_id: string; name: string; google_account_id: string | null; }
+interface CampaignMetricSummary { campaign_id: string; name: string; google_account_id: string | null; cost: number; rev: number; profit: number; roi: number; }
+
+const isoLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const rangeFromLookback = (lookback: number) => {
+  const today = new Date();
+  if (lookback === 1) return { from: isoLocal(today), to: isoLocal(today) };
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (lookback === 2) return { from: isoLocal(yesterday), to: isoLocal(yesterday) };
+  const from = new Date(today);
+  from.setDate(today.getDate() - Math.max(1, lookback));
+  return { from: isoLocal(from), to: isoLocal(yesterday) };
+};
 
 const STATUS_META: Record<Status, { label: string; cls: string }> = {
   test: { label: "Teste", cls: "bg-muted text-muted-foreground" },
@@ -64,6 +85,8 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
 
   const [accounts, setAccounts] = useState<AccountOpt[]>([]);
   const [sites, setSites] = useState<SiteOpt[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignOpt[]>([]);
+  const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetricSummary[]>([]);
   const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
   const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
 
@@ -77,10 +100,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       setLastRun(data.placement_cleanup_last_run_at ?? null);
       setAutoIntervalDays(Number((data as any).placement_cleanup_interval_days ?? 15));
     }
-    const [{ data: accs }, { data: siteRows }, { data: linkRows }] = await Promise.all([
+    const [{ data: accs }, { data: siteRows }, { data: linkRows }, { data: campRows }] = await Promise.all([
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id").order("account_name", { ascending: true }),
       supabase.from("sites").select("id, name").order("name", { ascending: true }),
       supabase.from("account_site_links").select("site_id, google_account_id"),
+      supabase.from("campaigns").select("campaign_id, name, google_account_id"),
     ]);
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
     const linksBySite = new Map<string, string[]>();
@@ -90,6 +114,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       linksBySite.set(l.site_id, arr);
     }
     setSites((siteRows ?? []).map((s: any) => ({ id: s.id, name: s.name, account_ids: linksBySite.get(s.id) ?? [] })));
+    setCampaigns((campRows ?? []).map((c: any) => ({ campaign_id: String(c.campaign_id), name: c.name, google_account_id: c.google_account_id ?? null })));
   };
 
   const load = async () => {
