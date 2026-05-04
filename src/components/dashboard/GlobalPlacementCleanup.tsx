@@ -121,6 +121,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const runPreview = async () => {
+    if (!filters.siteId || filters.siteId === "all") {
+      toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     setItems([]);
     setSelected(new Set());
@@ -133,6 +137,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           min_cost_brl: minCost,
           lookback_days: lookback,
           fx_usd_brl: fxUsdBrl,
+          site_id: filters.siteId,
+          google_account_ids: filters.googleAccountIds,
         },
       });
       if (error || data?.error) {
