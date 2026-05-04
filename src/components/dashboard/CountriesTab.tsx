@@ -385,7 +385,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
               Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída
-              proporcional ao custo de cada país. Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
+              proporcional a conversões por país (fallback: cliques → impressões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
             </div>
           </div>
           <div className="flex items-center gap-2">
