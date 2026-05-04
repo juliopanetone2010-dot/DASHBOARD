@@ -220,7 +220,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.last_action_date = nowIso;
     }
 
-    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,google_account_id,campaign_id" });
+    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
 
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
