@@ -317,6 +317,7 @@ Deno.serve(async (req) => {
       const firstSeen = ex?.first_seen_at ?? (fd && !isNaN(fd.getTime()) ? fd.toISOString() : nowIso);
       const row: any = {
         user_id: userId,
+        site_id: siteId,
         google_account_id: meta.google_account_id,
         campaign_id: a.campaign_id,
         campaign_name: meta.name,
