@@ -80,18 +80,19 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
 
       for (const [campaignId, campLogs] of byCampaign) {
-        // Define a janela mínima e máxima de datas necessárias
         const minFromDate = new Date(Math.min(...campLogs.map((l) => new Date(l.executed_at).getTime() + 86400_000)));
         const maxToDate = new Date(Math.max(...campLogs.map((l) => Math.min(new Date(l.executed_at).getTime() + windowDays * 86400_000, yesterday.getTime()))));
-        if (minFromDate > maxToDate) continue;
-        const { data: metrics } = await supabase
-          .from("daily_metrics")
-          .select("date, spend, revenue, profit")
-          .eq("campaign_id", campaignId)
-          .gte("date", isoDate(minFromDate))
-          .lte("date", isoDate(maxToDate))
-          .limit(2000);
-        const arr = metrics ?? [];
+        let arr: any[] = [];
+        if (minFromDate <= maxToDate) {
+          const { data: metrics } = await supabase
+            .from("daily_metrics")
+            .select("date, spend, revenue, profit")
+            .eq("campaign_id", campaignId)
+            .gte("date", isoDate(minFromDate))
+            .lte("date", isoDate(maxToDate))
+            .limit(2000);
+          arr = metrics ?? [];
+        }
 
         for (const log of campLogs) {
           const start = new Date(new Date(log.executed_at).getTime() + 86400_000);
