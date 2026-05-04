@@ -500,7 +500,7 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando`, roi, trend, delivery, avgDailySpend };
 }
 
-async function applyMutation(userJwt: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any) {
+async function applyMutation(userJwt: string | null, userId: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any) {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
   const body: any = { campaign_id: campaignId, google_account_id: accountId, site_id: siteId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
@@ -509,11 +509,17 @@ async function applyMutation(userJwt: string, campaignId: string, accountId: str
   else if (decision.action === "cpa_down") { body.action = "adjust_cpa"; body.delta_pct = -(Number(cfg.auto_cpa_down_pct) || 10); }
   else return;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${userJwt}` },
-    body: JSON.stringify(body),
-  });
+  // Em chamadas do cron (sem userJwt) usamos o service role + header x-system-user-id
+  // para que o google-ads-mutate identifique o dono da campanha sem JWT de usuário.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (userJwt) {
+    headers.Authorization = `Bearer ${userJwt}`;
+  } else {
+    headers.Authorization = `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+    headers["x-system-user-id"] = userId;
+  }
+
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j?.error) throw new Error(j?.error || `mutate failed: ${res.status}`);
 }
