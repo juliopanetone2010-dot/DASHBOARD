@@ -190,6 +190,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const stateByCamp = new Map<string, any>();
   for (const s of states ?? []) stateByCamp.set(String(s.campaign_id), s);
 
+  // Campanhas com fluxo de reinício ativo são geridas apenas pelo `campaign-restart`.
+  const { data: restartFlows } = await admin
+    .from("campaign_restart_flow")
+    .select("campaign_id")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
+
   const { data: campRows } = await admin
     .from("campaigns")
     .select("campaign_id, name, status, google_account_id, budget_micros")
