@@ -299,7 +299,7 @@ export function useDashboardData(): DashboardData {
       links: (l.data ?? []) as AccountSiteLink[],
       fetchedAt: Date.now(),
     };
-  }, [user, queryKey, range.from, range.to, filters.googleAccountIds]);
+  }, [user, queryKey, range.from, range.to, filters.googleAccountIds, filters.siteId]);
 
   const query = useQuery<DashboardSnapshot>({
     queryKey,
