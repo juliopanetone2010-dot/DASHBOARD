@@ -156,12 +156,45 @@ Deno.serve(async (req) => {
         // para exibir em BRL) continua correto, sem dupla conversão.
         const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
 
+        // Viewability + eCPM por site/dia
+        let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];
+        try {
+          viewabilityRows = (await Promise.all(ranges.map((range) =>
+            runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE"],
+              metrics: [
+                "AD_SERVER_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+                "AD_SERVER_REVENUE",
+              ],
+              debug,
+            })
+          ))).flat().map((r: any) => ({
+            date: r.date,
+            impressions: r.impressions,
+            measurable: Number(r._raw_measurable ?? 0),
+            viewable: Number(r._raw_viewable ?? 0),
+            revenue: r.revenue,
+          }));
+        } catch (e) {
+          debug.push(`[${networkCode}] viewability report falhou: ${String(e).slice(0, 200)}`);
+        }
+
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
         }
+
+        const vTot = viewabilityRows.reduce((a, r) => ({
+          impr: a.impr + r.impressions, meas: a.meas + r.measurable, view: a.view + r.viewable, rev: a.rev + r.revenue,
+        }), { impr: 0, meas: 0, view: 0, rev: 0 });
+        const viewabilityPct = vTot.meas > 0 ? (vTot.view / vTot.meas) * 100 : 0;
+        const ecpmNative = vTot.impr > 0 ? (vTot.rev / vTot.impr) * 1000 : 0;
 
         summary.push({
           network_code: networkCode,
@@ -175,10 +208,13 @@ Deno.serve(async (req) => {
           attribution_source: attribution.campaignSource,
           placement_source: attribution.placementSource,
           attribution_rule: "utm_source=google→ROI/ROAS; demais→retenção (sem fallback)",
-          currency: "USD",
+          currency: siteCurrency,
+          detected_currency: detectedCurrency ?? null,
           usd_brl_rate: fxRates.usdBrl,
           total_revenue_usd: totals.revenue,
           total_impressions: totals.impressions,
+          viewability_pct: viewabilityPct,
+          ecpm_native: ecpmNative,
           date_range: ranges.map((r) => r.debugLabel),
           site_id: requestedSiteId ?? null,
           rows_returned: googleCampaignRows.length,
