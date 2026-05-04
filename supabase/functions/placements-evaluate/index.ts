@@ -86,10 +86,12 @@ Deno.serve(async (req) => {
     let allowedCampaigns: Set<string> | null = null;
     if (siteId) {
       const { data: revRows } = await admin
-        .from("gam_campaign_source_revenue")
+        .from("gam_placement_revenue")
         .select("campaign_id, site_id, revenue_usd")
         .eq("user_id", userId)
         .not("site_id", "is", null)
+        .gte("date", from)
+        .lte("date", to)
         .limit(50000);
       const bestSiteByCampaign = new Map<string, { sid: string; rev: number }>();
       const siteRevByCampaign = new Map<string, Map<string, number>>();
@@ -136,10 +138,11 @@ Deno.serve(async (req) => {
     const gam: GamRow[] = [];
     s = 0;
     for (;;) {
-      const { data, error } = await admin.from("gam_placement_revenue")
+      let gamQuery = admin.from("gam_placement_revenue")
         .select("campaign_id, placement, revenue_usd, date")
-        .eq("user_id", userId).gte("date", from).lte("date", to)
-        .range(s, s + 999);
+        .eq("user_id", userId).gte("date", from).lte("date", to);
+      if (siteId) gamQuery = gamQuery.eq("site_id", siteId);
+      const { data, error } = await gamQuery.range(s, s + 999);
       if (error) return json({ error: error.message });
       const rows = (data ?? []) as GamRow[];
       gam.push(...rows);
