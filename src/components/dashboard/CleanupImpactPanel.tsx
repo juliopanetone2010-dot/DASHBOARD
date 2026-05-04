@@ -183,6 +183,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           <Badge className="bg-success-soft text-success border-success/20">🟢 {summary.up}</Badge>
           <Badge className="bg-danger-soft text-danger border-danger/20">🔴 {summary.down}</Badge>
           <Badge variant="outline">⚪ {summary.neutral}</Badge>
+          {summary.pending > 0 && <Badge variant="outline">⏳ {summary.pending}</Badge>}
         </div>
 
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
