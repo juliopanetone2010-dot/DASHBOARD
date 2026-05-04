@@ -381,6 +381,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
   return (
     <div className="space-y-4">
+      <GeoCleanupPanel fxUsdBrl={fxUsdBrl} siteId={siteId === "all" ? null : siteId} />
       {/* Header + filtros */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
