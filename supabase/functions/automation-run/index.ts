@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
         summary.push({ user_id: cfg.user_id, skipped: "automation_disabled" });
         continue;
       }
-      const result = await runForUser(admin, cfg);
+      const result = await runForUser(admin, cfg, userJwt);
       summary.push({ user_id: cfg.user_id, ...result });
       await admin
         .from("rules_config")
@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForUser(admin: any, cfg: any) {
+async function runForUser(admin: any, cfg: any, userJwt: string | null) {
   const userId = cfg.user_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
   const days: number = Math.max(1, Number(cfg.auto_analysis_days) || 7);
