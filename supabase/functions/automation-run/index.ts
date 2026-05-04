@@ -182,7 +182,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       continue;
     }
 
-    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id));
+    const dailyBudget = meta?.budget_micros ? Number(meta.budget_micros) / 1_000_000 : 0;
+    const decision = classify(agg, cfg, stateByCamp.get(agg.campaign_id), dailyBudget);
     decisions++;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
@@ -196,6 +197,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       lifecycle_status: decision.lifecycle,
       last_roi: round2(decision.roi),
       roi_trend: decision.trend,
+      delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
+      daily_budget: round2(dailyBudget),
       last_evaluated_at: nowIso,
     };
     if (decision.lifecycle === "standby" && fromStatus !== "standby") {
@@ -218,6 +221,10 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     if (decision.action !== "none") {
       newState.last_action = decision.action;
       newState.last_action_date = nowIso;
+      if (decision.delivery_driven) {
+        newState.last_delivery_action = decision.action;
+        newState.last_delivery_action_date = nowIso;
+      }
     }
 
     await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
@@ -249,7 +256,18 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       revenue: round2(agg.grossRevBrl * NET_FACTOR),
       lifecycle_from: fromStatus,
       lifecycle_to: decision.lifecycle,
-      payload: { trend: decision.trend, days: agg.days.size, name: meta?.name ?? null, site_id: siteId, google_account_id: accountId, daily: agg.daily.slice(-days) },
+      payload: {
+        trend: decision.trend,
+        days: agg.days.size,
+        name: meta?.name ?? null,
+        site_id: siteId,
+        google_account_id: accountId,
+        delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
+        daily_budget: round2(dailyBudget),
+        avg_daily_spend: round2(decision.avgDailySpend ?? 0),
+        delivery_driven: !!decision.delivery_driven,
+        daily: agg.daily.slice(-days),
+      },
       error: execError,
     });
   }
