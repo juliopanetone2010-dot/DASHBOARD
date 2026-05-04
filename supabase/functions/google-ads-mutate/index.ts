@@ -309,8 +309,15 @@ Deno.serve(async (req) => {
       });
       const j = await r.json();
       if (!r.ok) {
+        console.error("[exclude_country] google ads error", JSON.stringify(j));
         await logAction("failed", mutateBody, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        // Extrai detalhe específico (errors[].message ou details[].errors[].message)
+        const detail =
+          j?.error?.details?.[0]?.errors?.[0]?.message ??
+          j?.error?.details?.[0]?.errors?.[0]?.errorCode ??
+          j?.error?.message ??
+          JSON.stringify(j);
+        return json({ error: String(detail) });
       }
       await logAction("executed", { country_criterion_id: countryCriterionId });
       return json({ ok: true, action, country_criterion_id: countryCriterionId });
