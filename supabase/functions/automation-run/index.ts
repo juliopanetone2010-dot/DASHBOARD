@@ -11,6 +11,22 @@ const NET_FACTOR = 0.935;
 const DEFAULT_STOPLOSS_ROI = -20;
 
 type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+
+// Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
+// em campanhas novas/scaling e mais conservadoras em standby/bad.
+const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
+  testing: 2,
+  learning: 5,
+  standby: 7,
+  scaling: 3,
+  bad: 5,
+  paused: 7,
+};
+const MAX_LIFECYCLE_WINDOW = 7;
+function windowForLifecycle(lc: Lifecycle | null | undefined): number {
+  if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
+  return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+}
 type SiteAutomationConfig = {
   id: string;
   user_id: string;
