@@ -112,6 +112,42 @@ const IndexInner = () => {
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
+  // Atribuição por site quando uma conta Ads serve N sites:
+  // shareByCampaignSite[campaign][site] = % da receita GAM daquele campaign que veio do site.
+  // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
+  const siteShareQuery = useQuery({
+    queryKey: ["site-share", range.from, range.to],
+    queryFn: async () => {
+      const { data: rows } = await supabase
+        .from("gam_campaign_source_revenue")
+        .select("campaign_id, site_id, revenue_usd")
+        .not("site_id", "is", null)
+        .gte("date", range.from).lte("date", range.to)
+        .limit(50000);
+      const totalByCamp = new Map<string, number>();
+      const bySite = new Map<string, Map<string, number>>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id);
+        const sid = String((r as any).site_id);
+        const v = Number((r as any).revenue_usd) || 0;
+        totalByCamp.set(cid, (totalByCamp.get(cid) ?? 0) + v);
+        const inner = bySite.get(cid) ?? new Map<string, number>();
+        inner.set(sid, (inner.get(sid) ?? 0) + v);
+        bySite.set(cid, inner);
+      }
+      const share = new Map<string, Map<string, number>>();
+      for (const [cid, inner] of bySite) {
+        const total = totalByCamp.get(cid) ?? 0;
+        if (total <= 0) continue;
+        const m = new Map<string, number>();
+        for (const [sid, v] of inner) m.set(sid, v / total);
+        share.set(cid, m);
+      }
+      return share;
+    },
+    staleTime: 60_000,
+  });
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
@@ -133,9 +169,33 @@ const IndexInner = () => {
       (!filters.toDate || date <= filters.toDate);
 
     const campaigns: Campaign[] = data.campaigns.filter((c) => matchCampaign(c.campaign_id, c.google_account_id));
-    const metrics: DailyMetric[] = data.metrics.filter(
+
+    const shareMap = siteShareQuery.data;
+    const siteFiltered = filters.siteId !== "all";
+    const campaignShare = (cid: string): number => {
+      if (!siteFiltered) return 1;
+      const inner = shareMap?.get(cid);
+      if (!inner || inner.size <= 1) return 1; // sem split conhecido = 100% no site selecionado
+      return inner.get(filters.siteId) ?? 0;
+    };
+
+    const metricsRaw = data.metrics.filter(
       (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
+    const metrics: DailyMetric[] = metricsRaw.map((m) => {
+      const f = campaignShare(m.campaign_id);
+      if (f === 1) return m;
+      return {
+        ...m,
+        spend: Number(m.spend) * f,
+        revenue: Number(m.revenue) * f,
+        profit: Number(m.profit) * f,
+        clicks: Math.round(Number(m.clicks) * f),
+        conversions: Number(m.conversions) * f,
+        impressions: Math.round(Number(m.impressions) * f),
+      };
+    });
+
     const placements: Placement[] = data.placements.filter((p) => {
       const cidOk = filters.campaignId === "all" || p.campaign_id === filters.campaignId;
       const siteOk = filters.siteId === "all" || p.site_id === filters.siteId
@@ -144,7 +204,7 @@ const IndexInner = () => {
     });
 
     return { campaigns, metrics, placements };
-  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters]);
+  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data]);
 
   const engine = useMemo(() => {
     if (!data.rules) return null;
