@@ -147,13 +147,14 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   useEffect(() => { load(); }, [filters.siteId, windowDays]);
 
   const summary = useMemo(() => {
-    let up = 0, down = 0, neutral = 0;
+    let up = 0, down = 0, neutral = 0, pending = 0;
     for (const r of rows) {
       if (r.classification === "up") up++;
       else if (r.classification === "down") down++;
+      else if (r.classification === "pending") pending++;
       else neutral++;
     }
-    return { up, down, neutral, total: rows.length };
+    return { up, down, neutral, pending, total: rows.length };
   }, [rows]);
 
   return (
