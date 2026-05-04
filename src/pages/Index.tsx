@@ -29,6 +29,7 @@ import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
+import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
