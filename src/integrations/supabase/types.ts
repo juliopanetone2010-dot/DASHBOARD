@@ -679,6 +679,57 @@ export type Database = {
         }
         Relationships: []
       }
+      placement_cleanup_logs: {
+        Row: {
+          campaign_id: string
+          campaign_name: string | null
+          cost_before: number | null
+          created_at: string
+          executed_at: string
+          google_account_id: string | null
+          id: string
+          lookback_days: number
+          placements_removed_count: number
+          removed_placements: Json | null
+          revenue_before: number | null
+          roi_before: number | null
+          site_id: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          campaign_name?: string | null
+          cost_before?: number | null
+          created_at?: string
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          lookback_days?: number
+          placements_removed_count?: number
+          removed_placements?: Json | null
+          revenue_before?: number | null
+          roi_before?: number | null
+          site_id?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          campaign_name?: string | null
+          cost_before?: number | null
+          created_at?: string
+          executed_at?: string
+          google_account_id?: string | null
+          id?: string
+          lookback_days?: number
+          placements_removed_count?: number
+          removed_placements?: Json | null
+          revenue_before?: number | null
+          roi_before?: number | null
+          site_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       placement_status: {
         Row: {
           app_id: string | null
