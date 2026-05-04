@@ -246,6 +246,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
                     {status === "up" && <Badge className="bg-success-soft text-success border-success/20"><TrendingUp className="h-3 w-3 mr-1" />Melhorou</Badge>}
                     {status === "down" && <Badge className="bg-danger-soft text-danger border-danger/20"><TrendingDown className="h-3 w-3 mr-1" />Piorou</Badge>}
                     {status === "neutral" && <Badge variant="outline"><Minus className="h-3 w-3 mr-1" />Neutro</Badge>}
+                    {status === "pending" && <Badge variant="outline" title="Aguardando dados pós-limpeza">⏳ Aguardando</Badge>}
                   </TableCell>
                 </TableRow>
               );
