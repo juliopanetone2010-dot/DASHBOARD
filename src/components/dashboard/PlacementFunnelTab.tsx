@@ -186,7 +186,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     setAutoEnabled(on);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    await supabase.from("rules_config").update({ placement_auto_cleanup_enabled: on }).eq("user_id", u.user.id);
+    await supabase.from("rules_config").update({ funnel_auto_enabled: on } as any).eq("user_id", u.user.id);
     toast({ title: on ? `Esteira automática ligada (a cada ${autoIntervalDays}d)` : "Esteira automática desligada" });
   };
 
@@ -196,7 +196,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     await supabase.from("rules_config")
-      .update({ placement_cleanup_interval_days: v } as any)
+      .update({ funnel_auto_interval_days: v } as any)
       .eq("user_id", u.user.id);
   };
 
