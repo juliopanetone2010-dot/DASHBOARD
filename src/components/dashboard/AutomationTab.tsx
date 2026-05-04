@@ -370,7 +370,6 @@ export function AutomationTab() {
           <div className="rounded-xl border border-border bg-card p-5 space-y-4">
             <h3 className="font-semibold">Geral</h3>
             <div className="grid md:grid-cols-2 gap-4">
-              <Toggle label="Automação ativa" hint="Habilita execução pelo cron diário (04:00 BRT)." checked={!!cfg.automation_enabled} onChange={(v) => set("automation_enabled", v)} />
               <Toggle label="Modo dry-run" hint="Apenas registra decisões em logs, NÃO executa no Google Ads." checked={!!cfg.automation_dry_run} onChange={(v) => set("automation_dry_run", v)} />
               <Num label="Dias de análise" k="auto_analysis_days" cfg={cfg} set={set} step="1" />
             </div>
