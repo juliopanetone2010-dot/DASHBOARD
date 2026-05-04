@@ -490,9 +490,9 @@ async function fetchUtmKeyIds(
 }
 
 async function collectUtmAttribution(args: {
-  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[];
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number;
 }): Promise<AttributionResult> {
-  const { networkCode, accessToken, ranges, debug } = args;
+  const { networkCode, accessToken, ranges, debug, deadlineAt } = args;
   const label = "KEY_VALUES_NAME";
 
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
@@ -513,6 +513,7 @@ async function collectUtmAttribution(args: {
             dimensions: ["DATE", "KEY_VALUES_NAME"],
             metrics: group.metrics,
             debug,
+            deadlineAt,
           })
         ))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
