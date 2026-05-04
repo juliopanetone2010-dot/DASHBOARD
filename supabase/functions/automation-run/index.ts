@@ -11,6 +11,22 @@ const NET_FACTOR = 0.935;
 const DEFAULT_STOPLOSS_ROI = -20;
 
 type Lifecycle = "testing" | "learning" | "standby" | "scaling" | "bad" | "paused";
+
+// Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
+// em campanhas novas/scaling e mais conservadoras em standby/bad.
+const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
+  testing: 2,
+  learning: 5,
+  standby: 7,
+  scaling: 3,
+  bad: 5,
+  paused: 7,
+};
+const MAX_LIFECYCLE_WINDOW = 7;
+function windowForLifecycle(lc: Lifecycle | null | undefined): number {
+  if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
+  return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+}
 type SiteAutomationConfig = {
   id: string;
   user_id: string;
@@ -99,7 +115,9 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  const days: number = Math.max(1, Number(cfg.auto_analysis_days) || 7);
+  // Buscamos sempre a janela máxima (7d). A janela efetiva é aplicada no classify()
+  // de acordo com o lifecycle atual da campanha (testing=2, scaling=3, learning/bad=5, standby=7).
+  const days: number = MAX_LIFECYCLE_WINDOW;
 
   const today = new Date();
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
@@ -271,7 +289,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
         daily_budget: round2(dailyBudget),
         avg_daily_spend: round2(decision.avgDailySpend ?? 0),
         delivery_driven: !!decision.delivery_driven,
-        daily: agg.daily.slice(-days),
+        window_days: decision.window_days ?? null,
+        daily: agg.daily.slice(-(decision.window_days ?? days)),
       },
       error: execError,
     });
@@ -402,16 +421,26 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   lifecycle: Lifecycle; action: "none" | "pause" | "scale" | "cpa_up" | "cpa_down";
   reason: string; roi: number; trend: "up" | "down" | "flat";
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
+  window_days?: number;
 } {
-  const days = agg.days.size;
-  const cost = agg.spend;
-  const netRev = agg.grossRevBrl * NET_FACTOR;
+  // Janela efetiva por lifecycle: testing=2, scaling=3, learning/bad=5, standby=7.
+  // Campanha nova (sem prev) entra como "testing".
+  const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
+  const windowDays = windowForLifecycle(prevLifecycle);
+
+  // Filtra os dailies para a janela do lifecycle (já estamos sem "hoje" pois a query foi até ontem).
+  const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
+  const sliced = sortedAll.slice(-windowDays);
+  const days = new Set(sliced.map((d: any) => d.date)).size;
+  const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
+  const grossRevBrl = sliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
+  const netRev = grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
   const stopLossRoi = normalizeStopLossRoi(cfg.auto_stoploss_min_roi);
   const stopLossDays = Math.max(1, Number(cfg.auto_stoploss_days) || 7);
   const stopLossMinCost = Math.max(0, Number(cfg.auto_stoploss_min_cost) || 0);
 
-  const sorted = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = sliced;
   const mid = Math.floor(sorted.length / 2);
   const avg = (arr: any[]) => arr.length ? arr.reduce((s, x) => s + x.roi, 0) / arr.length : 0;
   const r1 = avg(sorted.slice(0, mid));
@@ -428,8 +457,9 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
   const noBudgetData = delivery == null;
 
-  if (days < Math.min(2, Number(cfg.auto_analysis_days) || 7) || cost < stopLossMinCost) {
-    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend };
+  // Mínimo de 2 dias para qualquer decisão; dias suficientes = janela do lifecycle.
+  if (days < Math.min(2, windowDays) || cost < stopLossMinCost) {
+    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend, window_days: windowDays };
   }
 
   const inCooldown = prev?.cooldown_until && new Date(prev.cooldown_until) > new Date();
