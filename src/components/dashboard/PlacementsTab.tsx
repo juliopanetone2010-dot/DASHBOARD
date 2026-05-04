@@ -250,7 +250,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       }
       // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
       await supabase.functions.invoke("gam-sync-revenue", {
-        body: { from, to, account_ids: accountIds },
+        body: { from, to, account_ids: accountIds, revenue_only: true },
       });
       const adsData = await fetchAllAdsPlacements(cid, from, to);
       setRows(adsData);
