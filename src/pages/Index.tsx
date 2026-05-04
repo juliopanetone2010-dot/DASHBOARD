@@ -384,6 +384,9 @@ const IndexInner = () => {
               <p className="text-xs text-muted-foreground">
                 {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`} •{" "}
                 {data.lastSyncedAt ? `sync ${data.lastSyncedAt.toLocaleTimeString("pt-BR")}` : "—"}
+                {filters.siteId !== "all" && (
+                  <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)} • {filtered.campaigns.length} camp · {filtered.placements.length} place</>
+                )}
               </p>
             </div>
           </div>
