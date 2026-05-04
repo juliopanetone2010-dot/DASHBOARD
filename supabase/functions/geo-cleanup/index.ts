@@ -426,7 +426,7 @@ Deno.serve(async (req) => {
         reason,
         campaign_name: meta.name,
         campaign_cost_brl: round(camp.cost),
-        countries_in_campaign: camp.countries.size,
+        countries_in_campaign: realTargetCount.get(c.campaign_id) ?? camp.countries.size,
         protected: isProtected,
       });
     }
