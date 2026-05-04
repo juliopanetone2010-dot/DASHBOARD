@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Agrega por campanha (custo total, nº de países ativos)
+    // Agrega por campanha (custo total, nº de países com tráfego)
     const campAgg = new Map<string, { cost: number; revenue: number; countries: Set<string> }>();
     for (const c of cells.values()) {
       let a = campAgg.get(c.campaign_id);
@@ -284,6 +284,76 @@ Deno.serve(async (req) => {
       a.revenue += c.revenue_brl;
       a.countries.add(c.country_code);
     }
+
+    // ✅ Conta REAL de países segmentados na campanha (Google Ads campaign_criterion LOCATION positivos)
+    // Métricas (impressões) podem mostrar países não segmentados (VPN/viajantes), por isso usamos a config real.
+    const realTargetCount = new Map<string, number>(); // campaign_id → nº de locations positivas
+    const campsByAccount = new Map<string, string[]>();
+    for (const [cid, meta] of campMap.entries()) {
+      const arr = campsByAccount.get(meta.google_account_id) ?? [];
+      arr.push(cid);
+      campsByAccount.set(meta.google_account_id, arr);
+    }
+    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
+    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
+    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
+    for (const [accountId, ids] of campsByAccount.entries()) {
+      try {
+        const { data: acc } = await admin
+          .from("google_accounts")
+          .select("customer_id, refresh_token, login_customer_id")
+          .eq("id", accountId)
+          .maybeSingle();
+        if (!acc?.refresh_token) continue;
+        const tokRes = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: clientId, client_secret: clientSecret,
+            refresh_token: acc.refresh_token, grant_type: "refresh_token",
+          }),
+        });
+        const tokJson = await tokRes.json();
+        if (!tokRes.ok) continue;
+        const accessToken = tokJson.access_token as string;
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": devToken,
+          "Content-Type": "application/json",
+        };
+        if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+        for (const chunk of chunkArr(ids, 100)) {
+          const inList = chunk.map((x) => `'${x}'`).join(",");
+          const query = `
+            SELECT campaign.id, campaign_criterion.location.geo_target_constant, campaign_criterion.criterion_id
+            FROM campaign_criterion
+            WHERE campaign_criterion.type = LOCATION
+              AND campaign_criterion.negative = FALSE
+              AND campaign_criterion.status = ENABLED
+              AND campaign.id IN (${inList})
+          `;
+          const r = await fetch(`https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`, {
+            method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
+          });
+          const j = await r.json();
+          if (!r.ok) { console.error("[geo-cleanup target query]", JSON.stringify(j)); continue; }
+          const seen = new Map<string, Set<string>>();
+          for (const row of (j.results ?? []) as any[]) {
+            const cid = String(row.campaign?.id ?? "");
+            const geo = String(row.campaignCriterion?.location?.geoTargetConstant ?? row.campaignCriterion?.criterionId ?? "");
+            if (!cid || !geo) continue;
+            const s = seen.get(cid) ?? new Set<string>();
+            s.add(geo);
+            seen.set(cid, s);
+          }
+          for (const [cid, s] of seen.entries()) realTargetCount.set(cid, s.size);
+          // campanhas sem nenhum critério LOCATION positivo = sem segmentação geográfica explícita (mundo inteiro)
+        }
+      } catch (e) {
+        console.error("[geo-cleanup target fetch]", e);
+      }
+    }
+
 
     // Decisão por país
     type Status = "ok" | "monitor" | "remove";
