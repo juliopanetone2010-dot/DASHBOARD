@@ -30,34 +30,62 @@ export function AutomationTab() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
-  const [campNames, setCampNames] = useState<Record<string, string>>({});
+  const [campMeta, setCampMeta] = useState<Record<string, { name: string; google_account_id: string | null }>>({});
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
+  const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
+  const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
+  const [siteFilter, setSiteFilter] = useState<string>("all");
+  const [accountFilter, setAccountFilter] = useState<string[]>([]);
+  const [accountPopOpen, setAccountPopOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    const { data: c } = await supabase.from("rules_config").select("*").maybeSingle();
-    const { data: s } = await supabase
-      .from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500);
-    const { data: l } = await supabase
-      .from("automation_logs").select("*").order("created_at", { ascending: false }).limit(200);
-    const { data: camps } = await supabase.from("campaigns").select("campaign_id, name, status").limit(2000);
-    const map: Record<string, string> = {};
+    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }] = await Promise.all([
+      supabase.from("rules_config").select("*").maybeSingle(),
+      supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
+      supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
+      supabase.from("campaigns").select("campaign_id, name, status, google_account_id").limit(2000),
+      supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id"),
+      supabase.from("sites").select("id, name"),
+      supabase.from("account_site_links").select("google_account_id, site_id"),
+    ]);
+    const meta: Record<string, { name: string; google_account_id: string | null }> = {};
     const activeIds = new Set<string>();
     for (const c of camps ?? []) {
       const cid = String((c as any).campaign_id);
-      map[cid] = String((c as any).name ?? "");
+      meta[cid] = { name: String((c as any).name ?? ""), google_account_id: (c as any).google_account_id ?? null };
       const st = String((c as any).status ?? "").toLowerCase();
       if (st === "enabled" || st === "active") activeIds.add(cid);
     }
-    setCampNames(map);
+    setCampMeta(meta);
+    setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id || "(sem nome)" })));
+    setSites((sts ?? []).map((s: any) => ({ id: s.id, name: s.name })));
+    setLinks((lks ?? []) as any);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+
+  const allowedAccountIds = useMemo(() => {
+    if (siteFilter === "all") return null;
+    return new Set(links.filter((l) => l.site_id === siteFilter).map((l) => l.google_account_id));
+  }, [siteFilter, links]);
+
+  const matchCampaign = (cid: string) => {
+    const m = campMeta[cid];
+    const accId = m?.google_account_id ?? null;
+    if (accountFilter.length > 0 && (!accId || !accountFilter.includes(accId))) return false;
+    if (allowedAccountIds && (!accId || !allowedAccountIds.has(accId))) return false;
+    return true;
+  };
+
+  const filteredStates = useMemo(() => states.filter((s) => matchCampaign(String(s.campaign_id))), [states, campMeta, accountFilter, allowedAccountIds]);
+  const filteredLogs = useMemo(() => logs.filter((l) => matchCampaign(String(l.campaign_id))), [logs, campMeta, accountFilter, allowedAccountIds]);
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
 
