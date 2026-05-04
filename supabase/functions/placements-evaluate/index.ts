@@ -62,9 +62,9 @@ Deno.serve(async (req) => {
 
     const today = new Date();
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    // Janela inclui o dia de hoje (to = hoje, from = hoje - (lookback-1))
-    const toDate = today;
-    const fromDate = new Date(today.getTime() - (lookbackDays - 1) * 86400_000);
+    // Sem janela explícita, usa dias completos como a Dashboard: até ontem.
+    const toDate = new Date(today.getTime() - 86400_000);
+    const fromDate = new Date(toDate.getTime() - (lookbackDays - 1) * 86400_000);
     const recentConvCutoff = new Date(today.getTime() - R.protectRecentConvDays * 86400_000);
     const from = explicitFrom ?? iso(fromDate);
     const to = explicitTo ?? iso(toDate);
@@ -119,20 +119,6 @@ Deno.serve(async (req) => {
       revByCampaign.set(cid, inner);
     }
 
-    const spendByCampaign = new Map<string, number>();
-    s = 0;
-    for (;;) {
-      const { data, error } = await admin.from("daily_metrics")
-        .select("campaign_id, spend")
-        .eq("user_id", userId).gte("date", from).lte("date", to)
-        .range(s, s + 999);
-      if (error) return json({ error: error.message });
-      const rows = data ?? [];
-      for (const r of rows) spendByCampaign.set(String(r.campaign_id), (spendByCampaign.get(String(r.campaign_id)) ?? 0) + Number(r.spend ?? 0));
-      if (rows.length < 1000) break;
-      s += 1000;
-    }
-
     interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
     const agg = new Map<string, Agg>();
     for (const r of ads) {
@@ -151,35 +137,6 @@ Deno.serve(async (req) => {
       a.conversions += conv;
       if (conv > 0) a.lastConvDate = a.lastConvDate && a.lastConvDate > r.date ? a.lastConvDate : r.date;
       if (r.date < a.firstDate) a.firstDate = r.date;
-    }
-
-    // Fallback: se a campanha tem custo no dashboard, mas não trouxe linhas em
-    // ads_placements no período, distribui o custo pelos placements com receita.
-    // Isso evita campanha/placement zerado quando a sincronização detalhada do Ads
-    // ainda não cobriu aquela campanha.
-    const costByCampaignFromAds = new Map<string, number>();
-    for (const a of agg.values()) costByCampaignFromAds.set(a.campaign_id, (costByCampaignFromAds.get(a.campaign_id) ?? 0) + a.cost);
-    for (const [cid, revMap] of revByCampaign) {
-      if ((costByCampaignFromAds.get(cid) ?? 0) > 0) continue;
-      const spend = spendByCampaign.get(cid) ?? 0;
-      if (spend <= 0 || revMap.size === 0) continue;
-      const totalUsd = [...revMap.values()].reduce((a, b) => a + b, 0);
-      if (totalUsd <= 0) continue;
-      for (const [placement, usd] of revMap) {
-        const k = cpKey(cid, placement);
-        if (agg.has(k)) continue;
-        agg.set(k, {
-          campaign_id: cid,
-          placement,
-          type: "WEBSITE",
-          cost: spend * (usd / totalUsd),
-          clicks: 0,
-          impressions: 0,
-          conversions: 0,
-          lastConvDate: null,
-          firstDate: from,
-        });
-      }
     }
 
     // Carrega status atuais
@@ -220,10 +177,10 @@ Deno.serve(async (req) => {
       agg.set(k, {
         campaign_id, placement,
         type: ex?.placement_type ?? "WEBSITE",
-        cost: Number(ex?.cost_total ?? 0),
-        clicks: Number(ex?.clicks_total ?? 0),
-        impressions: Number(ex?.impressions_total ?? 0),
-        conversions: Number(ex?.conversions_total ?? 0),
+        cost: 0,
+        clicks: 0,
+        impressions: 0,
+        conversions: 0,
         lastConvDate: null,
         firstDate: ex?.first_seen_at ? String(ex.first_seen_at).slice(0, 10) : from,
       });

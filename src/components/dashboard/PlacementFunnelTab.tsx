@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { NET_FACTOR } from "@/engine/rules";
 
 interface Props { fxUsdBrl: number; }
 
@@ -36,11 +37,32 @@ interface Row {
   impressions_total: number;
   conversions_total: number;
   first_seen_at: string;
+  last_evaluated_at: string;
   last_status_change_at: string;
 }
 
 interface AccountOpt { id: string; name: string; }
 interface SiteOpt { id: string; name: string; account_ids: string[]; }
+interface CampaignOpt { campaign_id: string; name: string; google_account_id: string | null; }
+interface CampaignMetricSummary { campaign_id: string; name: string; google_account_id: string | null; cost: number; rev: number; profit: number; roi: number; }
+
+const isoLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const rangeFromLookback = (lookback: number) => {
+  const today = new Date();
+  if (lookback === 1) return { from: isoLocal(today), to: isoLocal(today) };
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (lookback === 2) return { from: isoLocal(yesterday), to: isoLocal(yesterday) };
+  const from = new Date(today);
+  from.setDate(today.getDate() - Math.max(1, lookback));
+  return { from: isoLocal(from), to: isoLocal(yesterday) };
+};
 
 const STATUS_META: Record<Status, { label: string; cls: string }> = {
   test: { label: "Teste", cls: "bg-muted text-muted-foreground" },
@@ -64,6 +86,8 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
 
   const [accounts, setAccounts] = useState<AccountOpt[]>([]);
   const [sites, setSites] = useState<SiteOpt[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignOpt[]>([]);
+  const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetricSummary[]>([]);
   const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
   const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
 
@@ -77,10 +101,11 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       setLastRun(data.placement_cleanup_last_run_at ?? null);
       setAutoIntervalDays(Number((data as any).placement_cleanup_interval_days ?? 15));
     }
-    const [{ data: accs }, { data: siteRows }, { data: linkRows }] = await Promise.all([
+    const [{ data: accs }, { data: siteRows }, { data: linkRows }, { data: campRows }] = await Promise.all([
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id").order("account_name", { ascending: true }),
       supabase.from("sites").select("id, name").order("name", { ascending: true }),
       supabase.from("account_site_links").select("site_id, google_account_id"),
+      supabase.from("campaigns").select("campaign_id, name, google_account_id"),
     ]);
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
     const linksBySite = new Map<string, string[]>();
@@ -90,6 +115,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       linksBySite.set(l.site_id, arr);
     }
     setSites((siteRows ?? []).map((s: any) => ({ id: s.id, name: s.name, account_ids: linksBySite.get(s.id) ?? [] })));
+    setCampaigns((campRows ?? []).map((c: any) => ({ campaign_id: String(c.campaign_id), name: c.name, google_account_id: c.google_account_id ?? null })));
   };
 
   const load = async () => {
@@ -100,7 +126,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       for (;;) {
         const { data, error } = await supabase
           .from("placement_status")
-          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_status_change_at")
+          .select("id, campaign_id, campaign_name, google_account_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
           .order("cost_total", { ascending: false })
           .range(s, s + 999);
         if (error) throw error;
@@ -109,13 +135,52 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         if (rows.length < 1000) break;
         s += 1000;
       }
-      setRows(all);
+      const latestEval = all.reduce((max, r) => Math.max(max, new Date(r.last_evaluated_at ?? 0).getTime()), 0);
+      const latestCycleRows = latestEval > 0
+        ? all.filter((r) => latestEval - new Date(r.last_evaluated_at ?? 0).getTime() <= 10 * 60_000)
+        : all;
+      setRows(latestCycleRows);
+      const { from, to } = rangeFromLookback(lookback);
+      const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
+      const metrics: any[] = [];
+      let m = 0;
+      for (;;) {
+        const { data, error } = await supabase
+          .from("daily_metrics")
+          .select("campaign_id, spend, profit")
+          .gte("date", from)
+          .lte("date", to)
+          .range(m, m + 999);
+        if (error) throw error;
+        const page = data ?? [];
+        metrics.push(...page);
+        if (page.length < 1000) break;
+        m += 1000;
+      }
+      const byCampaign = new Map<string, CampaignMetricSummary>();
+      for (const r of metrics) {
+        const cid = String(r.campaign_id);
+        const c = campMap.get(cid);
+        const cur = byCampaign.get(cid) ?? { campaign_id: cid, name: c?.name ?? cid, google_account_id: c?.google_account_id ?? null, cost: 0, rev: 0, profit: 0, roi: 0 };
+        const spend = Number(r.spend ?? 0);
+        const grossProfit = Number(r.profit ?? 0);
+        const grossRevenueBrl = spend + grossProfit;
+        cur.cost += spend;
+        cur.rev += grossRevenueBrl * NET_FACTOR;
+        byCampaign.set(cid, cur);
+      }
+      for (const c of byCampaign.values()) {
+        c.profit = c.rev - c.cost;
+        c.roi = c.cost > 0 ? (c.profit / c.cost) * 100 : 0;
+      }
+      setCampaignMetrics([...byCampaign.values()]);
     } catch (e: any) {
       toast({ title: "Erro ao carregar", description: e.message, variant: "destructive" });
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); loadConfig(); }, []);
+  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => { load(); }, [lookback, campaigns.length]);
 
   const toggleAuto = async (on: boolean) => {
     setAutoEnabled(on);
@@ -138,19 +203,8 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const evaluateNow = async () => {
     setEvaluating(true);
     try {
-      // Calcula janela explícita conforme o preset escolhido
-      const today = new Date();
-      const iso = (d: Date) => d.toISOString().slice(0, 10);
-      let from: string, to: string;
-      if (lookback === 1) { // Hoje
-        from = to = iso(today);
-      } else if (lookback === 2) { // Ontem
-        const y = new Date(today.getTime() - 86400_000);
-        from = to = iso(y);
-      } else {
-        to = iso(today);
-        from = iso(new Date(today.getTime() - (lookback - 1) * 86400_000));
-      }
+      // Mesma janela da Dashboard: Hoje é hoje; Ontem é ontem; últimos N dias são dias completos até ontem.
+      const { from, to } = rangeFromLookback(lookback);
       const { data, error } = await supabase.functions.invoke<any>(
         "placements-evaluate",
         { body: { mode: "preview", lookback_days: lookback, from, to, fx_usd_brl: fxUsdBrl } },
@@ -316,6 +370,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
 
       <FunnelByCampaign
         rows={filtered}
+        campaignMetrics={campaignMetrics}
         loading={loading}
         busyId={busyId}
         daysSince={daysSince}
@@ -393,6 +448,7 @@ function MultiPicker({ label, items, selected, onChange }: {
 
 interface FBProps {
   rows: Row[];
+  campaignMetrics: CampaignMetricSummary[];
   loading: boolean;
   busyId: string | null;
   daysSince: (iso: string) => string;
@@ -401,10 +457,11 @@ interface FBProps {
   onReset: (id: string) => void;
 }
 
-function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondChance, onReset }: FBProps) {
+function FunnelByCampaign({ rows, campaignMetrics, loading, busyId, daysSince, onBlock, onSecondChance, onReset }: FBProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => {
+    const dashboardByCampaign = new Map(campaignMetrics.map((c) => [c.campaign_id, c]));
     const m = new Map<string, { campaign_id: string; name: string; items: Row[] }>();
     for (const r of rows) {
       const cid = r.campaign_id;
@@ -413,10 +470,11 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
       g.items.push(r);
     }
     const list = [...m.values()].map((g) => {
-      const cost = g.items.reduce((a, x) => a + (x.cost_total || 0), 0);
-      const rev = g.items.reduce((a, x) => a + (x.revenue_total || 0), 0);
-      const profit = rev - cost;
-      const roi = cost > 0 ? (profit / cost) * 100 : 0;
+      const dashboard = dashboardByCampaign.get(g.campaign_id);
+      const cost = dashboard?.cost ?? g.items.reduce((a, x) => a + (x.cost_total || 0), 0);
+      const rev = dashboard?.rev ?? g.items.reduce((a, x) => a + (x.revenue_total || 0), 0);
+      const profit = dashboard?.profit ?? (rev - cost);
+      const roi = dashboard?.roi ?? (cost > 0 ? (profit / cost) * 100 : 0);
       const blocked = g.items.filter((x) => x.status === "blocked").length;
       const bad = g.items.filter((x) => x.status === "bad").length;
       const good = g.items.filter((x) => x.status === "good").length;
@@ -424,7 +482,7 @@ function FunnelByCampaign({ rows, loading, busyId, daysSince, onBlock, onSecondC
     });
     list.sort((a, b) => b.cost - a.cost);
     return list;
-  }, [rows]);
+  }, [rows, campaignMetrics]);
 
   const toggle = (cid: string) => setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
 
