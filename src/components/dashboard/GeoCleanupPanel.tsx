@@ -115,6 +115,8 @@ export function GeoCleanupPanel({ fxUsdBrl, siteId }: { fxUsdBrl: number; siteId
             min_countries: minCountries,
             min_campaign_cost_brl: minCampCost,
             lookback_days: lookback,
+            recent_change_days: recentChangeDays,
+            min_campaign_age_days: minCampAgeDays,
             fx_usd_brl: fxUsdBrl,
           },
         },
