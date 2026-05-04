@@ -73,11 +73,47 @@ Deno.serve(async (req) => {
     const recentCut = iso(recentConvCutoff);
 
     // Campanhas (todas, não só enabled — para manter histórico)
-    const { data: camps } = await admin.from("campaigns")
+    let campsQuery = admin.from("campaigns")
       .select("campaign_id, name, google_account_id, status")
       .eq("user_id", userId);
+    if (accountId) campsQuery = campsQuery.eq("google_account_id", accountId);
+    const { data: camps } = await campsQuery;
     const campMap = new Map<string, { name: string; google_account_id: string | null; status: string }>();
     for (const c of camps ?? []) campMap.set(String(c.campaign_id), { name: c.name, google_account_id: c.google_account_id, status: c.status });
+
+    // Resolve quais campaign_ids pertencem ao site selecionado (via revenue real do GAM).
+    // Sem site_id, processa todas. Com site_id, exige confirmação.
+    let allowedCampaigns: Set<string> | null = null;
+    if (siteId) {
+      const { data: revRows } = await admin
+        .from("gam_campaign_source_revenue")
+        .select("campaign_id, site_id, revenue_usd")
+        .eq("user_id", userId)
+        .not("site_id", "is", null)
+        .limit(50000);
+      const bestSiteByCampaign = new Map<string, { sid: string; rev: number }>();
+      const siteRevByCampaign = new Map<string, Map<string, number>>();
+      for (const r of revRows ?? []) {
+        const cid = String(r.campaign_id);
+        const sid = String(r.site_id);
+        const rev = Number(r.revenue_usd) || 0;
+        const inner = siteRevByCampaign.get(cid) ?? new Map<string, number>();
+        inner.set(sid, (inner.get(sid) ?? 0) + rev);
+        siteRevByCampaign.set(cid, inner);
+      }
+      for (const [cid, inner] of siteRevByCampaign) {
+        const top = [...inner.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (top) bestSiteByCampaign.set(cid, { sid: top[0], rev: top[1] });
+      }
+      allowedCampaigns = new Set();
+      for (const [cid, info] of bestSiteByCampaign) {
+        if (info.sid === siteId) allowedCampaigns.add(cid);
+      }
+      // Remove campanhas não pertencentes ao site
+      for (const cid of [...campMap.keys()]) {
+        if (!allowedCampaigns.has(cid)) campMap.delete(cid);
+      }
+    }
 
     // ads_placements (custo + cliques + conversões + datas)
     type AdsRow = { campaign_id: string; placement: string; placement_clean: string | null; placement_type: string | null; cost: number; clicks: number; impressions: number; conversions: number; date: string };
