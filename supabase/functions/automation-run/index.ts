@@ -210,25 +210,6 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.entered_standby_at = null;
       newState.days_in_standby = 0;
     }
-    if (decision.action === "scale") {
-      newState.last_scale_date = nowIso;
-      newState.cooldown_until = new Date(Date.now() + (Number(cfg.auto_scale_interval_days) || 2) * 86400_000).toISOString();
-    }
-    if (decision.action === "cpa_up" || decision.action === "cpa_down") {
-      newState.last_cpa_action = decision.action;
-      newState.last_cpa_action_date = nowIso;
-    }
-    if (decision.action !== "none") {
-      newState.last_action = decision.action;
-      newState.last_action_date = nowIso;
-      if (decision.delivery_driven) {
-        newState.last_delivery_action = decision.action;
-        newState.last_delivery_action_date = nowIso;
-      }
-    }
-
-    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
-
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
@@ -242,6 +223,25 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     } else {
       execStatus = "skipped";
     }
+
+    if (execStatus === "executed") {
+      if (decision.action === "scale") {
+        newState.last_scale_date = nowIso;
+        newState.cooldown_until = new Date(Date.now() + (Number(cfg.auto_scale_interval_days) || 2) * 86400_000).toISOString();
+      }
+      if (decision.action === "cpa_up" || decision.action === "cpa_down") {
+        newState.last_cpa_action = decision.action;
+        newState.last_cpa_action_date = nowIso;
+      }
+      newState.last_action = decision.action;
+      newState.last_action_date = nowIso;
+      if (decision.delivery_driven) {
+        newState.last_delivery_action = decision.action;
+        newState.last_delivery_action_date = nowIso;
+      }
+    }
+
+    await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
 
     await admin.from("automation_logs").insert({
       user_id: userId,
