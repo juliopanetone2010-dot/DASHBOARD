@@ -705,6 +705,7 @@ export type Database = {
           reason: string | null
           revenue_total: number
           roi_pct: number
+          site_id: string | null
           status: string
           updated_at: string
           user_id: string
@@ -734,6 +735,7 @@ export type Database = {
           reason?: string | null
           revenue_total?: number
           roi_pct?: number
+          site_id?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -763,6 +765,7 @@ export type Database = {
           reason?: string | null
           revenue_total?: number
           roi_pct?: number
+          site_id?: string | null
           status?: string
           updated_at?: string
           user_id?: string
@@ -781,6 +784,7 @@ export type Database = {
           reason: string | null
           revenue_total: number | null
           roi_pct: number | null
+          site_id: string | null
           to_status: string
           triggered_by: string
           user_id: string
@@ -796,6 +800,7 @@ export type Database = {
           reason?: string | null
           revenue_total?: number | null
           roi_pct?: number | null
+          site_id?: string | null
           to_status: string
           triggered_by?: string
           user_id: string
@@ -811,6 +816,7 @@ export type Database = {
           reason?: string | null
           revenue_total?: number | null
           roi_pct?: number | null
+          site_id?: string | null
           to_status?: string
           triggered_by?: string
           user_id?: string
@@ -1065,6 +1071,45 @@ export type Database = {
           created_at?: string
           google_account_id?: string
           id?: string
+          last_run_at?: string | null
+          site_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      site_placement_config: {
+        Row: {
+          automation_dry_run: boolean
+          automation_enabled: boolean
+          created_at: string
+          google_account_id: string
+          id: string
+          interval_days: number
+          last_run_at: string | null
+          site_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          created_at?: string
+          google_account_id: string
+          id?: string
+          interval_days?: number
+          last_run_at?: string | null
+          site_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          automation_dry_run?: boolean
+          automation_enabled?: boolean
+          created_at?: string
+          google_account_id?: string
+          id?: string
+          interval_days?: number
           last_run_at?: string | null
           site_id?: string
           updated_at?: string
