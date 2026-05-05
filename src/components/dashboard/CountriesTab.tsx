@@ -363,7 +363,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const totalProfit = totalRev - totalCost;
   const totalRoi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
-  const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string) => {
+  const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string, countryCode: string) => {
     if (!criterionId) {
       toast({ title: "Sem ID do país", description: "Sincronize de novo para obter o ID do critério.", variant: "destructive" });
       return;
@@ -378,9 +378,45 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
         return;
       }
+      setExcludedKeys((s) => { const n = new Set(s); n.add(`${campaignId}|${countryCode}`); return n; });
+      setSelectedKeys((s) => { const n = new Set(s); n.delete(`${campaignId}|${countryCode}`); return n; });
       toast({ title: "País excluído", description: `${countryName} adicionado como exclusão na campanha.` });
     } finally { setExcluding(null); }
   };
+
+  const handleBulkExclude = async () => {
+    const items: { campaignId: string; criterionId: string | null; countryCode: string; countryName: string }[] = [];
+    const seen = new Set<string>();
+    for (const r of countryRows) {
+      const k = `${r.campaign_id}|${r.country_code}`;
+      if (selectedKeys.has(k) && !excludedKeys.has(k) && !seen.has(k)) {
+        seen.add(k);
+        items.push({ campaignId: r.campaign_id, criterionId: r.country_criterion_id, countryCode: r.country_code, countryName: r.country_name ?? r.country_code });
+      }
+    }
+    if (items.length === 0) return;
+    setBulkBusy(true);
+    let ok = 0, fail = 0;
+    for (const it of items) {
+      if (!it.criterionId) { fail++; continue; }
+      try {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+          "google-ads-mutate",
+          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId } },
+        );
+        if (error || data?.error) { fail++; continue; }
+        setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });
+        ok++;
+      } catch { fail++; }
+    }
+    setSelectedKeys(new Set());
+    setBulkBusy(false);
+    toast({ title: "Exclusão em lote", description: `${ok} excluídos${fail ? `, ${fail} falharam` : ""}.`, variant: fail && !ok ? "destructive" : "default" });
+  };
+
+  const toggleSelect = (key: string) => setSelectedKeys((s) => {
+    const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
+  });
 
   const toggleExpand = (k: string) => setExpanded((s) => {
     const n = new Set(s);
