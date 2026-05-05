@@ -59,7 +59,9 @@ Deno.serve(async (req) => {
       );
       const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
       userId = claims?.claims?.sub ?? null;
+      if (!userId) return json({ error: "Token inválido" });
     }
+    if (!userId) return json({ error: "Token inválido" });
 
     const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
     const NET_FACTOR = 1 - REV_SHARE_PCT;
