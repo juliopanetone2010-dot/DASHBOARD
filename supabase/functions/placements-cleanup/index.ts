@@ -2,9 +2,10 @@
 // Preview calcula placements ao vivo no Google Ads para o período completo, agrupando por campanha + placement.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { getNetFactor, getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 
-const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935 — GAM já vem líquido, descontamos só o revshare real (6,5%)
+// Fallback caso a leitura falhe (será sobrescrito por getNetFactor() runtime).
+const DEFAULT_NET_FACTOR = 1 - DEFAULT_REV_SHARE_PCT / 100; // 0.935
 const KEY_SEP = "\u0001";
 
 interface ApplyCampaign {
