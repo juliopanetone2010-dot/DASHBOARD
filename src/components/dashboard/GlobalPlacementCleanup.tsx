@@ -102,8 +102,27 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .select("id, account_name, descriptive_name, customer_id")
         .order("account_name", { ascending: true });
       setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
+      const { data: ss } = await supabase
+        .from("sites")
+        .select("id, name")
+        .order("name", { ascending: true });
+      setSites((ss ?? []).map((s: any) => ({ id: s.id, name: s.name })));
     })();
   }, []);
+
+  // Handler para troca de site: carrega contas Ads vinculadas e aplica no contexto global
+  const handleSiteChange = async (siteId: string) => {
+    if (siteId === "all") {
+      selectSite("all", []);
+      return;
+    }
+    const { data: links } = await supabase
+      .from("account_site_links")
+      .select("google_account_id")
+      .eq("site_id", siteId);
+    const linked = (links ?? []).map((l: any) => l.google_account_id);
+    selectSite(siteId, linked);
+  };
 
   const persistConfig = async (patch: Partial<{
     placement_auto_cleanup_enabled: boolean;
