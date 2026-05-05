@@ -410,6 +410,7 @@ Deno.serve(async (req) => {
       gam_attributed_usd: round(attributedGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
+      analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
       grand_cost_brl,
