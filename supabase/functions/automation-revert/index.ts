@@ -53,6 +53,37 @@ Deno.serve(async (req) => {
     const { data: actions, error: aaErr } = await aaQ;
     if (aaErr) return json({ error: aaErr.message }, 500);
 
+    // Resolve google_account_id e site_id por campaign_id quando faltarem no payload.
+    const allCampIds = [...new Set((actions ?? []).map((a: any) => String(a.campaign_id)))];
+    const { data: campRows } = await admin
+      .from("campaigns").select("campaign_id, google_account_id")
+      .eq("user_id", userId).in("campaign_id", allCampIds.length ? allCampIds : ["__none__"]);
+    const campToAccount = new Map<string, string>();
+    for (const c of campRows ?? []) if (c.google_account_id) campToAccount.set(String(c.campaign_id), String(c.google_account_id));
+
+    const { data: linkRows } = await admin
+      .from("account_site_links").select("google_account_id, site_id").eq("user_id", userId);
+    const accountToSites = new Map<string, string[]>();
+    for (const l of linkRows ?? []) {
+      const k = String(l.google_account_id);
+      const arr = accountToSites.get(k) ?? [];
+      arr.push(String(l.site_id));
+      accountToSites.set(k, arr);
+    }
+
+    // Enriquecer payload com site_id/google_account_id resolvidos
+    for (const a of (actions ?? []) as any[]) {
+      a.payload = a.payload ?? {};
+      if (!a.payload.google_account_id) {
+        const gaid = campToAccount.get(String(a.campaign_id));
+        if (gaid) a.payload.google_account_id = gaid;
+      }
+      if (!a.payload.site_id && a.payload.google_account_id) {
+        const sites = accountToSites.get(String(a.payload.google_account_id)) ?? [];
+        if (sites.length === 1) a.payload.site_id = sites[0];
+      }
+    }
+
     // Filtra por site_ids (payload.site_id)
     const filtered = (actions ?? []).filter((a: any) => {
       if (!siteIds) return true;
