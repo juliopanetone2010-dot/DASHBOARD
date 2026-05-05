@@ -24,19 +24,35 @@ function isoDaysAgo(n: number): string {
 
 async function callFn(name: string, body: unknown, authHeader: string) {
   const url = `${SUPABASE_URL}/functions/v1/${name}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader,
-      apikey: SERVICE_ROLE,
-    },
-    body: JSON.stringify(body ?? {}),
-  });
-  const text = await r.text();
-  let parsed: unknown = text;
-  try { parsed = JSON.parse(text); } catch { /* ignore */ }
-  return { ok: r.ok, status: r.status, body: parsed };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+          apikey: SERVICE_ROLE,
+        },
+        body: JSON.stringify(body ?? {}),
+      });
+      const text = await r.text();
+      let parsed: unknown = text;
+      try { parsed = JSON.parse(text); } catch { /* ignore */ }
+      if (r.status !== 429 || attempt === 2) return { ok: r.ok, status: r.status, body: parsed };
+      await delay(15_000 * (attempt + 1));
+    } catch (e) {
+      const retryAfterMs = Number((e as { retryAfterMs?: number })?.retryAfterMs ?? 0);
+      const msg = e instanceof Error ? e.message : String(e);
+      const isRateLimit = msg.toLowerCase().includes("rate limit") || retryAfterMs > 0;
+      if (!isRateLimit || attempt === 2) return { ok: false, status: 0, body: { error: msg } };
+      await delay(Math.min(Math.max(retryAfterMs, 10_000), 45_000));
+    }
+  }
+  return { ok: false, status: 0, body: { error: "unknown call failure" } };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function runBackground(siteId: string, userId: string, authHeader: string) {
@@ -109,22 +125,17 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       const cTo = cEndDate.toISOString().slice(0, 10);
       chunks.push({ from: cFrom, to: cTo });
     }
-    // Paraleliza chunks GAM (em pools de 3 pra não estourar conexões)
-    const POOL = 3;
-    for (let i = 0; i < chunks.length; i += POOL) {
-      const batch = chunks.slice(i, i + POOL);
-      const results = await Promise.all(batch.map((c) =>
-        callFn(
-          "gam-sync-revenue",
-          { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
-          authHeader,
-        ).then((gam) => ({ c, gam }))
-      ));
-      for (const { c, gam } of results) {
-        console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
-        syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
-        if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
-      }
+    // Chunks em série: evita rate limit de invocação entre funções.
+    for (const c of chunks) {
+      const gam = await callFn(
+        "gam-sync-revenue",
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
+        authHeader,
+      );
+      console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
+      syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
+      if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
+      await delay(1_000);
     }
 
     // 3. placements por campanha do site
@@ -138,12 +149,11 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
 
     let placementsOk = 0;
     const camps = campaigns ?? [];
-    for (let i = 0; i < camps.length; i += POOL) {
-      const batch = camps.slice(i, i + POOL);
-      const results = await Promise.all(batch.map((c) =>
-        callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader)
-      ));
-      placementsOk += results.filter((r) => r.ok).length;
+    for (const c of camps) {
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
+      if (placement.ok) placementsOk += 1;
+      else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
+      await delay(1_000);
     }
     syncLog.placementsOk = placementsOk;
     syncLog.placementsTotal = campaigns?.length ?? 0;
