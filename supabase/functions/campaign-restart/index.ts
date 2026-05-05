@@ -583,6 +583,14 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
+function googleAdsError(j: any) {
+  const detail = j?.error?.details?.[0]?.errors?.[0];
+  const code = detail?.errorCode ? JSON.stringify(detail.errorCode) : j?.error?.status;
+  const msg = detail?.message ?? j?.error?.message ?? JSON.stringify(j);
+  const field = detail?.location?.fieldPathElements?.map((p: any) => p.fieldName).filter(Boolean).join(".");
+  return `${code ? code + ": " : ""}${msg}${field ? ` (${field})` : ""}`.slice(0, 300);
+}
+
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
 function round2(n: number) { return Math.round((Number(n) || 0) * 100) / 100; }
 function json(data: any, status = 200) {
