@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
+import { SitesAutomationPanel } from "./SitesAutomationPanel";
 
 type Cfg = Record<string, any>;
 type Lifecycle =
