@@ -253,6 +253,9 @@ Deno.serve(async (req) => {
     }
     const cells = new Map<string, Cell>();
     for (const r of countryRows) {
+      const cd = `${r.campaign_id}|${r.date}`;
+      const siteFactor = siteId ? (siteShareByCD.get(cd) ?? 0) : 1;
+      if (siteFactor <= 0) continue;
       const k = `${r.campaign_id}|${r.country_code}`;
       let c = cells.get(k);
       if (!c) {
@@ -264,13 +267,12 @@ Deno.serve(async (req) => {
         };
         cells.set(k, c);
       }
-      c.cost_brl += r.cost || 0;
-      c.clicks += r.clicks || 0;
-      c.impressions += r.impressions || 0;
+      c.cost_brl += (r.cost || 0) * siteFactor;
+      c.clicks += (r.clicks || 0) * siteFactor;
+      c.impressions += (r.impressions || 0) * siteFactor;
       if (!c.country_criterion_id && r.country_criterion_id) c.country_criterion_id = r.country_criterion_id;
       if (!c.google_account_id && r.google_account_id) c.google_account_id = r.google_account_id;
 
-      const cd = `${r.campaign_id}|${r.date}`;
       const revUsd = revByCD.get(cd) || 0;
       if (revUsd > 0) {
         const totalImpr = imprByCD.get(cd) || 0;
