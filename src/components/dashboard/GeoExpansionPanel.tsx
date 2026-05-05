@@ -57,6 +57,12 @@ interface SiteOption {
   name: string;
 }
 
+function chunkArr<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 async function fetchDashboardCampaignIds(siteId: string, accountIds: string[], from: string, to: string) {
   const campaignIds = new Set<string>();
   let start = 0;
