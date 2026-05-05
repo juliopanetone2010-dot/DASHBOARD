@@ -84,13 +84,25 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     setLoadingCreated(true);
     try {
       let q = (supabase.from("campaign_expansion_logs") as any)
-        .select("id, original_campaign_id, original_campaign_name, new_campaign_id, new_campaign_name, country_code, country_name, roi_pct, cost_brl, revenue_brl, budget_micros, status, executed_at")
+        .select("id, original_campaign_id, original_campaign_name, new_campaign_id, new_campaign_name, country_code, country_name, roi_pct, cost_brl, revenue_brl, budget_micros, status, executed_at, google_account_id")
         .eq("action", "created")
         .order("executed_at", { ascending: false })
         .limit(100);
       if (siteId) q = q.eq("site_id", siteId);
       const { data } = await q;
-      setCreated((data ?? []) as CreatedLog[]);
+      const logs = (data ?? []) as (CreatedLog & { google_account_id: string | null })[];
+
+      // Fetch live status from campaigns table
+      const newIds = logs.map((l) => l.new_campaign_id).filter((x): x is string => !!x);
+      const liveStatus: Record<string, string> = {};
+      if (newIds.length > 0) {
+        const { data: campRows } = await supabase
+          .from("campaigns")
+          .select("campaign_id, status")
+          .in("campaign_id", newIds);
+        for (const r of campRows ?? []) liveStatus[String(r.campaign_id)] = String(r.status);
+      }
+      setCreated(logs.map((l) => ({ ...l, live_status: l.new_campaign_id ? liveStatus[l.new_campaign_id] ?? null : null })));
     } finally { setLoadingCreated(false); }
   }, [siteId]);
 
