@@ -236,7 +236,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       continue;
     }
 
-    const decision = classify(agg, cfg, prevState, dailyBudget);
+    const decision = classify(agg, cfg, prevState, dailyBudget) as any;
     decisions++;
 
     const nowIso = new Date().toISOString();
