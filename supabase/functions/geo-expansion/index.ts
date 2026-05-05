@@ -1081,6 +1081,31 @@ async function readAdGroupAssets(apiBase: string, headers: Record<string, string
   }
 }
 
+function summarizeCampaignCriteria(rows: any[]) {
+  const languageConstants = rows
+    .map((row: any) => row.campaignCriterion?.language?.languageConstant)
+    .filter(Boolean)
+    .sort();
+  const deviceBidModifiers: Record<string, number> = {};
+  for (const row of rows) {
+    const cc = row.campaignCriterion;
+    if (cc?.type !== "DEVICE" || !cc.device?.type) continue;
+    const bidModifier = Number(cc.bidModifier);
+    deviceBidModifiers[String(cc.device.type)] = Number.isFinite(bidModifier) ? bidModifier : 1;
+  }
+  return { languageConstants, activeDevices: Object.keys(deviceBidModifiers).sort(), deviceBidModifiers };
+}
+
+function compareCampaignCriteriaSummary(source: ReturnType<typeof summarizeCampaignCriteria>, cloned: ReturnType<typeof summarizeCampaignCriteria>) {
+  const srcLang = source.languageConstants.join("|");
+  const dstLang = cloned.languageConstants.join("|");
+  if (srcLang !== dstLang) return { ok: false, reason: `idiomas origem=[${srcLang}] winner=[${dstLang}]` };
+  const srcDev = JSON.stringify(source.deviceBidModifiers);
+  const dstDev = JSON.stringify(cloned.deviceBidModifiers);
+  if (srcDev !== dstDev) return { ok: false, reason: `dispositivos origem=${srcDev} winner=${dstDev}` };
+  return { ok: true };
+}
+
 function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, parentResource: string, opts: { skipGeo: boolean }) {
   if (!criterion) return null;
   const type = criterion.type;
