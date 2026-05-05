@@ -11,6 +11,7 @@ export const COUNTRY_BY_ID: Record<string, { code: string; name: string }> = {
   "2032": { code: "AR", name: "Argentina" },
   "2152": { code: "CL", name: "Chile" },
   "2170": { code: "CO", name: "Colômbia" },
+  "2196": { code: "CY", name: "Chipre" },
   "2604": { code: "PE", name: "Peru" },
   "2604" : { code: "PE", name: "Peru" },
   "2862": { code: "VE", name: "Venezuela" },
