@@ -669,7 +669,7 @@ async function duplicateCampaign(
       campaignCriterionCounts[type] = (campaignCriterionCounts[type] ?? 0) + 1;
     }
     const campaignCriteriaResult = await mutateGoogle(apiBase, headers, "campaignCriteria", campaignCriterionOps, "campaign_criteria");
-    const clonedCriteriaSummary = summarizeCampaignCriteria(await readCampaignCriteria(apiBase, headers, newCampaignResource, debug));
+    const clonedCriteriaSummary = summarizeCampaignCriteria(await readCampaignCriteria(apiBase, headers, newCampaignResource, newCampaignId, debug));
     debug.source.campaign_criteria = campaignCriteriaRows.length;
     debug.cloned.campaign_criteria = campaignCriteriaResult.created;
     debug.cloned.languages = clonedCriteriaSummary.languageConstants.length;
