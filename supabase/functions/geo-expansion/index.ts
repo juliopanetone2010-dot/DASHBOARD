@@ -301,20 +301,18 @@ Deno.serve(async (req) => {
       campaign_cost_brl: number; countries_in_campaign: number;
       budget_micros: number | null;
     }
+    interface Candidate extends Winner { reject_reasons: string[]; }
     const winners: Winner[] = [];
+    const rejected: Candidate[] = [];
+    const rejectionCounts: Record<string, number> = {};
+    const addReject = (reason: string) => { rejectionCounts[reason] = (rejectionCounts[reason] ?? 0) + 1; };
     for (const c of cells.values()) {
       const meta = campMap.get(c.campaign_id);
       if (!meta) continue;
-      if (testingIds.has(c.campaign_id)) continue;
       const camp = campAgg.get(c.campaign_id)!;
-      if (camp.countries.size < minCountries) continue;
-      if (camp.cost < minCampaignCost) continue;
-      if (c.cost_brl < minCountryCost) continue;
-      if (alreadyExpanded.has(`${c.campaign_id}|${c.country_code}`)) continue;
       const profit = c.revenue_brl - c.cost_brl;
       const roi = c.cost_brl > 0 ? (profit / c.cost_brl) * 100 : 0;
-      if (roi < minRoi) continue;
-      winners.push({
+      const candidate: Winner = {
         campaign_id: c.campaign_id,
         campaign_name: meta.name,
         google_account_id: meta.google_account_id,
@@ -327,11 +325,36 @@ Deno.serve(async (req) => {
         campaign_cost_brl: round(camp.cost),
         countries_in_campaign: camp.countries.size,
         budget_micros: meta.budget_micros,
-      });
+      };
+      const reasons: string[] = [];
+      if (testingIds.has(c.campaign_id)) reasons.push("campanha em testing");
+      if (camp.countries.size < minCountries) reasons.push(`mín. países ${camp.countries.size}/${minCountries}`);
+      if (camp.cost < minCampaignCost) reasons.push(`custo campanha ${round(camp.cost)} < ${minCampaignCost}`);
+      if (c.cost_brl < minCountryCost) reasons.push(`custo país ${round(c.cost_brl)} < ${minCountryCost}`);
+      if (alreadyExpanded.has(`${c.campaign_id}|${c.country_code}`)) reasons.push("já expandida");
+      if (!c.country_criterion_id) reasons.push("sem critério de país");
+      if (roi < minRoi) reasons.push(`ROI ${round(roi)} < ${minRoi}`);
+      if (reasons.length === 0) winners.push(candidate);
+      else {
+        for (const reason of reasons) addReject(reason);
+        rejected.push({ ...candidate, reject_reasons: reasons });
+      }
     }
     winners.sort((a, b) => b.roi_pct - a.roi_pct);
+    rejected.sort((a, b) => b.roi_pct - a.roi_pct);
 
-    return json({ ok: true, items: winners, stats: { period: { from, to }, total: winners.length } });
+    return json({
+      ok: true,
+      items: winners,
+      stats: {
+        period: { from, to },
+        total: winners.length,
+        filters: { min_roi_pct: minRoi, min_campaign_cost_brl: minCampaignCost, min_country_cost_brl: minCountryCost, min_countries: minCountries, lookback_days: lookbackDays },
+        candidates_total: winners.length + rejected.length,
+        rejection_counts: rejectionCounts,
+        top_candidates: rejected.slice(0, 10),
+      },
+    });
   } catch (e) {
     console.error("[geo-expansion]", e);
     return json({ error: String(e) });
