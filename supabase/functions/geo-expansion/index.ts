@@ -635,9 +635,10 @@ async function duplicateCampaign(
     const campaignCriteriaRows = await readCampaignCriteria(apiBase, headers, sourceCampaignResource, debug);
     const campaignCriterionOps: any[] = [];
     const campaignCriterionCounts: Record<string, number> = {};
-    const languagesCopied: string[] = [];
-    const deviceModifiers: Record<string, number | string> = {};
-    const activeDevices = new Set<string>();
+    const sourceCriteriaSummary = summarizeCampaignCriteria(campaignCriteriaRows);
+    debug.source.language_constants = sourceCriteriaSummary.languageConstants;
+    debug.source.active_devices = sourceCriteriaSummary.activeDevices;
+    debug.source.device_bid_modifiers = sourceCriteriaSummary.deviceBidModifiers;
     for (const row of campaignCriteriaRows) {
       const op = buildCriterionOperation("campaign", row.campaignCriterion, newCampaignResource, { skipGeo: true });
       if (!op) {
@@ -648,25 +649,26 @@ async function duplicateCampaign(
       campaignCriterionOps.push(op);
       const type = row.campaignCriterion?.type ?? "UNKNOWN";
       campaignCriterionCounts[type] = (campaignCriterionCounts[type] ?? 0) + 1;
-      if (type === "LANGUAGE") languagesCopied.push(String(row.campaignCriterion?.language?.languageConstant ?? ""));
-      if (type === "DEVICE") {
-        const deviceType = String(row.campaignCriterion?.device?.type ?? "UNKNOWN");
-        activeDevices.add(deviceType);
-        deviceModifiers[deviceType] = row.campaignCriterion?.bidModifier ?? 1;
-      }
     }
     const campaignCriteriaResult = await mutateGoogle(apiBase, headers, "campaignCriteria", campaignCriterionOps, "campaign_criteria");
+    const clonedCriteriaSummary = summarizeCampaignCriteria(await readCampaignCriteria(apiBase, headers, newCampaignResource, debug));
     debug.source.campaign_criteria = campaignCriteriaRows.length;
     debug.cloned.campaign_criteria = campaignCriteriaResult.created;
-    debug.cloned.languages = campaignCriterionCounts.LANGUAGE ?? 0;
+    debug.cloned.languages = clonedCriteriaSummary.languageConstants.length;
     debug.cloned.ad_schedules = campaignCriterionCounts.AD_SCHEDULE ?? 0;
-    debug.cloned.devices = campaignCriterionCounts.DEVICE ?? 0;
-    debug.cloned.language_constants = languagesCopied.filter(Boolean);
-    debug.cloned.active_devices = [...activeDevices];
-    debug.cloned.device_bid_modifiers = deviceModifiers;
+    debug.cloned.devices = clonedCriteriaSummary.activeDevices.length;
+    debug.cloned.language_constants = clonedCriteriaSummary.languageConstants;
+    debug.cloned.active_devices = clonedCriteriaSummary.activeDevices;
+    debug.cloned.device_bid_modifiers = clonedCriteriaSummary.deviceBidModifiers;
     debug.cloned.network_settings = networkSettings;
     debug.cloned.bidding = biddingConfig.debug;
     if (campaignCriteriaResult.partialFailureError) debug.partial_failures.push({ step: "campaign_criteria", response: campaignCriteriaResult.partialFailureError });
+    const criticalCriteriaOk = compareCampaignCriteriaSummary(sourceCriteriaSummary, clonedCriteriaSummary);
+    debug.validation = { ...(debug.validation ?? {}), campaign_criteria: criticalCriteriaOk };
+    if (!criticalCriteriaOk.ok) {
+      await removeCampaign(apiBase, headers, newCampaignResource);
+      return { error: `campaign_criteria: idioma/dispositivo não foi clonado fielmente (${criticalCriteriaOk.reason}); campanha removida para evitar broad/open.`, debug };
+    }
 
     // 6) Clona campaign assets/extensões
     const campaignAssetRows = await readCampaignAssets(apiBase, headers, sourceCampaignResource, debug);
