@@ -232,7 +232,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges), ingestionDivisor);
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
         }
@@ -830,7 +830,8 @@ async function persistCampaignSourceRevenueFromUtm(
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
   const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
+  const byCampaign = arr.filter((b) => b.campaign_id !== "__aggregate__").length;
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
@@ -912,10 +913,22 @@ async function applyGoogleUtmRevenue(
       .in("google_account_id", accountIds);
     if (!metrics?.length) continue;
 
-    // Agrega receita de TODOS os sites para essas campanhas nesta data
-    // (uma mesma conta Ads pode estar ligada a múltiplos sites — sem isso,
-    //  cada execução por site sobrescreveria a receita das outras).
+    // Agrega receita de TODOS os sites para essas campanhas nesta data.
+    // Primário: gam_placement_revenue (vem de utm_placement e já tem campaign_id).
+    // Fallback: gam_campaign_source_revenue (utm_campaign), caso um site não envie placement.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
+    const { data: allPlacementRevenueRows } = await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id, revenue_usd")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("campaign_id", cids);
+    const placementByCid = new Map<string, number>();
+    for (const r of (allPlacementRevenueRows ?? []) as any[]) {
+      const cid = String(r.campaign_id);
+      placementByCid.set(cid, (placementByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+    }
+
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
       .select("campaign_id, revenue_usd")
@@ -923,8 +936,10 @@ async function applyGoogleUtmRevenue(
       .eq("date", date)
       .in("campaign_id", cids);
     const aggregatedByCid = new Map<string, number>();
+    for (const [cid, revenue] of placementByCid) aggregatedByCid.set(cid, revenue);
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id);
+      if (placementByCid.has(cid)) continue;
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
     }
 
@@ -960,7 +975,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (todos os sites)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size})`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
