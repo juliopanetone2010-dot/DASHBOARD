@@ -96,11 +96,9 @@ export function AutomationTab() {
     const todayMap: Record<string, number | null> = {};
     for (const cid of Object.keys(aggBy)) {
       const a = aggBy[cid];
-      const acctId = meta[cid]?.google_account_id;
-      const isActive = acctId && automationActiveAccounts.has(String(acctId));
-      const useY = isActive;
-      const spend = useY ? a.spendY : a.spend15;
-      const profit = useY ? a.profitY : a.profit15;
+      // Sempre usa ROI de ontem (dia completo). Hoje fica desatualizado durante o dia.
+      const spend = a.spendY;
+      const profit = a.profitY;
       const grossRev = spend + profit;
       todayMap[cid] = spend > 0 ? (((grossRev * NET_FACTOR) - spend) / spend) * 100 : null;
     }
