@@ -25,6 +25,7 @@ interface Row {
   campaign_name: string | null;
   google_account_id: string | null;
   site_id: string | null;
+  site_scope?: string | null;
   placement: string;
   placement_type: string | null;
   status: Status;
@@ -138,7 +139,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       for (;;) {
         const { data, error } = await supabase
           .from("placement_status")
-          .select("id, campaign_id, campaign_name, google_account_id, site_id, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
+          .select("id, campaign_id, campaign_name, google_account_id, site_id, site_scope, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
           .order("cost_total", { ascending: false })
           .range(s, s + 999);
         if (error) throw error;
@@ -347,11 +348,10 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const accountFiltered = useMemo(() => {
     return rows.filter((r) => {
       const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
-      const hasSelectedSite = !!r.site_id && siteFilter.has(r.site_id);
-      const hasAttributedCampaign = !!allowedSiteCampaignIds?.has(r.campaign_id);
-      return !!accountOk && (!allowedSiteCampaignIds || hasSelectedSite || hasAttributedCampaign);
+      if (siteFilter.size > 0) return !!accountOk && !!r.site_id && siteFilter.has(r.site_id);
+      return !!accountOk;
     });
-  }, [rows, allowedAccountIds, allowedSiteCampaignIds, siteFilter]);
+  }, [rows, allowedAccountIds, siteFilter]);
 
   const counts = useMemo(() => {
     const c = { all: accountFiltered.length, test: 0, learning: 0, good: 0, bad: 0, blocked: 0 } as any;
