@@ -199,6 +199,21 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
           ))}
         </div>
 
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">Site:</span>
+          <select
+            value={siteOverride}
+            onChange={(e) => setSiteOverride(e.target.value)}
+            className="h-7 rounded-md border border-border bg-card px-2 text-xs"
+          >
+            <option value="">{filters.siteId && filters.siteId !== "all" ? "Filtro do dashboard" : "Todos"}</option>
+            <option value="all">Todos os sites</option>
+            {siteOptions.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex gap-2">
           <Badge className="bg-success-soft text-success border-success/20">🟢 {summary.up}</Badge>
           <Badge className="bg-danger-soft text-danger border-danger/20">🔴 {summary.down}</Badge>
