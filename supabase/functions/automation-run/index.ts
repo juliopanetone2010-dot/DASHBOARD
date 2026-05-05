@@ -247,6 +247,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       google_account_id: accountId,
       lifecycle_status: decision.lifecycle,
       last_roi: round2(decision.roi),
+      roi_today: (decision as any).roi_today == null ? null : round2((decision as any).roi_today),
       roi_trend: decision.trend,
       delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
       daily_budget: round2(dailyBudget),
