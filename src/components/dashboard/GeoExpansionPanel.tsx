@@ -146,6 +146,13 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     }
     setLoading(true);
     try {
+      const { data: syncData, error: syncError } = await supabase.functions.invoke("google-ads-sync-countries", {
+        body: { site_id: activeSiteId, lookback_days: lookback },
+      });
+      if (syncError || (syncData as any)?.error) {
+        toast({ title: "Erro ao puxar países", description: (syncData as any)?.error ?? syncError?.message, variant: "destructive" });
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("geo-expansion", {
         body: {
           mode: "preview",
