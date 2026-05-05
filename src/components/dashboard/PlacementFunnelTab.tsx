@@ -347,11 +347,18 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
 
   const accountFiltered = useMemo(() => {
     return rows.filter((r) => {
+      const isGlobal = !r.site_id || r.site_scope === "__global__";
+      // Bloqueios globais (placement_actions sem site) sempre aparecem,
+      // independente do filtro de conta — eles foram aplicados manualmente
+      // ou pela limpeza global e refletem decisão da campanha inteira.
+      if (isGlobal && r.status === "blocked") {
+        if (siteFilter.size === 0) return true;
+        // Mesmo com site selecionado, mostra os globais blocked
+        return true;
+      }
       const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
       if (siteFilter.size > 0) {
-        // Inclui placements do site selecionado + GLOBAIS (site_id=NULL ou scope=__global__),
-        // já que bloqueios manuais/legacy blacklists ficam salvos como globais.
-        const siteOk = (r.site_id && siteFilter.has(r.site_id)) || !r.site_id || r.site_scope === "__global__";
+        const siteOk = (r.site_id && siteFilter.has(r.site_id)) || isGlobal;
         return !!accountOk && siteOk;
       }
       return !!accountOk;
