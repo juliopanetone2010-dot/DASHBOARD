@@ -120,12 +120,12 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  // A esteira deve refletir o ROI de hoje. Antes terminava ontem e ainda somava
-  // vários dias, deixando a coluna ROI diferente do dashboard em tempo real.
+  // Busca histórico suficiente para regras de segurança, mas o ROI exibido e
+  // usado na classificação principal é o do dia atual.
   const days: number = resolveAnalysisDays(cfg);
 
   const today = new Date();
-  const from = new Date(today);
+  const from = new Date(today); from.setUTCDate(today.getUTCDate() - Math.max(0, days - 1));
   const fromIso = isoDate(from);
   const toIso = isoDate(today);
 
