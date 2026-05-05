@@ -1185,6 +1185,16 @@ function buildAdCreate(ad: any, assetRefs: Set<string>) {
     return create;
   }
 
+  if (ad.displayUploadAd) {
+    const dua = ad.displayUploadAd;
+    create.displayUploadAd = cleanObject({
+      mediaBundle: dua.mediaBundle ? cleanObject({ asset: dua.mediaBundle.asset }) : undefined,
+      displayUploadProductType: dua.displayUploadProductType,
+    });
+    if (dua.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
+    return create;
+  }
+
   return null;
 }
 
