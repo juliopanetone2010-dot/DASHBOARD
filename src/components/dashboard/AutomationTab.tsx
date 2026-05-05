@@ -380,7 +380,13 @@ export function AutomationTab() {
                       <TableCell className={`text-right font-mono text-xs ${dCls}`} title={s.daily_budget ? `Orçamento diário: ${Number(s.daily_budget).toFixed(2)}` : ""}>{dPct != null ? `${dPct}%` : "—"}</TableCell>
                       <TableCell className="text-xs">{s.roi_trend ?? "—"}</TableCell>
                       <TableCell className="text-xs">{s.days_in_standby > 0 ? `${s.days_in_standby}d` : "—"}</TableCell>
-                      <TableCell className="text-xs">{s.last_action ? `${s.last_action} · ${s.last_action_date ? new Date(s.last_action_date).toLocaleDateString("pt-BR") : ""}` : "—"}</TableCell>
+                      <TableCell className="text-xs">{(() => {
+                        const act = s.last_action;
+                        const isPaused = String(s.lifecycle_status).includes("paused");
+                        // Esconde "pause" quando a campanha não está realmente pausada (registro antigo/dry-run)
+                        if (!act || (act === "pause" && !isPaused)) return "—";
+                        return `${act} · ${s.last_action_date ? new Date(s.last_action_date).toLocaleDateString("pt-BR") : ""}`;
+                      })()}</TableCell>
                       <TableCell className="text-xs">{s.cooldown_until && new Date(s.cooldown_until) > new Date() ? new Date(s.cooldown_until).toLocaleDateString("pt-BR") : "—"}</TableCell>
                     </TableRow>
                   );
