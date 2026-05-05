@@ -433,8 +433,8 @@ async function duplicateCampaign(
   const STANDARD_FINAL_URL_SUFFIX =
     "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
 
-  const biddingType: string = cRow.campaign?.biddingStrategyType ?? "UNKNOWN";
-  const biddingConfig = buildCampaignBidding(cRow.campaign ?? {});
+  const sourceBiddingType: string = cRow.campaign?.biddingStrategyType ?? "UNKNOWN";
+  const biddingConfig = buildWinnerBidding(sourceBiddingType);
   const newBudgetMicros = 30_000_000;
 
   if (channelType === "PERFORMANCE_MAX") {
@@ -466,7 +466,8 @@ async function duplicateCampaign(
     new_campaign_name: newName,
     requested_country: item.country_criterion_id,
     budget_micros: newBudgetMicros,
-    bidding_strategy: biddingType,
+    source_bidding_strategy: sourceBiddingType,
+    bidding_strategy: biddingConfig.debug.applied,
     source: {},
     cloned: {},
     skipped: {},
