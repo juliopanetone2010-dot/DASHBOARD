@@ -79,6 +79,22 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     })();
   }, []);
 
+  const loadCreated = useCallback(async () => {
+    setLoadingCreated(true);
+    try {
+      let q = (supabase.from("campaign_expansion_logs") as any)
+        .select("id, original_campaign_id, original_campaign_name, new_campaign_id, new_campaign_name, country_code, country_name, roi_pct, cost_brl, revenue_brl, budget_micros, status, executed_at")
+        .eq("action", "created")
+        .order("executed_at", { ascending: false })
+        .limit(100);
+      if (siteId) q = q.eq("site_id", siteId);
+      const { data } = await q;
+      setCreated((data ?? []) as CreatedLog[]);
+    } finally { setLoadingCreated(false); }
+  }, [siteId]);
+
+  useEffect(() => { loadCreated(); }, [loadCreated]);
+
   const persist = async (patch: Record<string, unknown>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
