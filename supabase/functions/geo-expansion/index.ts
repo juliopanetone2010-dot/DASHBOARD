@@ -254,7 +254,6 @@ Deno.serve(async (req) => {
     for (const r of countryRows) {
       const cd = `${r.campaign_id}|${r.date}`;
       const siteFactor = siteId ? (siteShareByCD.get(cd) ?? 0) : 1;
-      if (siteFactor <= 0) continue;
       const k = `${r.campaign_id}|${r.country_code}`;
       let c = cells.get(k);
       if (!c) {
@@ -266,14 +265,16 @@ Deno.serve(async (req) => {
         };
         cells.set(k, c);
       }
-      c.cost_brl += (r.cost || 0) * siteFactor;
-      c.clicks += (r.clicks || 0) * siteFactor;
-      c.impressions += (r.impressions || 0) * siteFactor;
+      // Custo e tráfego = totais reais do período (não dependem de atribuição GAM ao site)
+      c.cost_brl += (r.cost || 0);
+      c.clicks += (r.clicks || 0);
+      c.impressions += (r.impressions || 0);
       if (!c.country_criterion_id && r.country_criterion_id) c.country_criterion_id = r.country_criterion_id;
       if (!c.google_account_id && r.google_account_id) c.google_account_id = r.google_account_id;
 
+      // Receita: só conta a fração atribuída ao site selecionado
       const revUsd = revByCD.get(cd) || 0;
-      if (revUsd > 0) {
+      if (revUsd > 0 && siteFactor > 0) {
         const totalImpr = imprByCD.get(cd) || 0;
         const totalClicks = clicksByCD.get(cd) || 0;
         const totalCost = costByCD.get(cd) || 0;
@@ -285,13 +286,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Agrega por campanha
+    // Agrega por campanha — custo total real do período (independente de siteFactor),
+    // para que o filtro "custo mín. campanha" reflita o gasto verdadeiro na janela de análise.
     const campAgg = new Map<string, { cost: number; countries: Set<string> }>();
-    for (const c of cells.values()) {
-      let a = campAgg.get(c.campaign_id);
-      if (!a) { a = { cost: 0, countries: new Set() }; campAgg.set(c.campaign_id, a); }
-      a.cost += c.cost_brl;
-      a.countries.add(c.country_code);
+    for (const r of countryRows) {
+      let a = campAgg.get(r.campaign_id);
+      if (!a) { a = { cost: 0, countries: new Set() }; campAgg.set(r.campaign_id, a); }
+      a.cost += (r.cost || 0);
+      if (r.country_code) a.countries.add(r.country_code);
     }
 
     interface Winner {
