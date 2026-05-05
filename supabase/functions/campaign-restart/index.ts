@@ -474,9 +474,9 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
       operations: [{
         update: {
           resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
-          maximizeConversions: {},
+          maximizeConversions: { targetCpaMicros: "0" },
         },
-        updateMask: "maximize_conversions.target_cpa_micros,maximize_conversions",
+        updateMask: "maximize_conversions",
       }],
     }),
   });
