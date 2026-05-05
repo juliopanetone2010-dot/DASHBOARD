@@ -49,6 +49,8 @@ interface CampaignTotal {
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
+  with_match?: number; without_match?: number; match_pct?: number;
+  gam_total_usd?: number; gam_attributed_usd?: number; gam_attributed_pct?: number;
   period?: { from: string; to: string };
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
