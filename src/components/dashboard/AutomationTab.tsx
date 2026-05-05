@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
+import { SitesAutomationPanel } from "./SitesAutomationPanel";
 
 type Cfg = Record<string, any>;
 type Lifecycle =
@@ -278,15 +279,17 @@ export function AutomationTab() {
         <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
       </div>
 
+      <SitesAutomationPanel userId={cfg?.user_id ?? null} />
+
       <div className="rounded-xl border border-border bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h3 className="font-semibold">Automação por site</h3>
+          <h3 className="font-semibold">Automação do site selecionado no filtro</h3>
           <p className="text-sm text-muted-foreground">
-            {siteFilter === "all" ? "Selecione um site para ativar ou rodar a automação." : `${selectedLinkedAccounts.length} conta(s) vinculada(s) ao site selecionado.`}
+            {siteFilter === "all" ? "Selecione um site no filtro acima para rodar a automação manualmente." : `${selectedLinkedAccounts.length} conta(s) vinculada(s) ao site selecionado.`}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Ativar automação para este site</span>
+          <span className="text-sm text-muted-foreground">Ativar (filtro atual)</span>
           <Switch checked={siteAutomationActive} disabled={saving || siteFilter === "all" || selectedLinkedAccounts.length === 0} onCheckedChange={upsertSiteAutomation} />
         </div>
       </div>
