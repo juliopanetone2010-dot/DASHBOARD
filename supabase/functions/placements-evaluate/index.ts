@@ -120,10 +120,16 @@ Deno.serve(async (req) => {
     const ads: AdsRow[] = [];
     let s = 0;
     for (;;) {
-      const { data, error } = await admin.from("ads_placements")
+      let adsQuery = admin.from("ads_placements")
         .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
-        .eq("user_id", userId).gte("date", from).lte("date", to)
-        .range(s, s + 999);
+        .eq("user_id", userId).gte("date", from).lte("date", to);
+      if (accountId) adsQuery = adsQuery.eq("google_account_id", accountId);
+      if (allowedCampaigns) {
+        const ids = [...allowedCampaigns];
+        if (ids.length === 0) break;
+        adsQuery = adsQuery.in("campaign_id", ids);
+      }
+      const { data, error } = await adsQuery.range(s, s + 999);
       if (error) return json({ error: error.message });
       const rows = (data ?? []) as AdsRow[];
       ads.push(...rows);
