@@ -1108,7 +1108,7 @@ async function readAdGroupAssets(apiBase: string, headers: Record<string, string
 }
 
 function summarizeCampaignCriteria(rows: any[]) {
-  const defaultDevices = ["COMPUTER", "MOBILE", "TABLET"];
+  const defaultDevices = ["DESKTOP", "MOBILE", "TABLET"];
   const languageConstants = rows
     .map((row: any) => row.campaignCriterion?.language?.languageConstant)
     .filter(Boolean)
