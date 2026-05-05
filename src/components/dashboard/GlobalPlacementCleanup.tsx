@@ -139,7 +139,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         body: {
           mode: "preview",
           min_days: minDays,
-          max_roi_pct: maxRoi,
+          max_roi_pct: -Math.abs(maxRoi),
           min_cost_brl: minCost,
           lookback_days: analysisWindowDays,
           from: range.from,
