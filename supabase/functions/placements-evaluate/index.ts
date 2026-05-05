@@ -47,6 +47,11 @@ Deno.serve(async (req) => {
       userId = claims?.claims?.sub ?? null;
       if (!userId) return json({ error: "Token inválido" });
     }
+    if (!userId) return json({ error: "Token inválido" });
+
+    const REV_SHARE_NET = 1 - (await getRevSharePct(admin, userId, siteId)) / 100;
+    console.log(`[placements-evaluate] revshare_net=${REV_SHARE_NET.toFixed(4)}`);
+    }
 
     // Carrega regras
     const { data: rules } = await admin.from("rules_config")
