@@ -110,7 +110,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           .lte("date", range.to)
           .limit(50000);
         const siteCampaignIds = new Set((attributionRows ?? [])
-          .map((r: any) => String(r.campaign_id ?? ""))
+          .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
           .filter((id) => id && id !== "__aggregate__"));
         rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
       }
@@ -379,7 +379,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     } finally { setExcluding(null); }
   };
 
-  const toggleExpand = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleExpand = (k: string) => setExpanded((s) => {
+    const n = new Set(s);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
   const toggleAccount = (id: string) => setAccountIds((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
   const accountLabel = accountIds.length === 0
     ? (siteId === "all" ? "Todas as contas" : `Todas do site (${visibleAccounts.length})`)
