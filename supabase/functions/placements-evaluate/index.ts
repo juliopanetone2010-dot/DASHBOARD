@@ -380,7 +380,7 @@ Deno.serve(async (req) => {
     // Upsert (em chunks)
     for (const chunk of chunkArr(upserts, 500)) {
       const { error } = await admin.from("placement_status")
-        .upsert(chunk, { onConflict: "user_id,campaign_id,placement" });
+        .upsert(chunk, { onConflict: "user_id,site_scope,campaign_id,placement" });
       if (error) return json({ error: error.message });
     }
     // Backfill placement_status_id no histórico (após upsert)
@@ -389,11 +389,12 @@ Deno.serve(async (req) => {
       const { data: ids } = await admin.from("placement_status")
         .select("id, campaign_id, placement")
         .eq("user_id", userId)
+        .eq("site_scope", siteScope)
         .in("campaign_id", [...new Set(keys.map((k) => k[0]))]);
       const idMap = new Map<string, string>();
-      for (const i of ids ?? []) idMap.set(cpKey(i.campaign_id, i.placement), i.id);
+      for (const i of ids ?? []) idMap.set(cpKey(siteScope, i.campaign_id, i.placement), i.id);
       for (const h of histInserts) {
-        h.placement_status_id = idMap.get(cpKey(h.campaign_id, h.placement)) ?? null;
+        h.placement_status_id = idMap.get(cpKey(siteScope, h.campaign_id, h.placement)) ?? null;
       }
       const valid = histInserts.filter((h) => h.placement_status_id);
       for (const chunk of chunkArr(valid, 500)) {
@@ -431,7 +432,7 @@ Deno.serve(async (req) => {
   }
 });
 
-function cpKey(cid: string, placement: string) { return `${cid}${KEY_SEP}${placement}`; }
+function cpKey(scope: string, cid: string, placement: string) { return `${scope}${KEY_SEP}${cid}${KEY_SEP}${placement}`; }
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
 }
