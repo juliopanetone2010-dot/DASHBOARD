@@ -173,10 +173,10 @@ Deno.serve(async (req) => {
               AND campaign_criterion.negative = TRUE
           `;
           const sRes = await fetch(`${apiBase}/googleAds:search`, {
-            method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
+            method: "POST", headers, body: JSON.stringify({ query }),
           });
           const sJson = await sRes.json();
-          if (!sRes.ok) { failed++; summary.push({ id: act.id, status: "fail_search", error: sJson?.error?.message ?? JSON.stringify(sJson) }); continue; }
+          if (!sRes.ok) { failed++; summary.push({ id: act.id, status: "fail_search", error: JSON.stringify(sJson?.error ?? sJson).slice(0, 500) }); continue; }
           const rows = (sJson.results ?? []) as any[];
 
           const wantedHosts = new Set<string>();
