@@ -331,9 +331,11 @@ Deno.serve(async (req) => {
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
-    type CampTotal = { campaign_id: string; name: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number };
+    type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
-    for (const chunk of chunkArr(eligibleIds, 200)) {
+    // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
+    // não só as elegíveis para limpeza. Assim o header bate com o dashboard.
+    for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
         .select("campaign_id, spend, revenue")
@@ -348,16 +350,16 @@ Deno.serve(async (req) => {
         if (!meta) continue;
         let t = totalsMap.get(String(r.campaign_id));
         if (!t) {
-          t = { campaign_id: String(r.campaign_id), name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 };
+          t = { campaign_id: String(r.campaign_id), name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(String(r.campaign_id)) };
           totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
         t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
     }
-    for (const id of eligibleIds) {
+    for (const id of campIds) {
       const meta = campMap.get(id);
-      if (meta && !totalsMap.has(id)) totalsMap.set(id, { campaign_id: id, name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0 });
+      if (meta && !totalsMap.has(id)) totalsMap.set(id, { campaign_id: id, name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(id) });
     }
     for (const t of totalsMap.values()) {
       t.profit_brl = t.revenue_brl - t.cost_brl;

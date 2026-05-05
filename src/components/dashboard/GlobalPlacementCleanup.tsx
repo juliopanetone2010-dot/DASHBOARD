@@ -42,9 +42,9 @@ interface PreviewItem {
   campaigns: PreviewCampaign[];
 }
 interface CampaignTotal {
-  campaign_id: string; name: string;
+  campaign_id: string; name: string; google_account_id?: string;
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
-  bad_count: number;
+  bad_count: number; eligible?: boolean;
 }
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
@@ -229,12 +229,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
-  const sortedCampaigns = [...campaignTotals]
-    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
-    .sort((a, b) => a.roi_pct - b.roi_pct);
+  // Mostra TODAS as campanhas ENABLED da conta/site selecionado, mesmo sem placements ruins.
+  // Permite ao usuário enxergar todo o portfólio e validar custo/receita batendo com o dashboard.
+  const accountFilteredTotals = accountFilter === "all"
+    ? campaignTotals
+    : campaignTotals.filter((c) => c.google_account_id === accountFilter);
+  const sortedCampaigns = [...accountFilteredTotals].sort((a, b) => a.roi_pct - b.roi_pct);
 
-  // Custo/Lucro do header agora reflete só as campanhas exibidas (com placements ruins),
-  // respeitando o filtro de conta.
+  // Custo/Lucro do header reflete TODAS campanhas exibidas (com e sem placements ruins),
+  // assim bate com o dashboard "Últimos 15 dias".
   const grandCost = sortedCampaigns.reduce((a, c) => a + (c.cost_brl || 0), 0);
   const grandProfit = sortedCampaigns.reduce((a, c) => a + (c.profit_brl || 0), 0);
 
@@ -355,9 +358,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
-                        <TableCell className="text-right"><Badge variant="destructive">{list.length}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          {list.length > 0
+                            ? <Badge variant="destructive">{list.length}</Badge>
+                            : <Badge variant="outline" className="border-success/50 text-success">0</Badge>}
+                        </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
+                          {list.length > 0 && (
+                            <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
+                          )}
                         </TableCell>
                       </TableRow>
                       {isOpen && (
