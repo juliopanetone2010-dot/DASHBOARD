@@ -120,15 +120,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  // Janela única configurável via rules_config.auto_analysis_days (default 15d).
-  // Termina ontem (sem incluir o dia corrente, que está incompleto).
+  // A esteira deve refletir o ROI de hoje. Antes terminava ontem e ainda somava
+  // vários dias, deixando a coluna ROI diferente do dashboard em tempo real.
   const days: number = resolveAnalysisDays(cfg);
 
   const today = new Date();
-  const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
-  const from = new Date(today); from.setUTCDate(today.getUTCDate() - days);
+  const from = new Date(today);
   const fromIso = isoDate(from);
-  const toIso = isoDate(yest);
+  const toIso = isoDate(today);
 
   const { data: link } = await admin
     .from("account_site_links")
