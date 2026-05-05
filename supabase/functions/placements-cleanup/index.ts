@@ -53,6 +53,8 @@ Deno.serve(async (req) => {
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
+    const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
+    const toOverride: string | null = typeof body?.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.to) ? body.to : null;
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null = typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
     const accountIds: string[] = Array.isArray(body?.google_account_ids)
@@ -84,16 +86,28 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
-    // Janela alinhada com o preset "Últimos 15 dias" do dashboard:
-    // de (hoje - lookback) até ontem (último dia completo no Google Ads).
+    // Janela: usa from/to vindos da UI quando disponíveis (respeitando o preset selecionado).
+    // Caso contrário, cai no padrão (hoje - lookback) até ontem.
     const today = new Date();
-    const toDate = new Date(today.getTime() - 86400_000); // ontem
-    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
-    const cutoffDate = new Date(today.getTime() - minDays * 86400_000);
+    const yesterday = new Date(today.getTime() - 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const from = iso(fromDate);
-    const to = iso(toDate);
-    const cutoff = iso(cutoffDate);
+    let from: string;
+    let to: string;
+    if (fromOverride && toOverride) {
+      from = fromOverride;
+      // Garante "até ontem" no máximo (Google Ads não tem dia atual fechado)
+      to = toOverride > iso(yesterday) ? iso(yesterday) : toOverride;
+    } else {
+      to = iso(yesterday);
+      from = iso(new Date(today.getTime() - lookbackDays * 86400_000));
+    }
+    // analysis_window_days = janela efetiva usada em TODA a lógica
+    const msDay = 86400_000;
+    const analysisWindowDays = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / msDay) + 1);
+    // cutoff = "campanha precisa ter ≥ minDays de histórico para ser elegível"
+    const cutoff = iso(new Date(today.getTime() - minDays * msDay));
+    console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias)`);
+
 
     // Restringe contas Ads ao escopo do site selecionado.
     let allowedAccountIds: string[] | null = null;
@@ -396,6 +410,7 @@ Deno.serve(async (req) => {
       gam_attributed_usd: round(attributedGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
+      analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
       grand_cost_brl,
@@ -476,7 +491,7 @@ Deno.serve(async (req) => {
             roi_before: totals?.roi_pct ?? null,
             cost_before: totals?.cost_brl ?? null,
             revenue_before: totals?.revenue_brl ?? null,
-            lookback_days: lookbackDays,
+            lookback_days: analysisWindowDays,
             executed_at: new Date().toISOString(),
           });
         }

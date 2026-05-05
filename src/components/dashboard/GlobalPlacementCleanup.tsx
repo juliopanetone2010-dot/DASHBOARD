@@ -57,7 +57,12 @@ interface PreviewStats {
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
-  const { filters } = useDashboardFilters();
+  const { filters, range } = useDashboardFilters();
+  // Janela efetiva selecionada no dashboard (em dias, inclusive)
+  const analysisWindowDays = Math.max(
+    1,
+    Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1,
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -70,7 +75,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [minDays, setMinDays] = useState(15);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
-  const [lookback, setLookback] = useState(15);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -137,7 +141,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           min_days: minDays,
           max_roi_pct: maxRoi,
           min_cost_brl: minCost,
-          lookback_days: lookback,
+          lookback_days: analysisWindowDays,
+          from: range.from,
+          to: range.to,
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
@@ -260,7 +266,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza global de placements</div>
           <div className="text-xs text-muted-foreground">
-            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} nos últimos {lookback} dias. Apps/YouTube ficam de fora da exclusão automática.
+            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} no período selecionado ({analysisWindowDays} dias). Apps/YouTube ficam de fora da exclusão automática.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
@@ -280,7 +286,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">Últimos 15 dias</Badge></span>
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">{range.from} → {range.to} ({analysisWindowDays}d)</Badge></span>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -303,7 +309,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   Receita atribuída: {stats.gam_attributed_pct}%
                 </Badge>
               )}
-              <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
@@ -332,8 +338,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <TableRow className="bg-muted/40">
                   <TableHead className="w-10"></TableHead>
                   <TableHead>Campanha</TableHead>
-                  <TableHead className="text-right">Custo (15d)</TableHead>
-                  <TableHead className="text-right">Receita (15d)</TableHead>
+                  <TableHead className="text-right">Custo ({analysisWindowDays}d)</TableHead>
+                  <TableHead className="text-right">Receita ({analysisWindowDays}d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
                   <TableHead className="text-right">Ruins</TableHead>
