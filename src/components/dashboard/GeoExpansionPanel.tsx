@@ -259,15 +259,29 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         toast({ title: "Sem contas vinculadas", description: "Este site não tem contas Ads vinculadas.", variant: "destructive" });
         return;
       }
+      const selectedAccountIds = filters.googleAccountIds.length > 0
+        ? accountIds.filter((id) => filters.googleAccountIds.includes(id))
+        : accountIds;
+      if (selectedAccountIds.length === 0) {
+        toast({ title: "Sem campanhas na seleção", description: "As contas filtradas na dashboard não pertencem a este site.", variant: "destructive" });
+        return;
+      }
       const { data: campaignSyncData, error: campaignSyncError } = await supabase.functions.invoke("google-ads-sync-campaigns", {
-        body: { account_ids: accountIds, from: iso(fromDate), to: iso(toDate) },
+        body: { account_ids: selectedAccountIds, from: iso(fromDate), to: iso(toDate) },
       });
       if (campaignSyncError || (campaignSyncData as any)?.error) {
         toast({ title: "Erro ao puxar campanhas", description: (campaignSyncData as any)?.error ?? campaignSyncError?.message, variant: "destructive" });
         return;
       }
+      const dashboardCampaignIds = await fetchDashboardCampaignIds(activeSiteId, selectedAccountIds, iso(fromDate), iso(toDate));
+      if (dashboardCampaignIds.length === 0) {
+        setItems([]);
+        setStats({ period: { from: iso(fromDate), to: iso(toDate) }, total: 0, candidates_total: 0, top_candidates: [] });
+        toast({ title: "Sem campanhas na dashboard", description: "Nenhuma campanha com métrica na janela atual para este site." });
+        return;
+      }
       const { data: syncData, error: syncError } = await supabase.functions.invoke("google-ads-sync-countries", {
-        body: { site_id: activeSiteId, lookback_days: lookback },
+        body: { site_id: activeSiteId, account_ids: selectedAccountIds, campaign_ids: dashboardCampaignIds, lookback_days: lookback },
       });
       if (syncError || (syncData as any)?.error) {
         toast({ title: "Erro ao puxar países", description: (syncData as any)?.error ?? syncError?.message, variant: "destructive" });
@@ -277,6 +291,8 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         body: {
           mode: "preview",
           site_id: activeSiteId,
+          account_ids: selectedAccountIds,
+          campaign_ids: dashboardCampaignIds,
           min_roi_pct: minRoi,
           min_campaign_cost_brl: minCampCost,
           min_country_cost_brl: minCountryCost,
