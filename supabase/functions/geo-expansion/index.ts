@@ -6,9 +6,7 @@
 //  - apply   : duplica a campanha (cria budget + campaign + ad_groups + ads + location criterion)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-
-const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935
+import { getRevSharePct } from "../_shared/revshare.ts";
 
 interface ApplyItem {
   campaign_id: string;
