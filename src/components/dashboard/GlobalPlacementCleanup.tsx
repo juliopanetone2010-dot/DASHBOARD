@@ -58,10 +58,19 @@ interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; sta
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters, range, selectSite } = useDashboardFilters();
-  // Janela efetiva selecionada no dashboard (em dias, inclusive)
+  // Permite o usuário sobrescrever o período do dashboard só para a limpeza.
+  const [periodOverride, setPeriodOverride] = useState<number | "dashboard">("dashboard");
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const effectiveRange = (() => {
+    if (periodOverride === "dashboard") return range;
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86400000);
+    const from = new Date(yesterday.getTime() - (periodOverride - 1) * 86400000);
+    return { from: iso(from), to: iso(yesterday) };
+  })();
   const analysisWindowDays = Math.max(
     1,
-    Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1,
+    Math.round((Date.parse(effectiveRange.to) - Date.parse(effectiveRange.from)) / 86400000) + 1,
   );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
