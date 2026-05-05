@@ -27,6 +27,7 @@ import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
+import { CreativesTab } from "@/components/dashboard/CreativesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
