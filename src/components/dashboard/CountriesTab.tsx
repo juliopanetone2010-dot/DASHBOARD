@@ -100,7 +100,20 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         setCountryRows([]); setDailyRows([]);
         return;
       }
-      const rows = (cm ?? []) as CountryRow[];
+      let rows = (cm ?? []) as CountryRow[];
+      if (siteId !== "all") {
+        const { data: attributionRows } = await supabase
+          .from("gam_placement_revenue")
+          .select("campaign_id")
+          .eq("site_id", siteId)
+          .gte("date", range.from)
+          .lte("date", range.to)
+          .limit(50000);
+        const siteCampaignIds = new Set((attributionRows ?? [])
+          .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
+          .filter((id) => id && id !== "__aggregate__"));
+        rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
+      }
       setCountryRows(rows);
 
       // 2) Receita por (campanha, dia) — MESMA fonte do dashboard
@@ -132,6 +145,13 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       // 3) Nomes de campanha
       const names: Record<string, string> = {};
       for (const c of dash.campaigns) names[c.campaign_id] = c.name;
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: campRows } = await supabase
+          .from("campaigns")
+          .select("campaign_id, name")
+          .in("campaign_id", ids.slice(i, i + 200));
+        for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
+      }
       setCampNames(names);
     } finally {
       setLoading(false);
@@ -150,7 +170,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-countries",
-        { body: { lookback_days: days } },
+        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -359,7 +379,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     } finally { setExcluding(null); }
   };
 
-  const toggleExpand = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleExpand = (k: string) => setExpanded((s) => {
+    const n = new Set(s);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
   const toggleAccount = (id: string) => setAccountIds((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
   const accountLabel = accountIds.length === 0
     ? (siteId === "all" ? "Todas as contas" : `Todas do site (${visibleAccounts.length})`)

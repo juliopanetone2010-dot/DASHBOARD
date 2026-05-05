@@ -4,6 +4,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { COUNTRY_BY_ID } from "./countries.ts";
 
+type CampaignRow = { campaign_id: string | number | null; name: string | null; google_account_id: string | null };
+type AccountRow = { id: string; customer_id: string | null; refresh_token: string | null; login_customer_id: string | null };
+type CountryMetricInsert = {
+  user_id: string; google_account_id: string | null; campaign_id: string; date: string;
+  country_code: string; country_name: string; country_criterion_id: string;
+  cost: number; clicks: number; impressions: number; conversions: number; revenue_usd: number;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -12,6 +20,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
+    const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
@@ -26,11 +35,26 @@ Deno.serve(async (req) => {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate), to = iso(toDate);
 
-    const { data: camps } = await admin
+    const { data: campsRaw } = await admin
       .from("campaigns")
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
+    let camps = (campsRaw ?? []) as CampaignRow[];
+    if (siteId) {
+      const { data: siteCampaigns } = await admin
+        .from("gam_placement_revenue")
+        .select("campaign_id")
+        .eq("user_id", userId)
+        .eq("site_id", siteId)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      const allowedCampaigns = new Set((siteCampaigns ?? [])
+        .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
+        .filter((id) => id && id !== "__aggregate__"));
+      camps = camps.filter((c) => allowedCampaigns.has(String(c.campaign_id)));
+    }
 
     const byAccount = new Map<string, { ids: string[]; }>();
     const campMeta = new Map<string, { name: string; google_account_id: string }>();
@@ -48,8 +72,8 @@ Deno.serve(async (req) => {
       .select("id, customer_id, refresh_token, login_customer_id")
       .eq("user_id", userId)
       .in("id", [...byAccount.keys()]);
-    const accMap = new Map<string, any>();
-    for (const a of accs ?? []) accMap.set(a.id, a);
+    const accMap = new Map<string, AccountRow>();
+    for (const a of (accs ?? []) as AccountRow[]) accMap.set(a.id, a);
 
     type Row = { campaign_id: string; date: string; country_id: string; cost: number; clicks: number; impressions: number; conversions: number };
     const all: Row[] = [];
@@ -143,48 +167,11 @@ Deno.serve(async (req) => {
     }
     const resolved = new Map<string, { code: string; name: string }>();
     if (unknownIds.size > 0) {
-      // Usa qualquer conta com token disponível para resolver constantes (são globais)
-      const firstAcc = [...accMap.values()].find((a) => a?.refresh_token && a?.customer_id);
-      if (firstAcc) {
-        try {
-          const token = await getToken(firstAcc.refresh_token, tokenCache);
-          const headers: Record<string, string> = {
-            Authorization: `Bearer ${token}`,
-            "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
-            "Content-Type": "application/json",
-          };
-          if (firstAcc.login_customer_id) headers["login-customer-id"] = firstAcc.login_customer_id;
-          const resourceList = [...unknownIds]
-            .map((id) => `'geoTargetConstants/${id}'`).join(",");
-          const q = `
-            SELECT geo_target_constant.id, geo_target_constant.name,
-                   geo_target_constant.country_code, geo_target_constant.target_type
-            FROM geo_target_constant
-            WHERE geo_target_constant.resource_name IN (${resourceList})
-          `;
-          const rr = await fetch(
-            `https://googleads.googleapis.com/v21/customers/${firstAcc.customer_id}/googleAds:search`,
-            { method: "POST", headers, body: JSON.stringify({ query: q }) },
-          );
-          const jj = await rr.json();
-          if (rr.ok) {
-            for (const row of jj.results ?? []) {
-              const gid = String(row.geoTargetConstant?.id ?? "");
-              const name = String(row.geoTargetConstant?.name ?? "");
-              const code = String(row.geoTargetConstant?.countryCode ?? "ZZ");
-              if (gid) resolved.set(gid, { code, name });
-            }
-          } else {
-            console.error("[sync-countries] geo_target_constant resolve error", JSON.stringify(jj));
-          }
-        } catch (e) {
-          console.error("[sync-countries] geo resolve threw", e);
-        }
-      }
+      await resolveGeoTargets([...unknownIds], [...accMap.values()], tokenCache, resolved);
     }
 
     // Monta upsert (deduplicado por campaign+date+country_code)
-    const dedup = new Map<string, any>();
+    const dedup = new Map<string, CountryMetricInsert>();
     for (const r of all) {
       const k = `${r.campaign_id}|${r.date}`;
       const totalCost = geoCostByCampDate.get(k) || 1;
@@ -224,11 +211,13 @@ Deno.serve(async (req) => {
 
     // Limpa janela e re-insere
     if (inserts.length) {
-      await admin.from("campaign_country_metrics")
+      let deleteQuery = admin.from("campaign_country_metrics")
         .delete()
         .eq("user_id", userId)
         .gte("date", from)
         .lte("date", to);
+      if (siteId) deleteQuery = deleteQuery.in("campaign_id", [...campMeta.keys()]);
+      await deleteQuery;
       for (const chunk of chunkArr(inserts, 1000)) {
         const { error } = await admin.from("campaign_country_metrics").insert(chunk);
         if (error) return json({ error: error.message });
@@ -257,6 +246,52 @@ async function getToken(refreshToken: string, cache: Map<string, string>) {
   if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
   cache.set(refreshToken, j.access_token);
   return j.access_token as string;
+}
+
+async function resolveGeoTargets(
+  ids: string[],
+  accounts: AccountRow[],
+  tokenCache: Map<string, string>,
+  resolved: Map<string, { code: string; name: string }>,
+) {
+  const cleanIds = [...new Set(ids.map((id) => id.replace(/\D/g, "")).filter(Boolean))];
+  if (cleanIds.length === 0) return;
+  const q = `
+    SELECT geo_target_constant.id, geo_target_constant.name,
+           geo_target_constant.country_code, geo_target_constant.target_type
+    FROM geo_target_constant
+    WHERE geo_target_constant.resource_name IN (${cleanIds.map((id) => `'geoTargetConstants/${id}'`).join(",")})
+  `;
+  for (const acc of accounts) {
+    if (!acc?.refresh_token || !acc?.customer_id) continue;
+    try {
+      const token = await getToken(acc.refresh_token, tokenCache);
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+        "Content-Type": "application/json",
+      };
+      if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+      const rr = await fetch(
+        `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+        { method: "POST", headers, body: JSON.stringify({ query: q }) },
+      );
+      const jj = await rr.json();
+      if (!rr.ok) {
+        console.error("[sync-countries] geo_target_constant resolve error", JSON.stringify(jj));
+        continue;
+      }
+      for (const row of jj.results ?? []) {
+        const gid = String(row.geoTargetConstant?.id ?? "");
+        const name = String(row.geoTargetConstant?.name ?? "");
+        const code = String(row.geoTargetConstant?.countryCode ?? "ZZ");
+        if (gid && name) resolved.set(gid, { code, name });
+      }
+      if (cleanIds.every((id) => resolved.has(id))) return;
+    } catch (e) {
+      console.error("[sync-countries] geo resolve threw", e);
+    }
+  }
 }
 
 function chunkArr<T>(arr: T[], size: number): T[][] {
