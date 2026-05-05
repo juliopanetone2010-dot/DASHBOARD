@@ -286,7 +286,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">Últimos 15 dias</Badge></span>
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">{range.from} → {range.to} ({analysisWindowDays}d)</Badge></span>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
