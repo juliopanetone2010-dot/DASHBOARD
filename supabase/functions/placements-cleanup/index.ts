@@ -87,6 +87,11 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
+    // Revshare configurável por usuário (rules_config.revenue_share_pct, default 6.5).
+    const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
+    const NET_FACTOR = 1 - REV_SHARE_PCT;
+    console.log(`[placements-cleanup] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);
+
     // Janela: usa from/to vindos da UI quando disponíveis (respeitando o preset selecionado).
     // Caso contrário, cai no padrão (hoje - lookback) até ontem.
     const today = new Date();
