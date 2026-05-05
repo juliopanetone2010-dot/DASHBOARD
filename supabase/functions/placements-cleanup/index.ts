@@ -359,7 +359,7 @@ Deno.serve(async (req) => {
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
-      if (meta && !totalsMap.has(id)) totalsMap.set(id, { campaign_id: id, name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(id) });
+      if (meta && !totalsMap.has(id)) totalsMap.set(id, { campaign_id: id, name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(id) });
     }
     for (const t of totalsMap.values()) {
       t.profit_brl = t.revenue_brl - t.cost_brl;
