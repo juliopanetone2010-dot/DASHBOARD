@@ -402,7 +402,7 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         </div>
         <Button size="sm" variant="outline" onClick={evaluateNow} disabled={evaluating}>
           {evaluating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <RefreshCw className="h-3.5 w-3.5 mr-2" />}
-          Avaliar agora
+          Rodar agora
         </Button>
       </div>
 
