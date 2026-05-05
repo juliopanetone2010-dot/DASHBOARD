@@ -52,6 +52,7 @@ export interface RulesConfig {
   auto_pause_enabled: boolean;
   auto_boost_enabled: boolean;
   budget_increase_pct: number;
+  revenue_share_pct?: number;
 }
 
 export interface Alert {

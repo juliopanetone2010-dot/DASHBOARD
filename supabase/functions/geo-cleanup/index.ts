@@ -3,9 +3,7 @@
 // Modos: preview | apply | notify
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-
-const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935
+import { getRevSharePct } from "../_shared/revshare.ts";
 
 interface ApplyItem {
   campaign_id: string;
@@ -63,6 +61,11 @@ Deno.serve(async (req) => {
       userId = claims?.claims?.sub ?? null;
       if (!userId) return json({ error: "Token inválido" });
     }
+    if (!userId) return json({ error: "Token inválido" });
+
+    const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
+    const NET_FACTOR = 1 - REV_SHARE_PCT;
+    console.log(`[geo-cleanup] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);
 
     const today = new Date();
     const toDate = new Date(today.getTime() - 86400_000);

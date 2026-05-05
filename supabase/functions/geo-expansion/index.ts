@@ -6,9 +6,7 @@
 //  - apply   : duplica a campanha (cria budget + campaign + ad_groups + ads + location criterion)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-
-const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935
+import { getRevSharePct } from "../_shared/revshare.ts";
 
 interface ApplyItem {
   campaign_id: string;
@@ -57,8 +55,12 @@ Deno.serve(async (req) => {
       );
       const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
       userId = claims?.claims?.sub ?? null;
-      if (!userId) return json({ error: "Token inválido" });
     }
+    if (!userId) return json({ error: "Token inválido" });
+
+    const REV_SHARE_PCT = (await getRevSharePct(admin, userId!, siteId)) / 100;
+    const NET_FACTOR = 1 - REV_SHARE_PCT;
+    console.log(`[geo-expansion] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);
 
     // ===== APPLY: duplica uma campanha específica =====
     if (mode === "apply") {

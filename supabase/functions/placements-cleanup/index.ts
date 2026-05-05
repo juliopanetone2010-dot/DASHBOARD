@@ -2,9 +2,10 @@
 // Preview calcula placements ao vivo no Google Ads para o período completo, agrupando por campanha + placement.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { getNetFactor, getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 
-const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935 — GAM já vem líquido, descontamos só o revshare real (6,5%)
+// Fallback caso a leitura falhe (será sobrescrito por getNetFactor() runtime).
+const DEFAULT_NET_FACTOR = 1 - DEFAULT_REV_SHARE_PCT / 100; // 0.935
 const KEY_SEP = "\u0001";
 
 interface ApplyCampaign {
@@ -85,6 +86,11 @@ Deno.serve(async (req) => {
       userId = claims?.claims?.sub ?? null;
       if (!userId) return json({ error: "Token inválido" });
     }
+
+    // Revshare configurável por usuário (rules_config.revenue_share_pct, default 6.5).
+    const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
+    const NET_FACTOR = 1 - REV_SHARE_PCT;
+    console.log(`[placements-cleanup] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);
 
     // Janela: usa from/to vindos da UI quando disponíveis (respeitando o preset selecionado).
     // Caso contrário, cai no padrão (hoje - lookback) até ontem.
