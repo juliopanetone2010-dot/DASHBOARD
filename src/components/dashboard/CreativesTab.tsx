@@ -79,7 +79,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function CreativesTab({ fxUsdBrl }: Props) {
   const dash = useDashboardData();
 
-  const [preset, setPreset] = useState<DatePresetKey>("last7");
+  const [preset, setPreset] = useState<DatePresetKey>("last_7_days");
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [siteId, setSiteId] = useState<string>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "cost", dir: "desc" });
