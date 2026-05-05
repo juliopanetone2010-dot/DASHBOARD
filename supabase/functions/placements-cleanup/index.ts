@@ -350,7 +350,7 @@ Deno.serve(async (req) => {
         if (!meta) continue;
         let t = totalsMap.get(String(r.campaign_id));
         if (!t) {
-          t = { campaign_id: String(r.campaign_id), name: meta.name, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(String(r.campaign_id)) };
+          t = { campaign_id: String(r.campaign_id), name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(String(r.campaign_id)) };
           totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
