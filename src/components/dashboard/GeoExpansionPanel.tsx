@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent } from "@/lib/format";
+import { useDashboardFilters } from "@/contexts/FilterContext";
 
 interface Winner {
   campaign_id: string;
@@ -56,7 +57,96 @@ interface SiteOption {
   name: string;
 }
 
+async function fetchDashboardCampaignIds(siteId: string, accountIds: string[], from: string, to: string) {
+  const campaignIds = new Set<string>();
+  let start = 0;
+  for (;;) {
+    const { data } = await supabase
+      .from("campaigns")
+      .select("campaign_id, google_account_id")
+      .in("google_account_id", accountIds)
+      .range(start, start + 999);
+    const rows = data ?? [];
+    for (const r of rows) if (r.campaign_id) campaignIds.add(String(r.campaign_id));
+    if (rows.length < 1000) break;
+    start += 1000;
+  }
+  if (campaignIds.size === 0) return [];
+
+  const metricByCampaign = new Map<string, { spend: number; revenue: number }>();
+  for (const chunk of chunkArr([...campaignIds], 200)) {
+    let mStart = 0;
+    for (;;) {
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, spend, revenue")
+        .in("campaign_id", chunk)
+        .in("google_account_id", accountIds)
+        .gte("date", from)
+        .lte("date", to)
+        .range(mStart, mStart + 999);
+      const rows = data ?? [];
+      for (const r of rows) {
+        const cid = String(r.campaign_id);
+        const current = metricByCampaign.get(cid) ?? { spend: 0, revenue: 0 };
+        current.spend += Number(r.spend) || 0;
+        current.revenue += Number(r.revenue) || 0;
+        metricByCampaign.set(cid, current);
+      }
+      if (rows.length < 1000) break;
+      mStart += 1000;
+    }
+  }
+
+  const shareByCampaign = new Map<string, Map<string, number>>();
+  const metricIds = [...metricByCampaign.keys()];
+  for (const chunk of chunkArr(metricIds, 200)) {
+    let rStart = 0;
+    const total = new Map<string, number>();
+    const bySite = new Map<string, Map<string, number>>();
+    for (;;) {
+      const { data } = await supabase
+        .from("gam_placement_revenue")
+        .select("campaign_id, site_id, revenue_usd")
+        .not("site_id", "is", null)
+        .neq("campaign_id", "__aggregate__")
+        .in("campaign_id", chunk)
+        .gte("date", from)
+        .lte("date", to)
+        .range(rStart, rStart + 999);
+      const rows = data ?? [];
+      for (const r of rows) {
+        const cid = String(r.campaign_id);
+        const sid = String(r.site_id);
+        const rev = Number(r.revenue_usd) || 0;
+        total.set(cid, (total.get(cid) ?? 0) + rev);
+        const inner = bySite.get(cid) ?? new Map<string, number>();
+        inner.set(sid, (inner.get(sid) ?? 0) + rev);
+        bySite.set(cid, inner);
+      }
+      if (rows.length < 1000) break;
+      rStart += 1000;
+    }
+    for (const [cid, inner] of bySite) {
+      const sum = total.get(cid) ?? 0;
+      if (sum <= 0) continue;
+      const pct = new Map<string, number>();
+      for (const [sid, rev] of inner) pct.set(sid, rev / sum);
+      shareByCampaign.set(cid, pct);
+    }
+  }
+
+  return metricIds.filter((cid) => {
+    const metric = metricByCampaign.get(cid);
+    if (!metric || (metric.spend <= 0 && metric.revenue <= 0)) return false;
+    const share = shareByCampaign.get(cid);
+    const factor = !share || share.size <= 1 ? 1 : share.get(siteId) ?? 0;
+    return factor > 0;
+  });
+}
+
 export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
+  const { filters } = useDashboardFilters();
   const [loading, setLoading] = useState(false);
   const [creatingKey, setCreatingKey] = useState<string | null>(null);
   const [bulkCreating, setBulkCreating] = useState(false);
