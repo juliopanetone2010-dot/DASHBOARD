@@ -1248,6 +1248,7 @@ export type Database = {
           placement_cleanup_min_clicks: number
           placement_cleanup_min_cost_brl: number
           placement_cleanup_min_days: number
+          revenue_share_pct: number
           updated_at: string
           user_id: string
         }
@@ -1315,6 +1316,7 @@ export type Database = {
           placement_cleanup_min_clicks?: number
           placement_cleanup_min_cost_brl?: number
           placement_cleanup_min_days?: number
+          revenue_share_pct?: number
           updated_at?: string
           user_id: string
         }
@@ -1382,6 +1384,7 @@ export type Database = {
           placement_cleanup_min_clicks?: number
           placement_cleanup_min_cost_brl?: number
           placement_cleanup_min_days?: number
+          revenue_share_pct?: number
           updated_at?: string
           user_id?: string
         }
