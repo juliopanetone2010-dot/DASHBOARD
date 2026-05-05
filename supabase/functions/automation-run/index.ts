@@ -237,6 +237,16 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
 
     const decision = classify(agg, cfg, prevState, dailyBudget) as any;
+    // Garante que roi_today está sempre disponível (alguns branches do classify não anexam).
+    const todayIsoCaller = new Date().toISOString().slice(0, 10);
+    const todayDailyCaller = (agg.daily as any[]).find((d) => d.date === todayIsoCaller);
+    if (todayDailyCaller) {
+      const tCost = Number(todayDailyCaller.spend) || 0;
+      const tGross = tCost + (Number(todayDailyCaller.profit) || 0);
+      decision.roi_today = tCost > 0 ? (((tGross * NET_FACTOR) - tCost) / tCost) * 100 : null;
+    } else if (decision.roi_today === undefined) {
+      decision.roi_today = null;
+    }
     decisions++;
 
     const nowIso = new Date().toISOString();
