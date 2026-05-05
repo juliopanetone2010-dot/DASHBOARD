@@ -394,10 +394,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
               {loadingCreated ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Atualizar
             </Button>
-            <label className="flex items-center gap-2 text-xs ml-2">
-              <Switch checked={startEnabled} onCheckedChange={setStartEnabled} />
-              <span>Criar já <strong>ATIVA</strong> (ENABLED)</span>
-            </label>
             <span className="text-xs text-muted-foreground ml-auto">
               Histórico de winners duplicadas. Clique em <strong>Ativar</strong> para ligar uma campanha pausada.
             </span>
