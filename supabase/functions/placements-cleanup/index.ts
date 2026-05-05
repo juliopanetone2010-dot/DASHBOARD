@@ -331,7 +331,7 @@ Deno.serve(async (req) => {
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
-    type CampTotal = { campaign_id: string; name: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
+    type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
     // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
     // não só as elegíveis para limpeza. Assim o header bate com o dashboard.
