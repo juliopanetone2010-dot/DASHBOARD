@@ -330,7 +330,24 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">{range.from} → {range.to} ({analysisWindowDays}d)</Badge></span>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Período
+          <select
+            className="h-6 text-xs rounded border border-border bg-background px-2"
+            value={String(periodOverride)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPeriodOverride(v === "dashboard" ? "dashboard" : Number(v));
+            }}
+          >
+            <option value="dashboard">Dashboard ({Math.max(1, Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1)}d)</option>
+            <option value="7">7 dias</option>
+            <option value="15">15 dias</option>
+            <option value="30">30 dias</option>
+            <option value="50">50 dias</option>
+          </select>
+        </label>
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Badge variant="outline" className="text-[10px]">{effectiveRange.from} → {effectiveRange.to} ({analysisWindowDays}d)</Badge></span>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
