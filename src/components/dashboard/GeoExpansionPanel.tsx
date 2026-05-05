@@ -38,6 +38,8 @@ interface CreatedLog {
   budget_micros: number | null;
   status: string;
   executed_at: string;
+  google_account_id: string | null;
+  live_status?: string | null;
 }
 
 export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
