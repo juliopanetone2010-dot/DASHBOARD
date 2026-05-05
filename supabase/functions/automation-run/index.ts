@@ -14,30 +14,23 @@ type Lifecycle =
   | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
   | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
-// Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
-// em campanhas novas/scaling e mais conservadoras em standby/bad.
-const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
-  testing: 2,
-  learning: 5,
-  standby: 7,
-  scaling: 3,
-  bad: 5,
-  paused: 7,
-  winner_test: 7,
-  winner_scaling: 2,
-  winner_standby: 3,
-  winner_paused: 7,
-};
-const MAX_LIFECYCLE_WINDOW = 7;
+// Janela de análise: usa rules_config.auto_analysis_days (default 15).
+// Antes a janela era hardcoded por lifecycle (testing=2d, etc.), o que fazia
+// o motor classificar como "Dados insuficientes" mesmo quando a campanha já
+// tinha gasto > stoploss_min_cost no acumulado de 15 dias.
+const DEFAULT_ANALYSIS_DAYS = 15;
+const MAX_ANALYSIS_WINDOW = 30;
 // Regras específicas do fluxo winner (separadas da automação padrão)
 const WINNER_TEST_DAYS = 7;          // janela de aprendizado pós-ativação
 const WINNER_SCALE_INTERVAL_DAYS = 2; // intervalo entre +20%
 const WINNER_SCALE_PCT = 20;          // percentual por escala
 const WINNER_DELIVERY_MIN = 0.7;      // >70% de delivery
-function windowForLifecycle(lc: Lifecycle | null | undefined): number {
-  if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
-  return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+function resolveAnalysisDays(cfg: any): number {
+  const v = Number(cfg?.auto_analysis_days);
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_ANALYSIS_DAYS;
+  return Math.max(2, Math.min(MAX_ANALYSIS_WINDOW, Math.round(v)));
 }
+
 function isWinnerLifecycle(lc: Lifecycle | null | undefined): boolean {
   return typeof lc === "string" && lc.startsWith("winner_");
 }
