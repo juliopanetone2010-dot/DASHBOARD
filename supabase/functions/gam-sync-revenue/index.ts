@@ -912,6 +912,22 @@ async function applyGoogleUtmRevenue(
       .in("google_account_id", accountIds);
     if (!metrics?.length) continue;
 
+    // Agrega receita de TODOS os sites para essas campanhas nesta data
+    // (uma mesma conta Ads pode estar ligada a múltiplos sites — sem isso,
+    //  cada execução por site sobrescreveria a receita das outras).
+    const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
+    const { data: allSourceRows } = await admin
+      .from("gam_campaign_source_revenue")
+      .select("campaign_id, revenue_usd")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("campaign_id", cids);
+    const aggregatedByCid = new Map<string, number>();
+    for (const r of (allSourceRows ?? []) as any[]) {
+      const cid = String(r.campaign_id);
+      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+    }
+
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
@@ -921,9 +937,9 @@ async function applyGoogleUtmRevenue(
     const updates: any[] = [];
     const matchDebug: string[] = [];
     for (const m of metrics as any[]) {
-      const direct = directMap.get(String(m.campaign_id));
-      const revenueUsd = direct?.revenue ?? 0; // já normalizado para USD-equivalente
-      if (direct) matchedIds.add(String(m.campaign_id));
+      const cid = String(m.campaign_id);
+      const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
+      if (revenueUsd > 0) matchedIds.add(cid);
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
@@ -932,7 +948,7 @@ async function applyGoogleUtmRevenue(
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
-      matchDebug.push(`cid=${m.campaign_id}|match=${!!direct}|rev_usd_eq=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
+      matchDebug.push(`cid=${cid}|rev_usd_agg=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
     }
     const CHUNK = 25;
     for (let i = 0; i < updates.length; i += CHUNK) {
@@ -944,7 +960,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: site_currency=${siteCurrency} ${matchedIds.size}/${metrics.length} match UTM Google; total atribuído(USD-eq)=$${attributedRev.toFixed(2)} de total(USD-eq)=$${totalGoogle.revenue.toFixed(2)}`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (todos os sites)`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
