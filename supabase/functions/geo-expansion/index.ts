@@ -504,7 +504,9 @@ async function duplicateCampaign(
            ad_group_ad.ad.responsive_search_ad.headlines,
            ad_group_ad.ad.responsive_search_ad.descriptions,
            ad_group_ad.ad.responsive_search_ad.path1,
-           ad_group_ad.ad.responsive_search_ad.path2
+           ad_group_ad.ad.responsive_search_ad.path2,
+           ad_group_ad.ad.display_upload_ad.media_bundle,
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${sourceAdGroupResources})
       AND ad_group_ad.status != 'REMOVED'
