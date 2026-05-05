@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
     }
 
     // Monta upsert (deduplicado por campaign+date+country_code)
-    const dedup = new Map<string, any>();
+    const dedup = new Map<string, CountryMetricInsert>();
     for (const r of all) {
       const k = `${r.campaign_id}|${r.date}`;
       const totalCost = geoCostByCampDate.get(k) || 1;
@@ -250,7 +250,7 @@ async function getToken(refreshToken: string, cache: Map<string, string>) {
 
 async function resolveGeoTargets(
   ids: string[],
-  accounts: any[],
+  accounts: AccountRow[],
   tokenCache: Map<string, string>,
   resolved: Map<string, { code: string; name: string }>,
 ) {
