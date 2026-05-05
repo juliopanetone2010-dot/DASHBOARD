@@ -334,6 +334,11 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
                 {items.length} winner(s) • custo {fmtBRL(summary.totalCost)} • receita {fmtBRL(summary.totalRev)} • ROI médio {fmtPercent(summary.avgRoi)}
               </div>
             )}
+            {items.length === 0 && stats?.candidates_total ? (
+              <div className="text-xs text-muted-foreground ml-auto">
+                {stats.candidates_total} candidato(s) analisados • nenhum passou em todos os filtros
+              </div>
+            ) : null}
           </div>
 
           {items.length > 0 && (
@@ -386,9 +391,39 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
           )}
 
           {items.length === 0 && !loading && (
-            <p className="text-xs text-muted-foreground text-center py-4">
-              Nenhum winner identificado ainda. Clique em "Buscar países vencedores" para analisar.
-            </p>
+            <div className="space-y-3 py-4">
+              <p className="text-xs text-muted-foreground text-center">
+                Nenhum winner identificado ainda. Clique em "Buscar países vencedores" para analisar.
+              </p>
+              {stats?.top_candidates && stats.top_candidates.length > 0 && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Quase winner</TableHead>
+                        <TableHead>País</TableHead>
+                        <TableHead className="text-right">Custo</TableHead>
+                        <TableHead className="text-right">Receita</TableHead>
+                        <TableHead className="text-right">ROI</TableHead>
+                        <TableHead>Motivo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {stats.top_candidates.map((it) => (
+                        <TableRow key={`${it.campaign_id}|${it.country_code}|debug`}>
+                          <TableCell className="font-medium max-w-[260px] truncate text-xs">{it.campaign_name}</TableCell>
+                          <TableCell className="text-xs"><span className="font-mono">{it.country_code}</span> {it.country_name}</TableCell>
+                          <TableCell className="text-right text-xs">{fmtBRL(it.cost_brl)}</TableCell>
+                          <TableCell className="text-right text-xs">{fmtBRL(it.revenue_brl)}</TableCell>
+                          <TableCell className="text-right text-xs">{fmtPercent(it.roi_pct)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{it.reject_reasons?.join(" • ") ?? "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
