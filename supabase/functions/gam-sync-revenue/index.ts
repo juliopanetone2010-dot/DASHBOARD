@@ -232,7 +232,7 @@ Deno.serve(async (req) => {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, utmRows, debug, expandFixedDates(ranges), ingestionDivisor);
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
         }
@@ -830,7 +830,8 @@ async function persistCampaignSourceRevenueFromUtm(
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
   const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
+  const byCampaign = arr.filter((b) => b.campaign_id !== "__aggregate__").length;
+  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
