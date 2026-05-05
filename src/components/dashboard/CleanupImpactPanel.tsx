@@ -65,7 +65,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
         .gte("executed_at", since)
         .order("executed_at", { ascending: false })
         .limit(200);
-      if (filters.siteId && filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      if (effectiveSiteId && effectiveSiteId !== "all") q = q.eq("site_id", effectiveSiteId);
       const { data, error } = await q;
       if (error) throw error;
       const list = (data ?? []) as CleanupLog[];
