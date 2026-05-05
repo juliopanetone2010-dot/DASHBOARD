@@ -85,31 +85,28 @@ Deno.serve(async (req) => {
     // Sem site_id, processa todas. Com site_id, exige confirmação.
     let allowedCampaigns: Set<string> | null = null;
     if (siteId) {
-      const { data: revRows } = await admin
-        .from("gam_placement_revenue")
-        .select("campaign_id, site_id, revenue_usd")
-        .eq("user_id", userId)
-        .not("site_id", "is", null)
-        .gte("date", from)
-        .lte("date", to)
-        .limit(50000);
-      const bestSiteByCampaign = new Map<string, { sid: string; rev: number }>();
-      const siteRevByCampaign = new Map<string, Map<string, number>>();
-      for (const r of revRows ?? []) {
-        const cid = String(r.campaign_id);
-        const sid = String(r.site_id);
-        const rev = Number(r.revenue_usd) || 0;
-        const inner = siteRevByCampaign.get(cid) ?? new Map<string, number>();
-        inner.set(sid, (inner.get(sid) ?? 0) + rev);
-        siteRevByCampaign.set(cid, inner);
-      }
-      for (const [cid, inner] of siteRevByCampaign) {
-        const top = [...inner.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (top) bestSiteByCampaign.set(cid, { sid: top[0], rev: top[1] });
-      }
+      // Inclui TODA campanha com qualquer receita atribuída ao site selecionado
+      // (mesma lógica do front-end). Antes usávamos "melhor site por campanha",
+      // o que excluía campanhas compartilhadas entre vários sites.
       allowedCampaigns = new Set();
-      for (const [cid, info] of bestSiteByCampaign) {
-        if (info.sid === siteId) allowedCampaigns.add(cid);
+      let rs = 0;
+      for (;;) {
+        const { data, error } = await admin
+          .from("gam_placement_revenue")
+          .select("campaign_id")
+          .eq("user_id", userId)
+          .eq("site_id", siteId)
+          .gte("date", from)
+          .lte("date", to)
+          .range(rs, rs + 999);
+        if (error) return json({ error: error.message });
+        const rows = data ?? [];
+        for (const r of rows) {
+          const cid = String((r as any).campaign_id ?? "");
+          if (cid && cid !== "__aggregate__") allowedCampaigns.add(cid);
+        }
+        if (rows.length < 1000) break;
+        rs += 1000;
       }
       // Remove campanhas não pertencentes ao site
       for (const cid of [...campMap.keys()]) {
