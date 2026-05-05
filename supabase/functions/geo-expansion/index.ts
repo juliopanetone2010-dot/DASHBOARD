@@ -815,6 +815,13 @@ async function duplicateCampaign(
       };
     }
 
+    const finalValidation = await validateClonedWinner(apiBase, headers, newCampaignResource, newCampaignId, sourceCriteriaSummary, debug);
+    debug.validation = { ...(debug.validation ?? {}), final: finalValidation };
+    if (!finalValidation.ok) {
+      await removeCampaign(apiBase, headers, newCampaignResource);
+      return { error: `validação final falhou: ${finalValidation.reason}; campanha removida.`, debug };
+    }
+
     console.log("[geo-expansion] clone debug", JSON.stringify({
       new_campaign_id: newCampaignId,
       ad_groups_cloned: oldToNewAdGroup.size,
@@ -824,6 +831,7 @@ async function duplicateCampaign(
       language_constants: debug.cloned.language_constants,
       active_devices: debug.cloned.active_devices,
       device_bid_modifiers: debug.cloned.device_bid_modifiers,
+      bidding_applied: debug.cloned.bidding,
       network_settings: debug.cloned.network_settings,
       keywords_copied: debug.cloned.keywords,
       placements_copied: debug.cloned.placements,
