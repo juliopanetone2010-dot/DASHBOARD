@@ -444,6 +444,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           body: {
             mode: "apply",
             fx_usd_brl: fxUsdBrl,
+            site_id: globalFilters.siteId && globalFilters.siteId !== "all" ? globalFilters.siteId : undefined,
             items: [{
               placement,
               type: row?.type ?? "WEBSITE",
