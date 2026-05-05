@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -42,6 +43,11 @@ interface CreatedLog {
   live_status?: string | null;
 }
 
+interface SiteOption {
+  id: string;
+  name: string;
+}
+
 export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [loading, setLoading] = useState(false);
   const [creatingKey, setCreatingKey] = useState<string | null>(null);
@@ -61,6 +67,17 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [interval, setIntervalDays] = useState(7);
   const [budgetMult, setBudgetMult] = useState(0.5);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [sites, setSites] = useState<SiteOption[]>([]);
+  const [analysisSiteId, setAnalysisSiteId] = useState<string>(siteId ?? "all");
+  const activeSiteId = analysisSiteId !== "all" ? analysisSiteId : null;
+
+  useEffect(() => { setAnalysisSiteId(siteId ?? "all"); }, [siteId]);
+
+  useEffect(() => {
+    supabase.from("sites").select("id, name").order("name").then(({ data }) => {
+      setSites((data ?? []) as SiteOption[]);
+    });
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -90,7 +107,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         .eq("action", "created")
         .order("executed_at", { ascending: false })
         .limit(100);
-      if (siteId) q = q.eq("site_id", siteId);
+      if (activeSiteId) q = q.eq("site_id", activeSiteId);
       const { data } = await q;
       const logs = (data ?? []) as (CreatedLog & { google_account_id: string | null })[];
 
@@ -106,7 +123,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       }
       setCreated(logs.map((l) => ({ ...l, live_status: l.new_campaign_id ? liveStatus[l.new_campaign_id] ?? null : null })));
     } finally { setLoadingCreated(false); }
-  }, [siteId]);
+  }, [activeSiteId]);
 
   useEffect(() => { loadCreated(); }, [loadCreated]);
 
@@ -117,7 +134,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   };
 
   const loadPreview = async () => {
-    if (!siteId) {
+    if (!activeSiteId) {
       toast({ title: "Selecione um site", variant: "destructive" });
       return;
     }
@@ -126,7 +143,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       const { data, error } = await supabase.functions.invoke("geo-expansion", {
         body: {
           mode: "preview",
-          site_id: siteId,
+          site_id: activeSiteId,
           min_roi_pct: minRoi,
           min_campaign_cost_brl: minCampCost,
           min_country_cost_brl: minCountryCost,
@@ -143,13 +160,17 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   };
 
   const createOne = async (it: Winner) => {
+    if (!activeSiteId) {
+      toast({ title: "Selecione um site", variant: "destructive" });
+      return;
+    }
     const k = `${it.campaign_id}|${it.country_code}`;
     setCreatingKey(k);
     try {
       const { data, error } = await supabase.functions.invoke("geo-expansion", {
         body: {
           mode: "apply",
-          site_id: siteId,
+          site_id: activeSiteId,
           budget_multiplier: budgetMult,
           start_status: startEnabled ? "ENABLED" : "PAUSED",
           item: it,
@@ -177,6 +198,10 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   };
 
   const createAll = async () => {
+    if (!activeSiteId) {
+      toast({ title: "Selecione um site", variant: "destructive" });
+      return;
+    }
     if (items.length === 0) return;
     setBulkCreating(true);
     let ok = 0; let fail = 0;
@@ -184,7 +209,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: siteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
+            body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
           });
           if ((data as any)?.ok) ok++; else fail++;
         } catch { fail++; }
