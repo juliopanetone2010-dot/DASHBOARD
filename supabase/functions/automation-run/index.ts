@@ -508,9 +508,10 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const cpaCooldownOk = daysSinceCpa >= Number(cfg.auto_cpa_review_days);
 
   // E) Stop-loss: SÓ pausa se ROI acumulado cruza limite negativo, há dias suficientes,
-  // tendência não é de melhora E o ROI de HOJE também está negativo (proteção extra:
-  // se hoje virou positivo, dá uma chance antes de pausar).
-  if (safetyRoiCheck(roi, todayRoi, stopLossRoi) && days >= stopLossDays && trend !== "up") {
+  // tendência não é de melhora E o ROI de HOJE também não está positivo (proteção:
+  // se hoje virou positivo, não pausa — dá uma chance da campanha se recuperar).
+  const todayProtect = todayRoi != null && todayRoi > 0;
+  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up" && !todayProtect) {
     return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi } as any;
   }
 
