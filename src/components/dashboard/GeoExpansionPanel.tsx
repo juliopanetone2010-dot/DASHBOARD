@@ -280,14 +280,13 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Field label="ROI mín. (%)" value={minRoi} onBlur={(v) => { setMinRoi(v); persist({ geo_expansion_min_roi_pct: v }); }} />
         <Field label="Custo mín. campanha (R$)" value={minCampCost} onBlur={(v) => { setMinCampCost(v); persist({ geo_expansion_min_campaign_cost_brl: v }); }} />
         <Field label="Custo mín. país (R$)" value={minCountryCost} onBlur={(v) => { setMinCountryCost(v); persist({ geo_expansion_min_country_cost_brl: v }); }} />
         <Field label="Mín. países" value={minCountries} onBlur={(v) => { setMinCountries(v); persist({ geo_expansion_min_countries: v }); }} />
         <Field label="Janela (dias)" value={lookback} onBlur={(v) => { setLookback(v); persist({ geo_expansion_lookback_days: v }); }} />
         <Field label="Intervalo cron (dias)" value={interval} onBlur={(v) => { setIntervalDays(v); persist({ geo_expansion_interval_days: v }); }} />
-        <Field label="Multiplicador budget" value={budgetMult} step={0.05} onBlur={(v) => { setBudgetMult(v); persist({ geo_expansion_budget_multiplier: v }); }} />
       </div>
 
       <div className="flex items-center gap-1 border-b border-border">
