@@ -676,6 +676,9 @@ async function duplicateCampaign(
         const j = await r.json();
         if (r.ok) {
           adsCloned += (j.results ?? []).filter((x: any) => x?.resourceName).length;
+          if (j.partialFailureError) {
+            console.error("[geo-expansion] ads partial failure", JSON.stringify(j.partialFailureError));
+          }
         } else {
           console.error("[geo-expansion] ads failed", JSON.stringify(j));
         }
