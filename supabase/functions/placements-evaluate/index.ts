@@ -514,6 +514,33 @@ function allocateRevenueUsdByPlacement(
   return result;
 }
 function round(n: number) { return Math.round(n * 100) / 100; }
+function buildPlacementIndexes(ads: Agg[]) {
+  const byExact = new Map<string, Agg[]>();
+  const byRoot = new Map<string, Agg[]>();
+  const compact: Array<{ key: string; item: Agg }> = [];
+  for (const a of ads) {
+    const exact = normalize(a.placement);
+    if (!exact) continue;
+    const exactList = byExact.get(exact) ?? [];
+    exactList.push(a); byExact.set(exact, exactList);
+    const root = rootDomain(exact);
+    if (root) { const rootList = byRoot.get(root) ?? []; rootList.push(a); byRoot.set(root, rootList); }
+    compact.push({ key: compactPlacement(exact), item: a });
+  }
+  return { byExact, byRoot, compact };
+}
+function findPlacementMatches(placement: string, indexes: ReturnType<typeof buildPlacementIndexes>): Agg[] {
+  const exact = normalize(placement);
+  if (!exact) return [];
+  const direct = indexes.byExact.get(exact);
+  if (direct?.length) return direct;
+  const root = rootDomain(exact);
+  const rootMatches = root ? indexes.byRoot.get(root) : null;
+  if (rootMatches?.length) return rootMatches;
+  const compact = compactPlacement(exact);
+  if (compact.length < 8) return [];
+  return indexes.compact.filter((x) => x.key.startsWith(compact)).map((x) => x.item);
+}
 function normalize(value: string, type?: string | null): string {
   const raw = (value || "").trim().toLowerCase();
   if (!raw) return "";
@@ -531,16 +558,6 @@ function normalize(value: string, type?: string | null): string {
   }
 }
 function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
-function placementMatches(adsPlacement: string, gamPlacement: string): boolean {
-  const a = normalize(adsPlacement);
-  const g = normalize(gamPlacement);
-  if (!a || !g) return false;
-  if (a === g) return true;
-  const ar = rootDomain(a), gr = rootDomain(g);
-  if (ar && gr && ar === gr) return true;
-  const ac = compactPlacement(a), gc = compactPlacement(g);
-  return gc.length >= 8 && ac.startsWith(gc);
-}
 function rootDomain(host: string): string {
   if (!host || host.includes("/") || !host.includes(".")) return host;
   const parts = host.split(".");
