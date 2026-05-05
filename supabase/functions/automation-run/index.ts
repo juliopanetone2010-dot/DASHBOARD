@@ -451,10 +451,9 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // Janela única vinda de auto_analysis_days (default 15d). Usamos TODOS os
-  // dailies já consultados (a query upstream respeitou auto_analysis_days).
+  // ROI mostrado/gravado na esteira = hoje.
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
-  const windowDays = resolveAnalysisDays(cfg);
+  const windowDays = 1;
 
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
@@ -484,8 +483,8 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
   const noBudgetData = delivery == null;
 
-  // Mínimo de 2 dias para qualquer decisão; dias suficientes = janela do lifecycle.
-  if (days < Math.min(2, windowDays) || cost < stopLossMinCost) {
+  // Para ROI de hoje, 1 dia com custo já é suficiente para avaliar.
+  if (days < 1 || cost < stopLossMinCost) {
     return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend, window_days: windowDays };
   }
 
