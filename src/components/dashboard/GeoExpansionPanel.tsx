@@ -146,6 +146,30 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     }
     setLoading(true);
     try {
+      const today = new Date();
+      const toDate = new Date(today.getTime() - 86400_000);
+      const fromDate = new Date(today.getTime() - lookback * 86400_000);
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const { data: links, error: linksError } = await supabase
+        .from("account_site_links")
+        .select("google_account_id")
+        .eq("site_id", activeSiteId);
+      if (linksError) {
+        toast({ title: "Erro ao puxar contas", description: linksError.message, variant: "destructive" });
+        return;
+      }
+      const accountIds = [...new Set((links ?? []).map((l) => String(l.google_account_id)).filter(Boolean))];
+      if (accountIds.length === 0) {
+        toast({ title: "Sem contas vinculadas", description: "Este site não tem contas Ads vinculadas.", variant: "destructive" });
+        return;
+      }
+      const { data: campaignSyncData, error: campaignSyncError } = await supabase.functions.invoke("google-ads-sync-campaigns", {
+        body: { account_ids: accountIds, from: iso(fromDate), to: iso(toDate) },
+      });
+      if (campaignSyncError || (campaignSyncData as any)?.error) {
+        toast({ title: "Erro ao puxar campanhas", description: (campaignSyncData as any)?.error ?? campaignSyncError?.message, variant: "destructive" });
+        return;
+      }
       const { data: syncData, error: syncError } = await supabase.functions.invoke("google-ads-sync-countries", {
         body: { site_id: activeSiteId, lookback_days: lookback },
       });
