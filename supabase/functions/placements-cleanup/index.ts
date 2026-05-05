@@ -105,7 +105,6 @@ Deno.serve(async (req) => {
         .eq("site_id", siteId);
       if (linkErr) return json({ error: linkErr.message });
       allowedAccountIds = [...new Set((links ?? []).map((l) => String(l.google_account_id)))];
-      if (accountIds.length > 0) allowedAccountIds = allowedAccountIds.filter((id) => accountIds.includes(id));
       if (allowedAccountIds.length === 0) {
         return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } }, info: "Nenhuma conta Ads vinculada ao site." });
       }
