@@ -595,6 +595,72 @@ export type Database = {
           },
         ]
       }
+      creative_metrics: {
+        Row: {
+          ad_group_id: string
+          ad_group_name: string | null
+          ad_id: string
+          ad_name: string | null
+          ad_status: string | null
+          ad_type: string | null
+          campaign_id: string
+          campaign_name: string | null
+          clicks: number
+          conversions: number
+          cost: number
+          created_at: string
+          date: string
+          google_account_id: string | null
+          id: string
+          impressions: number
+          revenue_usd: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_group_id: string
+          ad_group_name?: string | null
+          ad_id: string
+          ad_name?: string | null
+          ad_status?: string | null
+          ad_type?: string | null
+          campaign_id: string
+          campaign_name?: string | null
+          clicks?: number
+          conversions?: number
+          cost?: number
+          created_at?: string
+          date: string
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_group_id?: string
+          ad_group_name?: string | null
+          ad_id?: string
+          ad_name?: string | null
+          ad_status?: string | null
+          ad_type?: string | null
+          campaign_id?: string
+          campaign_name?: string | null
+          clicks?: number
+          conversions?: number
+          cost?: number
+          created_at?: string
+          date?: string
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_metrics: {
         Row: {
           campaign_id: string
@@ -1217,6 +1283,10 @@ export type Database = {
           automation_last_run_at: string | null
           boost_roi_pct: number
           budget_increase_pct: number
+          creative_auto_optimize_enabled: boolean
+          creative_min_cost_brl: number
+          creative_min_days: number
+          creative_min_roi_diff_pct: number
           funnel_auto_enabled: boolean
           funnel_auto_interval_days: number
           funnel_auto_last_run_at: string | null
@@ -1285,6 +1355,10 @@ export type Database = {
           automation_last_run_at?: string | null
           boost_roi_pct?: number
           budget_increase_pct?: number
+          creative_auto_optimize_enabled?: boolean
+          creative_min_cost_brl?: number
+          creative_min_days?: number
+          creative_min_roi_diff_pct?: number
           funnel_auto_enabled?: boolean
           funnel_auto_interval_days?: number
           funnel_auto_last_run_at?: string | null
@@ -1353,6 +1427,10 @@ export type Database = {
           automation_last_run_at?: string | null
           boost_roi_pct?: number
           budget_increase_pct?: number
+          creative_auto_optimize_enabled?: boolean
+          creative_min_cost_brl?: number
+          creative_min_days?: number
+          creative_min_roi_diff_pct?: number
           funnel_auto_enabled?: boolean
           funnel_auto_interval_days?: number
           funnel_auto_last_run_at?: string | null
