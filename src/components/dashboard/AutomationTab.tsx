@@ -329,7 +329,7 @@ export function AutomationTab() {
                 <TableRow>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI hoje<SortIcon k="last_roi" /></TableHead>
                   <TableHead className="text-right">Delivery</TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
@@ -341,6 +341,8 @@ export function AutomationTab() {
                 {sortedStates.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
                 {sortedStates.map((s) => {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
+                  const todayRoi = todayRoiByCampaign[String(s.campaign_id)];
+                  const displayRoi = todayRoi ?? s.last_roi;
                   const dPct = s.delivery_ratio != null ? Math.round(Number(s.delivery_ratio) * 100) : null;
                   const dCls = dPct == null ? "text-muted-foreground" : dPct >= 80 ? "text-emerald-500" : dPct >= 50 ? "text-amber-500" : "text-rose-500";
                   return (
@@ -350,7 +352,7 @@ export function AutomationTab() {
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
-                      <TableCell className="text-right font-mono">{s.last_roi != null ? `${Number(s.last_roi).toFixed(1)}%` : "—"}</TableCell>
+                      <TableCell className="text-right font-mono">{displayRoi != null ? `${Number(displayRoi).toFixed(1)}%` : "—"}</TableCell>
                       <TableCell className={`text-right font-mono text-xs ${dCls}`} title={s.daily_budget ? `Orçamento diário: ${Number(s.daily_budget).toFixed(2)}` : ""}>{dPct != null ? `${dPct}%` : "—"}</TableCell>
                       <TableCell className="text-xs">{s.roi_trend ?? "—"}</TableCell>
                       <TableCell className="text-xs">{s.days_in_standby > 0 ? `${s.days_in_standby}d` : "—"}</TableCell>
