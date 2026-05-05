@@ -218,77 +218,156 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         <Field label="Multiplicador budget" value={budgetMult} step={0.05} onBlur={(v) => { setBudgetMult(v); persist({ geo_expansion_budget_multiplier: v }); }} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={loadPreview} disabled={loading || !siteId} className="gap-2">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          Buscar países vencedores
-        </Button>
-        {items.length > 0 && (
-          <Button onClick={createAll} disabled={bulkCreating} variant="default" className="gap-2">
-            {bulkCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Criar todas ({items.length})
-          </Button>
-        )}
-        {items.length > 0 && (
-          <div className="text-xs text-muted-foreground ml-auto">
-            {items.length} winner(s) • custo {fmtBRL(summary.totalCost)} • receita {fmtBRL(summary.totalRev)} • ROI médio {fmtPercent(summary.avgRoi)}
-          </div>
-        )}
+      <div className="flex items-center gap-1 border-b border-border">
+        <button
+          onClick={() => setTab("winners")}
+          className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === "winners" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <Sparkles className="h-3.5 w-3.5 inline mr-1.5" />
+          Winners ({items.length})
+        </button>
+        <button
+          onClick={() => setTab("created")}
+          className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === "created" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5 inline mr-1.5" />
+          Criadas ({created.length})
+        </button>
       </div>
 
-      {items.length > 0 && (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Campanha origem</TableHead>
-                <TableHead>País</TableHead>
-                <TableHead className="text-right">Custo</TableHead>
-                <TableHead className="text-right">Receita</TableHead>
-                <TableHead className="text-right">ROI</TableHead>
-                <TableHead className="text-right">Países</TableHead>
-                <TableHead className="text-right">Ação</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((it) => {
-                const k = `${it.campaign_id}|${it.country_code}`;
-                return (
-                  <TableRow key={k}>
-                    <TableCell className="font-medium max-w-[320px] truncate">{it.campaign_name}</TableCell>
-                    <TableCell>
-                      <span className="font-mono text-xs">{it.country_code}</span>
-                      {it.country_name && <span className="ml-1.5 text-muted-foreground text-xs">{it.country_name}</span>}
-                    </TableCell>
-                    <TableCell className="text-right">{fmtBRL(it.cost_brl)}</TableCell>
-                    <TableCell className="text-right">{fmtBRL(it.revenue_brl)}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="default">{fmtPercent(it.roi_pct)}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">{it.countries_in_campaign}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm" variant="outline"
-                        onClick={() => createOne(it)}
-                        disabled={creatingKey === k || !it.country_criterion_id}
-                        className="gap-1.5"
-                      >
-                        {creatingKey === k ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                        Criar campanha
-                      </Button>
-                    </TableCell>
+      {tab === "winners" && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={loadPreview} disabled={loading || !siteId} className="gap-2">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Buscar países vencedores
+            </Button>
+            {items.length > 0 && (
+              <Button onClick={createAll} disabled={bulkCreating} variant="default" className="gap-2">
+                {bulkCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                Criar todas ({items.length})
+              </Button>
+            )}
+            {items.length > 0 && (
+              <div className="text-xs text-muted-foreground ml-auto">
+                {items.length} winner(s) • custo {fmtBRL(summary.totalCost)} • receita {fmtBRL(summary.totalRev)} • ROI médio {fmtPercent(summary.avgRoi)}
+              </div>
+            )}
+          </div>
+
+          {items.length > 0 && (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Campanha origem</TableHead>
+                    <TableHead>País</TableHead>
+                    <TableHead className="text-right">Custo</TableHead>
+                    <TableHead className="text-right">Receita</TableHead>
+                    <TableHead className="text-right">ROI</TableHead>
+                    <TableHead className="text-right">Países</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {items.map((it) => {
+                    const k = `${it.campaign_id}|${it.country_code}`;
+                    return (
+                      <TableRow key={k}>
+                        <TableCell className="font-medium max-w-[320px] truncate">{it.campaign_name}</TableCell>
+                        <TableCell>
+                          <span className="font-mono text-xs">{it.country_code}</span>
+                          {it.country_name && <span className="ml-1.5 text-muted-foreground text-xs">{it.country_name}</span>}
+                        </TableCell>
+                        <TableCell className="text-right">{fmtBRL(it.cost_brl)}</TableCell>
+                        <TableCell className="text-right">{fmtBRL(it.revenue_brl)}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="default">{fmtPercent(it.roi_pct)}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground">{it.countries_in_campaign}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm" variant="outline"
+                            onClick={() => createOne(it)}
+                            disabled={creatingKey === k || !it.country_criterion_id}
+                            className="gap-1.5"
+                          >
+                            {creatingKey === k ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+                            Criar campanha
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {items.length === 0 && !loading && (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Nenhum winner identificado ainda. Clique em "Buscar países vencedores" para analisar.
+            </p>
+          )}
+        </>
       )}
 
-      {items.length === 0 && !loading && (
-        <p className="text-xs text-muted-foreground text-center py-4">
-          Nenhum winner identificado ainda. Clique em "Buscar países vencedores" para analisar.
-        </p>
+      {tab === "created" && (
+        <>
+          <div className="flex items-center gap-2">
+            <Button onClick={loadCreated} disabled={loadingCreated} variant="outline" size="sm" className="gap-2">
+              {loadingCreated ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Atualizar
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Histórico de campanhas winner duplicadas (sempre criadas em <strong>PAUSED</strong>).
+            </span>
+          </div>
+
+          {created.length > 0 ? (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Quando</TableHead>
+                    <TableHead>Origem</TableHead>
+                    <TableHead>Nova campanha (winner)</TableHead>
+                    <TableHead>País</TableHead>
+                    <TableHead className="text-right">ROI</TableHead>
+                    <TableHead className="text-right">Custo origem</TableHead>
+                    <TableHead className="text-right">Budget novo</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {created.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(c.executed_at).toLocaleString("pt-BR")}
+                      </TableCell>
+                      <TableCell className="max-w-[260px] truncate text-xs">{c.original_campaign_name ?? c.original_campaign_id}</TableCell>
+                      <TableCell className="max-w-[280px] truncate font-medium text-xs">{c.new_campaign_name ?? "—"}</TableCell>
+                      <TableCell>
+                        <span className="font-mono text-xs">{c.country_code}</span>
+                        {c.country_name && <span className="ml-1.5 text-muted-foreground text-xs">{c.country_name}</span>}
+                      </TableCell>
+                      <TableCell className="text-right">{c.roi_pct != null ? fmtPercent(c.roi_pct) : "—"}</TableCell>
+                      <TableCell className="text-right text-xs">{c.cost_brl != null ? fmtBRL(c.cost_brl) : "—"}</TableCell>
+                      <TableCell className="text-right text-xs">{c.budget_micros ? fmtBRL(Number(c.budget_micros) / 1_000_000) : "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant={c.status === "executed" ? "default" : "secondary"}>{c.status}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Nenhuma campanha winner criada ainda{siteId ? " neste site" : ""}.
+            </p>
+          )}
+        </>
       )}
     </section>
   );
