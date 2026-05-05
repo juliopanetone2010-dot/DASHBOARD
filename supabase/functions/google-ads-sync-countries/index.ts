@@ -4,6 +4,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { COUNTRY_BY_ID } from "./countries.ts";
 
+type CampaignRow = { campaign_id: string | number | null; name: string | null; google_account_id: string | null };
+type AccountRow = { id: string; customer_id: string | null; refresh_token: string | null; login_customer_id: string | null };
+type CountryMetricInsert = {
+  user_id: string; google_account_id: string | null; campaign_id: string; date: string;
+  country_code: string; country_name: string; country_criterion_id: string;
+  cost: number; clicks: number; impressions: number; conversions: number; revenue_usd: number;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -32,7 +40,7 @@ Deno.serve(async (req) => {
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
-    let camps = campsRaw ?? [];
+    let camps = (campsRaw ?? []) as CampaignRow[];
     if (siteId) {
       const { data: siteCampaigns } = await admin
         .from("gam_placement_revenue")
@@ -43,9 +51,9 @@ Deno.serve(async (req) => {
         .lte("date", to)
         .limit(50000);
       const allowedCampaigns = new Set((siteCampaigns ?? [])
-        .map((r: any) => String(r.campaign_id ?? ""))
+        .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
         .filter((id) => id && id !== "__aggregate__"));
-      camps = camps.filter((c: any) => allowedCampaigns.has(String(c.campaign_id)));
+      camps = camps.filter((c) => allowedCampaigns.has(String(c.campaign_id)));
     }
 
     const byAccount = new Map<string, { ids: string[]; }>();
@@ -64,8 +72,8 @@ Deno.serve(async (req) => {
       .select("id, customer_id, refresh_token, login_customer_id")
       .eq("user_id", userId)
       .in("id", [...byAccount.keys()]);
-    const accMap = new Map<string, any>();
-    for (const a of accs ?? []) accMap.set(a.id, a);
+    const accMap = new Map<string, AccountRow>();
+    for (const a of (accs ?? []) as AccountRow[]) accMap.set(a.id, a);
 
     type Row = { campaign_id: string; date: string; country_id: string; cost: number; clicks: number; impressions: number; conversions: number };
     const all: Row[] = [];
