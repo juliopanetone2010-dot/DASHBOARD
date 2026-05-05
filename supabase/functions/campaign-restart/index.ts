@@ -162,15 +162,14 @@ async function previewLast7Days(admin: any, userId: string, campaignId: string) 
 }
 
 async function initFlow(admin: any, userId: string, userJwt: string | null, campaignId: string) {
-  // Bloqueia se já houver um fluxo ativo
+  // Se já houver fluxo ativo, reaplica a configuração inicial em vez de bloquear.
   const { data: existing } = await admin
     .from("campaign_restart_flow")
-    .select("id")
+    .select("id, stage, status")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
     .eq("status", "active")
     .maybeSingle();
-  if (existing) return { error: "Já existe um fluxo de reinício ativo para esta campanha" };
 
   // Resolve campanha + site + conta
   const { data: camp } = await admin
@@ -202,6 +201,22 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       last_action: "removed_for_restart",
       last_action_date: new Date().toISOString(),
     }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
+
+  if (existing) {
+    const { data: updated, error: updErr } = await admin
+      .from("campaign_restart_flow")
+      .update({
+        current_budget: INITIAL_BUDGET_BRL,
+        last_action: "init_reapply",
+        last_action_at: new Date().toISOString(),
+        notes: initialNotes,
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (updErr) return { error: updErr.message };
+    return { ok: true, flow: updated, applied: apply, reapplied: true };
+  }
 
   // Cria registro do fluxo
   const { data: inserted, error: insErr } = await admin
