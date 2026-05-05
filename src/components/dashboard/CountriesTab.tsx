@@ -148,37 +148,52 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         }
       } else {
         // Receita do site = soma do gam_placement_revenue por (campaign,date) filtrando site_id.
+        // Paginação via .range() — .limit() é capped em 1000 pelo PostgREST.
         const revAgg = new Map<string, number>();
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          const { data } = await supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id, date, revenue_usd")
-            .eq("site_id", siteId)
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to)
-            .limit(50000);
-          for (const r of (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[]) {
-            const k = `${String(r.campaign_id)}|${String(r.date)}`;
-            revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
+          let start = 0;
+          for (;;) {
+            const { data, error } = await supabase
+              .from("gam_placement_revenue")
+              .select("campaign_id, date, revenue_usd")
+              .eq("site_id", siteId)
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to)
+              .range(start, start + 999);
+            if (error) break;
+            const rows = (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[];
+            for (const r of rows) {
+              const k = `${String(r.campaign_id)}|${String(r.date)}`;
+              revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
+            }
+            if (rows.length < 1000) break;
+            start += 1000;
           }
         }
         // Custo (spend) vem do daily_metrics para casar com o Google Ads.
         const spendAgg = new Map<string, number>();
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          let dQ = supabase
-            .from("daily_metrics")
-            .select("campaign_id, date, spend")
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-          const { data } = await dQ.limit(50000);
-          for (const r of data ?? []) {
-            const k = `${String(r.campaign_id)}|${String(r.date)}`;
-            spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
+          let start = 0;
+          for (;;) {
+            let dQ = supabase
+              .from("daily_metrics")
+              .select("campaign_id, date, spend")
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to);
+            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+            const { data, error } = await dQ.range(start, start + 999);
+            if (error) break;
+            const rows = data ?? [];
+            for (const r of rows) {
+              const k = `${String(r.campaign_id)}|${String(r.date)}`;
+              spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
+            }
+            if (rows.length < 1000) break;
+            start += 1000;
           }
         }
         const allKeys = new Set<string>([...revAgg.keys(), ...spendAgg.keys()]);
