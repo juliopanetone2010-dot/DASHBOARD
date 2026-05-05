@@ -90,6 +90,13 @@ export function RulesPanel({ rules, onSave }: Props) {
           value={form.budget_increase_pct}
           onChange={(v) => set("budget_increase_pct", v)}
         />
+        <Field
+          label="Rev share do publisher (%)"
+          hint="Quanto a rede (Google/AdSense/etc.) fica. Padrão: 6,5% (GAM). Afeta receita líquida e ROI."
+          id="rev_share"
+          value={form.revenue_share_pct ?? 6.5}
+          onChange={(v) => set("revenue_share_pct", v)}
+        />
       </div>
 
       <Separator />
