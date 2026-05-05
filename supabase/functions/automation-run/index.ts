@@ -236,7 +236,17 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       continue;
     }
 
-    const decision = classify(agg, cfg, prevState, dailyBudget);
+    const decision = classify(agg, cfg, prevState, dailyBudget) as any;
+    // Garante que roi_today está sempre disponível (alguns branches do classify não anexam).
+    const todayIsoCaller = new Date().toISOString().slice(0, 10);
+    const todayDailyCaller = (agg.daily as any[]).find((d) => d.date === todayIsoCaller);
+    if (todayDailyCaller) {
+      const tCost = Number(todayDailyCaller.spend) || 0;
+      const tGross = tCost + (Number(todayDailyCaller.profit) || 0);
+      decision.roi_today = tCost > 0 ? (((tGross * NET_FACTOR) - tCost) / tCost) * 100 : null;
+    } else if (decision.roi_today === undefined) {
+      decision.roi_today = null;
+    }
     decisions++;
 
     const nowIso = new Date().toISOString();
@@ -247,6 +257,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       google_account_id: accountId,
       lifecycle_status: decision.lifecycle,
       last_roi: round2(decision.roi),
+      roi_today: (decision as any).roi_today == null ? null : round2((decision as any).roi_today),
       roi_trend: decision.trend,
       delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
       daily_budget: round2(dailyBudget),
@@ -451,25 +462,26 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // ROI mostrado/gravado na esteira = hoje; histórico fica disponível para
-  // stop-loss e tendência, sem contaminar a coluna ROI.
+  // CLASSIFICAÇÃO usa a janela de N dias (auto_analysis_days), pra dar consistência
+  // entre dias. A coluna "ROI" da esteira mostra o ROI de HOJE separadamente
+  // (campo extra `roi_today`) — assim o usuário vê o de hoje sem que o status
+  // pule de "scaling" pra "learning" só porque o dia de hoje variou.
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
-  const windowDays = 1;
+  const windowDays = resolveAnalysisDays(cfg);
 
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
-  const safetyWindowDays = resolveAnalysisDays(cfg);
-  const safetySliced = sortedAll.slice(-safetyWindowDays);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayDaily = sortedAll.find((d: any) => d.date === todayIso) ?? null;
   const days = new Set(sliced.map((d: any) => d.date)).size;
   const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
   const grossRevBrl = sliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
   const netRev = grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
-  const safetyDays = new Set(safetySliced.map((d: any) => d.date)).size;
-  const safetyCost = safetySliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
-  const safetyGrossRevBrl = safetySliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
-  const safetyNetRev = safetyGrossRevBrl * NET_FACTOR;
-  const safetyRoi = safetyCost > 0 ? ((safetyNetRev - safetyCost) / safetyCost) * 100 : 0;
+  const todayCost = todayDaily ? Number(todayDaily.spend) || 0 : 0;
+  const todayGrossRevBrl = todayDaily ? (Number(todayDaily.spend) || 0) + (Number(todayDaily.profit) || 0) : 0;
+  const todayNetRev = todayGrossRevBrl * NET_FACTOR;
+  const todayRoi = todayCost > 0 ? ((todayNetRev - todayCost) / todayCost) * 100 : null;
   const stopLossRoi = normalizeStopLossRoi(cfg.auto_stoploss_min_roi);
   const stopLossDays = Math.max(1, Number(cfg.auto_stoploss_days) || 7);
   const stopLossMinCost = Math.max(0, Number(cfg.auto_stoploss_min_cost) || 0);
@@ -491,9 +503,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
   const noBudgetData = delivery == null;
 
-  // Para ROI de hoje, 1 dia com custo já é suficiente para avaliar.
-  if (days < 1 || cost < stopLossMinCost) {
-    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend, window_days: windowDays };
+  // Mínimo de 2 dias E custo acumulado >= stoploss_min_cost para qualquer decisão.
+  // Antes o gate usava custo de 1 dia, o que pausava campanhas com pouquíssimo
+  // gasto recente. Agora respeita o auto_stoploss_min_cost no acumulado.
+  if (days < Math.min(2, windowDays) || cost < stopLossMinCost) {
+    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo acumulado=${round2(cost)} < min ${stopLossMinCost})`, roi, trend, delivery, avgDailySpend, window_days: windowDays, roi_today: todayRoi } as any;
   }
 
   const inCooldown = prev?.cooldown_until && new Date(prev.cooldown_until) > new Date();
@@ -503,10 +517,12 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const daysSinceCpa = lastCpa ? Math.floor((Date.now() - lastCpa.getTime()) / 86400_000) : 999;
   const cpaCooldownOk = daysSinceCpa >= Number(cfg.auto_cpa_review_days);
 
-  // E) Stop-loss prevalece SOMENTE quando o ROI agregado cruza o limite negativo configurado.
-  // Se a configuração vier vazia/0 por legado, usamos -20% para impedir pausa cega em ROI levemente negativo.
-  if (safetyRoi <= stopLossRoi && safetyDays >= stopLossDays && trend !== "up") {
-    return { lifecycle: "bad", action: "pause", reason: `ROI hoje ${round2(roi)}% · ROI ${round2(safetyRoi)}% em ${safetyDays}d <= ${stopLossRoi}% (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
+  // E) Stop-loss: SÓ pausa se ROI acumulado cruza limite negativo, há dias suficientes,
+  // tendência não é de melhora E o ROI de HOJE também não está positivo (proteção:
+  // se hoje virou positivo, não pausa — dá uma chance da campanha se recuperar).
+  const todayProtect = todayRoi != null && todayRoi > 0;
+  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up" && !todayProtect) {
+    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi } as any;
   }
 
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
