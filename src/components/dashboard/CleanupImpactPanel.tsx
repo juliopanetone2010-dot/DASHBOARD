@@ -43,6 +43,16 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<CleanupLog[]>([]);
   const [rows, setRows] = useState<ImpactRow[]>([]);
+  const [siteOverride, setSiteOverride] = useState<string>("");
+  const [siteOptions, setSiteOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    supabase.from("sites").select("id, name").order("name").then(({ data }) => {
+      setSiteOptions((data ?? []) as any);
+    });
+  }, []);
+
+  const effectiveSiteId = siteOverride || filters.siteId;
 
   const load = async () => {
     setLoading(true);
@@ -55,7 +65,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
         .gte("executed_at", since)
         .order("executed_at", { ascending: false })
         .limit(200);
-      if (filters.siteId && filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      if (effectiveSiteId && effectiveSiteId !== "all") q = q.eq("site_id", effectiveSiteId);
       const { data, error } = await q;
       if (error) throw error;
       const list = (data ?? []) as CleanupLog[];
@@ -154,7 +164,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
-  useEffect(() => { load(); }, [filters.siteId, windowDays]);
+  useEffect(() => { load(); }, [effectiveSiteId, windowDays]);
 
   const summary = useMemo(() => {
     let up = 0, down = 0, neutral = 0, pending = 0;
@@ -187,6 +197,21 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
               {d.l}
             </button>
           ))}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">Site:</span>
+          <select
+            value={siteOverride}
+            onChange={(e) => setSiteOverride(e.target.value)}
+            className="h-7 rounded-md border border-border bg-card px-2 text-xs"
+          >
+            <option value="">{filters.siteId && filters.siteId !== "all" ? "Filtro do dashboard" : "Todos"}</option>
+            <option value="all">Todos os sites</option>
+            {siteOptions.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
         </div>
 
         <div className="flex gap-2">
