@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
     const accountId: string | null = typeof body?.google_account_id === "string" && body.google_account_id ? body.google_account_id : null;
     const explicitFrom: string | undefined = typeof body?.from === "string" ? body.from : undefined;
     const explicitTo: string | undefined = typeof body?.to === "string" ? body.to : undefined;
+    const siteScope = siteId ?? "__global__";
 
     let userId: string | null = null;
     if (isService && targetUserId) userId = targetUserId;
@@ -119,10 +120,16 @@ Deno.serve(async (req) => {
     const ads: AdsRow[] = [];
     let s = 0;
     for (;;) {
-      const { data, error } = await admin.from("ads_placements")
+      let adsQuery = admin.from("ads_placements")
         .select("campaign_id, placement, placement_clean, placement_type, cost, clicks, impressions, conversions, date")
-        .eq("user_id", userId).gte("date", from).lte("date", to)
-        .range(s, s + 999);
+        .eq("user_id", userId).gte("date", from).lte("date", to);
+      if (accountId) adsQuery = adsQuery.eq("google_account_id", accountId);
+      if (allowedCampaigns) {
+        const ids = [...allowedCampaigns];
+        if (ids.length === 0) break;
+        adsQuery = adsQuery.in("campaign_id", ids);
+      }
+      const { data, error } = await adsQuery.range(s, s + 999);
       if (error) return json({ error: error.message });
       const rows = (data ?? []) as AdsRow[];
       ads.push(...rows);
@@ -162,7 +169,7 @@ Deno.serve(async (req) => {
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
       if (!placement) continue;
-      const k = cpKey(r.campaign_id, placement);
+      const k = cpKey(siteScope, r.campaign_id, placement);
       let a = agg.get(k);
       if (!a) {
         a = { campaign_id: r.campaign_id, placement, type: r.placement_type ?? "—", cost: 0, clicks: 0, impressions: 0, conversions: 0, lastConvDate: null, firstDate: r.date };
@@ -179,10 +186,10 @@ Deno.serve(async (req) => {
 
     // Carrega status atuais
     const { data: existing } = await admin.from("placement_status")
-      .select("id, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
+      .select("id, site_id, site_scope, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
       .eq("user_id", userId);
     const existMap = new Map<string, any>();
-    for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
+    for (const e of existing ?? []) existMap.set(cpKey(String((e as any).site_scope ?? e.site_id ?? "__global__"), e.campaign_id, e.placement), e);
 
     // Carrega placements já excluídos manualmente / pelo cleanup antigo
     // (placement_actions.action='blacklist'). Eles devem aparecer no funil
@@ -200,7 +207,7 @@ Deno.serve(async (req) => {
         const rows = data ?? [];
         for (const r of rows) {
           const placement = normalize(String(r.placement ?? ""));
-          if (r.campaign_id && placement) blacklisted.add(cpKey(String(r.campaign_id), placement));
+          if (r.campaign_id && placement) blacklisted.add(cpKey(siteScope, String(r.campaign_id), placement));
         }
         if (rows.length < 1000) break;
         bs += 1000;
@@ -210,7 +217,7 @@ Deno.serve(async (req) => {
     // Garante que todo placement já blacklistado tenha entry em agg
     for (const k of blacklisted) {
       if (agg.has(k)) continue;
-      const [campaign_id, placement] = k.split(KEY_SEP);
+      const [, campaign_id, placement] = k.split(KEY_SEP);
       const ex = existMap.get(k);
       agg.set(k, {
         campaign_id, placement,
@@ -232,7 +239,7 @@ Deno.serve(async (req) => {
     for (const a of agg.values()) {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
-      const k = cpKey(a.campaign_id, a.placement);
+      const k = cpKey(siteScope, a.campaign_id, a.placement);
       const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
       const root = rootDomain(a.placement);
       let usd = campaignRevenue.get(a.placement) ?? 0;
@@ -318,6 +325,7 @@ Deno.serve(async (req) => {
       const row: any = {
         user_id: userId,
         site_id: siteId,
+        site_scope: siteScope,
         google_account_id: meta.google_account_id,
         campaign_id: a.campaign_id,
         campaign_name: meta.name,
@@ -378,7 +386,7 @@ Deno.serve(async (req) => {
     // Upsert (em chunks)
     for (const chunk of chunkArr(upserts, 500)) {
       const { error } = await admin.from("placement_status")
-        .upsert(chunk, { onConflict: "user_id,campaign_id,placement" });
+        .upsert(chunk, { onConflict: "user_id,site_scope,campaign_id,placement" });
       if (error) return json({ error: error.message });
     }
     // Backfill placement_status_id no histórico (após upsert)
@@ -387,11 +395,12 @@ Deno.serve(async (req) => {
       const { data: ids } = await admin.from("placement_status")
         .select("id, campaign_id, placement")
         .eq("user_id", userId)
+        .eq("site_scope", siteScope)
         .in("campaign_id", [...new Set(keys.map((k) => k[0]))]);
       const idMap = new Map<string, string>();
-      for (const i of ids ?? []) idMap.set(cpKey(i.campaign_id, i.placement), i.id);
+      for (const i of ids ?? []) idMap.set(cpKey(siteScope, i.campaign_id, i.placement), i.id);
       for (const h of histInserts) {
-        h.placement_status_id = idMap.get(cpKey(h.campaign_id, h.placement)) ?? null;
+        h.placement_status_id = idMap.get(cpKey(siteScope, h.campaign_id, h.placement)) ?? null;
       }
       const valid = histInserts.filter((h) => h.placement_status_id);
       for (const chunk of chunkArr(valid, 500)) {
@@ -418,6 +427,18 @@ Deno.serve(async (req) => {
       blockResult = await r.json().catch(() => ({}));
     }
 
+    await admin.from("rules_config")
+      .update({ funnel_auto_last_run_at: new Date().toISOString() })
+      .eq("user_id", userId);
+    if (siteId) {
+      let siteRunQuery = admin.from("site_placement_config")
+        .update({ last_run_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("site_id", siteId);
+      if (accountId) siteRunQuery = siteRunQuery.eq("google_account_id", accountId);
+      await siteRunQuery;
+    }
+
     return json({
       ok: true, mode, period: { from, to }, summary,
       newly_blocked: newlyBlocked.length,
@@ -429,7 +450,7 @@ Deno.serve(async (req) => {
   }
 });
 
-function cpKey(cid: string, placement: string) { return `${cid}${KEY_SEP}${placement}`; }
+function cpKey(scope: string, cid: string, placement: string) { return `${scope}${KEY_SEP}${cid}${KEY_SEP}${placement}`; }
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
 }

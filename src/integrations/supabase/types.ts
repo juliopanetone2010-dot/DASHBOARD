@@ -997,6 +997,7 @@ export type Database = {
           revenue_total: number
           roi_pct: number
           site_id: string | null
+          site_scope: string
           status: string
           updated_at: string
           user_id: string
@@ -1027,6 +1028,7 @@ export type Database = {
           revenue_total?: number
           roi_pct?: number
           site_id?: string | null
+          site_scope?: string
           status?: string
           updated_at?: string
           user_id: string
@@ -1057,6 +1059,7 @@ export type Database = {
           revenue_total?: number
           roi_pct?: number
           site_id?: string | null
+          site_scope?: string
           status?: string
           updated_at?: string
           user_id?: string
