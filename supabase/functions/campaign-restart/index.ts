@@ -513,8 +513,17 @@ async function applyRestartBidding(ctx: any, campaignId: string, currentStrat: s
   };
 
   // Para trocar/limpar subcampos, a API exige o subcampo mutável no updateMask, não só "maximize_conversions".
+  const clickPayment = await mutate("set-payment-clicks", { resourceName: baseRN, paymentMode: "CLICKS" }, "payment_mode");
+  if (clickPayment.ok) {
+    const afterPayment = await mutate("maximize-after-payment-clicks", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
+    if (afterPayment.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: afterPayment.label };
+  }
+
   const direct = await mutate("direct-maximize-conversions-no-cpa", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
   if (direct.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: direct.label };
+
+  const combo = await mutate("payment-clicks-plus-maximize", { resourceName: baseRN, paymentMode: "CLICKS", maximizeConversions: {} }, "payment_mode,maximize_conversions.target_cpa_micros");
+  if (combo.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: combo.label };
 
   // Portfolio: primeiro solta o bidding_strategy compartilhado, depois tenta aplicar a estratégia standard.
   const clearPortfolio = await mutate("clear-portfolio", { resourceName: baseRN }, "bidding_strategy");
