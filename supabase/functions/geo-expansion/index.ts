@@ -1302,52 +1302,16 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
   return { create: cleanObject(create) };
 }
 
-function buildCampaignBidding(campaign: any) {
-  const type = campaign.biddingStrategyType;
-  const createFields: any = {};
-  const debug: any = { type, portfolio_strategy: campaign.biddingStrategy ?? null };
-
-  if (campaign.biddingStrategy) {
-    createFields.biddingStrategy = campaign.biddingStrategy;
-    return { createFields, debug: { ...debug, copied_as: "portfolio_strategy" } };
-  }
-
-  switch (type) {
-    case "MANUAL_CPC":
-      createFields.manualCpc = cleanObject({ enhancedCpcEnabled: campaign.manualCpc?.enhancedCpcEnabled });
-      break;
-    case "MAXIMIZE_CONVERSIONS":
-      createFields.maximizeConversions = cleanObject({ targetCpaMicros: campaign.maximizeConversions?.targetCpaMicros });
-      break;
-    case "MAXIMIZE_CONVERSION_VALUE":
-      createFields.maximizeConversionValue = cleanObject({ targetRoas: campaign.maximizeConversionValue?.targetRoas });
-      break;
-    case "TARGET_CPA":
-      createFields.targetCpa = cleanObject({ targetCpaMicros: campaign.targetCpa?.targetCpaMicros });
-      break;
-    case "TARGET_ROAS":
-      createFields.targetRoas = cleanObject({ targetRoas: campaign.targetRoas?.targetRoas });
-      break;
-    case "TARGET_SPEND":
-      createFields.targetSpend = cleanObject({
-        targetSpendMicros: campaign.targetSpend?.targetSpendMicros,
-        cpcBidCeilingMicros: campaign.targetSpend?.cpcBidCeilingMicros,
-      });
-      break;
-    case "TARGET_IMPRESSION_SHARE":
-      createFields.targetImpressionShare = cleanObject({
-        location: campaign.targetImpressionShare?.location,
-        locationFractionMicros: campaign.targetImpressionShare?.locationFractionMicros,
-        cpcBidCeilingMicros: campaign.targetImpressionShare?.cpcBidCeilingMicros,
-      });
-      break;
-    default:
-      createFields.maximizeConversions = {};
-      debug.fallback = "maximize_conversions";
-      break;
-  }
-
-  return { createFields, debug: { ...debug, copied_as: Object.keys(createFields)[0] } };
+function buildWinnerBidding(sourceType: string) {
+  return {
+    createFields: { maximizeConversions: {} },
+    debug: {
+      source_type: sourceType,
+      applied: "MAXIMIZE_CONVERSIONS",
+      target_cpa_micros: null,
+      copied_as: "maximizeConversions_without_target_cpa",
+    },
+  };
 }
 
 function buildAdCreate(ad: any, assetRefs: Set<string>) {
