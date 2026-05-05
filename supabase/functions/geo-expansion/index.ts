@@ -1130,10 +1130,14 @@ function compareCampaignCriteriaSummary(source: ReturnType<typeof summarizeCampa
   const dstLang = cloned.languageConstants.join("|");
   if (srcLang !== dstLang) return { ok: false, reason: `idiomas origem=[${srcLang}] winner=[${dstLang}]` };
   if (cloned.languageConstants.length === 0) return { ok: false, reason: "winner ficou em Todos os idiomas" };
-  const srcDev = JSON.stringify(source.deviceBidModifiers);
-  const dstDev = JSON.stringify(cloned.deviceBidModifiers);
+  const srcDev = stableRecordString(source.deviceBidModifiers);
+  const dstDev = stableRecordString(cloned.deviceBidModifiers);
   if (srcDev !== dstDev) return { ok: false, reason: `dispositivos origem=${srcDev} winner=${dstDev}` };
   return { ok: true };
+}
+
+function stableRecordString(record: Record<string, number>) {
+  return JSON.stringify(Object.keys(record).sort().map((key) => [key, record[key]]));
 }
 
 function validateSourceLanguages(source: ReturnType<typeof summarizeCampaignCriteria>) {
