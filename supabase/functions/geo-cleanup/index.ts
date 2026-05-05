@@ -59,8 +59,11 @@ Deno.serve(async (req) => {
       );
       const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
       userId = claims?.claims?.sub ?? null;
-      if (!userId) return json({ error: "Token inválido" });
     }
+
+    const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
+    const NET_FACTOR = 1 - REV_SHARE_PCT;
+    console.log(`[geo-cleanup] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);
 
     const today = new Date();
     const toDate = new Date(today.getTime() - 86400_000);
