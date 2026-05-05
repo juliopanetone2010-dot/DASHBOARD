@@ -622,8 +622,8 @@ async function runWinnerCycle(args: {
     }).eq("user_id", userId).eq("campaign_id", agg.campaign_id);
   }
 
-  // 2) Calcula métricas com a janela do estado atual (winner_test=7, winner_scaling=2, winner_standby=3)
-  const windowDays = windowForLifecycle(fromStatus);
+  // 2) Calcula métricas com janela específica do fluxo winner.
+  const windowDays = fromStatus === "winner_scaling" ? WINNER_SCALE_INTERVAL_DAYS : (fromStatus === "winner_standby" ? 3 : WINNER_TEST_DAYS);
   const sortedAll = [...agg.daily].sort((a: any, b: any) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
   const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
