@@ -57,6 +57,9 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "cost", dir: "desc" });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [excluding, setExcluding] = useState<string | null>(null);
+  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(new Set());
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -360,7 +363,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const totalProfit = totalRev - totalCost;
   const totalRoi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
-  const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string) => {
+  const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string, countryCode: string) => {
     if (!criterionId) {
       toast({ title: "Sem ID do país", description: "Sincronize de novo para obter o ID do critério.", variant: "destructive" });
       return;
@@ -375,9 +378,45 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
         return;
       }
+      setExcludedKeys((s) => { const n = new Set(s); n.add(`${campaignId}|${countryCode}`); return n; });
+      setSelectedKeys((s) => { const n = new Set(s); n.delete(`${campaignId}|${countryCode}`); return n; });
       toast({ title: "País excluído", description: `${countryName} adicionado como exclusão na campanha.` });
     } finally { setExcluding(null); }
   };
+
+  const handleBulkExclude = async () => {
+    const items: { campaignId: string; criterionId: string | null; countryCode: string; countryName: string }[] = [];
+    const seen = new Set<string>();
+    for (const r of countryRows) {
+      const k = `${r.campaign_id}|${r.country_code}`;
+      if (selectedKeys.has(k) && !excludedKeys.has(k) && !seen.has(k)) {
+        seen.add(k);
+        items.push({ campaignId: r.campaign_id, criterionId: r.country_criterion_id, countryCode: r.country_code, countryName: r.country_name ?? r.country_code });
+      }
+    }
+    if (items.length === 0) return;
+    setBulkBusy(true);
+    let ok = 0, fail = 0;
+    for (const it of items) {
+      if (!it.criterionId) { fail++; continue; }
+      try {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
+          "google-ads-mutate",
+          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId } },
+        );
+        if (error || data?.error) { fail++; continue; }
+        setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });
+        ok++;
+      } catch { fail++; }
+    }
+    setSelectedKeys(new Set());
+    setBulkBusy(false);
+    toast({ title: "Exclusão em lote", description: `${ok} excluídos${fail ? `, ${fail} falharam` : ""}.`, variant: fail && !ok ? "destructive" : "default" });
+  };
+
+  const toggleSelect = (key: string) => setSelectedKeys((s) => {
+    const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
+  });
 
   const toggleExpand = (k: string) => setExpanded((s) => {
     const n = new Set(s);
@@ -520,6 +559,23 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         <Badge variant={totalRoi >= 0 ? "outline" : "destructive"}>ROI: {fmtPercent(totalRoi)}</Badge>
       </div>
 
+      {selectedKeys.size > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-2">
+          <div className="text-sm">
+            <b>{selectedKeys.size}</b> país(es) selecionado(s) para exclusão
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedKeys(new Set())} disabled={bulkBusy}>
+              Limpar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={handleBulkExclude} disabled={bulkBusy}>
+              {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <Ban className="h-3.5 w-3.5 mr-2" />}
+              Excluir selecionados
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Debug */}
       {showDebug && (
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs space-y-1">
@@ -576,7 +632,15 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
             {!loading && view === "country" && sortedCountries.map((c) => {
               const isOpen = expanded.has(c.code);
-              const camps = campaignsByCountry.get(c.code) ?? [];
+              const allCamps = campaignsByCountry.get(c.code) ?? [];
+              const camps = allCamps.filter((cp) => !excludedKeys.has(`${cp.campaign_id}|${c.code}`));
+              if (camps.length === 0) return null;
+              const visCost = camps.reduce((a, x) => a + x.cost, 0);
+              const visRev = camps.reduce((a, x) => a + x.revenue_brl, 0);
+              const visProfit = visRev - visCost;
+              const visRoi = visCost > 0 ? (visProfit / visCost) * 100 : 0;
+              const visClicks = camps.reduce((a, x) => a + x.clicks, 0);
+              const visImpr = camps.reduce((a, x) => a + x.impressions, 0);
               return (
                 <Fragment key={c.code}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(c.code)}>
@@ -585,24 +649,25 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                       <span className="font-mono text-xs text-muted-foreground mr-2">{c.code}</span>
                       {c.name}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{c.campaigns.size}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(c.cost)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(c.revenue_brl)}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums font-semibold", c.profit < 0 ? "text-danger" : "text-success")}>{fmtBRL(c.profit)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{camps.length}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums font-semibold", visProfit < 0 ? "text-danger" : "text-success")}>{fmtBRL(visProfit)}</TableCell>
                     <TableCell className="text-right">
                       <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                        c.roi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
-                        {fmtPercent(c.roi)}
+                        visRoi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
+                        {fmtPercent(visRoi)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(c.clicks)}</TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(c.impressions)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visClicks)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visImpr)}</TableCell>
                   </TableRow>
                   {isOpen && (
                     <TableRow><TableCell colSpan={9} className="bg-muted/10 p-0">
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead className="w-10"></TableHead>
                             <TableHead>Campanha</TableHead>
                             <TableHead className="text-right">Custo</TableHead>
                             <TableHead className="text-right">Receita</TableHead>
@@ -614,8 +679,14 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {camps.map((cp) => {
                             const key = `${cp.campaign_id}|${cp.country_criterion_id ?? ""}`;
+                            const selKey = `${cp.campaign_id}|${c.code}`;
                             return (
                               <TableRow key={cp.campaign_id}>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
+                                    checked={selectedKeys.has(selKey)}
+                                    onChange={() => toggleSelect(selKey)} />
+                                </TableCell>
                                 <TableCell className="text-sm">{cp.name}</TableCell>
                                 <TableCell className="text-right tabular-nums">{fmtBRL(cp.cost)}</TableCell>
                                 <TableCell className="text-right tabular-nums">{fmtBRL(cp.revenue_brl)}</TableCell>
@@ -624,7 +695,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className="text-right">
                                   <ExcludeButton
                                     busy={excluding === key}
-                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name)}
+                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
                                     label={`Excluir ${c.name} desta campanha`}
                                   />
                                 </TableCell>
@@ -641,30 +712,39 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
             {!loading && view === "campaign" && sortedCampaigns.map((cp) => {
               const isOpen = expanded.has(cp.campaign_id);
-              const list = countriesByCampaign.get(cp.campaign_id) ?? [];
+              const allList = countriesByCampaign.get(cp.campaign_id) ?? [];
+              const list = allList.filter((co) => !excludedKeys.has(`${cp.campaign_id}|${co.country_code}`));
+              if (list.length === 0) return null;
+              const visCost = list.reduce((a, x) => a + x.cost, 0);
+              const visRev = list.reduce((a, x) => a + x.revenue_brl, 0);
+              const visProfit = visRev - visCost;
+              const visRoi = visCost > 0 ? (visProfit / visCost) * 100 : 0;
+              const visClicks = list.reduce((a, x) => a + x.clicks, 0);
+              const visImpr = list.reduce((a, x) => a + x.impressions, 0);
               return (
                 <Fragment key={cp.campaign_id}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
                     <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
                     <TableCell className="font-medium text-sm">{cp.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{cp.countries.size}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.cost)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.revenue_brl)}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums font-semibold", cp.profit < 0 ? "text-danger" : "text-success")}>{fmtBRL(cp.profit)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{list.length}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums font-semibold", visProfit < 0 ? "text-danger" : "text-success")}>{fmtBRL(visProfit)}</TableCell>
                     <TableCell className="text-right">
                       <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                        cp.roi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
-                        {fmtPercent(cp.roi)}
+                        visRoi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
+                        {fmtPercent(visRoi)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.clicks)}</TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.impressions)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visClicks)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visImpr)}</TableCell>
                   </TableRow>
                   {isOpen && (
                     <TableRow><TableCell colSpan={9} className="bg-muted/10 p-0">
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead className="w-10"></TableHead>
                             <TableHead>País</TableHead>
                             <TableHead className="text-right">Custo</TableHead>
                             <TableHead className="text-right">Receita</TableHead>
@@ -676,8 +756,14 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {list.map((co) => {
                             const key = `${cp.campaign_id}|${co.country_criterion_id ?? ""}`;
+                            const selKey = `${cp.campaign_id}|${co.country_code}`;
                             return (
                               <TableRow key={co.country_code}>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
+                                    checked={selectedKeys.has(selKey)}
+                                    onChange={() => toggleSelect(selKey)} />
+                                </TableCell>
                                 <TableCell className="text-sm">
                                   <span className="font-mono text-xs text-muted-foreground mr-2">{co.country_code}</span>
                                   {co.country_name}
@@ -689,7 +775,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className="text-right">
                                   <ExcludeButton
                                     busy={excluding === key}
-                                    onConfirm={() => handleExclude(cp.campaign_id, co.country_criterion_id, co.country_name)}
+                                    onConfirm={() => handleExclude(cp.campaign_id, co.country_criterion_id, co.country_name, co.country_code)}
                                     label={`Excluir ${co.country_name} desta campanha`}
                                   />
                                 </TableCell>
