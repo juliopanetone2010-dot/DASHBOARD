@@ -695,30 +695,39 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
             {!loading && view === "campaign" && sortedCampaigns.map((cp) => {
               const isOpen = expanded.has(cp.campaign_id);
-              const list = countriesByCampaign.get(cp.campaign_id) ?? [];
+              const allList = countriesByCampaign.get(cp.campaign_id) ?? [];
+              const list = allList.filter((co) => !excludedKeys.has(`${cp.campaign_id}|${co.country_code}`));
+              if (list.length === 0) return null;
+              const visCost = list.reduce((a, x) => a + x.cost, 0);
+              const visRev = list.reduce((a, x) => a + x.revenue_brl, 0);
+              const visProfit = visRev - visCost;
+              const visRoi = visCost > 0 ? (visProfit / visCost) * 100 : 0;
+              const visClicks = list.reduce((a, x) => a + x.clicks, 0);
+              const visImpr = list.reduce((a, x) => a + x.impressions, 0);
               return (
                 <Fragment key={cp.campaign_id}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
                     <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
                     <TableCell className="font-medium text-sm">{cp.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{cp.countries.size}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.cost)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(cp.revenue_brl)}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums font-semibold", cp.profit < 0 ? "text-danger" : "text-success")}>{fmtBRL(cp.profit)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{list.length}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums font-semibold", visProfit < 0 ? "text-danger" : "text-success")}>{fmtBRL(visProfit)}</TableCell>
                     <TableCell className="text-right">
                       <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                        cp.roi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
-                        {fmtPercent(cp.roi)}
+                        visRoi >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
+                        {fmtPercent(visRoi)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.clicks)}</TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(cp.impressions)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visClicks)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{fmtNumber(visImpr)}</TableCell>
                   </TableRow>
                   {isOpen && (
                     <TableRow><TableCell colSpan={9} className="bg-muted/10 p-0">
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead className="w-10"></TableHead>
                             <TableHead>País</TableHead>
                             <TableHead className="text-right">Custo</TableHead>
                             <TableHead className="text-right">Receita</TableHead>
@@ -730,8 +739,14 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {list.map((co) => {
                             const key = `${cp.campaign_id}|${co.country_criterion_id ?? ""}`;
+                            const selKey = `${cp.campaign_id}|${co.country_code}`;
                             return (
                               <TableRow key={co.country_code}>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
+                                    checked={selectedKeys.has(selKey)}
+                                    onChange={() => toggleSelect(selKey)} />
+                                </TableCell>
                                 <TableCell className="text-sm">
                                   <span className="font-mono text-xs text-muted-foreground mr-2">{co.country_code}</span>
                                   {co.country_name}
@@ -743,7 +758,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className="text-right">
                                   <ExcludeButton
                                     busy={excluding === key}
-                                    onConfirm={() => handleExclude(cp.campaign_id, co.country_criterion_id, co.country_name)}
+                                    onConfirm={() => handleExclude(cp.campaign_id, co.country_criterion_id, co.country_name, co.country_code)}
                                     label={`Excluir ${co.country_name} desta campanha`}
                                   />
                                 </TableCell>
