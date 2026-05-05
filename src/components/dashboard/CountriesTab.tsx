@@ -119,27 +119,76 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       }
       setCountryRows(rows);
 
-      // 2) Receita por (campanha, dia) — MESMA fonte do dashboard
+      // 2) Receita por (campanha, dia)
+      // - "all" sites: usa daily_metrics (total da campanha)
+      // - site específico: usa gam_placement_revenue filtrado por site_id (receita atribuída ao site)
       const ids = [...new Set(rows.map((r) => r.campaign_id))];
       if (ids.length === 0) { setDailyRows([]); setCampNames({}); return; }
 
       const dailyAll: DailyRev[] = [];
-      for (let i = 0; i < ids.length; i += 200) {
-        const chunk = ids.slice(i, i + 200);
-        let dQ = supabase
-          .from("daily_metrics")
-          .select("campaign_id, date, spend, revenue")
-          .in("campaign_id", chunk)
-          .gte("date", range.from)
-          .lte("date", range.to);
-        if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-        const { data } = await dQ.limit(50000);
-        for (const r of data ?? []) {
+      if (siteId === "all") {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          let dQ = supabase
+            .from("daily_metrics")
+            .select("campaign_id, date, spend, revenue")
+            .in("campaign_id", chunk)
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+          const { data } = await dQ.limit(50000);
+          for (const r of data ?? []) {
+            dailyAll.push({
+              campaign_id: String(r.campaign_id),
+              date: String(r.date),
+              spend: Number(r.spend) || 0,
+              revenue_usd: Number(r.revenue) || 0,
+            });
+          }
+        }
+      } else {
+        // Receita do site = soma do gam_placement_revenue por (campaign,date) filtrando site_id.
+        const revAgg = new Map<string, number>();
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          const { data } = await supabase
+            .from("gam_placement_revenue")
+            .select("campaign_id, date, revenue_usd")
+            .eq("site_id", siteId)
+            .in("campaign_id", chunk)
+            .gte("date", range.from)
+            .lte("date", range.to)
+            .limit(50000);
+          for (const r of (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[]) {
+            const k = `${String(r.campaign_id)}|${String(r.date)}`;
+            revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
+          }
+        }
+        // Custo (spend) vem do daily_metrics para casar com o Google Ads.
+        const spendAgg = new Map<string, number>();
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          let dQ = supabase
+            .from("daily_metrics")
+            .select("campaign_id, date, spend")
+            .in("campaign_id", chunk)
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+          const { data } = await dQ.limit(50000);
+          for (const r of data ?? []) {
+            const k = `${String(r.campaign_id)}|${String(r.date)}`;
+            spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
+          }
+        }
+        const allKeys = new Set<string>([...revAgg.keys(), ...spendAgg.keys()]);
+        for (const k of allKeys) {
+          const [campaign_id, date] = k.split("|");
           dailyAll.push({
-            campaign_id: String(r.campaign_id),
-            date: String(r.date),
-            spend: Number(r.spend) || 0,
-            revenue_usd: Number(r.revenue) || 0,
+            campaign_id,
+            date,
+            spend: spendAgg.get(k) ?? 0,
+            revenue_usd: revAgg.get(k) ?? 0,
           });
         }
       }
