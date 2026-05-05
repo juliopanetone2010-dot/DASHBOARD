@@ -341,7 +341,7 @@ Deno.serve(async (req) => {
 // ===== Duplicate campaign =====
 async function duplicateCampaign(
   admin: any, userId: string, item: ApplyItem, budgetMultiplier: number, siteId: string | null,
-  startStatus: "PAUSED" | "ENABLED" = "PAUSED",
+  startStatus: "PAUSED" = "PAUSED",
 ) {
   // Carrega conta
   const { data: acc } = await admin
@@ -879,7 +879,7 @@ async function duplicateCampaign(
       google_account_id: item.google_account_id,
       campaign_id: newCampaignId,
       name: newName,
-      status: startStatus.toLowerCase(),
+      status: "paused",
       channel_type: channelType,
       budget_micros: newBudgetMicros,
     });
@@ -892,7 +892,7 @@ async function duplicateCampaign(
       campaign_id: newCampaignId,
       lifecycle_status: "winner_test",
       winner_country_code: item.country_code,
-      winner_started_at: startStatus === "ENABLED" ? new Date().toISOString() : null,
+      winner_started_at: null,
     });
 
     return {
