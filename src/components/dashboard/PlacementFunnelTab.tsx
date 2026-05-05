@@ -348,7 +348,12 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const accountFiltered = useMemo(() => {
     return rows.filter((r) => {
       const accountOk = !allowedAccountIds || (r.google_account_id && allowedAccountIds.has(r.google_account_id));
-      if (siteFilter.size > 0) return !!accountOk && !!r.site_id && siteFilter.has(r.site_id);
+      if (siteFilter.size > 0) {
+        // Inclui placements do site selecionado + GLOBAIS (site_id=NULL ou scope=__global__),
+        // já que bloqueios manuais/legacy blacklists ficam salvos como globais.
+        const siteOk = (r.site_id && siteFilter.has(r.site_id)) || !r.site_id || r.site_scope === "__global__";
+        return !!accountOk && siteOk;
+      }
       return !!accountOk;
     });
   }, [rows, allowedAccountIds, siteFilter]);
