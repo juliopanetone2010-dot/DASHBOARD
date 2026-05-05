@@ -441,7 +441,12 @@ async function duplicateCampaign(
     return { error: `Campos obrigatórios ausentes: ${missing.join(", ")}`, debug: { missing } };
   }
 
-  const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER`;
+  const nameSuffix = (() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  })();
+  const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER #${nameSuffix}`;
   const requestSeed = Date.now();
   const tempBudgetId = `-${requestSeed}`;
   const tempCampaignId = `-${requestSeed + 1}`;
@@ -499,7 +504,9 @@ async function duplicateCampaign(
            ad_group_ad.ad.responsive_search_ad.headlines,
            ad_group_ad.ad.responsive_search_ad.descriptions,
            ad_group_ad.ad.responsive_search_ad.path1,
-           ad_group_ad.ad.responsive_search_ad.path2
+           ad_group_ad.ad.responsive_search_ad.path2,
+           ad_group_ad.ad.display_upload_ad.media_bundle,
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${sourceAdGroupResources})
       AND ad_group_ad.status != 'REMOVED'
@@ -1175,6 +1182,16 @@ function buildAdCreate(ad: any, assetRefs: Set<string>) {
       path1: rsa.path1,
       path2: rsa.path2,
     });
+    return create;
+  }
+
+  if (ad.displayUploadAd) {
+    const dua = ad.displayUploadAd;
+    create.displayUploadAd = cleanObject({
+      mediaBundle: dua.mediaBundle ? cleanObject({ asset: dua.mediaBundle.asset }) : undefined,
+      displayUploadProductType: dua.displayUploadProductType,
+    });
+    if (dua.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
     return create;
   }
 
