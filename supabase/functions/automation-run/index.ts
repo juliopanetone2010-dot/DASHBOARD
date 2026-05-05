@@ -1,6 +1,6 @@
 // Cron diário (e trigger manual) da esteira inteligente de campanhas.
 // - Lê daily_metrics (já populado por google-ads-sync-campaigns + gam-sync-revenue)
-// - Calcula ROI dos últimos N dias com NET_FACTOR (mesma lógica do dashboard)
+// - Calcula ROI do dia atual com NET_FACTOR (mesma lógica do dashboard)
 // - Classifica em: testing | learning | standby | scaling | bad | paused
 // - Decide ação (pause | scale | cpa_up | cpa_down | none) respeitando cooldowns
 // - Executa SOMENTE para pares site_id + google_account_id habilitados em site_automation_config
@@ -14,10 +14,8 @@ type Lifecycle =
   | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
   | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
-// Janela de análise: usa rules_config.auto_analysis_days (default 15).
-// Antes a janela era hardcoded por lifecycle (testing=2d, etc.), o que fazia
-// o motor classificar como "Dados insuficientes" mesmo quando a campanha já
-// tinha gasto > stoploss_min_cost no acumulado de 15 dias.
+// ROI da esteira: sempre o dia atual. Configurações de dias ficam só para
+// regras legadas/cooldowns, não para o número mostrado na coluna ROI.
 const DEFAULT_ANALYSIS_DAYS = 15;
 const MAX_ANALYSIS_WINDOW = 30;
 // Regras específicas do fluxo winner (separadas da automação padrão)
@@ -122,15 +120,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  // Janela única configurável via rules_config.auto_analysis_days (default 15d).
-  // Termina ontem (sem incluir o dia corrente, que está incompleto).
+  // Busca histórico suficiente para regras de segurança, mas o ROI exibido e
+  // usado na classificação principal é o do dia atual.
   const days: number = resolveAnalysisDays(cfg);
 
   const today = new Date();
-  const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
-  const from = new Date(today); from.setUTCDate(today.getUTCDate() - days);
+  const from = new Date(today); from.setUTCDate(today.getUTCDate() - Math.max(0, days - 1));
   const fromIso = isoDate(from);
-  const toIso = isoDate(yest);
+  const toIso = isoDate(today);
 
   const { data: link } = await admin
     .from("account_site_links")
@@ -454,18 +451,25 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // Janela única vinda de auto_analysis_days (default 15d). Usamos TODOS os
-  // dailies já consultados (a query upstream respeitou auto_analysis_days).
+  // ROI mostrado/gravado na esteira = hoje; histórico fica disponível para
+  // stop-loss e tendência, sem contaminar a coluna ROI.
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
-  const windowDays = resolveAnalysisDays(cfg);
+  const windowDays = 1;
 
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
+  const safetyWindowDays = resolveAnalysisDays(cfg);
+  const safetySliced = sortedAll.slice(-safetyWindowDays);
   const days = new Set(sliced.map((d: any) => d.date)).size;
   const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
   const grossRevBrl = sliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
   const netRev = grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
+  const safetyDays = new Set(safetySliced.map((d: any) => d.date)).size;
+  const safetyCost = safetySliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
+  const safetyGrossRevBrl = safetySliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
+  const safetyNetRev = safetyGrossRevBrl * NET_FACTOR;
+  const safetyRoi = safetyCost > 0 ? ((safetyNetRev - safetyCost) / safetyCost) * 100 : 0;
   const stopLossRoi = normalizeStopLossRoi(cfg.auto_stoploss_min_roi);
   const stopLossDays = Math.max(1, Number(cfg.auto_stoploss_days) || 7);
   const stopLossMinCost = Math.max(0, Number(cfg.auto_stoploss_min_cost) || 0);
@@ -487,8 +491,8 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   const isUnderDelivering = delivery != null && delivery < HIGH_DELIVERY;
   const noBudgetData = delivery == null;
 
-  // Mínimo de 2 dias para qualquer decisão; dias suficientes = janela do lifecycle.
-  if (days < Math.min(2, windowDays) || cost < stopLossMinCost) {
+  // Para ROI de hoje, 1 dia com custo já é suficiente para avaliar.
+  if (days < 1 || cost < stopLossMinCost) {
     return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo=${round2(cost)})`, roi, trend, delivery, avgDailySpend, window_days: windowDays };
   }
 
@@ -501,8 +505,8 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
 
   // E) Stop-loss prevalece SOMENTE quando o ROI agregado cruza o limite negativo configurado.
   // Se a configuração vier vazia/0 por legado, usamos -20% para impedir pausa cega em ROI levemente negativo.
-  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up") {
-    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% <= ${stopLossRoi}% por ${days}d (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
+  if (safetyRoi <= stopLossRoi && safetyDays >= stopLossDays && trend !== "up") {
+    return { lifecycle: "bad", action: "pause", reason: `ROI hoje ${round2(roi)}% · ROI ${round2(safetyRoi)}% em ${safetyDays}d <= ${stopLossRoi}% (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
   }
 
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.

@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
 import { SitesAutomationPanel } from "./SitesAutomationPanel";
+import { NET_FACTOR } from "@/engine/rules";
 
 type Cfg = Record<string, any>;
 type Lifecycle =
@@ -44,6 +45,7 @@ export function AutomationTab() {
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
   const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
+  const [todayRoiByCampaign, setTodayRoiByCampaign] = useState<Record<string, number | null>>({});
   const [siteFilter, setSiteFilter] = useState<string>(globalFilters.siteId || "all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
@@ -53,7 +55,8 @@ export function AutomationTab() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }, { data: todayMetrics }] = await Promise.all([
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
@@ -62,6 +65,7 @@ export function AutomationTab() {
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
       supabase.from("site_automation_config").select("*"),
+      supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit").eq("date", today).limit(5000),
     ]);
     const meta: Record<string, { name: string; google_account_id: string | null }> = {};
     const activeIds = new Set<string>();
@@ -71,11 +75,18 @@ export function AutomationTab() {
       const st = String((c as any).status ?? "").toLowerCase();
       if (st === "enabled" || st === "active") activeIds.add(cid);
     }
+    const todayMap: Record<string, number | null> = {};
+    for (const m of todayMetrics ?? []) {
+      const spend = Number((m as any).spend ?? 0);
+      const grossRevBrl = spend + Number((m as any).profit ?? 0);
+      todayMap[String((m as any).campaign_id)] = spend > 0 ? (((grossRevBrl * NET_FACTOR) - spend) / spend) * 100 : null;
+    }
     setCampMeta(meta);
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id || "(sem nome)" })));
     setSites((sts ?? []).map((s: any) => ({ id: s.id, name: s.name })));
     setLinks((lks ?? []) as any);
     setSiteAutomation((sac ?? []) as any[]);
+    setTodayRoiByCampaign(todayMap);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
@@ -118,7 +129,8 @@ export function AutomationTab() {
     arr.sort((a, b) => {
       let av: any, bv: any;
       if (sort.key === "name") { av = (campMeta[a.campaign_id]?.name ?? "").toLowerCase(); bv = (campMeta[b.campaign_id]?.name ?? "").toLowerCase(); }
-      else if (sort.key === "last_roi" || sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
+      else if (sort.key === "last_roi") { av = Number(todayRoiByCampaign[String(a.campaign_id)] ?? a.last_roi ?? -Infinity); bv = Number(todayRoiByCampaign[String(b.campaign_id)] ?? b.last_roi ?? -Infinity); }
+      else if (sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
       else if (sort.key === "last_action_date" || sort.key === "cooldown_until") { av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0; bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0; }
       else { av = String(a[sort.key] ?? ""); bv = String(b[sort.key] ?? ""); }
       if (av < bv) return -1 * dir;
@@ -126,7 +138,7 @@ export function AutomationTab() {
       return 0;
     });
     return arr;
-  }, [filteredStates, sort, campMeta]);
+  }, [filteredStates, sort, campMeta, todayRoiByCampaign]);
   const SortIcon = ({ k }: { k: SortKey }) => sort.key !== k ? <ArrowUpDown className="inline h-3 w-3 ml-1 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="inline h-3 w-3 ml-1" /> : <ArrowDown className="inline h-3 w-3 ml-1" />;
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
@@ -318,7 +330,7 @@ export function AutomationTab() {
                 <TableRow>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")}>ROI hoje<SortIcon k="last_roi" /></TableHead>
                   <TableHead className="text-right">Delivery</TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
@@ -330,6 +342,8 @@ export function AutomationTab() {
                 {sortedStates.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhuma campanha avaliada ainda. Clique em "Rodar agora".</TableCell></TableRow>}
                 {sortedStates.map((s) => {
                   const v = STATUS_VARIANT[s.lifecycle_status as Lifecycle] ?? STATUS_VARIANT.testing;
+                  const todayRoi = todayRoiByCampaign[String(s.campaign_id)];
+                  const displayRoi = todayRoi ?? s.last_roi;
                   const dPct = s.delivery_ratio != null ? Math.round(Number(s.delivery_ratio) * 100) : null;
                   const dCls = dPct == null ? "text-muted-foreground" : dPct >= 80 ? "text-emerald-500" : dPct >= 50 ? "text-amber-500" : "text-rose-500";
                   return (
@@ -339,7 +353,7 @@ export function AutomationTab() {
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
-                      <TableCell className="text-right font-mono">{s.last_roi != null ? `${Number(s.last_roi).toFixed(1)}%` : "—"}</TableCell>
+                      <TableCell className="text-right font-mono">{displayRoi != null ? `${Number(displayRoi).toFixed(1)}%` : "—"}</TableCell>
                       <TableCell className={`text-right font-mono text-xs ${dCls}`} title={s.daily_budget ? `Orçamento diário: ${Number(s.daily_budget).toFixed(2)}` : ""}>{dPct != null ? `${dPct}%` : "—"}</TableCell>
                       <TableCell className="text-xs">{s.roi_trend ?? "—"}</TableCell>
                       <TableCell className="text-xs">{s.days_in_standby > 0 ? `${s.days_in_standby}d` : "—"}</TableCell>
