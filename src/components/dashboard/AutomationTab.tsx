@@ -351,7 +351,7 @@ export function AutomationTab() {
                 <TableRow>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")} title="Antes da automação ativar: ROI médio dos últimos 15 dias. Depois de ativar: ROI de ontem (dia completo).">ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")} title="ROI de ontem (dia completo). Hoje ainda está em curso e fica desatualizado.">ROI ontem<SortIcon k="last_roi" /></TableHead>
                   <TableHead className="text-right">Delivery</TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
