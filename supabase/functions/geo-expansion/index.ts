@@ -382,6 +382,7 @@ async function duplicateCampaign(
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
   const apiBase = `https://googleads.googleapis.com/v21/customers/${acc.customer_id}`;
+  const sourceCampaignResource = `customers/${acc.customer_id}/campaigns/${item.campaign_id}`;
 
   // 1) Lê config completa da campanha origem
   const campQuery = `
@@ -402,12 +403,10 @@ async function duplicateCampaign(
     FROM campaign
     WHERE campaign.id = ${item.campaign_id}
   `;
-  const cRes = await fetch(`${apiBase}/googleAds:search`, {
-    method: "POST", headers, body: JSON.stringify({ query: campQuery }),
+  const cRows = await googleAdsSearchAll(apiBase, headers, campQuery).catch((e) => {
+    throw new CloneError("read_campaign", `read campaign: ${extractError(e.response ?? e)}`, e.response ?? e);
   });
-  const cJson = await cRes.json();
-  if (!cRes.ok) return { error: `read campaign: ${extractError(cJson)}`, debug: { step: "read_campaign", response: cJson } };
-  const cRow = (cJson.results ?? [])[0];
+  const cRow = cRows[0];
   if (!cRow) return { error: "Campanha não encontrada no Google Ads" };
 
   const channelType: string = cRow.campaign?.advertisingChannelType ?? "DISPLAY";
@@ -429,7 +428,7 @@ async function duplicateCampaign(
   const newBudgetMicros = 30_000_000;
 
   if (channelType === "PERFORMANCE_MAX") {
-    return { error: "Campanhas Performance Max não são suportadas para duplicação automática (assets/asset groups requerem cópia manual)." };
+    return { error: "Campanhas Performance Max não são suportadas para duplicação automática (asset groups exigem fluxo próprio da API)." };
   }
 
   // Validação de campos obrigatórios — para ajudar debug
@@ -443,302 +442,777 @@ async function duplicateCampaign(
   }
 
   const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER`;
-  const tempBudgetId = `-${Date.now()}`;
-  const tempCampaignId = `-${Date.now() + 1}`;
+  const requestSeed = Date.now();
+  const tempBudgetId = `-${requestSeed}`;
+  const tempCampaignId = `-${requestSeed + 1}`;
 
-  // 2) Cria budget novo
-  const budgetMutate = {
-    operations: [{
-      create: {
-        resourceName: `customers/${acc.customer_id}/campaignBudgets/${tempBudgetId}`,
-        name: `${newName} budget ${Date.now()}`,
-        amountMicros: String(newBudgetMicros),
-        deliveryMethod: cRow.campaignBudget?.deliveryMethod ?? "STANDARD",
-        explicitlyShared: false,
-      },
-    }],
-  };
-  const bRes = await fetch(`${apiBase}/campaignBudgets:mutate`, {
-    method: "POST", headers, body: JSON.stringify(budgetMutate),
-  });
-  const bJson = await bRes.json();
-  if (!bRes.ok) return { error: `budget create: ${extractError(bJson)}`, debug: { step: "budget_create", payload: budgetMutate, response: bJson } };
-  const newBudgetResource = bJson.results?.[0]?.resourceName;
-  if (!newBudgetResource) return { error: "budget create: resourceName ausente", debug: bJson };
-
-  // 3) Monta campanha PAUSED — copia network_settings da origem (obrigatório)
-  const networkSettings = {
-    targetGoogleSearch: sourceNetwork.targetGoogleSearch ?? (channelType === "SEARCH"),
-    targetSearchNetwork: sourceNetwork.targetSearchNetwork ?? false,
-    targetContentNetwork: sourceNetwork.targetContentNetwork ?? (channelType === "DISPLAY"),
-    targetPartnerSearchNetwork: sourceNetwork.targetPartnerSearchNetwork ?? false,
+  const debug: any = {
+    source_campaign_id: item.campaign_id,
+    new_campaign_name: newName,
+    requested_country: item.country_criterion_id,
+    budget_micros: newBudgetMicros,
+    bidding_strategy: biddingType,
+    source: {},
+    cloned: {},
+    skipped: {},
+    partial_failures: [],
   };
 
-  const today = new Date();
-  const startDate = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
-
-  const campCreate: any = {
-    resourceName: `customers/${acc.customer_id}/campaigns/${tempCampaignId}`,
-    name: newName,
-    status: startStatus,
-    advertisingChannelType: channelType,
-    campaignBudget: newBudgetResource,
-    containsEuPoliticalAdvertising: euPoliticalStatus,
-    networkSettings,
-    startDate,
-    finalUrlSuffix: sourceFinalUrlSuffix && sourceFinalUrlSuffix.length > 0 ? sourceFinalUrlSuffix : STANDARD_FINAL_URL_SUFFIX,
-  };
-  if (sourceTrackingTemplate) campCreate.trackingUrlTemplate = sourceTrackingTemplate;
-  // sub-type: só copia se for um valor válido em criação (alguns são read-only)
-  if (channelSubType && !["DISPLAY_SMART_CAMPAIGN", "DISPLAY_MOBILE_APP"].includes(channelSubType)) {
-    campCreate.advertisingChannelSubType = channelSubType;
-  }
-  if (sourceGeoSetting) {
-    campCreate.geoTargetTypeSetting = {
-      positiveGeoTargetType: sourceGeoSetting.positiveGeoTargetType ?? "PRESENCE_OR_INTEREST",
-      negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
-    };
-  }
-
-  // Bidding — Winner = MAXIMIZE_CONVERSIONS sem CPA
-  campCreate.maximizeConversions = {};
-
-  const campMutate = { operations: [{ create: campCreate }] };
-  const ccRes = await fetch(`${apiBase}/campaigns:mutate`, {
-    method: "POST", headers, body: JSON.stringify(campMutate),
-  });
-  const ccJson = await ccRes.json();
-  if (!ccRes.ok) {
-    console.error("[geo-expansion] campaign create failed", JSON.stringify(ccJson));
-    return {
-      error: `campaign create: ${extractError(ccJson)}`,
-      debug: {
-        step: "campaign_create",
-        customer_id: acc.customer_id,
-        source_campaign_id: item.campaign_id,
-        new_name: newName,
-        budget_resource_name: newBudgetResource,
-        channel_type: channelType,
-        channel_sub_type: channelSubType,
-        bidding_strategy: biddingType,
-        contains_eu_political_advertising: euPoliticalStatus,
-        geo_target: item.country_criterion_id,
-        status: "PAUSED",
-        payload: campCreate,
-        response: ccJson,
-      },
-    };
-  }
-  const newCampaignResource: string = ccJson.results?.[0]?.resourceName;
-  const newCampaignId = newCampaignResource.split("/").pop()!;
-
-  // 4) Adiciona criterion de location (somente winner)
-  const critMutate = {
-    operations: [{
-      create: {
-        campaign: newCampaignResource,
-        location: { geoTargetConstant: `geoTargetConstants/${item.country_criterion_id.replace(/\D/g, "")}` },
-      },
-    }],
-  };
-  const crRes = await fetch(`${apiBase}/campaignCriteria:mutate`, {
-    method: "POST", headers, body: JSON.stringify(critMutate),
-  });
-  const crJson = await crRes.json();
-  if (!crRes.ok) {
-    console.error("[geo-expansion] criterion failed", JSON.stringify(crJson));
-  }
-
-  // 5) Clona ad groups (nome, status PAUSED, target_cpa quando aplicável)
-  const agQuery = `
+  // Lê elementos da origem ANTES de criar a campanha nova. Se a origem não tiver ads/ad groups, não cria vazio.
+  const agRows = await googleAdsSearchAll(apiBase, headers, `
     SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.type,
-           ad_group.cpc_bid_micros, ad_group.target_cpa_micros
+           ad_group.tracking_url_template, ad_group.final_url_suffix,
+           ad_group.url_custom_parameters
     FROM ad_group
-    WHERE ad_group.campaign = 'customers/${acc.customer_id}/campaigns/${item.campaign_id}'
+    WHERE ad_group.campaign = '${sourceCampaignResource}'
       AND ad_group.status != 'REMOVED'
-  `;
-  const agRes = await fetch(`${apiBase}/googleAds:search`, {
-    method: "POST", headers, body: JSON.stringify({ query: agQuery }),
+  `).catch((e) => {
+    throw new CloneError("read_ad_groups", `read ad groups: ${extractError(e.response ?? e)}`, e.response ?? e);
   });
-  const agJson = await agRes.json();
-  const agRows = (agJson.results ?? []) as any[];
-
-  const oldToNewAdGroup = new Map<string, string>();
-  let adGroupsError: any = null;
-  if (agRows.length > 0) {
-    const ops = agRows.map((row, idx) => {
-      const create: any = {
-        resourceName: `customers/${acc.customer_id}/adGroups/-${Date.now() + 100 + idx}`,
-        name: row.adGroup.name,
-        campaign: newCampaignResource,
-        status: "PAUSED",
-        type: row.adGroup.type ?? "DISPLAY_STANDARD",
-      };
-      // MAXIMIZE_CONVERSIONS no nível da campanha: NÃO enviar cpc_bid_micros nem target_cpa_micros
-      // (são incompatíveis e fazem a criação dos ad groups falhar).
-      return { create };
-    });
-    const r = await fetch(`${apiBase}/adGroups:mutate`, {
-      method: "POST", headers,
-      body: JSON.stringify({ operations: ops, partialFailure: true }),
-    });
-    const j = await r.json();
-    if (r.ok) {
-      const results = j.results ?? [];
-      agRows.forEach((row, i) => {
-        const newRn = results[i]?.resourceName;
-        if (newRn) oldToNewAdGroup.set(String(row.adGroup.id), newRn);
-      });
-      if (j.partialFailureError) {
-        console.error("[geo-expansion] ad_groups partial failure", JSON.stringify(j.partialFailureError));
-        adGroupsError = j.partialFailureError;
-      }
-    } else {
-      console.error("[geo-expansion] ad_groups failed", JSON.stringify(j));
-      adGroupsError = j;
-    }
+  debug.source.ad_groups = agRows.length;
+  if (agRows.length === 0) {
+    return { error: "Campanha origem não possui grupos de anúncios ativos para clonar; nada foi criado.", debug };
   }
-  if (oldToNewAdGroup.size === 0) {
-    return {
-      error: `ad_groups: nenhum grupo de anúncios foi clonado (${extractError(adGroupsError ?? {})})`,
-      debug: {
-        step: "ad_groups_create",
-        new_campaign_id: newCampaignId,
-        source_ad_groups: agRows.length,
-        response: adGroupsError,
-      },
-      new_campaign_id: newCampaignId,
-      new_campaign_name: newName,
+
+  const sourceAdGroupIds = agRows.map((r: any) => String(r.adGroup?.id)).filter(Boolean);
+  const sourceAdGroupResources = sourceAdGroupIds.map((id: string) => `'customers/${acc.customer_id}/adGroups/${id}'`).join(",");
+  const adRows = await googleAdsSearchAll(apiBase, headers, `
+    SELECT ad_group.id, ad_group_ad.status,
+           ad_group_ad.ad.id, ad_group_ad.ad.type, ad_group_ad.ad.name,
+           ad_group_ad.ad.final_urls, ad_group_ad.ad.final_mobile_urls,
+           ad_group_ad.ad.tracking_url_template, ad_group_ad.ad.final_url_suffix,
+           ad_group_ad.ad.url_custom_parameters,
+           ad_group_ad.ad.responsive_display_ad.headlines,
+           ad_group_ad.ad.responsive_display_ad.long_headline,
+           ad_group_ad.ad.responsive_display_ad.descriptions,
+           ad_group_ad.ad.responsive_display_ad.business_name,
+           ad_group_ad.ad.responsive_display_ad.marketing_images,
+           ad_group_ad.ad.responsive_display_ad.square_marketing_images,
+           ad_group_ad.ad.responsive_display_ad.logo_images,
+           ad_group_ad.ad.responsive_display_ad.square_logo_images,
+           ad_group_ad.ad.responsive_display_ad.youtube_videos,
+           ad_group_ad.ad.responsive_display_ad.call_to_action_text,
+           ad_group_ad.ad.responsive_display_ad.allow_flexible_color,
+           ad_group_ad.ad.responsive_display_ad.accent_color,
+           ad_group_ad.ad.responsive_display_ad.main_color,
+           ad_group_ad.ad.responsive_display_ad.format_setting,
+           ad_group_ad.ad.responsive_search_ad.headlines,
+           ad_group_ad.ad.responsive_search_ad.descriptions,
+           ad_group_ad.ad.responsive_search_ad.path1,
+           ad_group_ad.ad.responsive_search_ad.path2
+    FROM ad_group_ad
+    WHERE ad_group_ad.ad_group IN (${sourceAdGroupResources})
+      AND ad_group_ad.status != 'REMOVED'
+  `).catch((e) => {
+    throw new CloneError("read_ads", `read ads: ${extractError(e.response ?? e)}`, e.response ?? e);
+  });
+  debug.source.ads = adRows.length;
+  if (adRows.length === 0) {
+    return { error: "Campanha origem não possui anúncios/criativos ativos para clonar; nada foi criado.", debug };
+  }
+
+  let newCampaignResource = "";
+  let newCampaignId = "";
+
+  try {
+    // 2) Cria budget novo
+    const budgetMutate = {
+      operations: [{
+        create: {
+          resourceName: `customers/${acc.customer_id}/campaignBudgets/${tempBudgetId}`,
+          name: `${newName} budget ${Date.now()}`,
+          amountMicros: String(newBudgetMicros),
+          deliveryMethod: cRow.campaignBudget?.deliveryMethod ?? "STANDARD",
+          explicitlyShared: false,
+        },
+      }],
     };
-  }
-
-  // 6) Clona ads (responsive display ads suportados; outros tipos avisamos no log)
-  let adsCloned = 0;
-  let adsSkipped = 0;
-  if (oldToNewAdGroup.size > 0) {
-    const oldAdGroupIds = [...oldToNewAdGroup.keys()];
-    const inList = oldAdGroupIds.map((x) => `'customers/${acc.customer_id}/adGroups/${x}'`).join(",");
-    const adQuery = `
-      SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.ad.type, ad_group_ad.ad.name,
-             ad_group_ad.ad.final_urls, ad_group_ad.ad.final_mobile_urls,
-             ad_group_ad.ad.responsive_display_ad.headlines,
-             ad_group_ad.ad.responsive_display_ad.long_headline,
-             ad_group_ad.ad.responsive_display_ad.descriptions,
-             ad_group_ad.ad.responsive_display_ad.business_name,
-             ad_group_ad.ad.responsive_display_ad.marketing_images,
-             ad_group_ad.ad.responsive_display_ad.square_marketing_images,
-             ad_group_ad.ad.responsive_display_ad.logo_images,
-             ad_group_ad.ad.responsive_display_ad.youtube_videos,
-             ad_group_ad.ad.responsive_display_ad.call_to_action_text,
-             ad_group_ad.ad.responsive_search_ad.headlines,
-             ad_group_ad.ad.responsive_search_ad.descriptions,
-             ad_group_ad.ad.responsive_search_ad.path1,
-             ad_group_ad.ad.responsive_search_ad.path2
-      FROM ad_group_ad
-      WHERE ad_group_ad.ad_group IN (${inList})
-        AND ad_group_ad.status != 'REMOVED'
-    `;
-    const adRes = await fetch(`${apiBase}/googleAds:search`, {
-      method: "POST", headers, body: JSON.stringify({ query: adQuery }),
+    const bRes = await fetch(`${apiBase}/campaignBudgets:mutate`, {
+      method: "POST", headers, body: JSON.stringify(budgetMutate),
     });
-    const adJson = await adRes.json();
-    const adRows = (adJson.results ?? []) as any[];
-    const ops: any[] = [];
-    for (const row of adRows) {
-      const newAdGroupRn = oldToNewAdGroup.get(String(row.adGroup.id));
-      if (!newAdGroupRn) continue;
-      const ad = row.adGroupAd?.ad ?? {};
-      const adCreate: any = { name: ad.name };
-      if (ad.finalUrls) adCreate.finalUrls = ad.finalUrls;
-      if (ad.finalMobileUrls) adCreate.finalMobileUrls = ad.finalMobileUrls;
-      if (ad.responsiveDisplayAd) {
-        adCreate.responsiveDisplayAd = ad.responsiveDisplayAd;
-      } else if (ad.responsiveSearchAd) {
-        adCreate.responsiveSearchAd = ad.responsiveSearchAd;
-      } else {
-        adsSkipped++;
+    const bJson = await bRes.json();
+    if (!bRes.ok) return { error: `budget create: ${extractError(bJson)}`, debug: { ...debug, step: "budget_create", payload: budgetMutate, response: bJson } };
+    const newBudgetResource = bJson.results?.[0]?.resourceName;
+    if (!newBudgetResource) return { error: "budget create: resourceName ausente", debug: bJson };
+
+    // 3) Monta campanha — copia settings principais da origem, alterando só nome/geo/budget/bidding.
+    const networkSettings = {
+      targetGoogleSearch: sourceNetwork.targetGoogleSearch ?? (channelType === "SEARCH"),
+      targetSearchNetwork: sourceNetwork.targetSearchNetwork ?? false,
+      targetContentNetwork: sourceNetwork.targetContentNetwork ?? (channelType === "DISPLAY"),
+      targetPartnerSearchNetwork: sourceNetwork.targetPartnerSearchNetwork ?? false,
+    };
+
+    const today = new Date();
+    const startDate = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+
+    const campCreate: any = {
+      resourceName: `customers/${acc.customer_id}/campaigns/${tempCampaignId}`,
+      name: newName,
+      status: startStatus,
+      advertisingChannelType: channelType,
+      campaignBudget: newBudgetResource,
+      containsEuPoliticalAdvertising: euPoliticalStatus,
+      networkSettings,
+      startDate,
+      finalUrlSuffix: sourceFinalUrlSuffix && sourceFinalUrlSuffix.length > 0 ? sourceFinalUrlSuffix : STANDARD_FINAL_URL_SUFFIX,
+    };
+    if (sourceTrackingTemplate) campCreate.trackingUrlTemplate = sourceTrackingTemplate;
+    if (cRow.campaign?.urlCustomParameters) campCreate.urlCustomParameters = cRow.campaign.urlCustomParameters;
+    // sub-type: só copia se for um valor válido em criação (alguns são read-only)
+    if (channelSubType && !["DISPLAY_SMART_CAMPAIGN", "DISPLAY_MOBILE_APP"].includes(channelSubType)) {
+      campCreate.advertisingChannelSubType = channelSubType;
+    }
+    if (sourceGeoSetting) {
+      campCreate.geoTargetTypeSetting = {
+        positiveGeoTargetType: sourceGeoSetting.positiveGeoTargetType ?? "PRESENCE_OR_INTEREST",
+        negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
+      };
+    }
+
+    // Bidding — Winner = MAXIMIZE_CONVERSIONS sem CPA
+    campCreate.maximizeConversions = {};
+
+    const campMutate = { operations: [{ create: campCreate }] };
+    const ccRes = await fetch(`${apiBase}/campaigns:mutate`, {
+      method: "POST", headers, body: JSON.stringify(campMutate),
+    });
+    const ccJson = await ccRes.json();
+    if (!ccRes.ok) {
+      console.error("[geo-expansion] campaign create failed", JSON.stringify(ccJson));
+      return {
+        error: `campaign create: ${extractError(ccJson)}`,
+        debug: {
+          ...debug,
+          step: "campaign_create",
+          customer_id: acc.customer_id,
+          source_campaign_id: item.campaign_id,
+          new_name: newName,
+          budget_resource_name: newBudgetResource,
+          channel_type: channelType,
+          channel_sub_type: channelSubType,
+          bidding_strategy: biddingType,
+          contains_eu_political_advertising: euPoliticalStatus,
+          geo_target: item.country_criterion_id,
+          status: startStatus,
+          payload: campCreate,
+          response: ccJson,
+        },
+      };
+    }
+    newCampaignResource = ccJson.results?.[0]?.resourceName;
+    newCampaignId = newCampaignResource?.split("/").pop() ?? "";
+    if (!newCampaignResource || !newCampaignId) {
+      return { error: "campaign create: resourceName ausente", debug: { ...debug, response: ccJson } };
+    }
+
+    // 4) Geo: SOMENTE país vencedor (não copia locations/proximities da origem).
+    const winnerGeoConstant = `geoTargetConstants/${item.country_criterion_id.replace(/\D/g, "")}`;
+    const cr = await mutateGoogle(apiBase, headers, "campaignCriteria", [{
+      create: { campaign: newCampaignResource, location: { geoTargetConstant: winnerGeoConstant } },
+    }], "winner_geo");
+    debug.cloned.geo_targets = cr.created;
+    if (cr.partialFailureError) debug.partial_failures.push({ step: "winner_geo", response: cr.partialFailureError });
+
+    // 5) Clona campaign criteria não geográficos: idioma, agenda, dispositivos, audiences etc.
+    const campaignCriteriaRows = await readCampaignCriteria(apiBase, headers, sourceCampaignResource, debug);
+    const campaignCriterionOps: any[] = [];
+    const campaignCriterionCounts: Record<string, number> = {};
+    for (const row of campaignCriteriaRows) {
+      const op = buildCriterionOperation("campaign", row.campaignCriterion, newCampaignResource, { skipGeo: true });
+      if (!op) {
+        const type = row.campaignCriterion?.type ?? "UNKNOWN";
+        debug.skipped[`campaign_criterion_${type}`] = (debug.skipped[`campaign_criterion_${type}`] ?? 0) + 1;
         continue;
       }
-      ops.push({
+      campaignCriterionOps.push(op);
+      const type = row.campaignCriterion?.type ?? "UNKNOWN";
+      campaignCriterionCounts[type] = (campaignCriterionCounts[type] ?? 0) + 1;
+    }
+    const campaignCriteriaResult = await mutateGoogle(apiBase, headers, "campaignCriteria", campaignCriterionOps, "campaign_criteria");
+    debug.source.campaign_criteria = campaignCriteriaRows.length;
+    debug.cloned.campaign_criteria = campaignCriteriaResult.created;
+    debug.cloned.languages = campaignCriterionCounts.LANGUAGE ?? 0;
+    debug.cloned.ad_schedules = campaignCriterionCounts.AD_SCHEDULE ?? 0;
+    debug.cloned.devices = campaignCriterionCounts.DEVICE ?? 0;
+    if (campaignCriteriaResult.partialFailureError) debug.partial_failures.push({ step: "campaign_criteria", response: campaignCriteriaResult.partialFailureError });
+
+    // 6) Clona campaign assets/extensões
+    const campaignAssetRows = await readCampaignAssets(apiBase, headers, sourceCampaignResource, debug);
+    const campaignAssetOps = campaignAssetRows.map((row: any) => ({
+      create: cleanObject({
+        campaign: newCampaignResource,
+        asset: row.campaignAsset?.asset,
+        fieldType: row.campaignAsset?.fieldType,
+        status: row.campaignAsset?.status,
+      }),
+    })).filter((op: any) => op.create.asset && op.create.fieldType);
+    const campaignAssetResult = await mutateGoogle(apiBase, headers, "campaignAssets", campaignAssetOps, "campaign_assets");
+    debug.source.campaign_assets = campaignAssetRows.length;
+    debug.cloned.campaign_assets = campaignAssetResult.created;
+    if (campaignAssetResult.partialFailureError) debug.partial_failures.push({ step: "campaign_assets", response: campaignAssetResult.partialFailureError });
+
+    // 7) Clona ad groups com status/config original (sem lances incompatíveis com Maximizar Conversões).
+    const oldToNewAdGroup = new Map<string, string>();
+    const agOps = agRows.map((row: any, idx: number) => ({
+      create: cleanObject({
+        resourceName: `customers/${acc.customer_id}/adGroups/-${requestSeed + 100 + idx}`,
+        name: row.adGroup.name,
+        campaign: newCampaignResource,
+        status: row.adGroup.status ?? "ENABLED",
+        type: row.adGroup.type ?? "DISPLAY_STANDARD",
+        trackingUrlTemplate: row.adGroup.trackingUrlTemplate,
+        finalUrlSuffix: row.adGroup.finalUrlSuffix,
+        urlCustomParameters: row.adGroup.urlCustomParameters,
+      }),
+    }));
+    const agResult = await mutateGoogle(apiBase, headers, "adGroups", agOps, "ad_groups");
+    agRows.forEach((row: any, i: number) => {
+      const newRn = agResult.results[i]?.resourceName;
+      if (newRn) oldToNewAdGroup.set(String(row.adGroup.id), newRn);
+    });
+    debug.cloned.ad_groups = oldToNewAdGroup.size;
+    if (agResult.partialFailureError) debug.partial_failures.push({ step: "ad_groups", response: agResult.partialFailureError });
+    if (oldToNewAdGroup.size === 0) {
+      await removeCampaign(apiBase, headers, newCampaignResource);
+      return {
+        error: `ad_groups: nenhum grupo de anúncios foi clonado (${extractError(agResult.partialFailureError ?? {})}); campanha vazia removida.`,
+        debug: { ...debug, step: "ad_groups_create", response: agResult.partialFailureError },
+      };
+    }
+
+    // 8) Clona ad group criteria: keywords, placements, audiences, topics etc.
+    const adGroupCriteriaRows = await readAdGroupCriteria(apiBase, headers, sourceAdGroupResources, debug);
+    const adGroupCriterionOps: any[] = [];
+    const adGroupCriterionCounts: Record<string, number> = {};
+    for (const row of adGroupCriteriaRows) {
+      const newAdGroupRn = oldToNewAdGroup.get(String(row.adGroup?.id));
+      if (!newAdGroupRn) continue;
+      const op = buildCriterionOperation("adGroup", row.adGroupCriterion, newAdGroupRn, { skipGeo: false });
+      if (!op) {
+        const type = row.adGroupCriterion?.type ?? "UNKNOWN";
+        debug.skipped[`ad_group_criterion_${type}`] = (debug.skipped[`ad_group_criterion_${type}`] ?? 0) + 1;
+        continue;
+      }
+      adGroupCriterionOps.push(op);
+      const type = row.adGroupCriterion?.type ?? "UNKNOWN";
+      adGroupCriterionCounts[type] = (adGroupCriterionCounts[type] ?? 0) + 1;
+    }
+    const adGroupCriteriaResult = await mutateGoogle(apiBase, headers, "adGroupCriteria", adGroupCriterionOps, "ad_group_criteria");
+    debug.source.ad_group_criteria = adGroupCriteriaRows.length;
+    debug.cloned.ad_group_criteria = adGroupCriteriaResult.created;
+    debug.cloned.keywords = adGroupCriterionCounts.KEYWORD ?? 0;
+    debug.cloned.placements = adGroupCriterionCounts.PLACEMENT ?? 0;
+    debug.cloned.audiences = (adGroupCriterionCounts.USER_LIST ?? 0) + (adGroupCriterionCounts.AUDIENCE ?? 0) + (adGroupCriterionCounts.COMBINED_AUDIENCE ?? 0) + (adGroupCriterionCounts.CUSTOM_AUDIENCE ?? 0);
+    if (adGroupCriteriaResult.partialFailureError) debug.partial_failures.push({ step: "ad_group_criteria", response: adGroupCriteriaResult.partialFailureError });
+
+    // 9) Clona ad group assets/extensões
+    const adGroupAssetRows = await readAdGroupAssets(apiBase, headers, sourceAdGroupResources, debug);
+    const adGroupAssetOps: any[] = [];
+    for (const row of adGroupAssetRows) {
+      const newAdGroupRn = oldToNewAdGroup.get(String(row.adGroup?.id));
+      if (!newAdGroupRn) continue;
+      const create = cleanObject({
+        adGroup: newAdGroupRn,
+        asset: row.adGroupAsset?.asset,
+        fieldType: row.adGroupAsset?.fieldType,
+        status: row.adGroupAsset?.status,
+      });
+      if (create.asset && create.fieldType) adGroupAssetOps.push({ create });
+    }
+    const adGroupAssetResult = await mutateGoogle(apiBase, headers, "adGroupAssets", adGroupAssetOps, "ad_group_assets");
+    debug.source.ad_group_assets = adGroupAssetRows.length;
+    debug.cloned.ad_group_assets = adGroupAssetResult.created;
+    if (adGroupAssetResult.partialFailureError) debug.partial_failures.push({ step: "ad_group_assets", response: adGroupAssetResult.partialFailureError });
+
+    // 10) Clona ads/criativos. Reusa os assets existentes da conta para manter imagens/logos/vídeos idênticos.
+    const assetRefsInAds = new Set<string>();
+    let adsSkipped = 0;
+    const adOps: any[] = [];
+    for (const row of adRows) {
+      const newAdGroupRn = oldToNewAdGroup.get(String(row.adGroup?.id));
+      if (!newAdGroupRn) continue;
+      const ad = row.adGroupAd?.ad ?? {};
+      const adCreate = buildAdCreate(ad, assetRefsInAds);
+      if (!adCreate) {
+        adsSkipped++;
+        const type = ad.type ?? "UNKNOWN";
+        debug.skipped[`ad_${type}`] = (debug.skipped[`ad_${type}`] ?? 0) + 1;
+        continue;
+      }
+      adOps.push({
         create: {
           adGroup: newAdGroupRn,
-          status: "PAUSED",
+          status: row.adGroupAd?.status ?? "ENABLED",
           ad: adCreate,
         },
       });
     }
-    if (ops.length > 0) {
-      // mutate em chunks de 100
-      for (const chunk of chunkArr(ops, 100)) {
-        const r = await fetch(`${apiBase}/adGroupAds:mutate`, {
-          method: "POST", headers, body: JSON.stringify({ operations: chunk, partialFailure: true }),
-        });
-        const j = await r.json();
-        if (r.ok) {
-          adsCloned += (j.results ?? []).filter((x: any) => x?.resourceName).length;
-          if (j.partialFailureError) {
-            console.error("[geo-expansion] ads partial failure", JSON.stringify(j.partialFailureError));
-          }
-        } else {
-          console.error("[geo-expansion] ads failed", JSON.stringify(j));
-        }
-      }
+    const adsResult = await mutateGoogle(apiBase, headers, "adGroupAds", adOps, "ads");
+    const adsCloned = adsResult.created;
+    if (adsResult.partialFailureError) debug.partial_failures.push({ step: "ads", response: adsResult.partialFailureError });
+    debug.cloned.ads = adsCloned;
+    debug.skipped.ads = adsSkipped;
+    debug.cloned.assets_from_ads = assetRefsInAds.size;
+    debug.cloned.assets_total = assetRefsInAds.size + campaignAssetResult.created + adGroupAssetResult.created;
+
+    if (adsCloned === 0) {
+      await removeCampaign(apiBase, headers, newCampaignResource);
+      return {
+        error: `ads: nenhum anúncio/criativo foi clonado (${extractError(adsResult.partialFailureError ?? {})}); campanha vazia removida.`,
+        debug: { ...debug, step: "ads_create", response: adsResult.partialFailureError },
+      };
+    }
+
+    console.log("[geo-expansion] clone debug", JSON.stringify({
+      new_campaign_id: newCampaignId,
+      ad_groups_cloned: oldToNewAdGroup.size,
+      ads_cloned: adsCloned,
+      assets_cloned: debug.cloned.assets_total,
+      languages_copied: debug.cloned.languages,
+      keywords_copied: debug.cloned.keywords,
+      placements_copied: debug.cloned.placements,
+    }));
+
+    // 11) Log
+    await admin.from("campaign_expansion_logs").insert({
+      user_id: userId,
+      site_id: siteId,
+      google_account_id: item.google_account_id,
+      original_campaign_id: item.campaign_id,
+      original_campaign_name: campRow.name,
+      new_campaign_id: newCampaignId,
+      new_campaign_name: newName,
+      country_code: item.country_code,
+      country_name: item.country_name,
+      country_criterion_id: item.country_criterion_id,
+      roi_pct: item.roi_pct,
+      cost_brl: item.cost_brl,
+      revenue_brl: item.revenue_brl,
+      budget_micros: newBudgetMicros,
+      action: "created",
+      status: "executed",
+      payload: {
+        ad_groups: oldToNewAdGroup.size,
+        ads_cloned: adsCloned,
+        ads_skipped: adsSkipped,
+        assets_cloned: debug.cloned.assets_total,
+        languages: debug.cloned.languages,
+        keywords: debug.cloned.keywords,
+        placements: debug.cloned.placements,
+        source_budget_micros: sourceBudgetMicros,
+        debug,
+      },
+    });
+
+    // 12) Insere também no campaigns local (para aparecer na UI)
+    await admin.from("campaigns").insert({
+      user_id: userId,
+      google_account_id: item.google_account_id,
+      campaign_id: newCampaignId,
+      name: newName,
+      status: startStatus.toLowerCase(),
+      channel_type: channelType,
+      budget_micros: newBudgetMicros,
+    });
+
+    // 13) Seed lifecycle "winner_test" — automação padrão NÃO mexe nessa campanha.
+    await admin.from("campaign_automation").insert({
+      user_id: userId,
+      google_account_id: item.google_account_id,
+      site_id: siteId,
+      campaign_id: newCampaignId,
+      lifecycle_status: "winner_test",
+      winner_country_code: item.country_code,
+      winner_started_at: startStatus === "ENABLED" ? new Date().toISOString() : null,
+    });
+
+    return {
+      ok: true,
+      new_campaign_id: newCampaignId,
+      new_campaign_name: newName,
+      budget_micros: newBudgetMicros,
+      ad_groups_cloned: oldToNewAdGroup.size,
+      ads_cloned: adsCloned,
+      ads_skipped: adsSkipped,
+      assets_cloned: debug.cloned.assets_total,
+      languages_copied: debug.cloned.languages,
+      keywords_copied: debug.cloned.keywords,
+      placements_copied: debug.cloned.placements,
+      campaign_criteria_cloned: debug.cloned.campaign_criteria,
+      ad_group_criteria_cloned: debug.cloned.ad_group_criteria,
+      debug,
+    };
+  } catch (e) {
+    if (newCampaignResource) await removeCampaign(apiBase, headers, newCampaignResource);
+    if (e instanceof CloneError) {
+      return { error: e.message, debug: { ...debug, step: e.step, response: e.response, cleanup: newCampaignResource ? "campaign_removed" : "not_created" } };
+    }
+    return { error: String(e), debug: { ...debug, cleanup: newCampaignResource ? "campaign_removed" : "not_created" } };
+  }
+}
+
+class CloneError extends Error {
+  step: string;
+  response: any;
+  constructor(step: string, message: string, response?: any) {
+    super(message);
+    this.step = step;
+    this.response = response;
+  }
+}
+
+async function googleAdsSearchAll(apiBase: string, headers: Record<string, string>, query: string): Promise<any[]> {
+  const rows: any[] = [];
+  let pageToken: string | undefined;
+  do {
+    const body: any = { query, pageSize: 10000 };
+    if (pageToken) body.pageToken = pageToken;
+    const res = await fetch(`${apiBase}/googleAds:search`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      const err: any = new Error(extractError(json));
+      err.response = json;
+      err.query = query;
+      throw err;
+    }
+    rows.push(...(json.results ?? []));
+    pageToken = json.nextPageToken;
+  } while (pageToken);
+  return rows;
+}
+
+async function mutateGoogle(apiBase: string, headers: Record<string, string>, resource: string, operations: any[], step: string) {
+  const results: any[] = [];
+  let partialFailureError: any = null;
+  if (operations.length === 0) return { created: 0, results, partialFailureError };
+  for (const chunk of chunkArr(operations, 100)) {
+    const res = await fetch(`${apiBase}/${resource}:mutate`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ operations: chunk, partialFailure: true }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      console.error(`[geo-expansion] ${step} failed`, JSON.stringify(json));
+      partialFailureError = json;
+      continue;
+    }
+    results.push(...(json.results ?? []));
+    if (json.partialFailureError) {
+      console.error(`[geo-expansion] ${step} partial failure`, JSON.stringify(json.partialFailureError));
+      partialFailureError = json.partialFailureError;
     }
   }
+  return { created: results.filter((x: any) => x?.resourceName).length, results, partialFailureError };
+}
 
-  // 7) Log
-  await admin.from("campaign_expansion_logs").insert({
-    user_id: userId,
-    site_id: siteId,
-    google_account_id: item.google_account_id,
-    original_campaign_id: item.campaign_id,
-    original_campaign_name: campRow.name,
-    new_campaign_id: newCampaignId,
-    new_campaign_name: newName,
-    country_code: item.country_code,
-    country_name: item.country_name,
-    country_criterion_id: item.country_criterion_id,
-    roi_pct: item.roi_pct,
-    cost_brl: item.cost_brl,
-    revenue_brl: item.revenue_brl,
-    budget_micros: newBudgetMicros,
-    action: "created",
-    status: "executed",
-    payload: { ad_groups: oldToNewAdGroup.size, ads_cloned: adsCloned, ads_skipped: adsSkipped, source_budget_micros: sourceBudgetMicros },
+async function removeCampaign(apiBase: string, headers: Record<string, string>, campaignResource: string) {
+  if (!campaignResource) return;
+  try {
+    await fetch(`${apiBase}/campaigns:mutate`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        operations: [{ update: { resourceName: campaignResource, status: "REMOVED" }, updateMask: "status" }],
+        partialFailure: true,
+      }),
+    });
+  } catch (e) {
+    console.error("[geo-expansion] cleanup remove campaign failed", String(e));
+  }
+}
+
+async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, sourceCampaignResource: string, debug: any) {
+  const query = `
+    SELECT campaign_criterion.resource_name, campaign_criterion.type, campaign_criterion.status,
+           campaign_criterion.negative, campaign_criterion.bid_modifier,
+           campaign_criterion.language.language_constant,
+           campaign_criterion.ad_schedule.day_of_week,
+           campaign_criterion.ad_schedule.start_hour,
+           campaign_criterion.ad_schedule.start_minute,
+           campaign_criterion.ad_schedule.end_hour,
+           campaign_criterion.ad_schedule.end_minute,
+           campaign_criterion.device.type,
+           campaign_criterion.age_range.type,
+           campaign_criterion.gender.type,
+           campaign_criterion.income_range.type,
+           campaign_criterion.parental_status.type,
+           campaign_criterion.user_list.user_list,
+           campaign_criterion.audience.audience,
+           campaign_criterion.combined_audience.combined_audience,
+           campaign_criterion.custom_audience.custom_audience,
+           campaign_criterion.topic.topic_constant,
+           campaign_criterion.placement.url,
+           campaign_criterion.youtube_video.video_id,
+           campaign_criterion.youtube_channel.channel_id,
+           campaign_criterion.mobile_app_category.mobile_app_category_constant,
+           campaign_criterion.mobile_application.app_id,
+           campaign_criterion.mobile_application.name,
+           campaign_criterion.keyword.text,
+           campaign_criterion.keyword.match_type
+    FROM campaign_criterion
+    WHERE campaign_criterion.campaign = '${sourceCampaignResource}'
+      AND campaign_criterion.status != 'REMOVED'
+  `;
+  try {
+    return await googleAdsSearchAll(apiBase, headers, query);
+  } catch (e) {
+    debug.partial_failures.push({ step: "read_campaign_criteria", response: (e as any).response ?? String(e) });
+    return [];
+  }
+}
+
+async function readAdGroupCriteria(apiBase: string, headers: Record<string, string>, sourceAdGroupResources: string, debug: any) {
+  const query = `
+    SELECT ad_group.id,
+           ad_group_criterion.resource_name, ad_group_criterion.type, ad_group_criterion.status,
+           ad_group_criterion.negative, ad_group_criterion.bid_modifier,
+           ad_group_criterion.final_urls, ad_group_criterion.final_mobile_urls,
+           ad_group_criterion.tracking_url_template, ad_group_criterion.final_url_suffix,
+           ad_group_criterion.url_custom_parameters,
+           ad_group_criterion.keyword.text,
+           ad_group_criterion.keyword.match_type,
+           ad_group_criterion.placement.url,
+           ad_group_criterion.user_list.user_list,
+           ad_group_criterion.audience.audience,
+           ad_group_criterion.combined_audience.combined_audience,
+           ad_group_criterion.custom_audience.custom_audience,
+           ad_group_criterion.topic.topic_constant,
+           ad_group_criterion.age_range.type,
+           ad_group_criterion.gender.type,
+           ad_group_criterion.income_range.type,
+           ad_group_criterion.parental_status.type,
+           ad_group_criterion.youtube_video.video_id,
+           ad_group_criterion.youtube_channel.channel_id,
+           ad_group_criterion.mobile_app_category.mobile_app_category_constant,
+           ad_group_criterion.mobile_application.app_id,
+           ad_group_criterion.mobile_application.name
+    FROM ad_group_criterion
+    WHERE ad_group_criterion.ad_group IN (${sourceAdGroupResources})
+      AND ad_group_criterion.status != 'REMOVED'
+  `;
+  try {
+    return await googleAdsSearchAll(apiBase, headers, query);
+  } catch (e) {
+    debug.partial_failures.push({ step: "read_ad_group_criteria", response: (e as any).response ?? String(e) });
+    return [];
+  }
+}
+
+async function readCampaignAssets(apiBase: string, headers: Record<string, string>, sourceCampaignResource: string, debug: any) {
+  const query = `
+    SELECT campaign_asset.asset, campaign_asset.field_type, campaign_asset.status
+    FROM campaign_asset
+    WHERE campaign_asset.campaign = '${sourceCampaignResource}'
+      AND campaign_asset.status != 'REMOVED'
+  `;
+  try {
+    return await googleAdsSearchAll(apiBase, headers, query);
+  } catch (e) {
+    debug.partial_failures.push({ step: "read_campaign_assets", response: (e as any).response ?? String(e) });
+    return [];
+  }
+}
+
+async function readAdGroupAssets(apiBase: string, headers: Record<string, string>, sourceAdGroupResources: string, debug: any) {
+  const query = `
+    SELECT ad_group.id, ad_group_asset.asset, ad_group_asset.field_type, ad_group_asset.status
+    FROM ad_group_asset
+    WHERE ad_group_asset.ad_group IN (${sourceAdGroupResources})
+      AND ad_group_asset.status != 'REMOVED'
+  `;
+  try {
+    return await googleAdsSearchAll(apiBase, headers, query);
+  } catch (e) {
+    debug.partial_failures.push({ step: "read_ad_group_assets", response: (e as any).response ?? String(e) });
+    return [];
+  }
+}
+
+function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, parentResource: string, opts: { skipGeo: boolean }) {
+  if (!criterion) return null;
+  const type = criterion.type;
+  if (opts.skipGeo && ["LOCATION", "PROXIMITY"].includes(type)) return null;
+  const create: any = scope === "campaign" ? { campaign: parentResource } : { adGroup: parentResource };
+  if (criterion.status) create.status = criterion.status;
+  if (typeof criterion.negative === "boolean") create.negative = criterion.negative;
+  if (criterion.finalUrls) create.finalUrls = criterion.finalUrls;
+  if (criterion.finalMobileUrls) create.finalMobileUrls = criterion.finalMobileUrls;
+  if (criterion.trackingUrlTemplate) create.trackingUrlTemplate = criterion.trackingUrlTemplate;
+  if (criterion.finalUrlSuffix) create.finalUrlSuffix = criterion.finalUrlSuffix;
+  if (criterion.urlCustomParameters) create.urlCustomParameters = criterion.urlCustomParameters;
+
+  switch (type) {
+    case "LANGUAGE":
+      if (!criterion.language?.languageConstant) return null;
+      create.language = { languageConstant: criterion.language.languageConstant };
+      break;
+    case "AD_SCHEDULE":
+      if (!criterion.adSchedule) return null;
+      create.adSchedule = cleanObject({
+        dayOfWeek: criterion.adSchedule.dayOfWeek,
+        startHour: criterion.adSchedule.startHour,
+        startMinute: criterion.adSchedule.startMinute,
+        endHour: criterion.adSchedule.endHour,
+        endMinute: criterion.adSchedule.endMinute,
+      });
+      break;
+    case "DEVICE":
+      if (!criterion.device?.type) return null;
+      create.device = { type: criterion.device.type };
+      if (criterion.bidModifier && criterion.bidModifier !== 1) create.bidModifier = criterion.bidModifier;
+      break;
+    case "AGE_RANGE":
+      if (!criterion.ageRange?.type) return null;
+      create.ageRange = { type: criterion.ageRange.type };
+      break;
+    case "GENDER":
+      if (!criterion.gender?.type) return null;
+      create.gender = { type: criterion.gender.type };
+      break;
+    case "INCOME_RANGE":
+      if (!criterion.incomeRange?.type) return null;
+      create.incomeRange = { type: criterion.incomeRange.type };
+      break;
+    case "PARENTAL_STATUS":
+      if (!criterion.parentalStatus?.type) return null;
+      create.parentalStatus = { type: criterion.parentalStatus.type };
+      break;
+    case "KEYWORD":
+      if (!criterion.keyword?.text || !criterion.keyword?.matchType) return null;
+      create.keyword = { text: criterion.keyword.text, matchType: criterion.keyword.matchType };
+      break;
+    case "PLACEMENT":
+      if (!criterion.placement?.url) return null;
+      create.placement = { url: criterion.placement.url };
+      break;
+    case "USER_LIST":
+      if (!criterion.userList?.userList) return null;
+      create.userList = { userList: criterion.userList.userList };
+      break;
+    case "AUDIENCE":
+      if (!criterion.audience?.audience) return null;
+      create.audience = { audience: criterion.audience.audience };
+      break;
+    case "COMBINED_AUDIENCE":
+      if (!criterion.combinedAudience?.combinedAudience) return null;
+      create.combinedAudience = { combinedAudience: criterion.combinedAudience.combinedAudience };
+      break;
+    case "CUSTOM_AUDIENCE":
+      if (!criterion.customAudience?.customAudience) return null;
+      create.customAudience = { customAudience: criterion.customAudience.customAudience };
+      break;
+    case "TOPIC":
+      if (!criterion.topic?.topicConstant) return null;
+      create.topic = { topicConstant: criterion.topic.topicConstant };
+      break;
+    case "YOUTUBE_VIDEO":
+      if (!criterion.youtubeVideo?.videoId) return null;
+      create.youtubeVideo = { videoId: criterion.youtubeVideo.videoId };
+      break;
+    case "YOUTUBE_CHANNEL":
+      if (!criterion.youtubeChannel?.channelId) return null;
+      create.youtubeChannel = { channelId: criterion.youtubeChannel.channelId };
+      break;
+    case "MOBILE_APP_CATEGORY":
+      if (!criterion.mobileAppCategory?.mobileAppCategoryConstant) return null;
+      create.mobileAppCategory = { mobileAppCategoryConstant: criterion.mobileAppCategory.mobileAppCategoryConstant };
+      break;
+    case "MOBILE_APPLICATION":
+      if (!criterion.mobileApplication?.appId) return null;
+      create.mobileApplication = cleanObject({ appId: criterion.mobileApplication.appId, name: criterion.mobileApplication.name });
+      break;
+    default:
+      return null;
+  }
+
+  return { create: cleanObject(create) };
+}
+
+function buildAdCreate(ad: any, assetRefs: Set<string>) {
+  const create: any = cleanObject({
+    name: ad.name,
+    finalUrls: ad.finalUrls,
+    finalMobileUrls: ad.finalMobileUrls,
+    trackingUrlTemplate: ad.trackingUrlTemplate,
+    finalUrlSuffix: ad.finalUrlSuffix,
+    urlCustomParameters: ad.urlCustomParameters,
   });
 
-  // 8) Insere também no campaigns local (para aparecer na UI)
-  await admin.from("campaigns").insert({
-    user_id: userId,
-    google_account_id: item.google_account_id,
-    campaign_id: newCampaignId,
-    name: newName,
-    status: startStatus.toLowerCase(),
-    channel_type: channelType,
-    budget_micros: newBudgetMicros,
-  });
+  if (ad.responsiveDisplayAd) {
+    const rda = ad.responsiveDisplayAd;
+    const responsiveDisplayAd = cleanObject({
+      headlines: copyTextAssets(rda.headlines),
+      longHeadline: copyTextAsset(rda.longHeadline),
+      descriptions: copyTextAssets(rda.descriptions),
+      businessName: rda.businessName,
+      marketingImages: copyAdImageAssets(rda.marketingImages, assetRefs),
+      squareMarketingImages: copyAdImageAssets(rda.squareMarketingImages, assetRefs),
+      logoImages: copyAdImageAssets(rda.logoImages, assetRefs),
+      squareLogoImages: copyAdImageAssets(rda.squareLogoImages, assetRefs),
+      youtubeVideos: copyAdVideoAssets(rda.youtubeVideos, assetRefs),
+      callToActionText: rda.callToActionText,
+      allowFlexibleColor: rda.allowFlexibleColor,
+      accentColor: rda.accentColor,
+      mainColor: rda.mainColor,
+      formatSetting: rda.formatSetting,
+    });
+    create.responsiveDisplayAd = responsiveDisplayAd;
+    return create;
+  }
 
-  // 9) Seed lifecycle "winner_test" — automação padrão NÃO mexe nessa campanha.
-  //    O winner_started_at só é setado quando o usuário ativar (status=enabled).
-  await admin.from("campaign_automation").insert({
-    user_id: userId,
-    google_account_id: item.google_account_id,
-    site_id: siteId,
-    campaign_id: newCampaignId,
-    lifecycle_status: "winner_test",
-    winner_country_code: item.country_code,
-    winner_started_at: startStatus === "ENABLED" ? new Date().toISOString() : null,
-  });
+  if (ad.responsiveSearchAd) {
+    const rsa = ad.responsiveSearchAd;
+    create.responsiveSearchAd = cleanObject({
+      headlines: copyTextAssets(rsa.headlines),
+      descriptions: copyTextAssets(rsa.descriptions),
+      path1: rsa.path1,
+      path2: rsa.path2,
+    });
+    return create;
+  }
 
-  return {
-    ok: true,
-    new_campaign_id: newCampaignId,
-    new_campaign_name: newName,
-    budget_micros: newBudgetMicros,
-    ad_groups_cloned: oldToNewAdGroup.size,
-    ads_cloned: adsCloned,
-    ads_skipped: adsSkipped,
-  };
+  return null;
+}
+
+function copyTextAssets(items: any[] | undefined) {
+  return (items ?? []).map(copyTextAsset).filter(Boolean);
+}
+
+function copyTextAsset(item: any) {
+  if (!item?.text) return null;
+  return cleanObject({ text: item.text, pinnedField: item.pinnedField });
+}
+
+function copyAdImageAssets(items: any[] | undefined, assetRefs: Set<string>) {
+  return (items ?? []).map((item: any) => {
+    const asset = item?.asset;
+    if (!asset) return null;
+    assetRefs.add(asset);
+    return { asset };
+  }).filter(Boolean);
+}
+
+function copyAdVideoAssets(items: any[] | undefined, assetRefs: Set<string>) {
+  return (items ?? []).map((item: any) => {
+    const asset = item?.asset;
+    if (!asset) return null;
+    assetRefs.add(asset);
+    return { asset };
+  }).filter(Boolean);
+}
+
+function cleanObject<T extends Record<string, any>>(obj: T): T {
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) delete obj[key];
+  }
+  return obj;
 }
 
 function extractError(j: any): string {
