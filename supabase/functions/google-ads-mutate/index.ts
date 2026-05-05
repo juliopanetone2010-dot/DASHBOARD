@@ -331,6 +331,7 @@ Deno.serve(async (req) => {
 });
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
+  // 1) Tenta pelo histórico de receita do GAM (mais preciso)
   const { data: revenueSites } = await admin
     .from("gam_placement_revenue")
     .select("site_id, revenue_usd")
@@ -347,6 +348,18 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   }
   if (bySite.size === 1) return [...bySite.keys()][0];
   if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  // 2) Fallback: campanhas novas sem receita ainda — usa o vínculo conta↔site
+  // Só é seguro se a conta estiver vinculada a EXATAMENTE 1 site.
+  if (accountId) {
+    const { data: links } = await admin
+      .from("account_site_links")
+      .select("site_id")
+      .eq("user_id", userId)
+      .eq("google_account_id", accountId);
+    const unique = Array.from(new Set((links ?? []).map((l: any) => String(l.site_id)).filter(Boolean)));
+    if (unique.length === 1) return unique[0];
+  }
 
   return null;
 }
