@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
       if (!placement) continue;
-      const k = cpKey(r.campaign_id, placement);
+      const k = cpKey(siteScope, r.campaign_id, placement);
       let a = agg.get(k);
       if (!a) {
         a = { campaign_id: r.campaign_id, placement, type: r.placement_type ?? "—", cost: 0, clicks: 0, impressions: 0, conversions: 0, lastConvDate: null, firstDate: r.date };
@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     for (const a of agg.values()) {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
-      const k = cpKey(a.campaign_id, a.placement);
+      const k = cpKey(siteScope, a.campaign_id, a.placement);
       const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
       const root = rootDomain(a.placement);
       let usd = campaignRevenue.get(a.placement) ?? 0;
@@ -319,6 +319,7 @@ Deno.serve(async (req) => {
       const row: any = {
         user_id: userId,
         site_id: siteId,
+        site_scope: siteScope,
         google_account_id: meta.google_account_id,
         campaign_id: a.campaign_id,
         campaign_name: meta.name,
