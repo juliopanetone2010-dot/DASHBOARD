@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
+import { CreativesTab } from "@/components/dashboard/CreativesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
@@ -468,6 +469,9 @@ const IndexInner = () => {
             <TabsTrigger value="countries" className="gap-1.5">
               <Globe className="h-3.5 w-3.5" /> Países
             </TabsTrigger>
+            <TabsTrigger value="creatives" className="gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" /> Criativos
+            </TabsTrigger>
             <TabsTrigger value="retention" className="gap-1.5">
               <Repeat className="h-3.5 w-3.5" /> Retenção / Push
             </TabsTrigger>
@@ -698,6 +702,10 @@ const IndexInner = () => {
 
           <TabsContent value="countries" className="mt-6">
             <CountriesTab fxUsdBrl={usdBrl} />
+          </TabsContent>
+
+          <TabsContent value="creatives" className="mt-6">
+            <CreativesTab fxUsdBrl={usdBrl} />
           </TabsContent>
 
           <TabsContent value="retention" className="mt-6">

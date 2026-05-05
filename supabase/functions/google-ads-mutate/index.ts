@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -351,6 +351,55 @@ Deno.serve(async (req) => {
       }
       await logAction("executed", { country_criterion_id: countryCriterionId, mode });
       return json({ ok: true, action, country_criterion_id: countryCriterionId, mode });
+    }
+
+    // set_ad_status: pausa/ativa um ou vários criativos (ad_group_ad)
+    // body: { action: "set_ad_status", campaign_id, status: "PAUSED"|"ENABLED",
+    //         ads: [{ ad_group_id, ad_id }, ...] }
+    if (action === "set_ad_status") {
+      if (!["ENABLED", "PAUSED"].includes(newStatus)) {
+        return json({ error: "status deve ser ENABLED ou PAUSED" });
+      }
+      const ads = Array.isArray((body as any)?.ads) ? (body as any).ads : [];
+      const cleaned = ads
+        .map((a: any) => ({
+          ad_group_id: String(a?.ad_group_id ?? "").replace(/\D/g, ""),
+          ad_id: String(a?.ad_id ?? "").replace(/\D/g, ""),
+        }))
+        .filter((a: any) => a.ad_group_id && a.ad_id);
+      if (cleaned.length === 0) return json({ error: "ads obrigatório" });
+
+      const operations = cleaned.map((a: any) => ({
+        update: {
+          resourceName: `customers/${acc.customer_id}/adGroupAds/${a.ad_group_id}~${a.ad_id}`,
+          status: newStatus,
+        },
+        updateMask: "status",
+      }));
+
+      const r = await fetch(`${apiBase}/adGroupAds:mutate`, {
+        method: "POST", headers, body: JSON.stringify({ operations }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        console.error("[set_ad_status] google ads error", JSON.stringify(j));
+        await logAction("failed", { ads: cleaned, status: newStatus }, JSON.stringify(j));
+        const detail =
+          j?.error?.details?.[0]?.errors?.[0]?.message ??
+          j?.error?.message ?? JSON.stringify(j);
+        return json({ error: String(detail) });
+      }
+      // Atualiza ad_status localmente
+      for (const a of cleaned) {
+        await admin.from("creative_metrics")
+          .update({ ad_status: newStatus })
+          .eq("user_id", userId)
+          .eq("campaign_id", camp.campaign_id)
+          .eq("ad_group_id", a.ad_group_id)
+          .eq("ad_id", a.ad_id);
+      }
+      await logAction("executed", { ads: cleaned, status: newStatus });
+      return json({ ok: true, action, status: newStatus, count: cleaned.length });
     }
 
     return json({ error: "unreachable" });
