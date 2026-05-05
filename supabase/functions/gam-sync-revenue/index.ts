@@ -913,21 +913,11 @@ async function applyGoogleUtmRevenue(
       .in("google_account_id", accountIds);
     if (!metrics?.length) continue;
 
-    // Agrega receita de TODOS os sites para essas campanhas nesta data.
-    // Primário: gam_placement_revenue (vem de utm_placement e já tem campaign_id).
-    // Fallback: gam_campaign_source_revenue (utm_campaign), caso um site não envie placement.
+    // Agrega receita de TODAS as fontes (google, push, outras) para essas campanhas nesta data.
+    // Fonte primária: gam_campaign_source_revenue — contém TODAS as utm_sources por campaign_id.
+    // gam_placement_revenue só captura tráfego do Google Ads (utm_source=google), então
+    // usá-la como primário subnotifica receita de pushes e outras fontes.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
-    const { data: allPlacementRevenueRows } = await admin
-      .from("gam_placement_revenue")
-      .select("campaign_id, revenue_usd")
-      .eq("user_id", userId)
-      .eq("date", date)
-      .in("campaign_id", cids);
-    const placementByCid = new Map<string, number>();
-    for (const r of (allPlacementRevenueRows ?? []) as any[]) {
-      const cid = String(r.campaign_id);
-      placementByCid.set(cid, (placementByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
-    }
 
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
@@ -936,12 +926,26 @@ async function applyGoogleUtmRevenue(
       .eq("date", date)
       .in("campaign_id", cids);
     const aggregatedByCid = new Map<string, number>();
-    for (const [cid, revenue] of placementByCid) aggregatedByCid.set(cid, revenue);
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id);
-      if (placementByCid.has(cid)) continue;
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
     }
+
+    // Fallback: se uma campanha não aparecer em source_revenue, tenta placement_revenue.
+    const missingCids = cids.filter((c) => !aggregatedByCid.has(c));
+    if (missingCids.length > 0) {
+      const { data: allPlacementRevenueRows } = await admin
+        .from("gam_placement_revenue")
+        .select("campaign_id, revenue_usd")
+        .eq("user_id", userId)
+        .eq("date", date)
+        .in("campaign_id", missingCids);
+      for (const r of (allPlacementRevenueRows ?? []) as any[]) {
+        const cid = String(r.campaign_id);
+        aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+      }
+    }
+    const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
 
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
