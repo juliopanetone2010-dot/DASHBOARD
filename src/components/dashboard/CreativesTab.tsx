@@ -207,7 +207,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
         a.datesSet.add(r.date);
       } else {
         adMap.set(adKey, {
-          campaign_id: r.campaign_id, ad_group_id: r.ad_group_id, ad_id: r.ad_id,
+          campaign_id: r.campaign_id, ad_group_id: r.ad_group_id, ad_group_name: r.ad_group_name ?? "", ad_id: r.ad_id,
           ad_name: r.ad_name ?? `Ad ${r.ad_id}`, ad_type: r.ad_type ?? "", ad_status: r.ad_status ?? "ENABLED",
           cost: r.cost, revenue_brl: revBrl, clicks: r.clicks, impressions: r.impressions,
           conversions: r.conversions, days: 0, roi: 0, ctr: 0,
