@@ -342,6 +342,7 @@ async function duplicateCampaign(
     SELECT campaign.id, campaign.name, campaign.advertising_channel_type,
            campaign.advertising_channel_sub_type, campaign.bidding_strategy_type,
            campaign.start_date, campaign.end_date,
+           campaign.contains_eu_political_advertising,
            campaign.tracking_url_template, campaign.final_url_suffix,
            campaign.url_custom_parameters,
            campaign.network_settings.target_google_search,
@@ -365,6 +366,9 @@ async function duplicateCampaign(
 
   const channelType: string = cRow.campaign?.advertisingChannelType ?? "DISPLAY";
   const channelSubType: string | undefined = cRow.campaign?.advertisingChannelSubType;
+  const euPoliticalStatus: string = cRow.campaign?.containsEuPoliticalAdvertising === "CONTAINS_EU_POLITICAL_ADVERTISING"
+    ? "CONTAINS_EU_POLITICAL_ADVERTISING"
+    : "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING";
   const sourceNetwork = cRow.campaign?.networkSettings ?? {};
   const sourceGeoSetting = cRow.campaign?.geoTargetTypeSetting;
   const sourceTrackingTemplate: string | undefined = cRow.campaign?.trackingUrlTemplate;
@@ -433,6 +437,7 @@ async function duplicateCampaign(
     status: "PAUSED",
     advertisingChannelType: channelType,
     campaignBudget: newBudgetResource,
+    containsEuPoliticalAdvertising: euPoliticalStatus,
     networkSettings,
     startDate,
     finalUrlSuffix: sourceFinalUrlSuffix && sourceFinalUrlSuffix.length > 0 ? sourceFinalUrlSuffix : STANDARD_FINAL_URL_SUFFIX,
@@ -470,6 +475,7 @@ async function duplicateCampaign(
         channel_type: channelType,
         channel_sub_type: channelSubType,
         bidding_strategy: biddingType,
+        contains_eu_political_advertising: euPoliticalStatus,
         geo_target: item.country_criterion_id,
         status: "PAUSED",
         payload: campCreate,
