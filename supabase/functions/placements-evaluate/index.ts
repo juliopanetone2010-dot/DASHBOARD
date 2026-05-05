@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
     const accountId: string | null = typeof body?.google_account_id === "string" && body.google_account_id ? body.google_account_id : null;
     const explicitFrom: string | undefined = typeof body?.from === "string" ? body.from : undefined;
     const explicitTo: string | undefined = typeof body?.to === "string" ? body.to : undefined;
+    const siteScope = siteId ?? "__global__";
 
     let userId: string | null = null;
     if (isService && targetUserId) userId = targetUserId;
@@ -179,10 +180,10 @@ Deno.serve(async (req) => {
 
     // Carrega status atuais
     const { data: existing } = await admin.from("placement_status")
-      .select("id, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
+      .select("id, site_id, site_scope, campaign_id, placement, placement_type, status, manual_override, prev_roi_pct, roi_pct, first_seen_at, last_status_change_at, blocked_at")
       .eq("user_id", userId);
     const existMap = new Map<string, any>();
-    for (const e of existing ?? []) existMap.set(cpKey(e.campaign_id, e.placement), e);
+    for (const e of existing ?? []) existMap.set(cpKey(String((e as any).site_scope ?? e.site_id ?? "__global__"), e.campaign_id, e.placement), e);
 
     // Carrega placements já excluídos manualmente / pelo cleanup antigo
     // (placement_actions.action='blacklist'). Eles devem aparecer no funil
@@ -200,7 +201,7 @@ Deno.serve(async (req) => {
         const rows = data ?? [];
         for (const r of rows) {
           const placement = normalize(String(r.placement ?? ""));
-          if (r.campaign_id && placement) blacklisted.add(cpKey(String(r.campaign_id), placement));
+          if (r.campaign_id && placement) blacklisted.add(cpKey(siteScope, String(r.campaign_id), placement));
         }
         if (rows.length < 1000) break;
         bs += 1000;
@@ -210,7 +211,7 @@ Deno.serve(async (req) => {
     // Garante que todo placement já blacklistado tenha entry em agg
     for (const k of blacklisted) {
       if (agg.has(k)) continue;
-      const [campaign_id, placement] = k.split(KEY_SEP);
+      const [, campaign_id, placement] = k.split(KEY_SEP);
       const ex = existMap.get(k);
       agg.set(k, {
         campaign_id, placement,
