@@ -90,31 +90,49 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      // 1) Custo/cliques/impressões por (campanha, país, dia)
-      let cQ = supabase
-        .from("campaign_country_metrics")
-        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-        .gte("date", range.from)
-        .lte("date", range.to);
-      if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
-      const { data: cm, error: cErr } = await cQ.limit(50000);
-      if (cErr) {
-        toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
-        setCountryRows([]); setDailyRows([]);
-        return;
+      // 1) Custo/cliques/impressões por (campanha, país, dia) — paginado
+      const cmRows: CountryRow[] = [];
+      {
+        let start = 0;
+        for (;;) {
+          let cQ = supabase
+            .from("campaign_country_metrics")
+            .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
+          const { data: cm, error: cErr } = await cQ.range(start, start + 999);
+          if (cErr) {
+            toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
+            setCountryRows([]); setDailyRows([]);
+            return;
+          }
+          const batch = (cm ?? []) as CountryRow[];
+          cmRows.push(...batch);
+          if (batch.length < 1000) break;
+          start += 1000;
+        }
       }
-      let rows = (cm ?? []) as CountryRow[];
+      let rows = cmRows;
       if (siteId !== "all") {
-        const { data: attributionRows } = await supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id")
-          .eq("site_id", siteId)
-          .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        const siteCampaignIds = new Set((attributionRows ?? [])
-          .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
-          .filter((id) => id && id !== "__aggregate__"));
+        const siteCampaignIds = new Set<string>();
+        let start = 0;
+        for (;;) {
+          const { data: attributionRows } = await supabase
+            .from("gam_placement_revenue")
+            .select("campaign_id")
+            .eq("site_id", siteId)
+            .gte("date", range.from)
+            .lte("date", range.to)
+            .range(start, start + 999);
+          const batch = attributionRows ?? [];
+          for (const r of batch as { campaign_id: string | null }[]) {
+            const id = String(r.campaign_id ?? "");
+            if (id && id !== "__aggregate__") siteCampaignIds.add(id);
+          }
+          if (batch.length < 1000) break;
+          start += 1000;
+        }
         rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
       }
       setCountryRows(rows);
