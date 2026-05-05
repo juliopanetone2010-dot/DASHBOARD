@@ -104,9 +104,9 @@ Deno.serve(async (req) => {
     // analysis_window_days = janela efetiva usada em TODA a lógica
     const msDay = 86400_000;
     const analysisWindowDays = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / msDay) + 1);
-    // cutoff = "campanha precisa ter ≥ minDays de histórico para ser elegível"
-    const cutoff = iso(new Date(today.getTime() - minDays * msDay));
-    console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias)`);
+    // cutoff = "campanha precisa ter ≥ minDays de histórico antes do FIM do período selecionado"
+    const cutoff = iso(new Date(Date.parse(to) - minDays * msDay));
+    console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias) · cutoff elegibilidade ≤ ${cutoff} (minDays=${minDays})`);
 
 
     // Restringe contas Ads ao escopo do site selecionado.
