@@ -196,6 +196,23 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     } finally { setBulkCreating(false); }
   };
 
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const activateCampaign = async (c: CreatedLog) => {
+    if (!c.new_campaign_id || !c.google_account_id) return;
+    setActivatingId(c.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-mutate", {
+        body: { action: "set_status", campaign_id: c.new_campaign_id, google_account_id: c.google_account_id, status: "ENABLED" },
+      });
+      if (error || (data as any)?.error) {
+        toast({ title: "Falha ao ativar", description: (data as any)?.error ?? error?.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Campanha ativada", description: c.new_campaign_name ?? c.new_campaign_id });
+      await loadCreated();
+    } finally { setActivatingId(null); }
+  };
+
   const summary = useMemo(() => {
     const totalCost = items.reduce((s, i) => s + i.cost_brl, 0);
     const totalRev = items.reduce((s, i) => s + i.revenue_brl, 0);
