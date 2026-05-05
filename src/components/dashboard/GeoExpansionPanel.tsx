@@ -25,6 +25,14 @@ interface Winner {
   budget_micros: number | null;
 }
 
+interface GeoExpansionStats {
+  period?: { from: string; to: string };
+  total?: number;
+  candidates_total?: number;
+  rejection_counts?: Record<string, number>;
+  top_candidates?: (Winner & { reject_reasons?: string[] })[];
+}
+
 interface CreatedLog {
   id: string;
   original_campaign_id: string;
@@ -53,6 +61,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [creatingKey, setCreatingKey] = useState<string | null>(null);
   const [bulkCreating, setBulkCreating] = useState(false);
   const [items, setItems] = useState<Winner[]>([]);
+  const [stats, setStats] = useState<GeoExpansionStats | null>(null);
   const [created, setCreated] = useState<CreatedLog[]>([]);
   const [loadingCreated, setLoadingCreated] = useState(false);
   const [tab, setTab] = useState<"winners" | "created">("winners");
@@ -152,6 +161,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         return;
       }
       setItems(((data as any)?.items ?? []) as Winner[]);
+      setStats(((data as any)?.stats ?? null) as GeoExpansionStats | null);
     } finally { setLoading(false); }
   };
 
