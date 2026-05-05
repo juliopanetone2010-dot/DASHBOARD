@@ -441,8 +441,9 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   const ctx = await loadGAdsContext(admin, accountId);
   if (ctx.error) return { error: ctx.error };
 
-  // 1) ajusta orçamento absoluto
-  const queryB = `SELECT campaign.id, campaign.campaign_budget, campaign_budget.id, campaign_budget.amount_micros
+  // 1) Detecta payment_mode + budget_type da campanha
+  const queryB = `SELECT campaign.id, campaign.payment_mode, campaign.bidding_strategy_type,
+                         campaign.campaign_budget, campaign_budget.id, campaign_budget.amount_micros, campaign_budget.type
                   FROM campaign WHERE campaign.id = ${campaignId}`;
   const sRes = await fetch(`${ctx.apiBase}/googleAds:search`, { method: "POST", headers: ctx.headers, body: JSON.stringify({ query: queryB }) });
   const sJson = await sRes.json();
@@ -450,6 +451,12 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   const row = (sJson.results ?? [])[0];
   const budgetId = row?.campaignBudget?.id;
   if (!budgetId) return { error: "Campanha sem orçamento" };
+  const paymentMode = row?.campaign?.paymentMode ?? "CLICKS";
+  const budgetType = row?.campaignBudget?.type ?? "STANDARD";
+  const currentStrat = row?.campaign?.biddingStrategyType ?? "";
+  const isPayPerConversion = paymentMode === "CONVERSIONS" || budgetType === "FIXED_CPA";
+
+  // 2) ajusta orçamento absoluto
   const nextMicros = Math.round(budgetBrl * 1_000_000);
   const bRes = await fetch(`${ctx.apiBase}/campaignBudgets:mutate`, {
     method: "POST", headers: ctx.headers,
@@ -467,23 +474,31 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 2) Estratégia: MAXIMIZE_CONVERSIONS (sem target CPA)
-  // Tenta primeiro como troca de estratégia: maximize_conversions com target_cpa_micros=0
-  const cRes = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
-    method: "POST", headers: ctx.headers,
-    body: JSON.stringify({
-      operations: [{
-        update: {
-          resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
-          maximizeConversions: { targetCpaMicros: "0" },
-        },
-        updateMask: "maximize_conversions.target_cpa_micros",
-      }],
-    }),
-  });
-  const cJson = await cRes.json();
-  if (!cRes.ok) {
-    // Fallback: troca completa de estratégia (campanha não estava em MAXIMIZE_CONVERSIONS)
+  // 3) Estratégia
+  if (isPayPerConversion) {
+    // Pagar por conversão é IMUTÁVEL — mantém TARGET_CPA, só não mexe no CPA (deixa o usuário ajustar via UI)
+    return { ok: true, budget_brl: budgetBrl, kept_strategy: "TARGET_CPA (pay-per-conversion)" };
+  }
+
+  // Maximize Conversions
+  if (currentStrat === "MAXIMIZE_CONVERSIONS") {
+    // Já está em MC — só zera target_cpa_micros
+    const cRes = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
+      method: "POST", headers: ctx.headers,
+      body: JSON.stringify({
+        operations: [{
+          update: {
+            resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
+            maximizeConversions: { targetCpaMicros: "0" },
+          },
+          updateMask: "maximize_conversions.target_cpa_micros",
+        }],
+      }),
+    });
+    const cJson = await cRes.json();
+    if (!cRes.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)}` };
+  } else {
+    // Troca de estratégia
     const c2 = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
       method: "POST", headers: ctx.headers,
       body: JSON.stringify({
@@ -497,7 +512,7 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
       }),
     });
     const c2Json = await c2.json();
-    if (!c2.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)} | fallback: ${JSON.stringify(c2Json).slice(0, 200)}` };
+    if (!c2.ok) return { error: `bidding switch: ${JSON.stringify(c2Json).slice(0, 200)}` };
   }
 
   return { ok: true, budget_brl: budgetBrl };
