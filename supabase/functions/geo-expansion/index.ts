@@ -1129,9 +1129,17 @@ function compareCampaignCriteriaSummary(source: ReturnType<typeof summarizeCampa
   const srcLang = source.languageConstants.join("|");
   const dstLang = cloned.languageConstants.join("|");
   if (srcLang !== dstLang) return { ok: false, reason: `idiomas origem=[${srcLang}] winner=[${dstLang}]` };
+  if (cloned.languageConstants.length === 0) return { ok: false, reason: "winner ficou em Todos os idiomas" };
   const srcDev = JSON.stringify(source.deviceBidModifiers);
   const dstDev = JSON.stringify(cloned.deviceBidModifiers);
   if (srcDev !== dstDev) return { ok: false, reason: `dispositivos origem=${srcDev} winner=${dstDev}` };
+  return { ok: true };
+}
+
+function validateSourceLanguages(source: ReturnType<typeof summarizeCampaignCriteria>) {
+  if (source.languageConstants.length === 0) {
+    return { ok: false, reason: "Não encontrei LANGUAGE criteria na campanha original" };
+  }
   return { ok: true };
 }
 
