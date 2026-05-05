@@ -65,10 +65,12 @@ Deno.serve(async (req) => {
     // ===== APPLY: duplica uma campanha específica =====
     if (mode === "apply") {
       const item = body?.item as ApplyItem | undefined;
+      const startStatus: "PAUSED" | "ENABLED" =
+        String(body?.start_status ?? "PAUSED").toUpperCase() === "ENABLED" ? "ENABLED" : "PAUSED";
       if (!item?.campaign_id || !item?.country_criterion_id || !item?.google_account_id) {
         return json({ error: "item inválido (campaign_id, google_account_id, country_criterion_id obrigatórios)" });
       }
-      const result = await duplicateCampaign(admin, userId!, item, budgetMultiplier, siteId);
+      const result = await duplicateCampaign(admin, userId!, item, budgetMultiplier, siteId, startStatus);
       return json(result);
     }
 
@@ -297,6 +299,7 @@ Deno.serve(async (req) => {
 // ===== Duplicate campaign =====
 async function duplicateCampaign(
   admin: any, userId: string, item: ApplyItem, budgetMultiplier: number, siteId: string | null,
+  startStatus: "PAUSED" | "ENABLED" = "PAUSED",
 ) {
   // Carrega conta
   const { data: acc } = await admin
@@ -434,7 +437,7 @@ async function duplicateCampaign(
   const campCreate: any = {
     resourceName: `customers/${acc.customer_id}/campaigns/${tempCampaignId}`,
     name: newName,
-    status: "PAUSED",
+    status: startStatus,
     advertisingChannelType: channelType,
     campaignBudget: newBudgetResource,
     containsEuPoliticalAdvertising: euPoliticalStatus,
@@ -644,7 +647,7 @@ async function duplicateCampaign(
     google_account_id: item.google_account_id,
     campaign_id: newCampaignId,
     name: newName,
-    status: "paused",
+    status: startStatus.toLowerCase(),
     channel_type: channelType,
     budget_micros: newBudgetMicros,
   });
@@ -658,7 +661,7 @@ async function duplicateCampaign(
     campaign_id: newCampaignId,
     lifecycle_status: "winner_test",
     winner_country_code: item.country_code,
-    winner_started_at: null,
+    winner_started_at: startStatus === "ENABLED" ? new Date().toISOString() : null,
   });
 
   return {

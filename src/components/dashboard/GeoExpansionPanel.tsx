@@ -38,6 +38,8 @@ interface CreatedLog {
   budget_micros: number | null;
   status: string;
   executed_at: string;
+  google_account_id: string | null;
+  live_status?: string | null;
 }
 
 export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
@@ -48,6 +50,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [created, setCreated] = useState<CreatedLog[]>([]);
   const [loadingCreated, setLoadingCreated] = useState(false);
   const [tab, setTab] = useState<"winners" | "created">("winners");
+  const [startEnabled, setStartEnabled] = useState(false);
 
   const [enabled, setEnabled] = useState(false);
   const [minRoi, setMinRoi] = useState(25);
@@ -83,13 +86,25 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
     setLoadingCreated(true);
     try {
       let q = (supabase.from("campaign_expansion_logs") as any)
-        .select("id, original_campaign_id, original_campaign_name, new_campaign_id, new_campaign_name, country_code, country_name, roi_pct, cost_brl, revenue_brl, budget_micros, status, executed_at")
+        .select("id, original_campaign_id, original_campaign_name, new_campaign_id, new_campaign_name, country_code, country_name, roi_pct, cost_brl, revenue_brl, budget_micros, status, executed_at, google_account_id")
         .eq("action", "created")
         .order("executed_at", { ascending: false })
         .limit(100);
       if (siteId) q = q.eq("site_id", siteId);
       const { data } = await q;
-      setCreated((data ?? []) as CreatedLog[]);
+      const logs = (data ?? []) as (CreatedLog & { google_account_id: string | null })[];
+
+      // Fetch live status from campaigns table
+      const newIds = logs.map((l) => l.new_campaign_id).filter((x): x is string => !!x);
+      const liveStatus: Record<string, string> = {};
+      if (newIds.length > 0) {
+        const { data: campRows } = await supabase
+          .from("campaigns")
+          .select("campaign_id, status")
+          .in("campaign_id", newIds);
+        for (const r of campRows ?? []) liveStatus[String(r.campaign_id)] = String(r.status);
+      }
+      setCreated(logs.map((l) => ({ ...l, live_status: l.new_campaign_id ? liveStatus[l.new_campaign_id] ?? null : null })));
     } finally { setLoadingCreated(false); }
   }, [siteId]);
 
@@ -136,6 +151,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
           mode: "apply",
           site_id: siteId,
           budget_multiplier: budgetMult,
+          start_status: startEnabled ? "ENABLED" : "PAUSED",
           item: it,
         },
       });
@@ -151,7 +167,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         return;
       }
       toast({
-        title: "Campanha criada (PAUSED)",
+        title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
         description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
@@ -168,7 +184,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: siteId, budget_multiplier: budgetMult, item: it },
+            body: { mode: "apply", site_id: siteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
           });
           if ((data as any)?.ok) ok++; else fail++;
         } catch { fail++; }
@@ -178,6 +194,23 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       await loadCreated();
       if (ok > 0) setTab("created");
     } finally { setBulkCreating(false); }
+  };
+
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const activateCampaign = async (c: CreatedLog) => {
+    if (!c.new_campaign_id || !c.google_account_id) return;
+    setActivatingId(c.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-mutate", {
+        body: { action: "set_status", campaign_id: c.new_campaign_id, google_account_id: c.google_account_id, status: "ENABLED" },
+      });
+      if (error || (data as any)?.error) {
+        toast({ title: "Falha ao ativar", description: (data as any)?.error ?? error?.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Campanha ativada", description: c.new_campaign_name ?? c.new_campaign_id });
+      await loadCreated();
+    } finally { setActivatingId(null); }
   };
 
   const summary = useMemo(() => {
@@ -314,13 +347,17 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
 
       {tab === "created" && (
         <>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button onClick={loadCreated} disabled={loadingCreated} variant="outline" size="sm" className="gap-2">
               {loadingCreated ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Atualizar
             </Button>
-            <span className="text-xs text-muted-foreground">
-              Histórico de campanhas winner duplicadas (sempre criadas em <strong>PAUSED</strong>).
+            <label className="flex items-center gap-2 text-xs ml-2">
+              <Switch checked={startEnabled} onCheckedChange={setStartEnabled} />
+              <span>Criar já <strong>ATIVA</strong> (ENABLED)</span>
+            </label>
+            <span className="text-xs text-muted-foreground ml-auto">
+              Histórico de winners duplicadas. Clique em <strong>Ativar</strong> para ligar uma campanha pausada.
             </span>
           </div>
 
@@ -337,6 +374,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
                     <TableHead className="text-right">Custo origem</TableHead>
                     <TableHead className="text-right">Budget novo</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -355,7 +393,26 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
                       <TableCell className="text-right text-xs">{c.cost_brl != null ? fmtBRL(c.cost_brl) : "—"}</TableCell>
                       <TableCell className="text-right text-xs">{c.budget_micros ? fmtBRL(Number(c.budget_micros) / 1_000_000) : "—"}</TableCell>
                       <TableCell>
-                        <Badge variant={c.status === "executed" ? "default" : "secondary"}>{c.status}</Badge>
+                        {c.live_status === "enabled" ? (
+                          <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600">ATIVA</Badge>
+                        ) : c.live_status === "paused" ? (
+                          <Badge variant="secondary">PAUSED</Badge>
+                        ) : (
+                          <Badge variant="outline">{c.live_status ?? c.status}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {c.live_status !== "enabled" && c.new_campaign_id && c.google_account_id ? (
+                          <Button
+                            size="sm" variant="default"
+                            onClick={() => activateCampaign(c)}
+                            disabled={activatingId === c.id}
+                            className="gap-1.5"
+                          >
+                            {activatingId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                            Ativar
+                          </Button>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -90,31 +90,49 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      // 1) Custo/cliques/impressões por (campanha, país, dia)
-      let cQ = supabase
-        .from("campaign_country_metrics")
-        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-        .gte("date", range.from)
-        .lte("date", range.to);
-      if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
-      const { data: cm, error: cErr } = await cQ.limit(50000);
-      if (cErr) {
-        toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
-        setCountryRows([]); setDailyRows([]);
-        return;
+      // 1) Custo/cliques/impressões por (campanha, país, dia) — paginado
+      const cmRows: CountryRow[] = [];
+      {
+        let start = 0;
+        for (;;) {
+          let cQ = supabase
+            .from("campaign_country_metrics")
+            .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
+          const { data: cm, error: cErr } = await cQ.range(start, start + 999);
+          if (cErr) {
+            toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
+            setCountryRows([]); setDailyRows([]);
+            return;
+          }
+          const batch = (cm ?? []) as CountryRow[];
+          cmRows.push(...batch);
+          if (batch.length < 1000) break;
+          start += 1000;
+        }
       }
-      let rows = (cm ?? []) as CountryRow[];
+      let rows = cmRows;
       if (siteId !== "all") {
-        const { data: attributionRows } = await supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id")
-          .eq("site_id", siteId)
-          .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        const siteCampaignIds = new Set((attributionRows ?? [])
-          .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
-          .filter((id) => id && id !== "__aggregate__"));
+        const siteCampaignIds = new Set<string>();
+        let start = 0;
+        for (;;) {
+          const { data: attributionRows } = await supabase
+            .from("gam_placement_revenue")
+            .select("campaign_id")
+            .eq("site_id", siteId)
+            .gte("date", range.from)
+            .lte("date", range.to)
+            .range(start, start + 999);
+          const batch = attributionRows ?? [];
+          for (const r of batch as { campaign_id: string | null }[]) {
+            const id = String(r.campaign_id ?? "");
+            if (id && id !== "__aggregate__") siteCampaignIds.add(id);
+          }
+          if (batch.length < 1000) break;
+          start += 1000;
+        }
         rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
       }
       setCountryRows(rows);
@@ -129,56 +147,77 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       if (siteId === "all") {
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          let dQ = supabase
-            .from("daily_metrics")
-            .select("campaign_id, date, spend, revenue")
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-          const { data } = await dQ.limit(50000);
-          for (const r of data ?? []) {
-            dailyAll.push({
-              campaign_id: String(r.campaign_id),
-              date: String(r.date),
-              spend: Number(r.spend) || 0,
-              revenue_usd: Number(r.revenue) || 0,
-            });
+          let start = 0;
+          for (;;) {
+            let dQ = supabase
+              .from("daily_metrics")
+              .select("campaign_id, date, spend, revenue")
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to);
+            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+            const { data } = await dQ.range(start, start + 999);
+            const batch = data ?? [];
+            for (const r of batch) {
+              dailyAll.push({
+                campaign_id: String(r.campaign_id),
+                date: String(r.date),
+                spend: Number(r.spend) || 0,
+                revenue_usd: Number(r.revenue) || 0,
+              });
+            }
+            if (batch.length < 1000) break;
+            start += 1000;
           }
         }
       } else {
         // Receita do site = soma do gam_placement_revenue por (campaign,date) filtrando site_id.
+        // Paginação via .range() — .limit() é capped em 1000 pelo PostgREST.
         const revAgg = new Map<string, number>();
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          const { data } = await supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id, date, revenue_usd")
-            .eq("site_id", siteId)
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to)
-            .limit(50000);
-          for (const r of (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[]) {
-            const k = `${String(r.campaign_id)}|${String(r.date)}`;
-            revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
+          let start = 0;
+          for (;;) {
+            const { data, error } = await supabase
+              .from("gam_placement_revenue")
+              .select("campaign_id, date, revenue_usd")
+              .eq("site_id", siteId)
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to)
+              .range(start, start + 999);
+            if (error) break;
+            const rows = (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[];
+            for (const r of rows) {
+              const k = `${String(r.campaign_id)}|${String(r.date)}`;
+              revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
+            }
+            if (rows.length < 1000) break;
+            start += 1000;
           }
         }
         // Custo (spend) vem do daily_metrics para casar com o Google Ads.
         const spendAgg = new Map<string, number>();
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          let dQ = supabase
-            .from("daily_metrics")
-            .select("campaign_id, date, spend")
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-          const { data } = await dQ.limit(50000);
-          for (const r of data ?? []) {
-            const k = `${String(r.campaign_id)}|${String(r.date)}`;
-            spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
+          let start = 0;
+          for (;;) {
+            let dQ = supabase
+              .from("daily_metrics")
+              .select("campaign_id, date, spend")
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to);
+            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+            const { data, error } = await dQ.range(start, start + 999);
+            if (error) break;
+            const rows = data ?? [];
+            for (const r of rows) {
+              const k = `${String(r.campaign_id)}|${String(r.date)}`;
+              spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
+            }
+            if (rows.length < 1000) break;
+            start += 1000;
           }
         }
         const allKeys = new Set<string>([...revAgg.keys(), ...spendAgg.keys()]);
