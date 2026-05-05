@@ -42,7 +42,7 @@ interface PreviewItem {
   campaigns: PreviewCampaign[];
 }
 interface CampaignTotal {
-  campaign_id: string; name: string;
+  campaign_id: string; name: string; google_account_id?: string;
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
   bad_count: number; eligible?: boolean;
 }
