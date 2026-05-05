@@ -3,8 +3,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
-const REV_SHARE_PCT = 0.32;
-const NET_FACTOR = 1 - REV_SHARE_PCT;
+const REV_SHARE_PCT = 0.065;
+const NET_FACTOR = 1 - REV_SHARE_PCT; // 0.935 — GAM já vem líquido, descontamos só o revshare real (6,5%)
 const KEY_SEP = "\u0001";
 
 interface ApplyCampaign {
