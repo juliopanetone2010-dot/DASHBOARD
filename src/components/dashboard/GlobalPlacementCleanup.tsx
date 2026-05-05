@@ -266,7 +266,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <div className="flex-1 min-w-[260px]">
           <div className="text-sm font-semibold">Limpeza global de placements</div>
           <div className="text-xs text-muted-foreground">
-            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} nos últimos {lookback} dias. Apps/YouTube ficam de fora da exclusão automática.
+            Campanhas <b>ENABLED</b> com ≥ <b>{minDays}d</b>. Marca como ruim cada placement com ROI ≤ {maxRoi}% e custo somado ≥ R$ {minCost} no período selecionado ({analysisWindowDays} dias). Apps/YouTube ficam de fora da exclusão automática.
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/50">
