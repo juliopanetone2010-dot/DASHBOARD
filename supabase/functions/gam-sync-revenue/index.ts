@@ -307,7 +307,7 @@ async function runSync(req: Request): Promise<Response> {
     console.error("[gam-sync-revenue] uncaught", e);
     return json({ error: String(e), debug });
   }
-});
+}
 
 interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; _raw_measurable?: number; _raw_viewable?: number; }
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
