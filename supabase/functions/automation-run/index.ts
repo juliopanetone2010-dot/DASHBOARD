@@ -451,17 +451,25 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // ROI mostrado/gravado na esteira = hoje.
+  // ROI mostrado/gravado na esteira = hoje; histórico fica disponível para
+  // stop-loss e tendência, sem contaminar a coluna ROI.
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
   const windowDays = 1;
 
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
+  const safetyWindowDays = resolveAnalysisDays(cfg);
+  const safetySliced = sortedAll.slice(-safetyWindowDays);
   const days = new Set(sliced.map((d: any) => d.date)).size;
   const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
   const grossRevBrl = sliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
   const netRev = grossRevBrl * NET_FACTOR;
   const roi = cost > 0 ? ((netRev - cost) / cost) * 100 : 0;
+  const safetyDays = new Set(safetySliced.map((d: any) => d.date)).size;
+  const safetyCost = safetySliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
+  const safetyGrossRevBrl = safetySliced.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
+  const safetyNetRev = safetyGrossRevBrl * NET_FACTOR;
+  const safetyRoi = safetyCost > 0 ? ((safetyNetRev - safetyCost) / safetyCost) * 100 : 0;
   const stopLossRoi = normalizeStopLossRoi(cfg.auto_stoploss_min_roi);
   const stopLossDays = Math.max(1, Number(cfg.auto_stoploss_days) || 7);
   const stopLossMinCost = Math.max(0, Number(cfg.auto_stoploss_min_cost) || 0);
@@ -497,8 +505,8 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
 
   // E) Stop-loss prevalece SOMENTE quando o ROI agregado cruza o limite negativo configurado.
   // Se a configuração vier vazia/0 por legado, usamos -20% para impedir pausa cega em ROI levemente negativo.
-  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up") {
-    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% <= ${stopLossRoi}% por ${days}d (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
+  if (safetyRoi <= stopLossRoi && safetyDays >= stopLossDays && trend !== "up") {
+    return { lifecycle: "bad", action: "pause", reason: `ROI hoje ${round2(roi)}% · ROI ${round2(safetyRoi)}% em ${safetyDays}d <= ${stopLossRoi}% (tendência ${trend}, delivery ${deliveryPct}) → pausar`, roi, trend, delivery, avgDailySpend };
   }
 
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
