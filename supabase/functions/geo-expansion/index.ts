@@ -387,7 +387,18 @@ async function duplicateCampaign(
   // 1) Lê config completa da campanha origem
   const campQuery = `
     SELECT campaign.id, campaign.name, campaign.advertising_channel_type,
-           campaign.advertising_channel_sub_type, campaign.bidding_strategy_type,
+           campaign.advertising_channel_sub_type, campaign.bidding_strategy,
+           campaign.bidding_strategy_type,
+           campaign.manual_cpc.enhanced_cpc_enabled,
+           campaign.maximize_conversions.target_cpa_micros,
+           campaign.maximize_conversion_value.target_roas,
+           campaign.target_cpa.target_cpa_micros,
+           campaign.target_roas.target_roas,
+           campaign.target_spend.target_spend_micros,
+           campaign.target_spend.cpc_bid_ceiling_micros,
+           campaign.target_impression_share.location,
+           campaign.target_impression_share.location_fraction_micros,
+           campaign.target_impression_share.cpc_bid_ceiling_micros,
            campaign.start_date, campaign.end_date,
            campaign.contains_eu_political_advertising,
            campaign.tracking_url_template, campaign.final_url_suffix,
@@ -423,8 +434,8 @@ async function duplicateCampaign(
   const STANDARD_FINAL_URL_SUFFIX =
     "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
 
-  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial.
-  const biddingType: string = "MAXIMIZE_CONVERSIONS";
+  const biddingType: string = cRow.campaign?.biddingStrategyType ?? "UNKNOWN";
+  const biddingConfig = buildCampaignBidding(cRow.campaign ?? {});
   const newBudgetMicros = 30_000_000;
 
   if (channelType === "PERFORMANCE_MAX") {
@@ -577,8 +588,7 @@ async function duplicateCampaign(
       };
     }
 
-    // Bidding — Winner = MAXIMIZE_CONVERSIONS sem CPA
-    campCreate.maximizeConversions = {};
+    Object.assign(campCreate, biddingConfig.createFields);
 
     const campMutate = { operations: [{ create: campCreate }] };
     const ccRes = await fetch(`${apiBase}/campaigns:mutate`, {
@@ -625,6 +635,10 @@ async function duplicateCampaign(
     const campaignCriteriaRows = await readCampaignCriteria(apiBase, headers, sourceCampaignResource, debug);
     const campaignCriterionOps: any[] = [];
     const campaignCriterionCounts: Record<string, number> = {};
+    const sourceCriteriaSummary = summarizeCampaignCriteria(campaignCriteriaRows);
+    debug.source.language_constants = sourceCriteriaSummary.languageConstants;
+    debug.source.active_devices = sourceCriteriaSummary.activeDevices;
+    debug.source.device_bid_modifiers = sourceCriteriaSummary.deviceBidModifiers;
     for (const row of campaignCriteriaRows) {
       const op = buildCriterionOperation("campaign", row.campaignCriterion, newCampaignResource, { skipGeo: true });
       if (!op) {
@@ -637,12 +651,24 @@ async function duplicateCampaign(
       campaignCriterionCounts[type] = (campaignCriterionCounts[type] ?? 0) + 1;
     }
     const campaignCriteriaResult = await mutateGoogle(apiBase, headers, "campaignCriteria", campaignCriterionOps, "campaign_criteria");
+    const clonedCriteriaSummary = summarizeCampaignCriteria(await readCampaignCriteria(apiBase, headers, newCampaignResource, debug));
     debug.source.campaign_criteria = campaignCriteriaRows.length;
     debug.cloned.campaign_criteria = campaignCriteriaResult.created;
-    debug.cloned.languages = campaignCriterionCounts.LANGUAGE ?? 0;
+    debug.cloned.languages = clonedCriteriaSummary.languageConstants.length;
     debug.cloned.ad_schedules = campaignCriterionCounts.AD_SCHEDULE ?? 0;
-    debug.cloned.devices = campaignCriterionCounts.DEVICE ?? 0;
+    debug.cloned.devices = clonedCriteriaSummary.activeDevices.length;
+    debug.cloned.language_constants = clonedCriteriaSummary.languageConstants;
+    debug.cloned.active_devices = clonedCriteriaSummary.activeDevices;
+    debug.cloned.device_bid_modifiers = clonedCriteriaSummary.deviceBidModifiers;
+    debug.cloned.network_settings = networkSettings;
+    debug.cloned.bidding = biddingConfig.debug;
     if (campaignCriteriaResult.partialFailureError) debug.partial_failures.push({ step: "campaign_criteria", response: campaignCriteriaResult.partialFailureError });
+    const criticalCriteriaOk = compareCampaignCriteriaSummary(sourceCriteriaSummary, clonedCriteriaSummary);
+    debug.validation = { ...(debug.validation ?? {}), campaign_criteria: criticalCriteriaOk };
+    if (!criticalCriteriaOk.ok) {
+      await removeCampaign(apiBase, headers, newCampaignResource);
+      return { error: `campaign_criteria: idioma/dispositivo não foi clonado fielmente (${criticalCriteriaOk.reason}); campanha removida para evitar broad/open.`, debug };
+    }
 
     // 6) Clona campaign assets/extensões
     const campaignAssetRows = await readCampaignAssets(apiBase, headers, sourceCampaignResource, debug);
@@ -777,6 +803,10 @@ async function duplicateCampaign(
       ads_cloned: adsCloned,
       assets_cloned: debug.cloned.assets_total,
       languages_copied: debug.cloned.languages,
+      language_constants: debug.cloned.language_constants,
+      active_devices: debug.cloned.active_devices,
+      device_bid_modifiers: debug.cloned.device_bid_modifiers,
+      network_settings: debug.cloned.network_settings,
       keywords_copied: debug.cloned.keywords,
       placements_copied: debug.cloned.placements,
     }));
@@ -805,6 +835,11 @@ async function duplicateCampaign(
         ads_skipped: adsSkipped,
         assets_cloned: debug.cloned.assets_total,
         languages: debug.cloned.languages,
+        language_constants: debug.cloned.language_constants,
+        active_devices: debug.cloned.active_devices,
+        device_bid_modifiers: debug.cloned.device_bid_modifiers,
+        network_settings: debug.cloned.network_settings,
+        bidding: debug.cloned.bidding,
         keywords: debug.cloned.keywords,
         placements: debug.cloned.placements,
         source_budget_micros: sourceBudgetMicros,
@@ -844,6 +879,10 @@ async function duplicateCampaign(
       ads_skipped: adsSkipped,
       assets_cloned: debug.cloned.assets_total,
       languages_copied: debug.cloned.languages,
+      language_constants: debug.cloned.language_constants,
+      active_devices: debug.cloned.active_devices,
+      device_bid_modifiers: debug.cloned.device_bid_modifiers,
+      network_settings: debug.cloned.network_settings,
       keywords_copied: debug.cloned.keywords,
       placements_copied: debug.cloned.placements,
       campaign_criteria_cloned: debug.cloned.campaign_criteria,
@@ -1042,6 +1081,34 @@ async function readAdGroupAssets(apiBase: string, headers: Record<string, string
   }
 }
 
+function summarizeCampaignCriteria(rows: any[]) {
+  const defaultDevices = ["COMPUTER", "MOBILE", "TABLET"];
+  const languageConstants = rows
+    .map((row: any) => row.campaignCriterion?.language?.languageConstant)
+    .filter(Boolean)
+    .sort();
+  const deviceBidModifiers: Record<string, number> = {};
+  for (const row of rows) {
+    const cc = row.campaignCriterion;
+    if (cc?.type !== "DEVICE" || !cc.device?.type) continue;
+    const bidModifier = Number(cc.bidModifier);
+    deviceBidModifiers[String(cc.device.type)] = Number.isFinite(bidModifier) ? bidModifier : 1;
+  }
+  const knownDevices = [...new Set([...defaultDevices, ...Object.keys(deviceBidModifiers)])].sort();
+  const activeDevices = knownDevices.filter((device) => (deviceBidModifiers[device] ?? 1) > 0);
+  return { languageConstants, activeDevices, deviceBidModifiers };
+}
+
+function compareCampaignCriteriaSummary(source: ReturnType<typeof summarizeCampaignCriteria>, cloned: ReturnType<typeof summarizeCampaignCriteria>) {
+  const srcLang = source.languageConstants.join("|");
+  const dstLang = cloned.languageConstants.join("|");
+  if (srcLang !== dstLang) return { ok: false, reason: `idiomas origem=[${srcLang}] winner=[${dstLang}]` };
+  const srcDev = JSON.stringify(source.deviceBidModifiers);
+  const dstDev = JSON.stringify(cloned.deviceBidModifiers);
+  if (srcDev !== dstDev) return { ok: false, reason: `dispositivos origem=${srcDev} winner=${dstDev}` };
+  return { ok: true };
+}
+
 function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, parentResource: string, opts: { skipGeo: boolean }) {
   if (!criterion) return null;
   const type = criterion.type;
@@ -1049,6 +1116,8 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
   const create: any = scope === "campaign" ? { campaign: parentResource } : { adGroup: parentResource };
   if (criterion.status) create.status = criterion.status;
   if (typeof criterion.negative === "boolean") create.negative = criterion.negative;
+  const bidModifier = Number(criterion.bidModifier);
+  if (Number.isFinite(bidModifier) && bidModifier !== 1) create.bidModifier = bidModifier;
   if (criterion.finalUrls) create.finalUrls = criterion.finalUrls;
   if (criterion.finalMobileUrls) create.finalMobileUrls = criterion.finalMobileUrls;
   if (criterion.trackingUrlTemplate) create.trackingUrlTemplate = criterion.trackingUrlTemplate;
@@ -1073,7 +1142,6 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
     case "DEVICE":
       if (!criterion.device?.type) return null;
       create.device = { type: criterion.device.type };
-      if (criterion.bidModifier && criterion.bidModifier !== 1) create.bidModifier = criterion.bidModifier;
       break;
     case "AGE_RANGE":
       if (!criterion.ageRange?.type) return null;
@@ -1140,6 +1208,54 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
   }
 
   return { create: cleanObject(create) };
+}
+
+function buildCampaignBidding(campaign: any) {
+  const type = campaign.biddingStrategyType;
+  const createFields: any = {};
+  const debug: any = { type, portfolio_strategy: campaign.biddingStrategy ?? null };
+
+  if (campaign.biddingStrategy) {
+    createFields.biddingStrategy = campaign.biddingStrategy;
+    return { createFields, debug: { ...debug, copied_as: "portfolio_strategy" } };
+  }
+
+  switch (type) {
+    case "MANUAL_CPC":
+      createFields.manualCpc = cleanObject({ enhancedCpcEnabled: campaign.manualCpc?.enhancedCpcEnabled });
+      break;
+    case "MAXIMIZE_CONVERSIONS":
+      createFields.maximizeConversions = cleanObject({ targetCpaMicros: campaign.maximizeConversions?.targetCpaMicros });
+      break;
+    case "MAXIMIZE_CONVERSION_VALUE":
+      createFields.maximizeConversionValue = cleanObject({ targetRoas: campaign.maximizeConversionValue?.targetRoas });
+      break;
+    case "TARGET_CPA":
+      createFields.targetCpa = cleanObject({ targetCpaMicros: campaign.targetCpa?.targetCpaMicros });
+      break;
+    case "TARGET_ROAS":
+      createFields.targetRoas = cleanObject({ targetRoas: campaign.targetRoas?.targetRoas });
+      break;
+    case "TARGET_SPEND":
+      createFields.targetSpend = cleanObject({
+        targetSpendMicros: campaign.targetSpend?.targetSpendMicros,
+        cpcBidCeilingMicros: campaign.targetSpend?.cpcBidCeilingMicros,
+      });
+      break;
+    case "TARGET_IMPRESSION_SHARE":
+      createFields.targetImpressionShare = cleanObject({
+        location: campaign.targetImpressionShare?.location,
+        locationFractionMicros: campaign.targetImpressionShare?.locationFractionMicros,
+        cpcBidCeilingMicros: campaign.targetImpressionShare?.cpcBidCeilingMicros,
+      });
+      break;
+    default:
+      createFields.maximizeConversions = {};
+      debug.fallback = "maximize_conversions";
+      break;
+  }
+
+  return { createFields, debug: { ...debug, copied_as: Object.keys(createFields)[0] } };
 }
 
 function buildAdCreate(ad: any, assetRefs: Set<string>) {

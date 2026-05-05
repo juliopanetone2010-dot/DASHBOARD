@@ -189,9 +189,10 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       }
       const dbg = (data as any)?.debug;
       if (dbg) console.info("[geo-expansion] clone debug:", dbg);
+      const devices = ((data as any)?.active_devices ?? dbg?.cloned?.active_devices ?? []).join("/") || "dispositivos copiados";
       toast({
         title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
-        description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads • ${(data as any)?.assets_cloned ?? 0} assets`,
+        description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads • ${(data as any)?.assets_cloned ?? 0} assets • ${devices}`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
       await loadCreated();
