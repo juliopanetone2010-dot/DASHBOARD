@@ -457,6 +457,46 @@ function cpKey(scope: string, cid: string, placement: string) { return `${scope}
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
 }
+function allocateRevenueUsdByPlacement(
+  scope: string,
+  agg: Map<string, Agg>,
+  revByCampaign: Map<string, Map<string, number>>,
+  campMap: Map<string, { name: string; google_account_id: string | null; status: string }>,
+  from: string,
+) {
+  const result = new Map<string, number>();
+  const adsByCampaign = new Map<string, Agg[]>();
+  for (const a of agg.values()) {
+    if (!campMap.has(a.campaign_id)) continue;
+    const list = adsByCampaign.get(a.campaign_id) ?? [];
+    list.push(a);
+    adsByCampaign.set(a.campaign_id, list);
+  }
+
+  for (const [cid, revenues] of revByCampaign) {
+    const ads = adsByCampaign.get(cid) ?? [];
+    if (ads.length === 0) continue;
+    const claimed = new Set<string>();
+    for (const [rawPlacement, usd] of revenues) {
+      if (usd <= 0) continue;
+      const revPlacement = normalize(rawPlacement);
+      const matches = ads.filter((a) => !claimed.has(a.placement) && placementMatches(a.placement, revPlacement));
+      const targets = matches.length > 0 ? matches : ads.filter((a) => !claimed.has(a.placement));
+      if (targets.length === 0) continue;
+      const totalCost = targets.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+      const totalClicks = targets.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+      const equalShare = usd / targets.length;
+      for (const a of targets) {
+        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+        const share = weight > 0 ? usd * weight : equalShare;
+        const key = cpKey(scope, cid, a.placement);
+        result.set(key, (result.get(key) ?? 0) + share);
+        if (matches.length > 0) claimed.add(a.placement);
+      }
+    }
+  }
+  return result;
+}
 function round(n: number) { return Math.round(n * 100) / 100; }
 function normalize(value: string, type?: string | null): string {
   const raw = (value || "").trim().toLowerCase();
@@ -473,6 +513,17 @@ function normalize(value: string, type?: string | null): string {
   } catch {
     return raw.replace(/^www\./, "");
   }
+}
+function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
+function placementMatches(adsPlacement: string, gamPlacement: string): boolean {
+  const a = normalize(adsPlacement);
+  const g = normalize(gamPlacement);
+  if (!a || !g) return false;
+  if (a === g) return true;
+  const ar = rootDomain(a), gr = rootDomain(g);
+  if (ar && gr && ar === gr) return true;
+  const ac = compactPlacement(a), gc = compactPlacement(g);
+  return gc.length >= 8 && ac.startsWith(gc);
 }
 function rootDomain(host: string): string {
   if (!host || host.includes("/") || !host.includes(".")) return host;
