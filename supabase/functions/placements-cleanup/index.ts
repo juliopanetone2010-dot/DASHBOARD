@@ -378,6 +378,7 @@ Deno.serve(async (req) => {
     const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
     const grand_profit_brl = round(grand_revenue_brl - grand_cost_brl);
 
+    const totalAnalyzed = withMatch + withoutMatch;
     const stats = {
       eligible: eligibleIds.length,
       total: campIds.length,
@@ -387,6 +388,12 @@ Deno.serve(async (req) => {
       skipped_blacklisted: skippedAlreadyBlacklisted,
       ads_rows: ads.length,
       gam_rows: gam.length,
+      with_match: withMatch,
+      without_match: withoutMatch,
+      match_pct: totalAnalyzed > 0 ? round((withMatch / totalAnalyzed) * 100) : 0,
+      gam_total_usd: round(totalGamUsd),
+      gam_attributed_usd: round(attributedGamUsd),
+      gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
