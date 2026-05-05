@@ -96,11 +96,9 @@ export function AutomationTab() {
     const todayMap: Record<string, number | null> = {};
     for (const cid of Object.keys(aggBy)) {
       const a = aggBy[cid];
-      const acctId = meta[cid]?.google_account_id;
-      const isActive = acctId && automationActiveAccounts.has(String(acctId));
-      const useY = isActive;
-      const spend = useY ? a.spendY : a.spend15;
-      const profit = useY ? a.profitY : a.profit15;
+      // Sempre usa ROI de ontem (dia completo). Hoje fica desatualizado durante o dia.
+      const spend = a.spendY;
+      const profit = a.profitY;
       const grossRev = spend + profit;
       todayMap[cid] = spend > 0 ? (((grossRev * NET_FACTOR) - spend) / spend) * 100 : null;
     }
@@ -353,7 +351,7 @@ export function AutomationTab() {
                 <TableRow>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>Campanha<SortIcon k="name" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("lifecycle_status")}>Status<SortIcon k="lifecycle_status" /></TableHead>
-                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")} title="Antes da automação ativar: ROI médio dos últimos 15 dias. Depois de ativar: ROI de ontem (dia completo).">ROI<SortIcon k="last_roi" /></TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort("last_roi")} title="ROI de ontem (dia completo). Hoje ainda está em curso e fica desatualizado.">ROI ontem<SortIcon k="last_roi" /></TableHead>
                   <TableHead className="text-right">Delivery</TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("roi_trend")}>Tendência<SortIcon k="roi_trend" /></TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("days_in_standby")}>Standby<SortIcon k="days_in_standby" /></TableHead>
