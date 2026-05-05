@@ -147,10 +147,20 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         if (rows.length < 1000) break;
         s += 1000;
       }
-      const latestEval = all.reduce((max, r) => Math.max(max, new Date(r.last_evaluated_at ?? 0).getTime()), 0);
-      const latestCycleRows = latestEval > 0
-        ? all.filter((r) => latestEval - new Date(r.last_evaluated_at ?? 0).getTime() <= 10 * 60_000)
-        : all;
+      // Mantém o último ciclo POR SITE (em vez de um único max global), senão sites
+      // avaliados há mais tempo somem da esteira mesmo tendo placements bloqueados.
+      const latestBySite = new Map<string, number>();
+      for (const r of all) {
+        const k = r.site_id ?? "__none__";
+        const t = new Date(r.last_evaluated_at ?? 0).getTime();
+        if (t > (latestBySite.get(k) ?? 0)) latestBySite.set(k, t);
+      }
+      const latestCycleRows = all.filter((r) => {
+        const k = r.site_id ?? "__none__";
+        const latest = latestBySite.get(k) ?? 0;
+        if (latest === 0) return true;
+        return latest - new Date(r.last_evaluated_at ?? 0).getTime() <= 10 * 60_000;
+      });
       setRows(latestCycleRows);
       const { from, to } = rangeFromLookback(lookback);
       const campMap = new Map(campaigns.map((c) => [c.campaign_id, c]));
