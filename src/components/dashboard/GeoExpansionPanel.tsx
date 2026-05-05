@@ -170,7 +170,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: siteId, budget_multiplier: budgetMult, item: it },
+            body: { mode: "apply", site_id: siteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
           });
           if ((data as any)?.ok) ok++; else fail++;
         } catch { fail++; }
