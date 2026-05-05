@@ -162,15 +162,14 @@ async function previewLast7Days(admin: any, userId: string, campaignId: string) 
 }
 
 async function initFlow(admin: any, userId: string, userJwt: string | null, campaignId: string) {
-  // Bloqueia se já houver um fluxo ativo
+  // Se já houver fluxo ativo, reaplica a configuração inicial em vez de bloquear.
   const { data: existing } = await admin
     .from("campaign_restart_flow")
-    .select("id")
+    .select("id, stage, status")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
     .eq("status", "active")
     .maybeSingle();
-  if (existing) return { error: "Já existe um fluxo de reinício ativo para esta campanha" };
 
   // Resolve campanha + site + conta
   const { data: camp } = await admin
@@ -202,6 +201,22 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       last_action: "removed_for_restart",
       last_action_date: new Date().toISOString(),
     }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
+
+  if (existing) {
+    const { data: updated, error: updErr } = await admin
+      .from("campaign_restart_flow")
+      .update({
+        current_budget: INITIAL_BUDGET_BRL,
+        last_action: "init_reapply",
+        last_action_at: new Date().toISOString(),
+        notes: initialNotes,
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (updErr) return { error: updErr.message };
+    return { ok: true, flow: updated, applied: apply, reapplied: true };
+  }
 
   // Cria registro do fluxo
   const { data: inserted, error: insErr } = await admin
@@ -476,7 +491,7 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 3) Estratégia — tenta remover CPA/portfolio sem travar o reinício quando o Google bloqueia a troca.
+  // 3) Estratégia — sempre força Maximize Conversions sem CPA; se o Google bloquear, retorna erro.
   const bidding = await applyRestartBidding(ctx, campaignId, currentStrat);
   if (bidding.error) return { error: bidding.error };
 
@@ -497,28 +512,15 @@ async function applyRestartBidding(ctx: any, campaignId: string, currentStrat: s
     return { ok: false, label, json: j };
   };
 
-  // Target CPA moderno costuma aparecer como MAXIMIZE_CONVERSIONS com target_cpa_micros.
-  if (currentStrat === "MAXIMIZE_CONVERSIONS" || currentStrat === "TARGET_CPA") {
-    const clearTarget = await mutate("clear-target-cpa", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
-    if (clearTarget.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: clearTarget.label };
-  }
-
-  const direct = await mutate("direct-maximize-conversions", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+  // Para trocar/limpar subcampos, a API exige o subcampo mutável no updateMask, não só "maximize_conversions".
+  const direct = await mutate("direct-maximize-conversions-no-cpa", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
   if (direct.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: direct.label };
 
   // Portfolio: primeiro solta o bidding_strategy compartilhado, depois tenta aplicar a estratégia standard.
   const clearPortfolio = await mutate("clear-portfolio", { resourceName: baseRN }, "bidding_strategy");
   if (clearPortfolio.ok) {
-    const afterClear = await mutate("set-maximize-after-clear", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+    const afterClear = await mutate("set-maximize-after-clear-no-cpa", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
     if (afterClear.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: afterClear.label };
-
-    const clearTargetAfter = await mutate("clear-target-after-portfolio", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
-    if (clearTargetAfter.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: clearTargetAfter.label };
-  }
-
-  // Se for Target CPA e o Google não aceitar a troca, não bloqueia o reinício: orçamento/remoção da automação continuam.
-  if (currentStrat === "TARGET_CPA") {
-    return { ok: true, strategy: "TARGET_CPA", variant: "kept-google-blocked-switch", warning: errors.join(" || ").slice(0, 1200) };
   }
 
   return { error: `bidding switch (atual: ${currentStrat}): ${errors.join(" || ").slice(0, 1500)}` };
