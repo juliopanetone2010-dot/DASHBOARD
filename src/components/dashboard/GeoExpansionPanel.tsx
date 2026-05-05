@@ -374,6 +374,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
                     <TableHead className="text-right">Custo origem</TableHead>
                     <TableHead className="text-right">Budget novo</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
