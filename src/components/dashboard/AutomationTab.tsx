@@ -75,11 +75,18 @@ export function AutomationTab() {
       const st = String((c as any).status ?? "").toLowerCase();
       if (st === "enabled" || st === "active") activeIds.add(cid);
     }
+    const todayMap: Record<string, number | null> = {};
+    for (const m of todayMetrics ?? []) {
+      const spend = Number((m as any).spend ?? 0);
+      const grossRevBrl = spend + Number((m as any).profit ?? 0);
+      todayMap[String((m as any).campaign_id)] = spend > 0 ? (((grossRevBrl * NET_FACTOR) - spend) / spend) * 100 : null;
+    }
     setCampMeta(meta);
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id || "(sem nome)" })));
     setSites((sts ?? []).map((s: any) => ({ id: s.id, name: s.name })));
     setLinks((lks ?? []) as any);
     setSiteAutomation((sac ?? []) as any[]);
+    setTodayRoiByCampaign(todayMap);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
