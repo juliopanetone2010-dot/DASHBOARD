@@ -387,7 +387,18 @@ async function duplicateCampaign(
   // 1) Lê config completa da campanha origem
   const campQuery = `
     SELECT campaign.id, campaign.name, campaign.advertising_channel_type,
-           campaign.advertising_channel_sub_type, campaign.bidding_strategy_type,
+           campaign.advertising_channel_sub_type, campaign.bidding_strategy,
+           campaign.bidding_strategy_type,
+           campaign.manual_cpc.enhanced_cpc_enabled,
+           campaign.maximize_conversions.target_cpa_micros,
+           campaign.maximize_conversion_value.target_roas,
+           campaign.target_cpa.target_cpa_micros,
+           campaign.target_roas.target_roas,
+           campaign.target_spend.target_spend_micros,
+           campaign.target_spend.cpc_bid_ceiling_micros,
+           campaign.target_impression_share.location,
+           campaign.target_impression_share.location_fraction_micros,
+           campaign.target_impression_share.cpc_bid_ceiling_micros,
            campaign.start_date, campaign.end_date,
            campaign.contains_eu_political_advertising,
            campaign.tracking_url_template, campaign.final_url_suffix,
@@ -423,8 +434,8 @@ async function duplicateCampaign(
   const STANDARD_FINAL_URL_SUFFIX =
     "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
 
-  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial.
-  const biddingType: string = "MAXIMIZE_CONVERSIONS";
+  const biddingType: string = cRow.campaign?.biddingStrategyType ?? "UNKNOWN";
+  const biddingConfig = buildCampaignBidding(cRow.campaign ?? {});
   const newBudgetMicros = 30_000_000;
 
   if (channelType === "PERFORMANCE_MAX") {
