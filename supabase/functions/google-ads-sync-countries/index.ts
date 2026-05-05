@@ -12,6 +12,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
+    const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
@@ -26,11 +27,26 @@ Deno.serve(async (req) => {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate), to = iso(toDate);
 
-    const { data: camps } = await admin
+    const { data: campsRaw } = await admin
       .from("campaigns")
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
+    let camps = campsRaw ?? [];
+    if (siteId) {
+      const { data: siteCampaigns } = await admin
+        .from("gam_placement_revenue")
+        .select("campaign_id")
+        .eq("user_id", userId)
+        .eq("site_id", siteId)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      const allowedCampaigns = new Set((siteCampaigns ?? [])
+        .map((r: any) => String(r.campaign_id ?? ""))
+        .filter((id) => id && id !== "__aggregate__"));
+      camps = camps.filter((c: any) => allowedCampaigns.has(String(c.campaign_id)));
+    }
 
     const byAccount = new Map<string, { ids: string[]; }>();
     const campMeta = new Map<string, { name: string; google_account_id: string }>();
