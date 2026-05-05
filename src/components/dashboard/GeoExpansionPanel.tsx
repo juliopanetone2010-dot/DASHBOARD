@@ -105,7 +105,14 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         },
       });
       if (error || (data as any)?.error) {
-        toast({ title: "Falha ao duplicar", description: (data as any)?.error ?? error?.message, variant: "destructive" });
+        const dbg = (data as any)?.debug;
+        if (dbg) console.error("[geo-expansion] debug:", dbg);
+        const desc = (data as any)?.error ?? error?.message;
+        toast({
+          title: "Falha ao duplicar",
+          description: dbg ? `${desc} — detalhes no console (F12)` : desc,
+          variant: "destructive",
+        });
         return;
       }
       toast({

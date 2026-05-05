@@ -337,12 +337,19 @@ async function duplicateCampaign(
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
   const apiBase = `https://googleads.googleapis.com/v21/customers/${acc.customer_id}`;
 
-  // 1) Lê config da campanha origem
+  // 1) Lê config completa da campanha origem
   const campQuery = `
     SELECT campaign.id, campaign.name, campaign.advertising_channel_type,
            campaign.advertising_channel_sub_type, campaign.bidding_strategy_type,
-           campaign.target_cpa.target_cpa_micros, campaign.target_roas.target_roas,
-           campaign.maximize_conversions.target_cpa_micros,
+           campaign.start_date, campaign.end_date,
+           campaign.tracking_url_template, campaign.final_url_suffix,
+           campaign.url_custom_parameters,
+           campaign.network_settings.target_google_search,
+           campaign.network_settings.target_search_network,
+           campaign.network_settings.target_content_network,
+           campaign.network_settings.target_partner_search_network,
+           campaign.geo_target_type_setting.positive_geo_target_type,
+           campaign.geo_target_type_setting.negative_geo_target_type,
            campaign.campaign_budget, campaign_budget.amount_micros,
            campaign_budget.delivery_method
     FROM campaign
@@ -352,24 +359,37 @@ async function duplicateCampaign(
     method: "POST", headers, body: JSON.stringify({ query: campQuery }),
   });
   const cJson = await cRes.json();
-  if (!cRes.ok) return { error: `read campaign: ${JSON.stringify(cJson)}` };
+  if (!cRes.ok) return { error: `read campaign: ${extractError(cJson)}`, debug: { step: "read_campaign", response: cJson } };
   const cRow = (cJson.results ?? [])[0];
   if (!cRow) return { error: "Campanha não encontrada no Google Ads" };
 
   const channelType: string = cRow.campaign?.advertisingChannelType ?? "DISPLAY";
   const channelSubType: string | undefined = cRow.campaign?.advertisingChannelSubType;
-  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial (fase de aprendizado limpa).
-  const biddingType: string = "MAXIMIZE_CONVERSIONS";
-  const targetCpaMicros: string | undefined = undefined;
-  const targetRoas: number | undefined = undefined;
+  const sourceNetwork = cRow.campaign?.networkSettings ?? {};
+  const sourceGeoSetting = cRow.campaign?.geoTargetTypeSetting;
+  const sourceTrackingTemplate: string | undefined = cRow.campaign?.trackingUrlTemplate;
+  const sourceFinalUrlSuffix: string | undefined = cRow.campaign?.finalUrlSuffix;
   const sourceBudgetMicros = Number(cRow.campaignBudget?.amountMicros ?? 0);
-  // Orçamento fixo: R$ 30/dia (baixo risco). budget_multiplier do body é ignorado para winner.
+  // UTMs padrão exigidas pelo usuário
+  const STANDARD_FINAL_URL_SUFFIX =
+    "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
+
+  // Winner sempre nasce com Maximizar Conversões SEM CPA inicial.
+  const biddingType: string = "MAXIMIZE_CONVERSIONS";
   const newBudgetMicros = 30_000_000;
 
-  // PMax e algumas Display campaigns têm sub-types e assets que não conseguimos clonar 100%.
-  // Bloqueamos PMax explicitamente.
   if (channelType === "PERFORMANCE_MAX") {
     return { error: "Campanhas Performance Max não são suportadas para duplicação automática (assets/asset groups requerem cópia manual)." };
+  }
+
+  // Validação de campos obrigatórios — para ajudar debug
+  const missing: string[] = [];
+  if (!acc.customer_id) missing.push("customer_id");
+  if (!campRow.name) missing.push("campaign.name (origem)");
+  if (!channelType) missing.push("advertising_channel_type");
+  if (!item.country_criterion_id) missing.push("country_criterion_id");
+  if (missing.length > 0) {
+    return { error: `Campos obrigatórios ausentes: ${missing.join(", ")}`, debug: { missing } };
   }
 
   const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER`;
@@ -392,38 +412,45 @@ async function duplicateCampaign(
     method: "POST", headers, body: JSON.stringify(budgetMutate),
   });
   const bJson = await bRes.json();
-  if (!bRes.ok) return { error: `budget create: ${extractError(bJson)}` };
+  if (!bRes.ok) return { error: `budget create: ${extractError(bJson)}`, debug: { step: "budget_create", payload: budgetMutate, response: bJson } };
   const newBudgetResource = bJson.results?.[0]?.resourceName;
-  if (!newBudgetResource) return { error: "budget create: resourceName ausente" };
+  if (!newBudgetResource) return { error: "budget create: resourceName ausente", debug: bJson };
 
-  // 3) Cria campanha PAUSED
+  // 3) Monta campanha PAUSED — copia network_settings da origem (obrigatório)
+  const networkSettings = {
+    targetGoogleSearch: sourceNetwork.targetGoogleSearch ?? (channelType === "SEARCH"),
+    targetSearchNetwork: sourceNetwork.targetSearchNetwork ?? false,
+    targetContentNetwork: sourceNetwork.targetContentNetwork ?? (channelType === "DISPLAY"),
+    targetPartnerSearchNetwork: sourceNetwork.targetPartnerSearchNetwork ?? false,
+  };
+
+  const today = new Date();
+  const startDate = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+
   const campCreate: any = {
     resourceName: `customers/${acc.customer_id}/campaigns/${tempCampaignId}`,
     name: newName,
     status: "PAUSED",
     advertisingChannelType: channelType,
     campaignBudget: newBudgetResource,
-    networkSettings: {
-      targetGoogleSearch: channelType === "SEARCH",
-      targetSearchNetwork: channelType === "SEARCH",
-      targetContentNetwork: channelType === "DISPLAY" || channelType === "SEARCH",
-      targetPartnerSearchNetwork: false,
-    },
+    networkSettings,
+    startDate,
+    finalUrlSuffix: sourceFinalUrlSuffix && sourceFinalUrlSuffix.length > 0 ? sourceFinalUrlSuffix : STANDARD_FINAL_URL_SUFFIX,
   };
-  if (channelSubType) campCreate.advertisingChannelSubType = channelSubType;
-
-  // Bidding
-  if (biddingType === "TARGET_CPA" && targetCpaMicros) {
-    campCreate.targetCpa = { targetCpaMicros: String(targetCpaMicros) };
-  } else if (biddingType === "TARGET_ROAS" && targetRoas) {
-    campCreate.targetRoas = { targetRoas };
-  } else if (biddingType === "MAXIMIZE_CONVERSIONS") {
-    campCreate.maximizeConversions = targetCpaMicros ? { targetCpaMicros: String(targetCpaMicros) } : {};
-  } else if (biddingType === "MAXIMIZE_CONVERSION_VALUE") {
-    campCreate.maximizeConversionValue = targetRoas ? { targetRoas } : {};
-  } else {
-    campCreate.maximizeConversions = {};
+  if (sourceTrackingTemplate) campCreate.trackingUrlTemplate = sourceTrackingTemplate;
+  // sub-type: só copia se for um valor válido em criação (alguns são read-only)
+  if (channelSubType && !["DISPLAY_SMART_CAMPAIGN", "DISPLAY_MOBILE_APP"].includes(channelSubType)) {
+    campCreate.advertisingChannelSubType = channelSubType;
   }
+  if (sourceGeoSetting) {
+    campCreate.geoTargetTypeSetting = {
+      positiveGeoTargetType: sourceGeoSetting.positiveGeoTargetType ?? "PRESENCE_OR_INTEREST",
+      negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
+    };
+  }
+
+  // Bidding — Winner = MAXIMIZE_CONVERSIONS sem CPA
+  campCreate.maximizeConversions = {};
 
   const campMutate = { operations: [{ create: campCreate }] };
   const ccRes = await fetch(`${apiBase}/campaigns:mutate`, {
@@ -431,7 +458,24 @@ async function duplicateCampaign(
   });
   const ccJson = await ccRes.json();
   if (!ccRes.ok) {
-    return { error: `campaign create: ${extractError(ccJson)}` };
+    console.error("[geo-expansion] campaign create failed", JSON.stringify(ccJson));
+    return {
+      error: `campaign create: ${extractError(ccJson)}`,
+      debug: {
+        step: "campaign_create",
+        customer_id: acc.customer_id,
+        source_campaign_id: item.campaign_id,
+        new_name: newName,
+        budget_resource_name: newBudgetResource,
+        channel_type: channelType,
+        channel_sub_type: channelSubType,
+        bidding_strategy: biddingType,
+        geo_target: item.country_criterion_id,
+        status: "PAUSED",
+        payload: campCreate,
+        response: ccJson,
+      },
+    };
   }
   const newCampaignResource: string = ccJson.results?.[0]?.resourceName;
   const newCampaignId = newCampaignResource.split("/").pop()!;
