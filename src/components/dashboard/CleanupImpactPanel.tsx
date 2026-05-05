@@ -164,7 +164,7 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
-  useEffect(() => { load(); }, [filters.siteId, windowDays]);
+  useEffect(() => { load(); }, [effectiveSiteId, windowDays]);
 
   const summary = useMemo(() => {
     let up = 0, down = 0, neutral = 0, pending = 0;
