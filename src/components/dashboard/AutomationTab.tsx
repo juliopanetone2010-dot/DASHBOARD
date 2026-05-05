@@ -55,8 +55,11 @@ export function AutomationTab() {
 
   const load = async () => {
     setLoading(true);
-    const today = new Date().toISOString().slice(0, 10);
-    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }, { data: todayMetrics }] = await Promise.all([
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86400_000);
+    const start15 = new Date(today.getTime() - 15 * 86400_000);
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }, { data: rangeMetrics }] = await Promise.all([
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
@@ -65,7 +68,7 @@ export function AutomationTab() {
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
       supabase.from("site_automation_config").select("*"),
-      supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit").eq("date", today).limit(5000),
+      supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit, date").gte("date", ymd(start15)).limit(20000),
     ]);
     const meta: Record<string, { name: string; google_account_id: string | null }> = {};
     const activeIds = new Set<string>();
@@ -75,11 +78,31 @@ export function AutomationTab() {
       const st = String((c as any).status ?? "").toLowerCase();
       if (st === "enabled" || st === "active") activeIds.add(cid);
     }
+    // Determina quais (account_id) têm automação ativa em algum site → usa "ROI ontem"
+    const automationActiveAccounts = new Set<string>(
+      ((sac ?? []) as any[]).filter((r) => r.automation_enabled).map((r) => String(r.google_account_id)),
+    );
+    // Agrega métricas: por campanha, soma 15d e isola o dia de ontem
+    const aggBy: Record<string, { spend15: number; profit15: number; spendY: number; profitY: number }> = {};
+    const yIso = ymd(yesterday);
+    for (const m of rangeMetrics ?? []) {
+      const cid = String((m as any).campaign_id);
+      const sp = Number((m as any).spend ?? 0);
+      const pr = Number((m as any).profit ?? 0);
+      const acc = aggBy[cid] ?? (aggBy[cid] = { spend15: 0, profit15: 0, spendY: 0, profitY: 0 });
+      acc.spend15 += sp; acc.profit15 += pr;
+      if ((m as any).date === yIso) { acc.spendY += sp; acc.profitY += pr; }
+    }
     const todayMap: Record<string, number | null> = {};
-    for (const m of todayMetrics ?? []) {
-      const spend = Number((m as any).spend ?? 0);
-      const grossRevBrl = spend + Number((m as any).profit ?? 0);
-      todayMap[String((m as any).campaign_id)] = spend > 0 ? (((grossRevBrl * NET_FACTOR) - spend) / spend) * 100 : null;
+    for (const cid of Object.keys(aggBy)) {
+      const a = aggBy[cid];
+      const acctId = meta[cid]?.google_account_id;
+      const isActive = acctId && automationActiveAccounts.has(String(acctId));
+      const useY = isActive;
+      const spend = useY ? a.spendY : a.spend15;
+      const profit = useY ? a.profitY : a.profit15;
+      const grossRev = spend + profit;
+      todayMap[cid] = spend > 0 ? (((grossRev * NET_FACTOR) - spend) / spend) * 100 : null;
     }
     setCampMeta(meta);
     setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id || "(sem nome)" })));
