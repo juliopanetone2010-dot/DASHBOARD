@@ -1412,6 +1412,17 @@ function extractError(j: any): string {
   return j?.error?.details?.[0]?.errors?.[0]?.message ?? j?.error?.message ?? JSON.stringify(j);
 }
 
+function compactGoogleAdsError(j: any) {
+  if (!Array.isArray(j)) return j;
+  return j.map((item: any) => ({
+    code: item?.error?.code,
+    status: item?.error?.status,
+    message: item?.error?.message,
+    requestId: item?.error?.details?.[0]?.requestId,
+    errors: item?.error?.details?.[0]?.errors,
+  }));
+}
+
 function chunkArr<T>(arr: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
