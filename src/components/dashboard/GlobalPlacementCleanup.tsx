@@ -57,7 +57,7 @@ interface PreviewStats {
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
-  const { filters, range } = useDashboardFilters();
+  const { filters, range, selectSite } = useDashboardFilters();
   // Janela efetiva selecionada no dashboard (em dias, inclusive)
   const analysisWindowDays = Math.max(
     1,
