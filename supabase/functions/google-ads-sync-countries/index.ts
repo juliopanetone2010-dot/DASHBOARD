@@ -222,6 +222,52 @@ async function getToken(refreshToken: string, cache: Map<string, string>) {
   return j.access_token as string;
 }
 
+async function resolveGeoTargets(
+  ids: string[],
+  accounts: any[],
+  tokenCache: Map<string, string>,
+  resolved: Map<string, { code: string; name: string }>,
+) {
+  const cleanIds = [...new Set(ids.map((id) => id.replace(/\D/g, "")).filter(Boolean))];
+  if (cleanIds.length === 0) return;
+  const q = `
+    SELECT geo_target_constant.id, geo_target_constant.name,
+           geo_target_constant.country_code, geo_target_constant.target_type
+    FROM geo_target_constant
+    WHERE geo_target_constant.resource_name IN (${cleanIds.map((id) => `'geoTargetConstants/${id}'`).join(",")})
+  `;
+  for (const acc of accounts) {
+    if (!acc?.refresh_token || !acc?.customer_id) continue;
+    try {
+      const token = await getToken(acc.refresh_token, tokenCache);
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+        "Content-Type": "application/json",
+      };
+      if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+      const rr = await fetch(
+        `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+        { method: "POST", headers, body: JSON.stringify({ query: q }) },
+      );
+      const jj = await rr.json();
+      if (!rr.ok) {
+        console.error("[sync-countries] geo_target_constant resolve error", JSON.stringify(jj));
+        continue;
+      }
+      for (const row of jj.results ?? []) {
+        const gid = String(row.geoTargetConstant?.id ?? "");
+        const name = String(row.geoTargetConstant?.name ?? "");
+        const code = String(row.geoTargetConstant?.countryCode ?? "ZZ");
+        if (gid && name) resolved.set(gid, { code, name });
+      }
+      if (cleanIds.every((id) => resolved.has(id))) return;
+    } catch (e) {
+      console.error("[sync-countries] geo resolve threw", e);
+    }
+  }
+}
+
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
