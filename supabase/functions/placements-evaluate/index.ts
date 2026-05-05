@@ -476,12 +476,13 @@ function allocateRevenueUsdByPlacement(
   for (const [cid, revenues] of revByCampaign) {
     const ads = adsByCampaign.get(cid) ?? [];
     if (ads.length === 0) continue;
+    const indexes = buildPlacementIndexes(ads);
     const claimed = new Set<string>();
     let unmatchedUsd = 0;
     for (const [rawPlacement, usd] of revenues) {
       if (usd <= 0) continue;
       const revPlacement = normalize(rawPlacement);
-      const matches = ads.filter((a) => !claimed.has(a.placement) && placementMatches(a.placement, revPlacement));
+      const matches = findPlacementMatches(revPlacement, indexes).filter((a) => !claimed.has(a.placement));
       if (matches.length === 0) { unmatchedUsd += usd; continue; }
       const targets = matches;
       if (targets.length === 0) continue;
