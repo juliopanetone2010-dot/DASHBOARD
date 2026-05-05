@@ -153,14 +153,17 @@ Deno.serve(async (req) => {
     for (const chunk of chunkArr(eligibleIds, 50)) {
       let start = 0;
       for (;;) {
-        const { data, error } = await admin
+        // CRÍTICO multi-site: filtrar por site_id quando definido para não misturar
+        // receita de outros sites que usem a mesma conta Ads.
+        let gamQuery = admin
           .from("gam_placement_revenue")
           .select("campaign_id, placement, revenue_usd")
           .eq("user_id", userId)
           .in("campaign_id", chunk)
           .gte("date", from)
-          .lte("date", to)
-          .range(start, start + 999);
+          .lte("date", to);
+        if (siteId) gamQuery = gamQuery.eq("site_id", siteId);
+        const { data, error } = await gamQuery.range(start, start + 999);
         if (error) return json({ error: error.message });
         const rows = (data ?? []) as GamRow[];
         gam.push(...rows);
@@ -169,12 +172,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    const revByCampPlacement = new Map<string, number>();
+    // Agrupa receita GAM por (campaign, placement-normalizado)
+    const revByCampaign = new Map<string, Map<string, number>>();
     for (const g of gam) {
       const placement = normalize(g.placement);
       if (!placement) continue;
-      const key = cpKey(String(g.campaign_id), placement);
-      revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cid = String(g.campaign_id);
+      const inner = revByCampaign.get(cid) ?? new Map<string, number>();
+      inner.set(placement, (inner.get(placement) ?? 0) + Number(g.revenue_usd ?? 0));
+      revByCampaign.set(cid, inner);
     }
 
     // Placements já excluídos não devem voltar no próximo preview/limpeza.
