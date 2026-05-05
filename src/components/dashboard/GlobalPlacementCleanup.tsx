@@ -303,7 +303,21 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Site
+          <select
+            className="h-6 text-xs rounded border border-border bg-background px-2"
+            value={filters.siteId || "all"}
+            onChange={(e) => handleSiteChange(e.target.value)}
+          >
+            <option value="all">Todos os sites</option>
+            {sites.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+          </select>
+        </label>
+        <span className="text-[11px] text-muted-foreground">
+          Contas Ads vinculadas: <Badge variant="outline" className="text-[10px]">{filters.googleAccountIds?.length ?? 0}</Badge>
+        </span>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
