@@ -226,9 +226,62 @@ Deno.serve(async (req) => {
       if (!c.app_id && r.app_id) c.app_id = r.app_id;
     }
 
+    // Aloca receita GAM aos placements Ads — exato → root → prefixo compactado;
+    // sobra distribui proporcional ao custo (fallback "campanha").
+    type AdsAgg = { campaign_id: string; placement: string; cost: number; clicks: number };
+    const adsByCampaign = new Map<string, AdsAgg[]>();
+    for (const v of cpAgg.values()) {
+      const list = adsByCampaign.get(v.campaign_id) ?? [];
+      list.push({ campaign_id: v.campaign_id, placement: v.placement, cost: v.cost, clicks: v.clicks });
+      adsByCampaign.set(v.campaign_id, list);
+    }
+    const revenueUsdByCp = new Map<string, number>();
+    let totalGamUsd = 0;
+    let attributedGamUsd = 0;
+    for (const [cid, revenues] of revByCampaign) {
+      const ads = adsByCampaign.get(cid) ?? [];
+      for (const usd of revenues.values()) totalGamUsd += usd;
+      if (ads.length === 0) continue;
+      const indexes = buildPlacementIndexes(ads);
+      const claimed = new Set<string>();
+      let unmatchedUsd = 0;
+      for (const [rawPlacement, usd] of revenues) {
+        if (usd <= 0) continue;
+        const matches = findPlacementMatches(normalize(rawPlacement), indexes).filter((a) => !claimed.has(a.placement));
+        if (matches.length === 0) { unmatchedUsd += usd; continue; }
+        const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = matches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = usd / matches.length;
+        for (const a of matches) {
+          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+          const share = weight > 0 ? usd * weight : equalShare;
+          const key = cpKey(cid, a.placement);
+          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+          attributedGamUsd += share;
+          claimed.add(a.placement);
+        }
+      }
+      if (unmatchedUsd > 0) {
+        // Fallback: distribui proporcional ao custo entre placements ainda sem match
+        const targets = ads.filter((a) => !claimed.has(a.placement));
+        const fallback = targets.length > 0 ? targets : ads;
+        const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = unmatchedUsd / fallback.length;
+        for (const a of fallback) {
+          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+          const share = weight > 0 ? unmatchedUsd * weight : equalShare;
+          const key = cpKey(cid, a.placement);
+          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+          attributedGamUsd += share;
+        }
+      }
+    }
+
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
+    let withMatch = 0, withoutMatch = 0;
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
       if (!meta) continue;
@@ -238,11 +291,12 @@ Deno.serve(async (req) => {
       }
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
 
-      const root = rootDomain(v.placement);
-      const usdFull = revByCampPlacement.get(cpKey(v.campaign_id, v.placement)) ?? 0;
-      const usdRoot = root && root !== v.placement ? (revByCampPlacement.get(cpKey(v.campaign_id, root)) ?? 0) : 0;
-      const revenueUsd = usdFull > 0 ? usdFull : usdRoot;
-      const matched = revenueUsd > 0;
+      const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
+      // "matched" = teve algum match real (exato/root/prefixo) — checa se houve receita direta
+      const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
+      const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
+      const matched = directUsd > 0 || rootUsd > 0 || revenueUsd > 0;
+      if (matched) withMatch++; else withoutMatch++;
       const revenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
       const profitBrl = revenueBrl - v.cost;
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
