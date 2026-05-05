@@ -299,6 +299,7 @@ Deno.serve(async (req) => {
 // ===== Duplicate campaign =====
 async function duplicateCampaign(
   admin: any, userId: string, item: ApplyItem, budgetMultiplier: number, siteId: string | null,
+  startStatus: "PAUSED" | "ENABLED" = "PAUSED",
 ) {
   // Carrega conta
   const { data: acc } = await admin
