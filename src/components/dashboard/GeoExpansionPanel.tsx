@@ -137,6 +137,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
           mode: "apply",
           site_id: siteId,
           budget_multiplier: budgetMult,
+          start_status: startEnabled ? "ENABLED" : "PAUSED",
           item: it,
         },
       });
@@ -152,7 +153,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         return;
       }
       toast({
-        title: "Campanha criada (PAUSED)",
+        title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
         description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
