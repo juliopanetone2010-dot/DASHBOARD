@@ -475,6 +475,7 @@ async function duplicateCampaign(
         channel_type: channelType,
         channel_sub_type: channelSubType,
         bidding_strategy: biddingType,
+        contains_eu_political_advertising: euPoliticalStatus,
         geo_target: item.country_criterion_id,
         status: "PAUSED",
         payload: campCreate,
