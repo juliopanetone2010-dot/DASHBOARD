@@ -56,8 +56,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [created, setCreated] = useState<CreatedLog[]>([]);
   const [loadingCreated, setLoadingCreated] = useState(false);
   const [tab, setTab] = useState<"winners" | "created">("winners");
-  const [startEnabled, setStartEnabled] = useState(false);
-
   const [enabled, setEnabled] = useState(false);
   const [minRoi, setMinRoi] = useState(25);
   const [minCampCost, setMinCampCost] = useState(500);
@@ -65,7 +63,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [minCountries, setMinCountries] = useState(3);
   const [lookback, setLookback] = useState(7);
   const [interval, setIntervalDays] = useState(7);
-  const [budgetMult, setBudgetMult] = useState(0.5);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [analysisSiteId, setAnalysisSiteId] = useState<string>(siteId ?? "all");
@@ -93,7 +90,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         setMinCountries(Number(data.geo_expansion_min_countries ?? 3));
         setLookback(Number(data.geo_expansion_lookback_days ?? 7));
         setIntervalDays(Number(data.geo_expansion_interval_days ?? 7));
-        setBudgetMult(Number(data.geo_expansion_budget_multiplier ?? 0.5));
         setLastRun(data.geo_expansion_last_run_at ?? null);
       }
     })();
@@ -171,8 +167,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         body: {
           mode: "apply",
           site_id: activeSiteId,
-          budget_multiplier: budgetMult,
-          start_status: startEnabled ? "ENABLED" : "PAUSED",
+          start_status: "PAUSED",
           item: it,
         },
       });
@@ -191,7 +186,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       if (dbg) console.info("[geo-expansion] clone debug:", dbg);
       const devices = ((data as any)?.active_devices ?? dbg?.cloned?.active_devices ?? []).join("/") || "dispositivos copiados";
       toast({
-        title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
+        title: "Campanha criada (PAUSED)",
         description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads • ${(data as any)?.assets_cloned ?? 0} assets • ${devices}`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
@@ -212,7 +207,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
+            body: { mode: "apply", site_id: activeSiteId, start_status: "PAUSED", item: it },
           });
           if ((data as any)?.debug) console.info("[geo-expansion] clone debug:", (data as any).debug);
           if ((data as any)?.ok) ok++; else fail++;
@@ -285,14 +280,13 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Field label="ROI mín. (%)" value={minRoi} onBlur={(v) => { setMinRoi(v); persist({ geo_expansion_min_roi_pct: v }); }} />
         <Field label="Custo mín. campanha (R$)" value={minCampCost} onBlur={(v) => { setMinCampCost(v); persist({ geo_expansion_min_campaign_cost_brl: v }); }} />
         <Field label="Custo mín. país (R$)" value={minCountryCost} onBlur={(v) => { setMinCountryCost(v); persist({ geo_expansion_min_country_cost_brl: v }); }} />
         <Field label="Mín. países" value={minCountries} onBlur={(v) => { setMinCountries(v); persist({ geo_expansion_min_countries: v }); }} />
         <Field label="Janela (dias)" value={lookback} onBlur={(v) => { setLookback(v); persist({ geo_expansion_lookback_days: v }); }} />
         <Field label="Intervalo cron (dias)" value={interval} onBlur={(v) => { setIntervalDays(v); persist({ geo_expansion_interval_days: v }); }} />
-        <Field label="Multiplicador budget" value={budgetMult} step={0.05} onBlur={(v) => { setBudgetMult(v); persist({ geo_expansion_budget_multiplier: v }); }} />
       </div>
 
       <div className="flex items-center gap-1 border-b border-border">
@@ -396,10 +390,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
               {loadingCreated ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Atualizar
             </Button>
-            <label className="flex items-center gap-2 text-xs ml-2">
-              <Switch checked={startEnabled} onCheckedChange={setStartEnabled} />
-              <span>Criar já <strong>ATIVA</strong> (ENABLED)</span>
-            </label>
             <span className="text-xs text-muted-foreground ml-auto">
               Histórico de winners duplicadas. Clique em <strong>Ativar</strong> para ligar uma campanha pausada.
             </span>
