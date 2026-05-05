@@ -155,6 +155,8 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
+      await loadCreated();
+      setTab("created");
     } finally { setCreatingKey(null); }
   };
 
