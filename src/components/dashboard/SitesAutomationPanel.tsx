@@ -185,28 +185,35 @@ export function SitesAutomationPanel({ userId }: { userId: string | null }) {
               <div className="hidden md:block min-w-[280px] text-right">
                 {row.enabled && row.enabledAt ? (
                   impact ? (
-                    <div className="space-y-0.5">
+                    impact.days === 0 ? (
                       <div className="text-xs text-muted-foreground">
-                        Receita 7d antes: <span className="font-mono">{fmtBRL(impact.before)}</span>
+                        Aguardando 1º dia completo de dados…
+                        <div className="text-[10px]">Ativada em {row.enabledAt.toLocaleDateString("pt-BR")}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Receita 7d depois: <span className="font-mono">{fmtBRL(impact.after)}</span>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <div className="text-xs text-muted-foreground">
+                          Receita {impact.days}d antes: <span className="font-mono">{fmtBRL(impact.before)}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Receita {impact.days}d depois: <span className="font-mono">{fmtBRL(impact.after)}</span>
+                        </div>
+                        <div className={cn(
+                          "text-sm font-semibold flex items-center justify-end gap-1",
+                          positive && "text-success",
+                          negative && "text-destructive",
+                          neutral && "text-muted-foreground",
+                        )}>
+                          {positive && <TrendingUp className="h-3.5 w-3.5" />}
+                          {negative && <TrendingDown className="h-3.5 w-3.5" />}
+                          {neutral && <Minus className="h-3.5 w-3.5" />}
+                          {positive ? "+" : ""}{fmtBRL(delta)} ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {impact.ongoing ? "Resultado consolidado (7d)" : `Parcial — ${impact.days}/7 dias`}
+                        </div>
                       </div>
-                      <div className={cn(
-                        "text-sm font-semibold flex items-center justify-end gap-1",
-                        positive && "text-success",
-                        negative && "text-destructive",
-                        neutral && "text-muted-foreground",
-                      )}>
-                        {positive && <TrendingUp className="h-3.5 w-3.5" />}
-                        {negative && <TrendingDown className="h-3.5 w-3.5" />}
-                        {neutral && <Minus className="h-3.5 w-3.5" />}
-                        {positive ? "+" : ""}{fmtBRL(delta)} ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {impact.ongoing ? "Resultado consolidado (>7d)" : `Parcial — ${impact.days}/7 dias`}
-                      </div>
-                    </div>
+                    )
                   ) : (
                     <span className="text-xs text-muted-foreground">Calculando impacto…</span>
                   )
