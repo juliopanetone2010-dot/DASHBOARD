@@ -172,20 +172,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Receita por (camp, date)
+    // Receita por (camp, date) — mesma fórmula do dashboard:
+    // gross_rev_brl = spend + profit ; net_rev_brl = gross_rev_brl * NET_FACTOR
+    // (não usar daily_metrics.revenue — esse campo está dessincronizado)
     type DailyRow = { campaign_id: string; date: string; revenue: number };
     const dailyRows: DailyRow[] = [];
     for (const chunk of chunkArr(campIds, 200)) {
       const { data } = await admin
         .from("daily_metrics")
-        .select("campaign_id, date, revenue")
+        .select("campaign_id, date, spend, profit")
         .eq("user_id", userId)
         .in("campaign_id", chunk)
         .gte("date", from)
         .lte("date", to)
         .limit(50000);
       for (const r of data ?? []) {
-        dailyRows.push({ campaign_id: String(r.campaign_id), date: String(r.date), revenue: Number(r.revenue) || 0 });
+        const gross = (Number(r.spend) || 0) + (Number(r.profit) || 0);
+        dailyRows.push({ campaign_id: String(r.campaign_id), date: String(r.date), revenue: gross });
       }
     }
 
