@@ -65,10 +65,12 @@ Deno.serve(async (req) => {
     // ===== APPLY: duplica uma campanha específica =====
     if (mode === "apply") {
       const item = body?.item as ApplyItem | undefined;
+      const startStatus: "PAUSED" | "ENABLED" =
+        String(body?.start_status ?? "PAUSED").toUpperCase() === "ENABLED" ? "ENABLED" : "PAUSED";
       if (!item?.campaign_id || !item?.country_criterion_id || !item?.google_account_id) {
         return json({ error: "item inválido (campaign_id, google_account_id, country_criterion_id obrigatórios)" });
       }
-      const result = await duplicateCampaign(admin, userId!, item, budgetMultiplier, siteId);
+      const result = await duplicateCampaign(admin, userId!, item, budgetMultiplier, siteId, startStatus);
       return json(result);
     }
 
