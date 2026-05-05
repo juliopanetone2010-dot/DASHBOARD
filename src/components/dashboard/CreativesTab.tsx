@@ -42,7 +42,7 @@ type SortKey = "cost" | "revenue" | "roi" | "clicks" | "impressions";
 
 interface AdAgg {
   campaign_id: string;
-  ad_group_id: string;
+  ad_group_name: string;
   ad_id: string;
   ad_name: string;
   ad_type: string;
