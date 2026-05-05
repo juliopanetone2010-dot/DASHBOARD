@@ -187,9 +187,11 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         });
         return;
       }
+      const dbg = (data as any)?.debug;
+      if (dbg) console.info("[geo-expansion] clone debug:", dbg);
       toast({
         title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
-        description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads`,
+        description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads • ${(data as any)?.assets_cloned ?? 0} assets`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
       await loadCreated();
@@ -211,6 +213,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
           const { data } = await supabase.functions.invoke("geo-expansion", {
             body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
           });
+          if ((data as any)?.debug) console.info("[geo-expansion] clone debug:", (data as any).debug);
           if ((data as any)?.ok) ok++; else fail++;
         } catch { fail++; }
       }
