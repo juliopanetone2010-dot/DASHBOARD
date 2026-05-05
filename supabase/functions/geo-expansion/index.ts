@@ -1082,6 +1082,7 @@ async function readAdGroupAssets(apiBase: string, headers: Record<string, string
 }
 
 function summarizeCampaignCriteria(rows: any[]) {
+  const defaultDevices = ["COMPUTER", "MOBILE", "TABLET"];
   const languageConstants = rows
     .map((row: any) => row.campaignCriterion?.language?.languageConstant)
     .filter(Boolean)
@@ -1093,7 +1094,9 @@ function summarizeCampaignCriteria(rows: any[]) {
     const bidModifier = Number(cc.bidModifier);
     deviceBidModifiers[String(cc.device.type)] = Number.isFinite(bidModifier) ? bidModifier : 1;
   }
-  return { languageConstants, activeDevices: Object.keys(deviceBidModifiers).sort(), deviceBidModifiers };
+  const knownDevices = [...new Set([...defaultDevices, ...Object.keys(deviceBidModifiers)])].sort();
+  const activeDevices = knownDevices.filter((device) => (deviceBidModifiers[device] ?? 1) > 0);
+  return { languageConstants, activeDevices, deviceBidModifiers };
 }
 
 function compareCampaignCriteriaSummary(source: ReturnType<typeof summarizeCampaignCriteria>, cloned: ReturnType<typeof summarizeCampaignCriteria>) {
