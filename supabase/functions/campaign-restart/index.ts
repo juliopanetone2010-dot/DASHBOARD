@@ -451,10 +451,7 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   const row = (sJson.results ?? [])[0];
   const budgetId = row?.campaignBudget?.id;
   if (!budgetId) return { error: "Campanha sem orçamento" };
-  const paymentMode = row?.campaign?.paymentMode ?? "CLICKS";
-  const budgetType = row?.campaignBudget?.type ?? "STANDARD";
   const currentStrat = row?.campaign?.biddingStrategyType ?? "";
-  const isPayPerConversion = paymentMode === "CONVERSIONS" || budgetType === "FIXED_CPA";
 
   // 2) ajusta orçamento absoluto
   const nextMicros = Math.round(budgetBrl * 1_000_000);
@@ -474,13 +471,8 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 3) Estratégia
-  if (isPayPerConversion) {
-    // Pagar por conversão é IMUTÁVEL — mantém TARGET_CPA, só não mexe no CPA (deixa o usuário ajustar via UI)
-    return { ok: true, budget_brl: budgetBrl, kept_strategy: "TARGET_CPA (pay-per-conversion)" };
-  }
+  // 3) Estratégia — sempre tenta voltar para Maximize Conversions
 
-  // Maximize Conversions
   if (currentStrat === "MAXIMIZE_CONVERSIONS") {
     // Já está em MC — só zera target_cpa_micros
     const cRes = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
