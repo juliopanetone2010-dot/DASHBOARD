@@ -266,6 +266,21 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Site para análise</label>
+          <Select value={analysisSiteId} onValueChange={(v) => { setAnalysisSiteId(v); setItems([]); }}>
+            <SelectTrigger className="h-9 w-[220px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Selecione um site</SelectItem>
+              {sites.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <Field label="ROI mín. (%)" value={minRoi} onBlur={(v) => { setMinRoi(v); persist({ geo_expansion_min_roi_pct: v }); }} />
         <Field label="Custo mín. campanha (R$)" value={minCampCost} onBlur={(v) => { setMinCampCost(v); persist({ geo_expansion_min_campaign_cost_brl: v }); }} />
@@ -296,7 +311,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       {tab === "winners" && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={loadPreview} disabled={loading || !siteId} className="gap-2">
+            <Button onClick={loadPreview} disabled={loading || !activeSiteId} className="gap-2">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Buscar países vencedores
             </Button>
