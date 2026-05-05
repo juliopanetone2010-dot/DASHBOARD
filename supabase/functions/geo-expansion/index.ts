@@ -1086,7 +1086,8 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
   const create: any = scope === "campaign" ? { campaign: parentResource } : { adGroup: parentResource };
   if (criterion.status) create.status = criterion.status;
   if (typeof criterion.negative === "boolean") create.negative = criterion.negative;
-  if (typeof criterion.bidModifier === "number" && criterion.bidModifier !== 1) create.bidModifier = criterion.bidModifier;
+  const bidModifier = Number(criterion.bidModifier);
+  if (Number.isFinite(bidModifier) && bidModifier !== 1) create.bidModifier = bidModifier;
   if (criterion.finalUrls) create.finalUrls = criterion.finalUrls;
   if (criterion.finalMobileUrls) create.finalMobileUrls = criterion.finalMobileUrls;
   if (criterion.trackingUrlTemplate) create.trackingUrlTemplate = criterion.trackingUrlTemplate;
