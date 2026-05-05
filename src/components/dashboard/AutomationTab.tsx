@@ -129,7 +129,8 @@ export function AutomationTab() {
     arr.sort((a, b) => {
       let av: any, bv: any;
       if (sort.key === "name") { av = (campMeta[a.campaign_id]?.name ?? "").toLowerCase(); bv = (campMeta[b.campaign_id]?.name ?? "").toLowerCase(); }
-      else if (sort.key === "last_roi" || sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
+      else if (sort.key === "last_roi") { av = Number(todayRoiByCampaign[String(a.campaign_id)] ?? a.last_roi ?? -Infinity); bv = Number(todayRoiByCampaign[String(b.campaign_id)] ?? b.last_roi ?? -Infinity); }
+      else if (sort.key === "days_in_standby") { av = Number(a[sort.key] ?? -Infinity); bv = Number(b[sort.key] ?? -Infinity); }
       else if (sort.key === "last_action_date" || sort.key === "cooldown_until") { av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0; bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0; }
       else { av = String(a[sort.key] ?? ""); bv = String(b[sort.key] ?? ""); }
       if (av < bv) return -1 * dir;
@@ -137,7 +138,7 @@ export function AutomationTab() {
       return 0;
     });
     return arr;
-  }, [filteredStates, sort, campMeta]);
+  }, [filteredStates, sort, campMeta, todayRoiByCampaign]);
   const SortIcon = ({ k }: { k: SortKey }) => sort.key !== k ? <ArrowUpDown className="inline h-3 w-3 ml-1 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="inline h-3 w-3 ml-1" /> : <ArrowDown className="inline h-3 w-3 ml-1" />;
 
   const set = (k: string, v: any) => setCfg((p) => ({ ...(p ?? {}), [k]: v }));
