@@ -43,6 +43,16 @@ export function CleanupImpactPanel({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<CleanupLog[]>([]);
   const [rows, setRows] = useState<ImpactRow[]>([]);
+  const [siteOverride, setSiteOverride] = useState<string>("");
+  const [siteOptions, setSiteOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    supabase.from("sites").select("id, name").order("name").then(({ data }) => {
+      setSiteOptions((data ?? []) as any);
+    });
+  }, []);
+
+  const effectiveSiteId = siteOverride || filters.siteId;
 
   const load = async () => {
     setLoading(true);
