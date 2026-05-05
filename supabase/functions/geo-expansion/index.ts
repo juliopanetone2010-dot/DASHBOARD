@@ -661,7 +661,7 @@ async function duplicateCampaign(
     campaign_id: newCampaignId,
     lifecycle_status: "winner_test",
     winner_country_code: item.country_code,
-    winner_started_at: null,
+    winner_started_at: startStatus === "ENABLED" ? new Date().toISOString() : null,
   });
 
   return {
