@@ -53,6 +53,8 @@ Deno.serve(async (req) => {
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
+    const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
+    const toOverride: string | null = typeof body?.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.to) ? body.to : null;
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null = typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
     const accountIds: string[] = Array.isArray(body?.google_account_ids)
