@@ -992,7 +992,7 @@ async function removeCampaign(apiBase: string, headers: Record<string, string>, 
   }
 }
 
-async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, campaignResource: string, campaignId: string, debug: any) {
+async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, _campaignResource: string, campaignId: string, debug: any) {
   const query = `
     SELECT campaign_criterion.resource_name, campaign_criterion.type, campaign_criterion.status,
            campaign_criterion.negative, campaign_criterion.bid_modifier,
