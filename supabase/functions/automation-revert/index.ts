@@ -167,11 +167,10 @@ Deno.serve(async (req) => {
 
           const query = `
             SELECT campaign_criterion.resource_name, campaign_criterion.placement.url,
-                   campaign_criterion.mobile_application.app_id, campaign_criterion.type
+                   campaign_criterion.mobile_application.app_id
             FROM campaign_criterion
             WHERE campaign_criterion.campaign = 'customers/${acc.customer_id}/campaigns/${act.campaign_id}'
               AND campaign_criterion.negative = TRUE
-              AND campaign_criterion.type IN ('PLACEMENT','MOBILE_APPLICATION')
           `;
           const sRes = await fetch(`${apiBase}/googleAds:search`, {
             method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
