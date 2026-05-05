@@ -15,6 +15,7 @@ const KEY_SEP = "\u0001";
 
 type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
 type Status = "test" | "learning" | "good" | "bad" | "blocked";
+interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -164,7 +165,6 @@ Deno.serve(async (req) => {
       revByCampaign.set(cid, inner);
     }
 
-    interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
     const agg = new Map<string, Agg>();
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
@@ -231,6 +231,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Concilia receita GAM com custo Ads. O GAM pode truncar utm_placement
+    // (ex.: "recover.deleted"), enquanto o Ads vem completo
+    // ("recover.deleted.messages.business..."). Alocamos a receita por campanha
+    // para os placements Ads compatíveis, sem duplicar o total.
+    const revenueUsdByKey = allocateRevenueUsdByPlacement(siteScope, agg, revByCampaign, campMap, from);
+
     const upserts: any[] = [];
     const histInserts: any[] = [];
     const newlyBlocked: Array<{ campaign_id: string; placement: string; placement_type: string; cost_brl: number; revenue_brl: number; roi_pct: number; google_account_id: string | null; campaign_name: string }> = [];
@@ -240,10 +246,7 @@ Deno.serve(async (req) => {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
       const k = cpKey(siteScope, a.campaign_id, a.placement);
-      const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
-      const root = rootDomain(a.placement);
-      let usd = campaignRevenue.get(a.placement) ?? 0;
-      if (usd <= 0 && root && root !== a.placement) usd = campaignRevenue.get(root) ?? 0;
+      const usd = revenueUsdByKey.get(k) ?? 0;
       const revenue_brl = usd * REV_SHARE_NET * fxUsdBrl;
       const profit = revenue_brl - a.cost;
       const roi = a.cost > 0 ? (profit / a.cost) * 100 : 0;
@@ -454,7 +457,99 @@ function cpKey(scope: string, cid: string, placement: string) { return `${scope}
 function chunkArr<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out;
 }
+function allocateRevenueUsdByPlacement(
+  scope: string,
+  agg: Map<string, Agg>,
+  revByCampaign: Map<string, Map<string, number>>,
+  campMap: Map<string, { name: string; google_account_id: string | null; status: string }>,
+  from: string,
+) {
+  const result = new Map<string, number>();
+  const adsByCampaign = new Map<string, Agg[]>();
+  for (const a of agg.values()) {
+    if (!campMap.has(a.campaign_id)) continue;
+    const list = adsByCampaign.get(a.campaign_id) ?? [];
+    list.push(a);
+    adsByCampaign.set(a.campaign_id, list);
+  }
+
+  for (const [cid, revenues] of revByCampaign) {
+    const ads = adsByCampaign.get(cid) ?? [];
+    if (ads.length === 0) continue;
+    const indexes = buildPlacementIndexes(ads);
+    const claimed = new Set<string>();
+    let unmatchedUsd = 0;
+    for (const [rawPlacement, usd] of revenues) {
+      if (usd <= 0) continue;
+      const revPlacement = normalize(rawPlacement);
+      const matches = findPlacementMatches(revPlacement, indexes).filter((a) => !claimed.has(a.placement));
+      if (matches.length === 0) { unmatchedUsd += usd; continue; }
+      const targets = matches;
+      if (targets.length === 0) continue;
+      const totalCost = targets.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+      const totalClicks = targets.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+      const equalShare = usd / targets.length;
+      for (const a of targets) {
+        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+        const share = weight > 0 ? usd * weight : equalShare;
+        const key = cpKey(scope, cid, a.placement);
+        result.set(key, (result.get(key) ?? 0) + share);
+        claimed.add(a.placement);
+      }
+    }
+    if (unmatchedUsd > 0) {
+      const targets = ads.filter((a) => !claimed.has(a.placement));
+      const fallback = targets.length > 0 ? targets : ads;
+      const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+      const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+      const equalShare = unmatchedUsd / fallback.length;
+      for (const a of fallback) {
+        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+        const share = weight > 0 ? unmatchedUsd * weight : equalShare;
+        const key = cpKey(scope, cid, a.placement);
+        result.set(key, (result.get(key) ?? 0) + share);
+      }
+    }
+  }
+  return result;
+}
 function round(n: number) { return Math.round(n * 100) / 100; }
+function buildPlacementIndexes(ads: Agg[]) {
+  const byExact = new Map<string, Agg[]>();
+  const byRoot = new Map<string, Agg[]>();
+  const byPrefix = new Map<string, Agg[]>();
+  for (const a of ads) {
+    const exact = normalize(a.placement);
+    if (!exact) continue;
+    const exactList = byExact.get(exact) ?? [];
+    exactList.push(a); byExact.set(exact, exactList);
+    const root = rootDomain(exact);
+    if (root) { const rootList = byRoot.get(root) ?? []; rootList.push(a); byRoot.set(root, rootList); }
+    const compact = compactPlacement(exact);
+    for (let len = 8; len <= Math.min(16, compact.length); len++) {
+      const prefix = compact.slice(0, len);
+      const list = byPrefix.get(prefix) ?? [];
+      list.push(a); byPrefix.set(prefix, list);
+    }
+  }
+  return { byExact, byRoot, byPrefix };
+}
+function findPlacementMatches(placement: string, indexes: ReturnType<typeof buildPlacementIndexes>): Agg[] {
+  const exact = normalize(placement);
+  if (!exact) return [];
+  const direct = indexes.byExact.get(exact);
+  if (direct?.length) return direct;
+  const root = rootDomain(exact);
+  const rootMatches = root ? indexes.byRoot.get(root) : null;
+  if (rootMatches?.length) return rootMatches;
+  const compact = compactPlacement(exact);
+  if (compact.length < 8) return [];
+  for (let len = Math.min(16, compact.length); len >= 8; len--) {
+    const matches = indexes.byPrefix.get(compact.slice(0, len));
+    if (matches?.length) return matches;
+  }
+  return [];
+}
 function normalize(value: string, type?: string | null): string {
   const raw = (value || "").trim().toLowerCase();
   if (!raw) return "";
@@ -471,6 +566,7 @@ function normalize(value: string, type?: string | null): string {
     return raw.replace(/^www\./, "");
   }
 }
+function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
 function rootDomain(host: string): string {
   if (!host || host.includes("/") || !host.includes(".")) return host;
   const parts = host.split(".");
