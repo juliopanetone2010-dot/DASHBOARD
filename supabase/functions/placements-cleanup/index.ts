@@ -506,7 +506,45 @@ Deno.serve(async (req) => {
         console.error("[placements-cleanup] log impact error", e);
       }
 
-      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats });
+      // Sincroniza esteira inteligente: re-avalia o funil em TODOS os sites
+      // do usuário, garantindo que placements recém-bloqueados (via
+      // placement_actions.blacklist) apareçam como 'blocked' na esteira.
+      const evalResults: Array<{ site_id: string | null; ok: boolean; error?: string }> = [];
+      try {
+        const { data: userSites } = await admin
+          .from("sites").select("id").eq("user_id", userId);
+        const siteIds: (string | null)[] = (userSites ?? []).map((s: any) => s.id);
+        if (siteIds.length === 0) siteIds.push(null); // fallback global
+        const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+        const SR = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        for (const sid of siteIds) {
+          try {
+            const r = await fetch(`${SUPABASE_URL}/functions/v1/placements-evaluate`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${SR}`,
+              },
+              body: JSON.stringify({
+                mode: "preview",
+                user_id: userId,
+                site_id: sid,
+                lookback_days: 30,
+                fx_usd_brl: fxUsdBrl,
+              }),
+            });
+            const ok = r.ok;
+            const txt = ok ? null : await r.text().catch(() => null);
+            evalResults.push({ site_id: sid, ok, error: txt ?? undefined });
+          } catch (e) {
+            evalResults.push({ site_id: sid, ok: false, error: String(e instanceof Error ? e.message : e) });
+          }
+        }
+      } catch (e) {
+        console.error("[placements-cleanup] funnel resync error", e);
+      }
+
+      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats, funnel_resync: evalResults });
     }
 
     return json({ error: "mode inválido" });
