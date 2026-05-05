@@ -564,6 +564,7 @@ async function duplicateCampaign(
   const agRows = (agJson.results ?? []) as any[];
 
   const oldToNewAdGroup = new Map<string, string>();
+  let adGroupsError: any = null;
   if (agRows.length > 0) {
     const ops = agRows.map((row, idx) => {
       const create: any = {
@@ -573,12 +574,13 @@ async function duplicateCampaign(
         status: "PAUSED",
         type: row.adGroup.type ?? "DISPLAY_STANDARD",
       };
-      if (row.adGroup.cpcBidMicros) create.cpcBidMicros = String(row.adGroup.cpcBidMicros);
-      if (row.adGroup.targetCpaMicros) create.targetCpaMicros = String(row.adGroup.targetCpaMicros);
+      // MAXIMIZE_CONVERSIONS no nível da campanha: NÃO enviar cpc_bid_micros nem target_cpa_micros
+      // (são incompatíveis e fazem a criação dos ad groups falhar).
       return { create };
     });
     const r = await fetch(`${apiBase}/adGroups:mutate`, {
-      method: "POST", headers, body: JSON.stringify({ operations: ops }),
+      method: "POST", headers,
+      body: JSON.stringify({ operations: ops, partialFailure: true }),
     });
     const j = await r.json();
     if (r.ok) {
@@ -587,9 +589,27 @@ async function duplicateCampaign(
         const newRn = results[i]?.resourceName;
         if (newRn) oldToNewAdGroup.set(String(row.adGroup.id), newRn);
       });
+      if (j.partialFailureError) {
+        console.error("[geo-expansion] ad_groups partial failure", JSON.stringify(j.partialFailureError));
+        adGroupsError = j.partialFailureError;
+      }
     } else {
       console.error("[geo-expansion] ad_groups failed", JSON.stringify(j));
+      adGroupsError = j;
     }
+  }
+  if (oldToNewAdGroup.size === 0) {
+    return {
+      error: `ad_groups: nenhum grupo de anúncios foi clonado (${extractError(adGroupsError ?? {})})`,
+      debug: {
+        step: "ad_groups_create",
+        new_campaign_id: newCampaignId,
+        source_ad_groups: agRows.length,
+        response: adGroupsError,
+      },
+      new_campaign_id: newCampaignId,
+      new_campaign_name: newName,
+    };
   }
 
   // 6) Clona ads (responsive display ads suportados; outros tipos avisamos no log)
