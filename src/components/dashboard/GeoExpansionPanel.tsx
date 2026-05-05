@@ -175,6 +175,8 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       }
       toast({ title: "Expansão concluída", description: `${ok} criadas, ${fail} falharam.` });
       await loadPreview();
+      await loadCreated();
+      if (ok > 0) setTab("created");
     } finally { setBulkCreating(false); }
   };
 
