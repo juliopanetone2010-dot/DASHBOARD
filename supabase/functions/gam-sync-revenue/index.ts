@@ -19,8 +19,9 @@ Deno.serve(async (req) => {
     // @ts-ignore
     EdgeRuntime.waitUntil(work);
   }
+  // Retorna 200 (não 202) porque supabase-js trata qualquer não-200 como erro.
   return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background. Atualize a página em ~2 min." }), {
-    status: 202,
+    status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
