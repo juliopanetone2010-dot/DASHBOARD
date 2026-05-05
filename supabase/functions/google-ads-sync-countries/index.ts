@@ -203,11 +203,13 @@ Deno.serve(async (req) => {
 
     // Limpa janela e re-insere
     if (inserts.length) {
-      await admin.from("campaign_country_metrics")
+      let deleteQuery = admin.from("campaign_country_metrics")
         .delete()
         .eq("user_id", userId)
         .gte("date", from)
         .lte("date", to);
+      if (siteId) deleteQuery = deleteQuery.in("campaign_id", [...campMeta.keys()]);
+      await deleteQuery;
       for (const chunk of chunkArr(inserts, 1000)) {
         const { error } = await admin.from("campaign_country_metrics").insert(chunk);
         if (error) return json({ error: error.message });
