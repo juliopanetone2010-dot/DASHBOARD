@@ -133,11 +133,13 @@ Deno.serve(async (req) => {
     // Já expandidas (evitar loop)
     const alreadyExpanded = new Set<string>(); // key: campaign_id|country_code
     {
-      const { data } = await admin
+      let expandedQuery = admin
         .from("campaign_expansion_logs")
         .select("original_campaign_id, country_code, action")
         .eq("user_id", userId)
         .in("action", ["created", "suggested"]);
+      expandedQuery = siteId ? expandedQuery.eq("site_id", siteId) : expandedQuery.is("site_id", null);
+      const { data } = await expandedQuery;
       for (const r of data ?? []) {
         if (r.action === "created") alreadyExpanded.add(`${r.original_campaign_id}|${r.country_code}`);
       }
@@ -172,23 +174,59 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Receita por (camp, date) — mesma fórmula do dashboard:
-    // gross_rev_brl = spend + profit ; net_rev_brl = gross_rev_brl * NET_FACTOR
-    // (não usar daily_metrics.revenue — esse campo está dessincronizado)
+    // Receita por (camp, date), em USD bruto. Para site específico, usa a receita atribuída ao site.
+    // A conversão para BRL e o revshare são aplicados uma única vez na distribuição por país.
     type DailyRow = { campaign_id: string; date: string; revenue: number };
     const dailyRows: DailyRow[] = [];
+    const siteShareByCD = new Map<string, number>();
+    const siteRevenueCampaignIds = new Set<string>();
     for (const chunk of chunkArr(campIds, 200)) {
-      const { data } = await admin
-        .from("daily_metrics")
-        .select("campaign_id, date, spend, profit")
-        .eq("user_id", userId)
-        .in("campaign_id", chunk)
-        .gte("date", from)
-        .lte("date", to)
-        .limit(50000);
-      for (const r of data ?? []) {
-        const gross = (Number(r.spend) || 0) + (Number(r.profit) || 0);
-        dailyRows.push({ campaign_id: String(r.campaign_id), date: String(r.date), revenue: gross });
+      if (siteId) {
+        const selectedRev = new Map<string, number>();
+        const totalRev = new Map<string, number>();
+        let start = 0;
+        for (;;) {
+          const { data, error } = await admin
+            .from("gam_campaign_source_revenue")
+            .select("campaign_id, date, site_id, revenue_usd")
+            .eq("user_id", userId)
+            .in("campaign_id", chunk)
+            .gte("date", from)
+            .lte("date", to)
+            .range(start, start + 999);
+          if (error) return json({ error: error.message });
+          const rows = data ?? [];
+          for (const r of rows) {
+            const k = `${String(r.campaign_id)}|${String(r.date)}`;
+            const v = Number(r.revenue_usd) || 0;
+            totalRev.set(k, (totalRev.get(k) ?? 0) + v);
+            if (String(r.site_id ?? "") === siteId) selectedRev.set(k, (selectedRev.get(k) ?? 0) + v);
+          }
+          if (rows.length < 1000) break;
+          start += 1000;
+        }
+        for (const [k, revenue] of selectedRev) {
+          const [campaign_id, date] = k.split("|");
+          if (revenue <= 0) continue;
+          dailyRows.push({ campaign_id, date, revenue });
+          siteRevenueCampaignIds.add(campaign_id);
+          const total = totalRev.get(k) ?? revenue;
+          siteShareByCD.set(k, total > 0 ? Math.min(1, Math.max(0, revenue / total)) : 1);
+        }
+      } else {
+        const { data, error } = await admin
+          .from("daily_metrics")
+          .select("campaign_id, date, revenue, spend, profit")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .gte("date", from)
+          .lte("date", to)
+          .limit(50000);
+        if (error) return json({ error: error.message });
+        for (const r of data ?? []) {
+          const revenueUsd = Number(r.revenue) || (((Number(r.spend) || 0) + (Number(r.profit) || 0)) / fxUsdBrl);
+          dailyRows.push({ campaign_id: String(r.campaign_id), date: String(r.date), revenue: revenueUsd });
+        }
       }
     }
 
@@ -215,6 +253,9 @@ Deno.serve(async (req) => {
     }
     const cells = new Map<string, Cell>();
     for (const r of countryRows) {
+      const cd = `${r.campaign_id}|${r.date}`;
+      const siteFactor = siteId ? (siteShareByCD.get(cd) ?? 0) : 1;
+      if (siteFactor <= 0) continue;
       const k = `${r.campaign_id}|${r.country_code}`;
       let c = cells.get(k);
       if (!c) {
@@ -226,13 +267,12 @@ Deno.serve(async (req) => {
         };
         cells.set(k, c);
       }
-      c.cost_brl += r.cost || 0;
-      c.clicks += r.clicks || 0;
-      c.impressions += r.impressions || 0;
+      c.cost_brl += (r.cost || 0) * siteFactor;
+      c.clicks += (r.clicks || 0) * siteFactor;
+      c.impressions += (r.impressions || 0) * siteFactor;
       if (!c.country_criterion_id && r.country_criterion_id) c.country_criterion_id = r.country_criterion_id;
       if (!c.google_account_id && r.google_account_id) c.google_account_id = r.google_account_id;
 
-      const cd = `${r.campaign_id}|${r.date}`;
       const revUsd = revByCD.get(cd) || 0;
       if (revUsd > 0) {
         const totalImpr = imprByCD.get(cd) || 0;
