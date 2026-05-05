@@ -309,7 +309,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   Receita atribuída: {stats.gam_attributed_pct}%
                 </Badge>
               )}
-              <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
