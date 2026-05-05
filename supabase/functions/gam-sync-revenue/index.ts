@@ -31,10 +31,6 @@ async function runSync(req: Request): Promise<Response> {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
-  const debug: string[] = [];
-  try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
     let datePreset = "LAST_7_DAYS";
     let dateFrom: string | null = null;
