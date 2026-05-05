@@ -44,7 +44,7 @@ interface PreviewItem {
 interface CampaignTotal {
   campaign_id: string; name: string;
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
-  bad_count: number;
+  bad_count: number; eligible?: boolean;
 }
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
