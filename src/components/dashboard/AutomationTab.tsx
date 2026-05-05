@@ -353,7 +353,7 @@ export function AutomationTab() {
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
-                      <TableCell className="text-right font-mono">{displayRoi != null ? `${Number(displayRoi).toFixed(1)}%` : "—"}</TableCell>
+                      <TableCell className="text-right font-mono" title={`ROI hoje: ${todayRoi != null ? Number(todayRoi).toFixed(1) + "%" : "—"} · ROI janela ${cfg?.auto_analysis_days ?? 15}d: ${s.last_roi != null ? Number(s.last_roi).toFixed(1) + "%" : "—"}`}>{displayRoi != null ? `${Number(displayRoi).toFixed(1)}%` : "—"}</TableCell>
                       <TableCell className={`text-right font-mono text-xs ${dCls}`} title={s.daily_budget ? `Orçamento diário: ${Number(s.daily_budget).toFixed(2)}` : ""}>{dPct != null ? `${dPct}%` : "—"}</TableCell>
                       <TableCell className="text-xs">{s.roi_trend ?? "—"}</TableCell>
                       <TableCell className="text-xs">{s.days_in_standby > 0 ? `${s.days_in_standby}d` : "—"}</TableCell>
