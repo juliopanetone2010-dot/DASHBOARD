@@ -437,7 +437,7 @@ async function duplicateCampaign(
   const campCreate: any = {
     resourceName: `customers/${acc.customer_id}/campaigns/${tempCampaignId}`,
     name: newName,
-    status: "PAUSED",
+    status: startStatus,
     advertisingChannelType: channelType,
     campaignBudget: newBudgetResource,
     containsEuPoliticalAdvertising: euPoliticalStatus,
