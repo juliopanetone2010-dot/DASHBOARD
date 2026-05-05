@@ -109,15 +109,22 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       const cTo = cEndDate.toISOString().slice(0, 10);
       chunks.push({ from: cFrom, to: cTo });
     }
-    for (const c of chunks) {
-      const gam = await callFn(
-        "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
-        authHeader,
-      );
-      console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
-      syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
-      if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
+    // Paraleliza chunks GAM (em pools de 3 pra não estourar conexões)
+    const POOL = 3;
+    for (let i = 0; i < chunks.length; i += POOL) {
+      const batch = chunks.slice(i, i + POOL);
+      const results = await Promise.all(batch.map((c) =>
+        callFn(
+          "gam-sync-revenue",
+          { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
+          authHeader,
+        ).then((gam) => ({ c, gam }))
+      ));
+      for (const { c, gam } of results) {
+        console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
+        syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
+        if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
+      }
     }
 
     // 3. placements por campanha do site
