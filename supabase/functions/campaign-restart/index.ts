@@ -490,42 +490,43 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
     const cJson = await cRes.json();
     if (!cRes.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)}` };
   } else {
-    // Troca de estratégia. Tentamos múltiplas variantes pq o Google rejeita
-    // formatos diferentes dependendo se a campanha está em portfolio, target_cpa, etc.
-    const variants = [
-      // 1) Estratégia padrão (funciona para a maioria das campanhas standard)
-      {
-        body: { resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`, maximizeConversions: {} },
-        mask: "maximize_conversions",
-      },
-      // 2) Com target_cpa_micros explicitamente zerado
-      {
-        body: { resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`, maximizeConversions: { targetCpaMicros: "0" } },
-        mask: "maximize_conversions.target_cpa_micros",
-      },
-      // 3) Limpa portfolio bidding_strategy E define maximize_conversions
-      {
-        body: { resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`, biddingStrategy: "", maximizeConversions: {} },
-        mask: "bidding_strategy,maximize_conversions",
-      },
-      // 4) Apenas limpa portfolio (deixa estratégia padrão herdada)
-      {
-        body: { resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`, biddingStrategy: "" },
-        mask: "bidding_strategy",
-      },
-    ];
-    const errors: string[] = [];
-    let success = false;
-    for (const v of variants) {
+    // Helper pra mandar mutate
+    const mutate = async (update: any, mask: string) => {
       const r = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
         method: "POST", headers: ctx.headers,
-        body: JSON.stringify({ operations: [{ update: v.body, updateMask: v.mask }] }),
+        body: JSON.stringify({ operations: [{ update, updateMask: mask }] }),
       });
       const j = await r.json();
-      if (r.ok) { success = true; break; }
-      errors.push(`[${v.mask}] ${JSON.stringify(j).slice(0, 250)}`);
+      return { ok: r.ok, json: j };
+    };
+
+    const baseRN = `customers/${ctx.customerId}/campaigns/${campaignId}`;
+    const errors: string[] = [];
+
+    // Tentativa 1: switch direto pra maximize_conversions (campanhas standard)
+    let res = await mutate({ resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+    if (!res.ok) {
+      errors.push(`[direct] ${JSON.stringify(res.json).slice(0, 200)}`);
+
+      // Tentativa 2: limpar portfolio (manda mask sem o campo no body) e em seguida setar MC
+      const clear = await mutate({ resourceName: baseRN }, "bidding_strategy");
+      if (!clear.ok) errors.push(`[clear-portfolio] ${JSON.stringify(clear.json).slice(0, 200)}`);
+
+      // Tentativa 2b: aplica maximize_conversions
+      res = await mutate({ resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+      if (!res.ok) {
+        errors.push(`[set-MC-after-clear] ${JSON.stringify(res.json).slice(0, 200)}`);
+
+        // Tentativa 3: variante com target_cpa_micros zerado
+        res = await mutate(
+          { resourceName: baseRN, maximizeConversions: { targetCpaMicros: "0" } },
+          "maximize_conversions.target_cpa_micros",
+        );
+        if (!res.ok) errors.push(`[MC-zero-tcpa] ${JSON.stringify(res.json).slice(0, 200)}`);
+      }
     }
-    if (!success) return { error: `bidding switch (estratégia atual: ${currentStrat}): ${errors.join(" || ")}` };
+
+    if (!res.ok) return { error: `bidding switch (atual: ${currentStrat}): ${errors.join(" || ")}` };
   }
 
   return { ok: true, budget_brl: budgetBrl };
