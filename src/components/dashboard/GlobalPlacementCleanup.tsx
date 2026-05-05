@@ -58,10 +58,19 @@ interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; sta
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters, range, selectSite } = useDashboardFilters();
-  // Janela efetiva selecionada no dashboard (em dias, inclusive)
+  // Permite o usuário sobrescrever o período do dashboard só para a limpeza.
+  const [periodOverride, setPeriodOverride] = useState<number | "dashboard">("dashboard");
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const effectiveRange = (() => {
+    if (periodOverride === "dashboard") return range;
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86400000);
+    const from = new Date(yesterday.getTime() - (periodOverride - 1) * 86400000);
+    return { from: iso(from), to: iso(yesterday) };
+  })();
   const analysisWindowDays = Math.max(
     1,
-    Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1,
+    Math.round((Date.parse(effectiveRange.to) - Date.parse(effectiveRange.from)) / 86400000) + 1,
   );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -162,8 +171,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           max_roi_pct: -Math.abs(maxRoi),
           min_cost_brl: minCost,
           lookback_days: analysisWindowDays,
-          from: range.from,
-          to: range.to,
+          from: effectiveRange.from,
+          to: effectiveRange.to,
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
@@ -321,7 +330,24 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
-        <span className="text-[11px] text-muted-foreground flex items-center gap-1">Período: <Badge variant="outline" className="text-[10px]">{range.from} → {range.to} ({analysisWindowDays}d)</Badge></span>
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Período
+          <select
+            className="h-6 text-xs rounded border border-border bg-background px-2"
+            value={String(periodOverride)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPeriodOverride(v === "dashboard" ? "dashboard" : Number(v));
+            }}
+          >
+            <option value="dashboard">Dashboard ({Math.max(1, Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1)}d)</option>
+            <option value="7">7 dias</option>
+            <option value="15">15 dias</option>
+            <option value="30">30 dias</option>
+            <option value="50">50 dias</option>
+          </select>
+        </label>
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Badge variant="outline" className="text-[10px]">{effectiveRange.from} → {effectiveRange.to} ({analysisWindowDays}d)</Badge></span>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
