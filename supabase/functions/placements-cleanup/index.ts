@@ -491,7 +491,7 @@ Deno.serve(async (req) => {
             roi_before: totals?.roi_pct ?? null,
             cost_before: totals?.cost_brl ?? null,
             revenue_before: totals?.revenue_brl ?? null,
-            lookback_days: lookbackDays,
+            lookback_days: analysisWindowDays,
             executed_at: new Date().toISOString(),
           });
         }
