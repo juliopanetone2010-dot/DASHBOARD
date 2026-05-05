@@ -393,7 +393,26 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
                       <TableCell className="text-right text-xs">{c.cost_brl != null ? fmtBRL(c.cost_brl) : "—"}</TableCell>
                       <TableCell className="text-right text-xs">{c.budget_micros ? fmtBRL(Number(c.budget_micros) / 1_000_000) : "—"}</TableCell>
                       <TableCell>
-                        <Badge variant={c.status === "executed" ? "default" : "secondary"}>{c.status}</Badge>
+                        {c.live_status === "enabled" ? (
+                          <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600">ATIVA</Badge>
+                        ) : c.live_status === "paused" ? (
+                          <Badge variant="secondary">PAUSED</Badge>
+                        ) : (
+                          <Badge variant="outline">{c.live_status ?? c.status}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {c.live_status !== "enabled" && c.new_campaign_id && c.google_account_id ? (
+                          <Button
+                            size="sm" variant="default"
+                            onClick={() => activateCampaign(c)}
+                            disabled={activatingId === c.id}
+                            className="gap-1.5"
+                          >
+                            {activatingId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                            Ativar
+                          </Button>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                     </TableRow>
                   ))}
