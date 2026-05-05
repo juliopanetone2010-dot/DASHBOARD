@@ -1073,6 +1073,7 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
   const create: any = scope === "campaign" ? { campaign: parentResource } : { adGroup: parentResource };
   if (criterion.status) create.status = criterion.status;
   if (typeof criterion.negative === "boolean") create.negative = criterion.negative;
+  if (typeof criterion.bidModifier === "number" && criterion.bidModifier !== 1) create.bidModifier = criterion.bidModifier;
   if (criterion.finalUrls) create.finalUrls = criterion.finalUrls;
   if (criterion.finalMobileUrls) create.finalMobileUrls = criterion.finalMobileUrls;
   if (criterion.trackingUrlTemplate) create.trackingUrlTemplate = criterion.trackingUrlTemplate;
@@ -1097,7 +1098,6 @@ function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, 
     case "DEVICE":
       if (!criterion.device?.type) return null;
       create.device = { type: criterion.device.type };
-      if (criterion.bidModifier && criterion.bidModifier !== 1) create.bidModifier = criterion.bidModifier;
       break;
     case "AGE_RANGE":
       if (!criterion.ageRange?.type) return null;
