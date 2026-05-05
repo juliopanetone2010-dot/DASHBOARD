@@ -186,6 +186,9 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
   // Aplica orçamento R$40/dia + bidding MAXIMIZE_CONVERSIONS (sem CPA)
   const apply = await applyInitialConfig(admin, userId, camp.google_account_id, campaignId, INITIAL_BUDGET_BRL);
   if (apply.error) return { error: `Falha ao aplicar config inicial: ${apply.error}` };
+  const initialNotes = apply?.bidding?.strategy === "TARGET_CPA"
+    ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; Google manteve Target CPA por restrição da campanha`
+    : `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`;
 
   // Remove de qualquer esteira ativa: zera campaign_automation lifecycle p/ não interferir
   await admin
@@ -215,7 +218,7 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       current_budget: INITIAL_BUDGET_BRL,
       last_action: "init",
       last_action_at: new Date().toISOString(),
-      notes: `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`,
+      notes: initialNotes,
     })
     .select()
     .single();
@@ -443,6 +446,8 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
 
   // 1) Detecta payment_mode + budget_type da campanha
   const queryB = `SELECT campaign.id, campaign.payment_mode, campaign.bidding_strategy_type,
+                         campaign.maximize_conversions.target_cpa_micros,
+                         campaign.target_cpa.target_cpa_micros,
                          campaign.campaign_budget, campaign_budget.id, campaign_budget.amount_micros, campaign_budget.type
                   FROM campaign WHERE campaign.id = ${campaignId}`;
   const sRes = await fetch(`${ctx.apiBase}/googleAds:search`, { method: "POST", headers: ctx.headers, body: JSON.stringify({ query: queryB }) });
@@ -471,65 +476,52 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 3) Estratégia — sempre tenta voltar para Maximize Conversions
+  // 3) Estratégia — tenta remover CPA/portfolio sem travar o reinício quando o Google bloqueia a troca.
+  const bidding = await applyRestartBidding(ctx, campaignId, currentStrat);
+  if (bidding.error) return { error: bidding.error };
 
-  if (currentStrat === "MAXIMIZE_CONVERSIONS") {
-    // Já está em MC — só zera target_cpa_micros
-    const cRes = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
+  return { ok: true, budget_brl: budgetBrl, bidding };
+}
+
+async function applyRestartBidding(ctx: any, campaignId: string, currentStrat: string) {
+  const baseRN = `customers/${ctx.customerId}/campaigns/${campaignId}`;
+  const errors: string[] = [];
+  const mutate = async (label: string, update: any, mask: string) => {
+    const r = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
       method: "POST", headers: ctx.headers,
-      body: JSON.stringify({
-        operations: [{
-          update: {
-            resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
-            maximizeConversions: { targetCpaMicros: "0" },
-          },
-          updateMask: "maximize_conversions.target_cpa_micros",
-        }],
-      }),
+      body: JSON.stringify({ operations: [{ update, updateMask: mask }] }),
     });
-    const cJson = await cRes.json();
-    if (!cRes.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)}` };
-  } else {
-    // Helper pra mandar mutate
-    const mutate = async (update: any, mask: string) => {
-      const r = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
-        method: "POST", headers: ctx.headers,
-        body: JSON.stringify({ operations: [{ update, updateMask: mask }] }),
-      });
-      const j = await r.json();
-      return { ok: r.ok, json: j };
-    };
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) return { ok: true, label, json: j };
+    errors.push(`[${label}] ${googleAdsError(j)}`);
+    return { ok: false, label, json: j };
+  };
 
-    const baseRN = `customers/${ctx.customerId}/campaigns/${campaignId}`;
-    const errors: string[] = [];
-
-    // Tentativa 1: switch direto pra maximize_conversions (campanhas standard)
-    let res = await mutate({ resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
-    if (!res.ok) {
-      errors.push(`[direct] ${JSON.stringify(res.json).slice(0, 200)}`);
-
-      // Tentativa 2: limpar portfolio (manda mask sem o campo no body) e em seguida setar MC
-      const clear = await mutate({ resourceName: baseRN }, "bidding_strategy");
-      if (!clear.ok) errors.push(`[clear-portfolio] ${JSON.stringify(clear.json).slice(0, 200)}`);
-
-      // Tentativa 2b: aplica maximize_conversions
-      res = await mutate({ resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
-      if (!res.ok) {
-        errors.push(`[set-MC-after-clear] ${JSON.stringify(res.json).slice(0, 200)}`);
-
-        // Tentativa 3: variante com target_cpa_micros zerado
-        res = await mutate(
-          { resourceName: baseRN, maximizeConversions: { targetCpaMicros: "0" } },
-          "maximize_conversions.target_cpa_micros",
-        );
-        if (!res.ok) errors.push(`[MC-zero-tcpa] ${JSON.stringify(res.json).slice(0, 200)}`);
-      }
-    }
-
-    if (!res.ok) return { error: `bidding switch (atual: ${currentStrat}): ${errors.join(" || ")}` };
+  // Target CPA moderno costuma aparecer como MAXIMIZE_CONVERSIONS com target_cpa_micros.
+  if (currentStrat === "MAXIMIZE_CONVERSIONS" || currentStrat === "TARGET_CPA") {
+    const clearTarget = await mutate("clear-target-cpa", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
+    if (clearTarget.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: clearTarget.label };
   }
 
-  return { ok: true, budget_brl: budgetBrl };
+  const direct = await mutate("direct-maximize-conversions", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+  if (direct.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: direct.label };
+
+  // Portfolio: primeiro solta o bidding_strategy compartilhado, depois tenta aplicar a estratégia standard.
+  const clearPortfolio = await mutate("clear-portfolio", { resourceName: baseRN }, "bidding_strategy");
+  if (clearPortfolio.ok) {
+    const afterClear = await mutate("set-maximize-after-clear", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions");
+    if (afterClear.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: afterClear.label };
+
+    const clearTargetAfter = await mutate("clear-target-after-portfolio", { resourceName: baseRN, maximizeConversions: {} }, "maximize_conversions.target_cpa_micros");
+    if (clearTargetAfter.ok) return { ok: true, strategy: "MAXIMIZE_CONVERSIONS", variant: clearTargetAfter.label };
+  }
+
+  // Se for Target CPA e o Google não aceitar a troca, não bloqueia o reinício: orçamento/remoção da automação continuam.
+  if (currentStrat === "TARGET_CPA") {
+    return { ok: true, strategy: "TARGET_CPA", variant: "kept-google-blocked-switch", warning: errors.join(" || ").slice(0, 1200) };
+  }
+
+  return { error: `bidding switch (atual: ${currentStrat}): ${errors.join(" || ").slice(0, 1500)}` };
 }
 
 // Aplica TARGET_CPA na campanha (via maximize_conversions com targetCpaMicros)
@@ -592,6 +584,14 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   }
   if (bySite.size === 0) return null;
   return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function googleAdsError(j: any) {
+  const detail = j?.error?.details?.[0]?.errors?.[0];
+  const code = detail?.errorCode ? JSON.stringify(detail.errorCode) : j?.error?.status;
+  const msg = detail?.message ?? j?.error?.message ?? JSON.stringify(j);
+  const field = detail?.location?.fieldPathElements?.map((p: any) => p.fieldName).filter(Boolean).join(".");
+  return `${code ? code + ": " : ""}${msg}${field ? ` (${field})` : ""}`.slice(0, 300);
 }
 
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
