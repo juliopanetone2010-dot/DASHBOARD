@@ -94,7 +94,6 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
   const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetricSummary[]>([]);
   const [accountFilter, setAccountFilter] = useState<Set<string>>(new Set()); // empty = all
   const [siteFilter, setSiteFilter] = useState<Set<string>>(new Set()); // empty = all
-  const [siteCampaignIds, setSiteCampaignIds] = useState<Map<string, Set<string>>>(new Map());
   const { filters: dashboardFilters } = useDashboardFilters();
 
   useEffect(() => {
@@ -174,8 +173,6 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
         set.add(cid);
         localSiteCampaignIds.set(sid, set);
       }
-      setSiteCampaignIds(localSiteCampaignIds);
-
       // Calcula contas permitidas (mesmo filtro do display) para bater com a dashboard
       let allowed: Set<string> | null = null;
       if (accountFilter.size > 0) allowed = new Set(accountFilter);
@@ -337,13 +334,6 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
     }
     return allowed; // null = sem restrição
   }, [accountFilter, siteFilter, sites]);
-
-  const allowedSiteCampaignIds = useMemo(() => {
-    if (siteFilter.size === 0) return null;
-    const campaignIds = new Set<string>();
-    for (const sid of siteFilter) for (const cid of siteCampaignIds.get(sid) ?? []) campaignIds.add(cid);
-    return campaignIds;
-  }, [siteFilter, siteCampaignIds]);
 
   const accountFiltered = useMemo(() => {
     return rows.filter((r) => {
