@@ -454,12 +454,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // Janela efetiva por lifecycle: testing=2, scaling=3, learning/bad=5, standby=7.
-  // Campanha nova (sem prev) entra como "testing".
+  // Janela única vinda de auto_analysis_days (default 15d). Usamos TODOS os
+  // dailies já consultados (a query upstream respeitou auto_analysis_days).
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
-  const windowDays = windowForLifecycle(prevLifecycle);
+  const windowDays = resolveAnalysisDays(cfg);
 
-  // Filtra os dailies para a janela do lifecycle (já estamos sem "hoje" pois a query foi até ontem).
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
   const days = new Set(sliced.map((d: any) => d.date)).size;
