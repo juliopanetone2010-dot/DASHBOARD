@@ -235,12 +235,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
-  // Mostra TODAS as campanhas ENABLED da conta/site selecionado, mesmo sem placements ruins.
-  // Permite ao usuário enxergar todo o portfólio e validar custo/receita batendo com o dashboard.
+  // Mostra apenas campanhas que TÊM placements ruins (respeitando ROI máx e custo mín).
   const accountFilteredTotals = accountFilter === "all"
     ? campaignTotals
     : campaignTotals.filter((c) => c.google_account_id === accountFilter);
-  const sortedCampaigns = [...accountFilteredTotals].sort((a, b) => a.roi_pct - b.roi_pct);
+  const sortedCampaigns = [...accountFilteredTotals]
+    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
+    .sort((a, b) => a.roi_pct - b.roi_pct);
 
   // Custo/Lucro do header reflete TODAS campanhas exibidas (com e sem placements ruins),
   // assim bate com o dashboard "Últimos 15 dias".
