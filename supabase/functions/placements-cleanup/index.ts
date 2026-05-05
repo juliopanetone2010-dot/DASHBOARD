@@ -86,16 +86,28 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
-    // Janela alinhada com o preset "Últimos 15 dias" do dashboard:
-    // de (hoje - lookback) até ontem (último dia completo no Google Ads).
+    // Janela: usa from/to vindos da UI quando disponíveis (respeitando o preset selecionado).
+    // Caso contrário, cai no padrão (hoje - lookback) até ontem.
     const today = new Date();
-    const toDate = new Date(today.getTime() - 86400_000); // ontem
-    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
-    const cutoffDate = new Date(today.getTime() - minDays * 86400_000);
+    const yesterday = new Date(today.getTime() - 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const from = iso(fromDate);
-    const to = iso(toDate);
-    const cutoff = iso(cutoffDate);
+    let from: string;
+    let to: string;
+    if (fromOverride && toOverride) {
+      from = fromOverride;
+      // Garante "até ontem" no máximo (Google Ads não tem dia atual fechado)
+      to = toOverride > iso(yesterday) ? iso(yesterday) : toOverride;
+    } else {
+      to = iso(yesterday);
+      from = iso(new Date(today.getTime() - lookbackDays * 86400_000));
+    }
+    // analysis_window_days = janela efetiva usada em TODA a lógica
+    const msDay = 86400_000;
+    const analysisWindowDays = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / msDay) + 1);
+    // cutoff = "campanha precisa ter ≥ minDays de histórico para ser elegível"
+    const cutoff = iso(new Date(today.getTime() - minDays * msDay));
+    console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias)`);
+
 
     // Restringe contas Ads ao escopo do site selecionado.
     let allowedAccountIds: string[] | null = null;
