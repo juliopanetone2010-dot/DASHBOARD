@@ -48,6 +48,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [created, setCreated] = useState<CreatedLog[]>([]);
   const [loadingCreated, setLoadingCreated] = useState(false);
   const [tab, setTab] = useState<"winners" | "created">("winners");
+  const [startEnabled, setStartEnabled] = useState(false);
 
   const [enabled, setEnabled] = useState(false);
   const [minRoi, setMinRoi] = useState(25);
