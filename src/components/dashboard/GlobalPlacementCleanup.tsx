@@ -338,8 +338,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <TableRow className="bg-muted/40">
                   <TableHead className="w-10"></TableHead>
                   <TableHead>Campanha</TableHead>
-                  <TableHead className="text-right">Custo (15d)</TableHead>
-                  <TableHead className="text-right">Receita (15d)</TableHead>
+                  <TableHead className="text-right">Custo ({analysisWindowDays}d)</TableHead>
+                  <TableHead className="text-right">Receita ({analysisWindowDays}d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
                   <TableHead className="text-right">Ruins</TableHead>
