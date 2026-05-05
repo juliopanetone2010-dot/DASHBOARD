@@ -290,28 +290,58 @@ Deno.serve(async (req) => {
       });
     }
 
-    // exclude_country: adiciona um campaign_criterion negativo de location (geoTargetConstant)
+    // exclude_country:
+    // 1) Se já existe critério POSITIVO desse país => remove (assim para de mirar nele)
+    // 2) Senão => cria critério NEGATIVO (location exclusion)
     if (action === "exclude_country") {
       const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
       if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
 
-      const mutateBody = {
-        operations: [{
-          create: {
-            campaign: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
-            negative: true,
-            location: { geoTargetConstant: `geoTargetConstants/${countryCriterionId}` },
-          },
-        }],
+      const geoRN = `geoTargetConstants/${countryCriterionId}`;
+      const campaignRN = `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`;
+
+      // Procura critério existente para esse país nessa campanha
+      const searchBody = {
+        query: `SELECT campaign_criterion.resource_name, campaign_criterion.negative, campaign_criterion.location.geo_target_constant
+                FROM campaign_criterion
+                WHERE campaign.id = ${camp.campaign_id}
+                  AND campaign_criterion.type = 'LOCATION'
+                  AND campaign_criterion.location.geo_target_constant = '${geoRN}'`,
       };
+      const sr = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers, body: JSON.stringify(searchBody),
+      });
+      const sj = await sr.json();
+      const existing = sj?.results?.[0]?.campaignCriterion;
+
+      let mutateBody: any;
+      let mode: "remove" | "create_negative";
+
+      if (existing?.resourceName) {
+        // Remove o critério existente (positivo OU negativo já criado antes)
+        mode = "remove";
+        mutateBody = { operations: [{ remove: existing.resourceName }] };
+      } else {
+        // Cria como negativo
+        mode = "create_negative";
+        mutateBody = {
+          operations: [{
+            create: {
+              campaign: campaignRN,
+              negative: true,
+              location: { geoTargetConstant: geoRN },
+            },
+          }],
+        };
+      }
+
       const r = await fetch(`${apiBase}/campaignCriteria:mutate`, {
         method: "POST", headers, body: JSON.stringify(mutateBody),
       });
       const j = await r.json();
       if (!r.ok) {
-        console.error("[exclude_country] google ads error", JSON.stringify(j));
-        await logAction("failed", mutateBody, JSON.stringify(j));
-        // Extrai detalhe específico (errors[].message ou details[].errors[].message)
+        console.error("[exclude_country]", mode, "google ads error", JSON.stringify(j));
+        await logAction("failed", { meta: { mode }, body: mutateBody }, JSON.stringify(j));
         const detail =
           j?.error?.details?.[0]?.errors?.[0]?.message ??
           j?.error?.details?.[0]?.errors?.[0]?.errorCode ??
@@ -319,8 +349,8 @@ Deno.serve(async (req) => {
           JSON.stringify(j);
         return json({ error: String(detail) });
       }
-      await logAction("executed", { country_criterion_id: countryCriterionId });
-      return json({ ok: true, action, country_criterion_id: countryCriterionId });
+      await logAction("executed", { country_criterion_id: countryCriterionId, mode });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId, mode });
     }
 
     return json({ error: "unreachable" });
