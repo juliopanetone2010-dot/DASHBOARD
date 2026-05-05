@@ -285,13 +285,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Agrega por campanha
+    // Agrega por campanha — custo total real do período (independente de siteFactor),
+    // para que o filtro "custo mín. campanha" reflita o gasto verdadeiro na janela de análise.
     const campAgg = new Map<string, { cost: number; countries: Set<string> }>();
-    for (const c of cells.values()) {
-      let a = campAgg.get(c.campaign_id);
-      if (!a) { a = { cost: 0, countries: new Set() }; campAgg.set(c.campaign_id, a); }
-      a.cost += c.cost_brl;
-      a.countries.add(c.country_code);
+    for (const r of countryRows) {
+      let a = campAgg.get(r.campaign_id);
+      if (!a) { a = { cost: 0, countries: new Set() }; campAgg.set(r.campaign_id, a); }
+      a.cost += (r.cost || 0);
+      if (r.country_code) a.countries.add(r.country_code);
     }
 
     interface Winner {
