@@ -1143,6 +1143,64 @@ function validateSourceLanguages(source: ReturnType<typeof summarizeCampaignCrit
   return { ok: true };
 }
 
+async function validateClonedWinner(
+  apiBase: string,
+  headers: Record<string, string>,
+  newCampaignResource: string,
+  newCampaignId: string,
+  sourceCriteriaSummary: ReturnType<typeof summarizeCampaignCriteria>,
+  debug: any,
+) {
+  const campaignRows = await googleAdsSearchAll(apiBase, headers, `
+    SELECT campaign.id, campaign.status, campaign.bidding_strategy_type,
+           campaign.maximize_conversions.target_cpa_micros,
+           campaign.campaign_budget, campaign_budget.amount_micros
+    FROM campaign
+    WHERE campaign.id = ${newCampaignId}
+  `).catch((e) => {
+    throw new CloneError("validate_campaign", `validate campaign: ${extractError(e.response ?? e)}`, e.response ?? e);
+  });
+  const campaign = campaignRows[0]?.campaign ?? {};
+  const criteriaSummary = summarizeCampaignCriteria(await readCampaignCriteria(apiBase, headers, newCampaignResource, newCampaignId, debug));
+  const criteriaOk = compareCampaignCriteriaSummary(sourceCriteriaSummary, criteriaSummary);
+  const adGroupRows = await googleAdsSearchAll(apiBase, headers, `
+    SELECT ad_group.id
+    FROM ad_group
+    WHERE ad_group.campaign = '${newCampaignResource}'
+      AND ad_group.status != 'REMOVED'
+  `);
+  const adGroupResources = adGroupRows.map((r: any) => `'customers/${newCampaignResource.split("/")[1]}/adGroups/${r.adGroup?.id}'`).join(",");
+  const adRows = adGroupResources ? await googleAdsSearchAll(apiBase, headers, `
+    SELECT ad_group_ad.ad.id
+    FROM ad_group_ad
+    WHERE ad_group_ad.ad_group IN (${adGroupResources})
+      AND ad_group_ad.status != 'REMOVED'
+  `) : [];
+
+  const targetCpa = campaign?.maximizeConversions?.targetCpaMicros;
+  const validation = {
+    languages_applied: criteriaSummary.languageConstants,
+    devices_applied: criteriaSummary.activeDevices,
+    device_bid_modifiers_applied: criteriaSummary.deviceBidModifiers,
+    bidding_type: campaign.biddingStrategyType,
+    target_cpa_micros: targetCpa ?? null,
+    status: campaign.status,
+    budget_micros: Number(campaignRows[0]?.campaignBudget?.amountMicros ?? 0),
+    ad_groups: adGroupRows.length,
+    ads: adRows.length,
+  };
+  debug.post_create = validation;
+
+  if (!criteriaOk.ok) return { ok: false, reason: criteriaOk.reason, ...validation };
+  if (campaign.biddingStrategyType !== "MAXIMIZE_CONVERSIONS") return { ok: false, reason: `bidding veio ${campaign.biddingStrategyType}, esperado MAXIMIZE_CONVERSIONS`, ...validation };
+  if (targetCpa !== undefined && targetCpa !== null && Number(targetCpa) > 0) return { ok: false, reason: `Maximize Conversions veio com target CPA (${targetCpa})`, ...validation };
+  if (campaign.status !== "PAUSED") return { ok: false, reason: `status veio ${campaign.status}, esperado PAUSED`, ...validation };
+  if (Number(campaignRows[0]?.campaignBudget?.amountMicros ?? 0) !== 30_000_000) return { ok: false, reason: "budget diferente de R$30/dia", ...validation };
+  if (adGroupRows.length === 0) return { ok: false, reason: "winner ficou sem ad groups", ...validation };
+  if (adRows.length === 0) return { ok: false, reason: "winner ficou sem anúncios", ...validation };
+  return { ok: true, ...validation };
+}
+
 function buildCriterionOperation(scope: "campaign" | "adGroup", criterion: any, parentResource: string, opts: { skipGeo: boolean }) {
   if (!criterion) return null;
   const type = criterion.type;
