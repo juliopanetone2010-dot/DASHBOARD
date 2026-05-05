@@ -24,11 +24,30 @@ interface Winner {
   budget_micros: number | null;
 }
 
+interface CreatedLog {
+  id: string;
+  original_campaign_id: string;
+  original_campaign_name: string | null;
+  new_campaign_id: string | null;
+  new_campaign_name: string | null;
+  country_code: string;
+  country_name: string | null;
+  roi_pct: number | null;
+  cost_brl: number | null;
+  revenue_brl: number | null;
+  budget_micros: number | null;
+  status: string;
+  executed_at: string;
+}
+
 export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [loading, setLoading] = useState(false);
   const [creatingKey, setCreatingKey] = useState<string | null>(null);
   const [bulkCreating, setBulkCreating] = useState(false);
   const [items, setItems] = useState<Winner[]>([]);
+  const [created, setCreated] = useState<CreatedLog[]>([]);
+  const [loadingCreated, setLoadingCreated] = useState(false);
+  const [tab, setTab] = useState<"winners" | "created">("winners");
 
   const [enabled, setEnabled] = useState(false);
   const [minRoi, setMinRoi] = useState(25);
