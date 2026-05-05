@@ -290,6 +290,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
               <Badge variant="destructive">{items.length} ruins</Badge>
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
+              {typeof stats?.match_pct === "number" && (
+                <Badge variant="outline" className={cn(stats.match_pct >= 70 ? "border-success text-success" : "border-warning text-warning")}>
+                  Match: {stats.match_pct}% ({stats.with_match}/{(stats.with_match ?? 0) + (stats.without_match ?? 0)})
+                </Badge>
+              )}
+              {typeof stats?.gam_attributed_pct === "number" && (
+                <Badge variant="outline" title={`GAM total US$ ${stats.gam_total_usd} · atribuído US$ ${stats.gam_attributed_usd}`}>
+                  Receita atribuída: {stats.gam_attributed_pct}%
+                </Badge>
+              )}
               <Badge variant="secondary">Custo (15d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
