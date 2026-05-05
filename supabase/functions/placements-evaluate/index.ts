@@ -517,7 +517,7 @@ function round(n: number) { return Math.round(n * 100) / 100; }
 function buildPlacementIndexes(ads: Agg[]) {
   const byExact = new Map<string, Agg[]>();
   const byRoot = new Map<string, Agg[]>();
-  const compact: Array<{ key: string; item: Agg }> = [];
+  const byPrefix = new Map<string, Agg[]>();
   for (const a of ads) {
     const exact = normalize(a.placement);
     if (!exact) continue;
@@ -525,9 +525,14 @@ function buildPlacementIndexes(ads: Agg[]) {
     exactList.push(a); byExact.set(exact, exactList);
     const root = rootDomain(exact);
     if (root) { const rootList = byRoot.get(root) ?? []; rootList.push(a); byRoot.set(root, rootList); }
-    compact.push({ key: compactPlacement(exact), item: a });
+    const compact = compactPlacement(exact);
+    for (let len = 8; len <= Math.min(16, compact.length); len++) {
+      const prefix = compact.slice(0, len);
+      const list = byPrefix.get(prefix) ?? [];
+      list.push(a); byPrefix.set(prefix, list);
+    }
   }
-  return { byExact, byRoot, compact };
+  return { byExact, byRoot, byPrefix };
 }
 function findPlacementMatches(placement: string, indexes: ReturnType<typeof buildPlacementIndexes>): Agg[] {
   const exact = normalize(placement);
@@ -539,7 +544,11 @@ function findPlacementMatches(placement: string, indexes: ReturnType<typeof buil
   if (rootMatches?.length) return rootMatches;
   const compact = compactPlacement(exact);
   if (compact.length < 8) return [];
-  return indexes.compact.filter((x) => x.key.startsWith(compact)).map((x) => x.item);
+  for (let len = Math.min(16, compact.length); len >= 8; len--) {
+    const matches = indexes.byPrefix.get(compact.slice(0, len));
+    if (matches?.length) return matches;
+  }
+  return [];
 }
 function normalize(value: string, type?: string | null): string {
   const raw = (value || "").trim().toLowerCase();
