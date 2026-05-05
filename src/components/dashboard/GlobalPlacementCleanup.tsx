@@ -364,9 +364,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
-                        <TableCell className="text-right"><Badge variant="destructive">{list.length}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          {list.length > 0
+                            ? <Badge variant="destructive">{list.length}</Badge>
+                            : <Badge variant="outline" className="border-success/50 text-success">0</Badge>}
+                        </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
+                          {list.length > 0 && (
+                            <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
+                          )}
                         </TableCell>
                       </TableRow>
                       {isOpen && (
