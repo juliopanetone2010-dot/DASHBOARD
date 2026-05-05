@@ -56,8 +56,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [created, setCreated] = useState<CreatedLog[]>([]);
   const [loadingCreated, setLoadingCreated] = useState(false);
   const [tab, setTab] = useState<"winners" | "created">("winners");
-  const [startEnabled, setStartEnabled] = useState(false);
-
   const [enabled, setEnabled] = useState(false);
   const [minRoi, setMinRoi] = useState(25);
   const [minCampCost, setMinCampCost] = useState(500);
@@ -172,7 +170,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
           mode: "apply",
           site_id: activeSiteId,
           budget_multiplier: budgetMult,
-          start_status: startEnabled ? "ENABLED" : "PAUSED",
+          start_status: "PAUSED",
           item: it,
         },
       });
@@ -191,7 +189,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       if (dbg) console.info("[geo-expansion] clone debug:", dbg);
       const devices = ((data as any)?.active_devices ?? dbg?.cloned?.active_devices ?? []).join("/") || "dispositivos copiados";
       toast({
-        title: `Campanha criada (${startEnabled ? "ATIVA" : "PAUSED"})`,
+        title: "Campanha criada (PAUSED)",
         description: `${(data as any)?.new_campaign_name} • ${(data as any)?.ad_groups_cloned} ad groups • ${(data as any)?.ads_cloned} ads • ${(data as any)?.assets_cloned ?? 0} assets • ${devices}`,
       });
       setItems((s) => s.filter((x) => `${x.campaign_id}|${x.country_code}` !== k));
@@ -212,7 +210,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: startEnabled ? "ENABLED" : "PAUSED", item: it },
+            body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: "PAUSED", item: it },
           });
           if ((data as any)?.debug) console.info("[geo-expansion] clone debug:", (data as any).debug);
           if ((data as any)?.ok) ok++; else fail++;
