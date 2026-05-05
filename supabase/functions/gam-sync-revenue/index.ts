@@ -12,6 +12,25 @@ const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_30_D
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
+  const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  // @ts-ignore EdgeRuntime is available in Supabase edge runtime
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    // @ts-ignore
+    EdgeRuntime.waitUntil(work);
+  }
+  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background. Atualize a página em ~2 min." }), {
+    status: 202,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+});
+
+async function runSync(req: Request): Promise<Response> {
+  const debug: string[] = [];
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
+
   const debug: string[] = [];
   try {
     const authHeader = req.headers.get("Authorization");
