@@ -1,6 +1,6 @@
 // Cron diário (e trigger manual) da esteira inteligente de campanhas.
 // - Lê daily_metrics (já populado por google-ads-sync-campaigns + gam-sync-revenue)
-// - Calcula ROI dos últimos N dias com NET_FACTOR (mesma lógica do dashboard)
+// - Calcula ROI do dia atual com NET_FACTOR (mesma lógica do dashboard)
 // - Classifica em: testing | learning | standby | scaling | bad | paused
 // - Decide ação (pause | scale | cpa_up | cpa_down | none) respeitando cooldowns
 // - Executa SOMENTE para pares site_id + google_account_id habilitados em site_automation_config
@@ -14,10 +14,8 @@ type Lifecycle =
   | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
   | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
-// Janela de análise: usa rules_config.auto_analysis_days (default 15).
-// Antes a janela era hardcoded por lifecycle (testing=2d, etc.), o que fazia
-// o motor classificar como "Dados insuficientes" mesmo quando a campanha já
-// tinha gasto > stoploss_min_cost no acumulado de 15 dias.
+// ROI da esteira: sempre o dia atual. Configurações de dias ficam só para
+// regras legadas/cooldowns, não para o número mostrado na coluna ROI.
 const DEFAULT_ANALYSIS_DAYS = 15;
 const MAX_ANALYSIS_WINDOW = 30;
 // Regras específicas do fluxo winner (separadas da automação padrão)
