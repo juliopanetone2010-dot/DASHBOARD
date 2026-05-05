@@ -137,13 +137,13 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     syncLog.campaignRows = campaigns?.length ?? 0;
 
     let placementsOk = 0;
-    for (const c of campaigns ?? []) {
-      const r = await callFn(
-        "google-ads-sync-placements",
-        { campaign_id: c.campaign_id, from, to },
-        authHeader,
-      );
-      if (r.ok) placementsOk++;
+    const camps = campaigns ?? [];
+    for (let i = 0; i < camps.length; i += POOL) {
+      const batch = camps.slice(i, i + POOL);
+      const results = await Promise.all(batch.map((c) =>
+        callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader)
+      ));
+      placementsOk += results.filter((r) => r.ok).length;
     }
     syncLog.placementsOk = placementsOk;
     syncLog.placementsTotal = campaigns?.length ?? 0;
