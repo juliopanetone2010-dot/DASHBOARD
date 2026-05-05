@@ -658,6 +658,46 @@ function rootDomain(host: string): string {
 
 function round(n: number) { return Math.round(n * 100) / 100; }
 
+function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
+
+type AdsAggLite = { campaign_id: string; placement: string; cost: number; clicks: number };
+function buildPlacementIndexes(ads: AdsAggLite[]) {
+  const byExact = new Map<string, AdsAggLite[]>();
+  const byRoot = new Map<string, AdsAggLite[]>();
+  const byPrefix = new Map<string, AdsAggLite[]>();
+  for (const a of ads) {
+    const exact = normalize(a.placement);
+    if (!exact) continue;
+    const exactList = byExact.get(exact) ?? [];
+    exactList.push(a); byExact.set(exact, exactList);
+    const root = rootDomain(exact);
+    if (root) { const rootList = byRoot.get(root) ?? []; rootList.push(a); byRoot.set(root, rootList); }
+    const compact = compactPlacement(exact);
+    for (let len = 8; len <= Math.min(16, compact.length); len++) {
+      const prefix = compact.slice(0, len);
+      const list = byPrefix.get(prefix) ?? [];
+      list.push(a); byPrefix.set(prefix, list);
+    }
+  }
+  return { byExact, byRoot, byPrefix };
+}
+function findPlacementMatches(placement: string, indexes: ReturnType<typeof buildPlacementIndexes>): AdsAggLite[] {
+  const exact = normalize(placement);
+  if (!exact) return [];
+  const direct = indexes.byExact.get(exact);
+  if (direct?.length) return direct;
+  const root = rootDomain(exact);
+  const rootMatches = root ? indexes.byRoot.get(root) : null;
+  if (rootMatches?.length) return rootMatches;
+  const compact = compactPlacement(exact);
+  if (compact.length < 8) return [];
+  for (let len = Math.min(16, compact.length); len >= 8; len--) {
+    const matches = indexes.byPrefix.get(compact.slice(0, len));
+    if (matches?.length) return matches;
+  }
+  return [];
+}
+
 // Extrai app id no formato Google Ads: "1-com.pacote" (Android) ou "2-123456789" (iOS).
 function extractAppId(placementRaw: string, type?: string | null): string | null {
   if (type !== "MOBILE_APPLICATION") return null;
