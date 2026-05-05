@@ -15,6 +15,7 @@ const KEY_SEP = "\u0001";
 
 type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
 type Status = "test" | "learning" | "good" | "bad" | "blocked";
+interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -164,7 +165,6 @@ Deno.serve(async (req) => {
       revByCampaign.set(cid, inner);
     }
 
-    interface Agg { campaign_id: string; placement: string; type: string; cost: number; clicks: number; impressions: number; conversions: number; lastConvDate: string | null; firstDate: string; }
     const agg = new Map<string, Agg>();
     for (const r of ads) {
       const placement = normalize(r.placement_clean || r.placement, r.placement_type);
