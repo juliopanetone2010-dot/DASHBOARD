@@ -186,6 +186,9 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
   // Aplica orçamento R$40/dia + bidding MAXIMIZE_CONVERSIONS (sem CPA)
   const apply = await applyInitialConfig(admin, userId, camp.google_account_id, campaignId, INITIAL_BUDGET_BRL);
   if (apply.error) return { error: `Falha ao aplicar config inicial: ${apply.error}` };
+  const initialNotes = apply?.bidding?.strategy === "TARGET_CPA"
+    ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; Google manteve Target CPA por restrição da campanha`
+    : `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`;
 
   // Remove de qualquer esteira ativa: zera campaign_automation lifecycle p/ não interferir
   await admin
@@ -215,7 +218,7 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       current_budget: INITIAL_BUDGET_BRL,
       last_action: "init",
       last_action_at: new Date().toISOString(),
-      notes: `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`,
+      notes: initialNotes,
     })
     .select()
     .single();
