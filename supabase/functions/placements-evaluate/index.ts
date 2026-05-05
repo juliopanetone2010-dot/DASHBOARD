@@ -421,6 +421,18 @@ Deno.serve(async (req) => {
       blockResult = await r.json().catch(() => ({}));
     }
 
+    await admin.from("rules_config")
+      .update({ funnel_auto_last_run_at: new Date().toISOString() })
+      .eq("user_id", userId);
+    if (siteId) {
+      let siteRunQuery = admin.from("site_placement_config")
+        .update({ last_run_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("site_id", siteId);
+      if (accountId) siteRunQuery = siteRunQuery.eq("google_account_id", accountId);
+      await siteRunQuery;
+    }
+
     return json({
       ok: true, mode, period: { from, to }, summary,
       newly_blocked: newlyBlocked.length,
