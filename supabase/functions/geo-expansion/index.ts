@@ -403,6 +403,12 @@ async function duplicateCampaign(
     status: "PAUSED",
     advertisingChannelType: channelType,
     campaignBudget: newBudgetResource,
+    networkSettings: {
+      targetGoogleSearch: channelType === "SEARCH",
+      targetSearchNetwork: channelType === "SEARCH",
+      targetContentNetwork: channelType === "DISPLAY" || channelType === "SEARCH",
+      targetPartnerSearchNetwork: false,
+    },
   };
   if (channelSubType) campCreate.advertisingChannelSubType = channelSubType;
 
