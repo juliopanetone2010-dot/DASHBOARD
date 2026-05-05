@@ -63,7 +63,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
   const [minCountries, setMinCountries] = useState(3);
   const [lookback, setLookback] = useState(7);
   const [interval, setIntervalDays] = useState(7);
-  const [budgetMult, setBudgetMult] = useState(0.5);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [analysisSiteId, setAnalysisSiteId] = useState<string>(siteId ?? "all");
@@ -91,7 +90,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         setMinCountries(Number(data.geo_expansion_min_countries ?? 3));
         setLookback(Number(data.geo_expansion_lookback_days ?? 7));
         setIntervalDays(Number(data.geo_expansion_interval_days ?? 7));
-        setBudgetMult(Number(data.geo_expansion_budget_multiplier ?? 0.5));
         setLastRun(data.geo_expansion_last_run_at ?? null);
       }
     })();
@@ -169,7 +167,6 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         body: {
           mode: "apply",
           site_id: activeSiteId,
-          budget_multiplier: budgetMult,
           start_status: "PAUSED",
           item: it,
         },
@@ -210,7 +207,7 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
       for (const it of items) {
         try {
           const { data } = await supabase.functions.invoke("geo-expansion", {
-            body: { mode: "apply", site_id: activeSiteId, budget_multiplier: budgetMult, start_status: "PAUSED", item: it },
+            body: { mode: "apply", site_id: activeSiteId, start_status: "PAUSED", item: it },
           });
           if ((data as any)?.debug) console.info("[geo-expansion] clone debug:", (data as any).debug);
           if ((data as any)?.ok) ok++; else fail++;
