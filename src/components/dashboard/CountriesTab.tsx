@@ -559,6 +559,23 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         <Badge variant={totalRoi >= 0 ? "outline" : "destructive"}>ROI: {fmtPercent(totalRoi)}</Badge>
       </div>
 
+      {selectedKeys.size > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-2">
+          <div className="text-sm">
+            <b>{selectedKeys.size}</b> país(es) selecionado(s) para exclusão
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedKeys(new Set())} disabled={bulkBusy}>
+              Limpar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={handleBulkExclude} disabled={bulkBusy}>
+              {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <Ban className="h-3.5 w-3.5 mr-2" />}
+              Excluir selecionados
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Debug */}
       {showDebug && (
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs space-y-1">
