@@ -69,24 +69,26 @@ export function SitesAutomationPanel({ userId }: { userId: string | null }) {
     });
   }, [sites, links, siteAuto]);
 
-  // Carrega impacto de receita: 7 dias antes vs 7 dias depois de enabledAt para cada site habilitado
+  // Carrega impacto de receita: compara MESMA quantidade de dias antes vs depois.
+  // Ex: ativou ontem → 1 dia depois é comparado com 1 dia antes.
+  // Após 7 dias, fixa em 7d antes vs 7d depois (resultado consolidado).
   useEffect(() => {
     const run = async () => {
       const enabledRows = rows.filter((r) => r.enabled && r.enabledAt);
       if (enabledRows.length === 0) { setRevenueImpact({}); return; }
       const result: Record<string, { before: number; after: number; days: number; ongoing: boolean }> = {};
+      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0, 0, 0, 0);
       await Promise.all(enabledRows.map(async (r) => {
         const enabledAt = r.enabledAt as Date;
-        const now = new Date();
-        const daysSince = Math.floor((now.getTime() - enabledAt.getTime()) / 86400_000);
+        const afterStart = new Date(enabledAt.getTime() + 86400_000);
+        afterStart.setHours(0, 0, 0, 0);
         const window = 7;
-        const beforeFrom = new Date(enabledAt.getTime() - window * 86400_000);
+        const daysAfter = Math.max(0, Math.min(window, Math.floor((yesterday.getTime() - afterStart.getTime()) / 86400_000) + 1));
+        const compareDays = Math.max(1, daysAfter);
+        const afterFrom = afterStart;
+        const afterTo = new Date(afterStart.getTime() + (compareDays - 1) * 86400_000);
         const beforeTo = new Date(enabledAt.getTime() - 1 * 86400_000);
-        const afterFrom = enabledAt;
-        // se ainda não passou 7 dias, usa o que temos; após 7d, usa a janela completa de 7d a partir do enable
-        // mas o usuário pediu para continuar mostrando depois que passar — então mantemos comparando 7d pré com 7d pós (fixos)
-        const afterTo = new Date(Math.min(now.getTime(), enabledAt.getTime() + window * 86400_000));
-        const ongoing = daysSince >= window;
+        const beforeFrom = new Date(beforeTo.getTime() - (compareDays - 1) * 86400_000);
 
         const fetchSiteRevenue = async (from: Date, to: Date) => {
           const { data } = await supabase
@@ -99,9 +101,8 @@ export function SitesAutomationPanel({ userId }: { userId: string | null }) {
         };
         const [beforeUsd, afterUsd] = await Promise.all([
           fetchSiteRevenue(beforeFrom, beforeTo),
-          fetchSiteRevenue(afterFrom, afterTo),
+          daysAfter > 0 ? fetchSiteRevenue(afterFrom, afterTo) : Promise.resolve(0),
         ]);
-        // Converte com taxa USD->BRL
         const { data: rate } = await supabase
           .from("exchange_rates")
           .select("rate")
@@ -109,12 +110,12 @@ export function SitesAutomationPanel({ userId }: { userId: string | null }) {
           .eq("to_currency", "BRL")
           .maybeSingle();
         const r2 = Number(rate?.rate ?? 5);
-        // Normaliza pelo número de dias para comparar (ex: pós com menos de 7d)
-        const beforeDays = window;
-        const afterDays = Math.max(1, Math.ceil((afterTo.getTime() - afterFrom.getTime()) / 86400_000));
-        const beforeNorm = beforeUsd * r2;
-        const afterNorm = (afterUsd * r2) * (window / afterDays);
-        result[r.site.id] = { before: beforeNorm, after: afterNorm, days: Math.min(daysSince, window), ongoing };
+        result[r.site.id] = {
+          before: beforeUsd * r2,
+          after: afterUsd * r2,
+          days: daysAfter,
+          ongoing: daysAfter >= window,
+        };
       }));
       setRevenueImpact(result);
     };
