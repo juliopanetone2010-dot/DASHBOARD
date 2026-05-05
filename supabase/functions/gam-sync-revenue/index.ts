@@ -913,10 +913,22 @@ async function applyGoogleUtmRevenue(
       .in("google_account_id", accountIds);
     if (!metrics?.length) continue;
 
-    // Agrega receita de TODOS os sites para essas campanhas nesta data
-    // (uma mesma conta Ads pode estar ligada a múltiplos sites — sem isso,
-    //  cada execução por site sobrescreveria a receita das outras).
+    // Agrega receita de TODOS os sites para essas campanhas nesta data.
+    // Primário: gam_placement_revenue (vem de utm_placement e já tem campaign_id).
+    // Fallback: gam_campaign_source_revenue (utm_campaign), caso um site não envie placement.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
+    const { data: allPlacementRevenueRows } = await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id, revenue_usd")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .in("campaign_id", cids);
+    const placementByCid = new Map<string, number>();
+    for (const r of (allPlacementRevenueRows ?? []) as any[]) {
+      const cid = String(r.campaign_id);
+      placementByCid.set(cid, (placementByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+    }
+
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
       .select("campaign_id, revenue_usd")
@@ -924,8 +936,10 @@ async function applyGoogleUtmRevenue(
       .eq("date", date)
       .in("campaign_id", cids);
     const aggregatedByCid = new Map<string, number>();
+    for (const [cid, revenue] of placementByCid) aggregatedByCid.set(cid, revenue);
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id);
+      if (placementByCid.has(cid)) continue;
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
     }
 
@@ -961,7 +975,7 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (todos os sites)`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size})`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
