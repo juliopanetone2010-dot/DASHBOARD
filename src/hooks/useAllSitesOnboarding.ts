@@ -51,16 +51,19 @@ export function useAllSitesOnboarding(enabled: boolean) {
   // Auto-disparo em background — uma vez por site por sessão
   useEffect(() => {
     if (!enabled || !sites) return;
-    for (const s of sites) {
-      if (triggeredRef.current.has(s.id)) continue;
-      const startedAt = s.sync_started_at ? new Date(s.sync_started_at).getTime() : 0;
-      const ageMin = (Date.now() - startedAt) / 60000;
-      const stuck = s.sync_status === "processing" && ageMin > 10;
-      const needs = s.ads_links > 0 && !s.last_full_sync_at && (s.sync_status === "idle" || stuck);
-      if (!needs) continue;
-      triggeredRef.current.add(s.id);
-      void supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force: stuck } });
-    }
+    void (async () => {
+      for (const s of sites) {
+        if (triggeredRef.current.has(s.id)) continue;
+        const startedAt = s.sync_started_at ? new Date(s.sync_started_at).getTime() : 0;
+        const ageMin = (Date.now() - startedAt) / 60000;
+        const stuck = s.sync_status === "processing" && ageMin > 10;
+        const needs = s.ads_links > 0 && !s.last_full_sync_at && (s.sync_status === "idle" || stuck);
+        if (!needs) continue;
+        triggeredRef.current.add(s.id);
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force: stuck } });
+        await delay(2_000);
+      }
+    })();
     // invalidate dashboards quando algum termina
     if (sites.some((s) => s.sync_status === "completed")) {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -74,15 +77,18 @@ export function useAllSitesOnboarding(enabled: boolean) {
       title: "Sincronizando todos os sites",
       description: `${eligibleSites.length} site(s) em fila. Pode levar alguns minutos.`,
     });
-    await Promise.all(
-      eligibleSites.map((s) =>
-        supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force } }),
-      ),
-    );
+    for (const s of eligibleSites) {
+      await supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force } });
+      await delay(2_000);
+    }
     await refetch();
   };
 
   const processingCount = (sites ?? []).filter((s) => s.sync_status === "processing").length;
   const totalCount = sites?.length ?? 0;
   return { sites: sites ?? [], processingCount, totalCount, syncAll, refetch };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
