@@ -35,26 +35,29 @@ Deno.serve(async (req) => {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate), to = iso(toDate);
 
-    const { data: campsRaw } = await admin
+    let allowedAccountIds: string[] | null = null;
+    if (siteId) {
+      const { data: links, error: linkErr } = await admin
+        .from("account_site_links")
+        .select("google_account_id")
+        .eq("user_id", userId)
+        .eq("site_id", siteId);
+      if (linkErr) return json({ error: linkErr.message });
+      allowedAccountIds = [...new Set((links ?? []).map((l) => String(l.google_account_id)).filter(Boolean))];
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, processed: 0, msg: "Nenhuma conta Ads vinculada ao site", period: { from, to } });
+      }
+    }
+
+    let campsQuery = admin
       .from("campaigns")
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId)
       .eq("status", "enabled");
-    let camps = (campsRaw ?? []) as CampaignRow[];
-    if (siteId) {
-      const { data: siteCampaigns } = await admin
-        .from("gam_placement_revenue")
-        .select("campaign_id")
-        .eq("user_id", userId)
-        .eq("site_id", siteId)
-        .gte("date", from)
-        .lte("date", to)
-        .limit(50000);
-      const allowedCampaigns = new Set((siteCampaigns ?? [])
-        .map((r: { campaign_id: string | null }) => String(r.campaign_id ?? ""))
-        .filter((id) => id && id !== "__aggregate__"));
-      camps = camps.filter((c) => allowedCampaigns.has(String(c.campaign_id)));
-    }
+    if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    const { data: campsRaw, error: campsErr } = await campsQuery;
+    if (campsErr) return json({ error: campsErr.message });
+    const camps = (campsRaw ?? []) as CampaignRow[];
 
     const byAccount = new Map<string, { ids: string[]; }>();
     const campMeta = new Map<string, { name: string; google_account_id: string }>();
