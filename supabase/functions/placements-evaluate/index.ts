@@ -9,8 +9,9 @@
 //   recém-marcados como 'blocked'.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 
-const REV_SHARE_NET = 0.935;
+const DEFAULT_REV_SHARE_NET = 1 - DEFAULT_REV_SHARE_PCT / 100; // 0.935 fallback
 const KEY_SEP = "\u0001";
 
 type Phase = "phase1_test" | "phase2_learning" | "phase3_decision" | "phase4_block";
