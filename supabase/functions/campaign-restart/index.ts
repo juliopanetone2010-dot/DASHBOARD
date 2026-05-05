@@ -468,20 +468,37 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
   // 2) Estratégia: MAXIMIZE_CONVERSIONS (sem target CPA)
+  // Tenta primeiro como troca de estratégia: maximize_conversions com target_cpa_micros=0
   const cRes = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
     method: "POST", headers: ctx.headers,
     body: JSON.stringify({
       operations: [{
         update: {
           resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
-          maximizeConversions: {},
+          maximizeConversions: { targetCpaMicros: "0" },
         },
-        updateMask: "maximize_conversions",
+        updateMask: "maximize_conversions.target_cpa_micros",
       }],
     }),
   });
   const cJson = await cRes.json();
-  if (!cRes.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)}` };
+  if (!cRes.ok) {
+    // Fallback: troca completa de estratégia (campanha não estava em MAXIMIZE_CONVERSIONS)
+    const c2 = await fetch(`${ctx.apiBase}/campaigns:mutate`, {
+      method: "POST", headers: ctx.headers,
+      body: JSON.stringify({
+        operations: [{
+          update: {
+            resourceName: `customers/${ctx.customerId}/campaigns/${campaignId}`,
+            maximizeConversions: {},
+          },
+          updateMask: "maximize_conversions",
+        }],
+      }),
+    });
+    const c2Json = await c2.json();
+    if (!c2.ok) return { error: `bidding mutate: ${JSON.stringify(cJson).slice(0, 200)} | fallback: ${JSON.stringify(c2Json).slice(0, 200)}` };
+  }
 
   return { ok: true, budget_brl: budgetBrl };
 }
