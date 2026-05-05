@@ -153,14 +153,17 @@ Deno.serve(async (req) => {
     for (const chunk of chunkArr(eligibleIds, 50)) {
       let start = 0;
       for (;;) {
-        const { data, error } = await admin
+        // CRÍTICO multi-site: filtrar por site_id quando definido para não misturar
+        // receita de outros sites que usem a mesma conta Ads.
+        let gamQuery = admin
           .from("gam_placement_revenue")
           .select("campaign_id, placement, revenue_usd")
           .eq("user_id", userId)
           .in("campaign_id", chunk)
           .gte("date", from)
-          .lte("date", to)
-          .range(start, start + 999);
+          .lte("date", to);
+        if (siteId) gamQuery = gamQuery.eq("site_id", siteId);
+        const { data, error } = await gamQuery.range(start, start + 999);
         if (error) return json({ error: error.message });
         const rows = (data ?? []) as GamRow[];
         gam.push(...rows);
@@ -169,12 +172,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    const revByCampPlacement = new Map<string, number>();
+    // Agrupa receita GAM por (campaign, placement-normalizado)
+    const revByCampaign = new Map<string, Map<string, number>>();
     for (const g of gam) {
       const placement = normalize(g.placement);
       if (!placement) continue;
-      const key = cpKey(String(g.campaign_id), placement);
-      revByCampPlacement.set(key, (revByCampPlacement.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cid = String(g.campaign_id);
+      const inner = revByCampaign.get(cid) ?? new Map<string, number>();
+      inner.set(placement, (inner.get(placement) ?? 0) + Number(g.revenue_usd ?? 0));
+      revByCampaign.set(cid, inner);
     }
 
     // Placements já excluídos não devem voltar no próximo preview/limpeza.
@@ -220,9 +226,62 @@ Deno.serve(async (req) => {
       if (!c.app_id && r.app_id) c.app_id = r.app_id;
     }
 
+    // Aloca receita GAM aos placements Ads — exato → root → prefixo compactado;
+    // sobra distribui proporcional ao custo (fallback "campanha").
+    type AdsAgg = { campaign_id: string; placement: string; cost: number; clicks: number };
+    const adsByCampaign = new Map<string, AdsAgg[]>();
+    for (const v of cpAgg.values()) {
+      const list = adsByCampaign.get(v.campaign_id) ?? [];
+      list.push({ campaign_id: v.campaign_id, placement: v.placement, cost: v.cost, clicks: v.clicks });
+      adsByCampaign.set(v.campaign_id, list);
+    }
+    const revenueUsdByCp = new Map<string, number>();
+    let totalGamUsd = 0;
+    let attributedGamUsd = 0;
+    for (const [cid, revenues] of revByCampaign) {
+      const ads = adsByCampaign.get(cid) ?? [];
+      for (const usd of revenues.values()) totalGamUsd += usd;
+      if (ads.length === 0) continue;
+      const indexes = buildPlacementIndexes(ads);
+      const claimed = new Set<string>();
+      let unmatchedUsd = 0;
+      for (const [rawPlacement, usd] of revenues) {
+        if (usd <= 0) continue;
+        const matches = findPlacementMatches(normalize(rawPlacement), indexes).filter((a) => !claimed.has(a.placement));
+        if (matches.length === 0) { unmatchedUsd += usd; continue; }
+        const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = matches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = usd / matches.length;
+        for (const a of matches) {
+          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+          const share = weight > 0 ? usd * weight : equalShare;
+          const key = cpKey(cid, a.placement);
+          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+          attributedGamUsd += share;
+          claimed.add(a.placement);
+        }
+      }
+      if (unmatchedUsd > 0) {
+        // Fallback: distribui proporcional ao custo entre placements ainda sem match
+        const targets = ads.filter((a) => !claimed.has(a.placement));
+        const fallback = targets.length > 0 ? targets : ads;
+        const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = unmatchedUsd / fallback.length;
+        for (const a of fallback) {
+          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+          const share = weight > 0 ? unmatchedUsd * weight : equalShare;
+          const key = cpKey(cid, a.placement);
+          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+          attributedGamUsd += share;
+        }
+      }
+    }
+
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
+    let withMatch = 0, withoutMatch = 0;
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
       if (!meta) continue;
@@ -232,11 +291,12 @@ Deno.serve(async (req) => {
       }
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
 
-      const root = rootDomain(v.placement);
-      const usdFull = revByCampPlacement.get(cpKey(v.campaign_id, v.placement)) ?? 0;
-      const usdRoot = root && root !== v.placement ? (revByCampPlacement.get(cpKey(v.campaign_id, root)) ?? 0) : 0;
-      const revenueUsd = usdFull > 0 ? usdFull : usdRoot;
-      const matched = revenueUsd > 0;
+      const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
+      // "matched" = teve algum match real (exato/root/prefixo) — checa se houve receita direta
+      const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
+      const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
+      const matched = directUsd > 0 || rootUsd > 0 || revenueUsd > 0;
+      if (matched) withMatch++; else withoutMatch++;
       const revenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
       const profitBrl = revenueBrl - v.cost;
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
@@ -318,6 +378,7 @@ Deno.serve(async (req) => {
     const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
     const grand_profit_brl = round(grand_revenue_brl - grand_cost_brl);
 
+    const totalAnalyzed = withMatch + withoutMatch;
     const stats = {
       eligible: eligibleIds.length,
       total: campIds.length,
@@ -327,6 +388,12 @@ Deno.serve(async (req) => {
       skipped_blacklisted: skippedAlreadyBlacklisted,
       ads_rows: ads.length,
       gam_rows: gam.length,
+      with_match: withMatch,
+      without_match: withoutMatch,
+      match_pct: totalAnalyzed > 0 ? round((withMatch / totalAnalyzed) * 100) : 0,
+      gam_total_usd: round(totalGamUsd),
+      gam_attributed_usd: round(attributedGamUsd),
+      gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
@@ -590,6 +657,46 @@ function rootDomain(host: string): string {
 }
 
 function round(n: number) { return Math.round(n * 100) / 100; }
+
+function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
+
+type AdsAggLite = { campaign_id: string; placement: string; cost: number; clicks: number };
+function buildPlacementIndexes(ads: AdsAggLite[]) {
+  const byExact = new Map<string, AdsAggLite[]>();
+  const byRoot = new Map<string, AdsAggLite[]>();
+  const byPrefix = new Map<string, AdsAggLite[]>();
+  for (const a of ads) {
+    const exact = normalize(a.placement);
+    if (!exact) continue;
+    const exactList = byExact.get(exact) ?? [];
+    exactList.push(a); byExact.set(exact, exactList);
+    const root = rootDomain(exact);
+    if (root) { const rootList = byRoot.get(root) ?? []; rootList.push(a); byRoot.set(root, rootList); }
+    const compact = compactPlacement(exact);
+    for (let len = 8; len <= Math.min(16, compact.length); len++) {
+      const prefix = compact.slice(0, len);
+      const list = byPrefix.get(prefix) ?? [];
+      list.push(a); byPrefix.set(prefix, list);
+    }
+  }
+  return { byExact, byRoot, byPrefix };
+}
+function findPlacementMatches(placement: string, indexes: ReturnType<typeof buildPlacementIndexes>): AdsAggLite[] {
+  const exact = normalize(placement);
+  if (!exact) return [];
+  const direct = indexes.byExact.get(exact);
+  if (direct?.length) return direct;
+  const root = rootDomain(exact);
+  const rootMatches = root ? indexes.byRoot.get(root) : null;
+  if (rootMatches?.length) return rootMatches;
+  const compact = compactPlacement(exact);
+  if (compact.length < 8) return [];
+  for (let len = Math.min(16, compact.length); len >= 8; len--) {
+    const matches = indexes.byPrefix.get(compact.slice(0, len));
+    if (matches?.length) return matches;
+  }
+  return [];
+}
 
 // Extrai app id no formato Google Ads: "1-com.pacote" (Android) ou "2-123456789" (iOS).
 function extractAppId(placementRaw: string, type?: string | null): string | null {
