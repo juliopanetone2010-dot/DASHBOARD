@@ -229,17 +229,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
-  // Mostra TODAS as campanhas ENABLED da conta/site filtrado, mesmo sem placements ruins.
+  // Mostra TODAS as campanhas ENABLED da conta/site selecionado, mesmo sem placements ruins.
   // Permite ao usuário enxergar todo o portfólio e validar custo/receita batendo com o dashboard.
   const accountFilteredTotals = accountFilter === "all"
     ? campaignTotals
-    : campaignTotals.filter((c) => {
-        // tem placements ruins na conta? OU não tem placements (e portanto não há filtro de conta a aplicar)
-        const list = itemsByCampaign.get(c.campaign_id) ?? [];
-        if (list.length > 0) return list.some((it) => it.campaigns.some((cc) => cc.google_account_id === accountFilter));
-        // sem placements ruins: mantém se a campanha pertence à conta filtrada (precisa de mapping)
-        return true;
-      });
+    : campaignTotals.filter((c) => c.google_account_id === accountFilter);
   const sortedCampaigns = [...accountFilteredTotals].sort((a, b) => a.roi_pct - b.roi_pct);
 
   // Custo/Lucro do header reflete TODAS campanhas exibidas (com e sem placements ruins),
