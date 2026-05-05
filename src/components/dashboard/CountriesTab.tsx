@@ -57,6 +57,9 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "cost", dir: "desc" });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [excluding, setExcluding] = useState<string | null>(null);
+  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(new Set());
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
   const [loading, setLoading] = useState(false);
