@@ -441,7 +441,12 @@ async function duplicateCampaign(
     return { error: `Campos obrigatórios ausentes: ${missing.join(", ")}`, debug: { missing } };
   }
 
-  const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER`;
+  const nameSuffix = (() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  })();
+  const newName = `${campRow.name} - ${(item.country_name ?? item.country_code).toUpperCase()} WINNER #${nameSuffix}`;
   const requestSeed = Date.now();
   const tempBudgetId = `-${requestSeed}`;
   const tempCampaignId = `-${requestSeed + 1}`;
