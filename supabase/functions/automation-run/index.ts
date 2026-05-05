@@ -14,30 +14,23 @@ type Lifecycle =
   | "testing" | "learning" | "standby" | "scaling" | "bad" | "paused"
   | "winner_test" | "winner_scaling" | "winner_standby" | "winner_paused";
 
-// Janela de análise por lifecycle (em dias). Permite decisões mais rápidas
-// em campanhas novas/scaling e mais conservadoras em standby/bad.
-const LIFECYCLE_ANALYSIS_DAYS: Record<Lifecycle, number> = {
-  testing: 2,
-  learning: 5,
-  standby: 7,
-  scaling: 3,
-  bad: 5,
-  paused: 7,
-  winner_test: 7,
-  winner_scaling: 2,
-  winner_standby: 3,
-  winner_paused: 7,
-};
-const MAX_LIFECYCLE_WINDOW = 7;
+// Janela de análise: usa rules_config.auto_analysis_days (default 15).
+// Antes a janela era hardcoded por lifecycle (testing=2d, etc.), o que fazia
+// o motor classificar como "Dados insuficientes" mesmo quando a campanha já
+// tinha gasto > stoploss_min_cost no acumulado de 15 dias.
+const DEFAULT_ANALYSIS_DAYS = 15;
+const MAX_ANALYSIS_WINDOW = 30;
 // Regras específicas do fluxo winner (separadas da automação padrão)
 const WINNER_TEST_DAYS = 7;          // janela de aprendizado pós-ativação
 const WINNER_SCALE_INTERVAL_DAYS = 2; // intervalo entre +20%
 const WINNER_SCALE_PCT = 20;          // percentual por escala
 const WINNER_DELIVERY_MIN = 0.7;      // >70% de delivery
-function windowForLifecycle(lc: Lifecycle | null | undefined): number {
-  if (!lc) return LIFECYCLE_ANALYSIS_DAYS.testing;
-  return LIFECYCLE_ANALYSIS_DAYS[lc] ?? LIFECYCLE_ANALYSIS_DAYS.testing;
+function resolveAnalysisDays(cfg: any): number {
+  const v = Number(cfg?.auto_analysis_days);
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_ANALYSIS_DAYS;
+  return Math.max(2, Math.min(MAX_ANALYSIS_WINDOW, Math.round(v)));
 }
+
 function isWinnerLifecycle(lc: Lifecycle | null | undefined): boolean {
   return typeof lc === "string" && lc.startsWith("winner_");
 }
@@ -129,9 +122,9 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
-  // Buscamos sempre a janela máxima (7d). A janela efetiva é aplicada no classify()
-  // de acordo com o lifecycle atual da campanha (testing=2, scaling=3, learning/bad=5, standby=7).
-  const days: number = MAX_LIFECYCLE_WINDOW;
+  // Janela única configurável via rules_config.auto_analysis_days (default 15d).
+  // Termina ontem (sem incluir o dia corrente, que está incompleto).
+  const days: number = resolveAnalysisDays(cfg);
 
   const today = new Date();
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
@@ -461,12 +454,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   delivery: number | null; avgDailySpend: number; delivery_driven?: boolean;
   window_days?: number;
 } {
-  // Janela efetiva por lifecycle: testing=2, scaling=3, learning/bad=5, standby=7.
-  // Campanha nova (sem prev) entra como "testing".
+  // Janela única vinda de auto_analysis_days (default 15d). Usamos TODOS os
+  // dailies já consultados (a query upstream respeitou auto_analysis_days).
   const prevLifecycle: Lifecycle = (prev?.lifecycle_status as Lifecycle) ?? "testing";
-  const windowDays = windowForLifecycle(prevLifecycle);
+  const windowDays = resolveAnalysisDays(cfg);
 
-  // Filtra os dailies para a janela do lifecycle (já estamos sem "hoje" pois a query foi até ontem).
   const sortedAll = [...agg.daily].sort((a, b) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
   const days = new Set(sliced.map((d: any) => d.date)).size;
@@ -630,8 +622,8 @@ async function runWinnerCycle(args: {
     }).eq("user_id", userId).eq("campaign_id", agg.campaign_id);
   }
 
-  // 2) Calcula métricas com a janela do estado atual (winner_test=7, winner_scaling=2, winner_standby=3)
-  const windowDays = windowForLifecycle(fromStatus);
+  // 2) Calcula métricas com janela específica do fluxo winner.
+  const windowDays = fromStatus === "winner_scaling" ? WINNER_SCALE_INTERVAL_DAYS : (fromStatus === "winner_standby" ? 3 : WINNER_TEST_DAYS);
   const sortedAll = [...agg.daily].sort((a: any, b: any) => a.date.localeCompare(b.date));
   const sliced = sortedAll.slice(-windowDays);
   const cost = sliced.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
