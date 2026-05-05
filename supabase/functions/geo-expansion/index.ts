@@ -863,26 +863,27 @@ class CloneError extends Error {
 }
 
 async function googleAdsSearchAll(apiBase: string, headers: Record<string, string>, query: string): Promise<any[]> {
+  // Usa searchStream — não suporta nem requer pageSize, retorna tudo em batches.
+  const res = await fetch(`${apiBase}/googleAds:searchStream`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ query }),
+  });
+  const text = await res.text();
+  let parsed: any;
+  try { parsed = JSON.parse(text); } catch { parsed = text; }
+  if (!res.ok) {
+    const err: any = new Error(extractError(parsed) || `searchStream failed: ${res.status}`);
+    err.response = parsed;
+    err.query = query;
+    throw err;
+  }
   const rows: any[] = [];
-  let pageToken: string | undefined;
-  do {
-    const body: any = { query, pageSize: 10000 };
-    if (pageToken) body.pageToken = pageToken;
-    const res = await fetch(`${apiBase}/googleAds:search`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      const err: any = new Error(extractError(json));
-      err.response = json;
-      err.query = query;
-      throw err;
-    }
-    rows.push(...(json.results ?? []));
-    pageToken = json.nextPageToken;
-  } while (pageToken);
+  // searchStream retorna um array de respostas, cada uma com results
+  const batches = Array.isArray(parsed) ? parsed : [parsed];
+  for (const b of batches) {
+    if (b?.results) rows.push(...b.results);
+  }
   return rows;
 }
 
