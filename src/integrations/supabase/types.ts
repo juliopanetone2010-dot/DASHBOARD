@@ -1394,6 +1394,7 @@ export type Database = {
         Row: {
           automation_dry_run: boolean
           automation_enabled: boolean
+          automation_enabled_at: string | null
           created_at: string
           google_account_id: string
           id: string
@@ -1405,6 +1406,7 @@ export type Database = {
         Insert: {
           automation_dry_run?: boolean
           automation_enabled?: boolean
+          automation_enabled_at?: string | null
           created_at?: string
           google_account_id: string
           id?: string
@@ -1416,6 +1418,7 @@ export type Database = {
         Update: {
           automation_dry_run?: boolean
           automation_enabled?: boolean
+          automation_enabled_at?: string | null
           created_at?: string
           google_account_id?: string
           id?: string
