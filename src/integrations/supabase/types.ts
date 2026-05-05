@@ -271,7 +271,9 @@ export type Database = {
           lifecycle_status: string
           roi_today: number | null
           roi_trend: string | null
+          scaling_since: string | null
           site_id: string | null
+          sub_threshold_days: number
           updated_at: string
           user_id: string
           winner_country_code: string | null
@@ -299,7 +301,9 @@ export type Database = {
           lifecycle_status?: string
           roi_today?: number | null
           roi_trend?: string | null
+          scaling_since?: string | null
           site_id?: string | null
+          sub_threshold_days?: number
           updated_at?: string
           user_id: string
           winner_country_code?: string | null
@@ -327,7 +331,9 @@ export type Database = {
           lifecycle_status?: string
           roi_today?: number | null
           roi_trend?: string | null
+          scaling_since?: string | null
           site_id?: string | null
+          sub_threshold_days?: number
           updated_at?: string
           user_id?: string
           winner_country_code?: string | null
