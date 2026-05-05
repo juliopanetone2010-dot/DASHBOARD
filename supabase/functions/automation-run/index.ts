@@ -272,6 +272,15 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.entered_standby_at = null;
       newState.days_in_standby = 0;
     }
+    // Histerese do "Escalando": persiste o contador de dias abaixo do piso
+    // e marca scaling_since na primeira vez que entra em Escalando.
+    if (decision.lifecycle === "scaling") {
+      newState.scaling_since = prevState?.scaling_since ?? nowIso;
+      newState.sub_threshold_days = Number((decision as any).sub_threshold_days ?? 0);
+    } else {
+      newState.scaling_since = null;
+      newState.sub_threshold_days = 0;
+    }
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
