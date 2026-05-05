@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
 import { SitesAutomationPanel } from "./SitesAutomationPanel";
+import { NET_FACTOR } from "@/engine/rules";
 
 type Cfg = Record<string, any>;
 type Lifecycle =
@@ -44,6 +45,7 @@ export function AutomationTab() {
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
   const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
+  const [todayRoiByCampaign, setTodayRoiByCampaign] = useState<Record<string, number | null>>({});
   const [siteFilter, setSiteFilter] = useState<string>(globalFilters.siteId || "all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
@@ -53,7 +55,8 @@ export function AutomationTab() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }, { data: todayMetrics }] = await Promise.all([
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
@@ -62,6 +65,7 @@ export function AutomationTab() {
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
       supabase.from("site_automation_config").select("*"),
+      supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit").eq("date", today).limit(5000),
     ]);
     const meta: Record<string, { name: string; google_account_id: string | null }> = {};
     const activeIds = new Set<string>();
