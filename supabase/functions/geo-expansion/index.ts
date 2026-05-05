@@ -647,7 +647,7 @@ async function duplicateCampaign(
     google_account_id: item.google_account_id,
     campaign_id: newCampaignId,
     name: newName,
-    status: "paused",
+    status: startStatus.toLowerCase(),
     channel_type: channelType,
     budget_micros: newBudgetMicros,
   });
