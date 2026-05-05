@@ -269,6 +269,7 @@ export type Database = {
           last_roi: number | null
           last_scale_date: string | null
           lifecycle_status: string
+          roi_today: number | null
           roi_trend: string | null
           site_id: string | null
           updated_at: string
@@ -296,6 +297,7 @@ export type Database = {
           last_roi?: number | null
           last_scale_date?: string | null
           lifecycle_status?: string
+          roi_today?: number | null
           roi_trend?: string | null
           site_id?: string | null
           updated_at?: string
@@ -323,6 +325,7 @@ export type Database = {
           last_roi?: number | null
           last_scale_date?: string | null
           lifecycle_status?: string
+          roi_today?: number | null
           roi_trend?: string | null
           site_id?: string | null
           updated_at?: string
