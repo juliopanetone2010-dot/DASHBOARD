@@ -647,30 +647,6 @@ async function duplicateCampaign(
     }
 
     // 4) Geo: SOMENTE país vencedor (não copia locations/proximities da origem).
-    const campaignCriteriaRows = await readCampaignCriteria(apiBase, headers, sourceCampaignResource, debug);
-    const sourceCriteriaSummary = summarizeCampaignCriteria(campaignCriteriaRows);
-    debug.source.language_constants = sourceCriteriaSummary.languageConstants;
-    debug.source.languages_found = sourceCriteriaSummary.languageConstants.length;
-    debug.source.active_devices = sourceCriteriaSummary.activeDevices;
-    debug.source.device_bid_modifiers = sourceCriteriaSummary.deviceBidModifiers;
-    debug.pre_create = {
-      languages_found: sourceCriteriaSummary.languageConstants,
-      devices_found: sourceCriteriaSummary.activeDevices,
-      device_bid_modifiers_found: sourceCriteriaSummary.deviceBidModifiers,
-      bidding_applied: biddingConfig.debug,
-      ad_groups_to_copy: agRows.length,
-      ads_to_copy: adRows.length,
-      budget_micros: newBudgetMicros,
-      status: "PAUSED",
-    };
-    console.log("[geo-expansion] pre-create clone debug", JSON.stringify(debug.pre_create));
-
-    const languageValidation = validateSourceLanguages(sourceCriteriaSummary);
-    if (!languageValidation.ok) {
-      await removeCampaign(apiBase, headers, newCampaignResource);
-      return { error: `${languageValidation.reason}; campanha removida para evitar winner com Todos os idiomas.`, debug };
-    }
-
     const winnerGeoConstant = `geoTargetConstants/${item.country_criterion_id.replace(/\D/g, "")}`;
     const cr = await mutateGoogle(apiBase, headers, "campaignCriteria", [{
       create: { campaign: newCampaignResource, location: { geoTargetConstant: winnerGeoConstant } },
