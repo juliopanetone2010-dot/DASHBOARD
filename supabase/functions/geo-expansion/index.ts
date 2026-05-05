@@ -1000,44 +1000,43 @@ async function removeCampaign(apiBase: string, headers: Record<string, string>, 
   }
 }
 
-async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, _campaignResource: string, campaignId: string, debug: any) {
-  const query = `
-    SELECT campaign_criterion.resource_name, campaign_criterion.type, campaign_criterion.status,
-           campaign_criterion.negative, campaign_criterion.bid_modifier,
-           campaign_criterion.language.language_constant,
-           campaign_criterion.ad_schedule.day_of_week,
-           campaign_criterion.ad_schedule.start_hour,
-           campaign_criterion.ad_schedule.start_minute,
-           campaign_criterion.ad_schedule.end_hour,
-           campaign_criterion.ad_schedule.end_minute,
-           campaign_criterion.device.type,
-           campaign_criterion.age_range.type,
-           campaign_criterion.gender.type,
-           campaign_criterion.income_range.type,
-           campaign_criterion.parental_status.type,
-           campaign_criterion.user_list.user_list,
-           campaign_criterion.audience.audience,
-           campaign_criterion.combined_audience.combined_audience,
-           campaign_criterion.custom_audience.custom_audience,
-           campaign_criterion.topic.topic_constant,
-           campaign_criterion.placement.url,
-           campaign_criterion.youtube_video.video_id,
-           campaign_criterion.youtube_channel.channel_id,
-           campaign_criterion.mobile_app_category.mobile_app_category_constant,
-           campaign_criterion.mobile_application.app_id,
-           campaign_criterion.mobile_application.name,
-           campaign_criterion.keyword.text,
-           campaign_criterion.keyword.match_type
-    FROM campaign_criterion
-    WHERE campaign.id = ${campaignId}
-      AND campaign_criterion.status != 'REMOVED'
-  `;
-  try {
-    return await googleAdsSearchAll(apiBase, headers, query);
-  } catch (e) {
-    debug.partial_failures.push({ step: "read_campaign_criteria", response: (e as any).response ?? String(e) });
-    return [];
+async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, campaignResource: string, _campaignId: string, debug: any) {
+  const base = "campaign_criterion.resource_name, campaign_criterion.type, campaign_criterion.status, campaign_criterion.negative, campaign_criterion.bid_modifier";
+  const queries = [
+    { label: "LANGUAGE", fields: "campaign_criterion.language.language_constant" },
+    { label: "DEVICE", fields: "campaign_criterion.device.type" },
+    { label: "AD_SCHEDULE", fields: "campaign_criterion.ad_schedule.day_of_week, campaign_criterion.ad_schedule.start_hour, campaign_criterion.ad_schedule.start_minute, campaign_criterion.ad_schedule.end_hour, campaign_criterion.ad_schedule.end_minute" },
+    { label: "AGE_RANGE", fields: "campaign_criterion.age_range.type" },
+    { label: "GENDER", fields: "campaign_criterion.gender.type" },
+    { label: "INCOME_RANGE", fields: "campaign_criterion.income_range.type" },
+    { label: "PARENTAL_STATUS", fields: "campaign_criterion.parental_status.type" },
+    { label: "USER_LIST", fields: "campaign_criterion.user_list.user_list" },
+    { label: "AUDIENCE", fields: "campaign_criterion.audience.audience" },
+    { label: "COMBINED_AUDIENCE", fields: "campaign_criterion.combined_audience.combined_audience" },
+    { label: "CUSTOM_AUDIENCE", fields: "campaign_criterion.custom_audience.custom_audience" },
+    { label: "TOPIC", fields: "campaign_criterion.topic.topic_constant" },
+    { label: "PLACEMENT", fields: "campaign_criterion.placement.url" },
+    { label: "YOUTUBE_VIDEO", fields: "campaign_criterion.youtube_video.video_id" },
+    { label: "YOUTUBE_CHANNEL", fields: "campaign_criterion.youtube_channel.channel_id" },
+    { label: "MOBILE_APP_CATEGORY", fields: "campaign_criterion.mobile_app_category.mobile_app_category_constant" },
+    { label: "MOBILE_APPLICATION", fields: "campaign_criterion.mobile_application.app_id, campaign_criterion.mobile_application.name" },
+    { label: "KEYWORD", fields: "campaign_criterion.keyword.text, campaign_criterion.keyword.match_type" },
+  ];
+  const rows: any[] = [];
+  for (const q of queries) {
+    try {
+      rows.push(...await googleAdsSearchAll(apiBase, headers, `
+        SELECT ${base}, ${q.fields}
+        FROM campaign_criterion
+        WHERE campaign_criterion.campaign = '${campaignResource}'
+          AND campaign_criterion.type = ${q.label}
+          AND campaign_criterion.status != 'REMOVED'
+      `));
+    } catch (e) {
+      debug.partial_failures.push({ step: `read_campaign_criteria_${q.label}`, response: compactGoogleAdsError((e as any).response ?? String(e)) });
+    }
   }
+  return rows;
 }
 
 async function readAdGroupCriteria(apiBase: string, headers: Record<string, string>, sourceAdGroupResources: string, debug: any) {
@@ -1411,6 +1410,17 @@ function cleanObject<T extends Record<string, any>>(obj: T): T {
 
 function extractError(j: any): string {
   return j?.error?.details?.[0]?.errors?.[0]?.message ?? j?.error?.message ?? JSON.stringify(j);
+}
+
+function compactGoogleAdsError(j: any) {
+  if (!Array.isArray(j)) return j;
+  return j.map((item: any) => ({
+    code: item?.error?.code,
+    status: item?.error?.status,
+    message: item?.error?.message,
+    requestId: item?.error?.details?.[0]?.requestId,
+    errors: item?.error?.details?.[0]?.errors,
+  }));
 }
 
 function chunkArr<T>(arr: T[], n: number): T[][] {
