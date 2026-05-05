@@ -522,7 +522,24 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   // se hoje virou positivo, não pausa — dá uma chance da campanha se recuperar).
   const todayProtect = todayRoi != null && todayRoi > 0;
   if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up" && !todayProtect) {
-    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi } as any;
+    return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0 } as any;
+  }
+
+  // HISTERESE do "Escalando": se a campanha já estava Escalando, ela só sai
+  // desse status depois de N dias seguidos com ROI abaixo do piso.
+  // Isso evita o flip diário (Escalando → Aprendendo → Escalando) por oscilação.
+  const SCALING_FLOOR = 15; // ROI mínimo pra manter Escalando
+  const SCALING_GRACE_DAYS = 3; // dias seguidos abaixo do piso pra rebaixar
+  const prevSubDays = Number(prev?.sub_threshold_days ?? 0);
+  if (prevLifecycle === "scaling" && roi < Number(cfg.auto_scale_min_roi)) {
+    if (roi >= SCALING_FLOOR) {
+      return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% (≥${SCALING_FLOOR}%) — mantendo Escalando (oscilação dentro da janela)`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0 } as any;
+    }
+    const nextSubDays = prevSubDays + 1;
+    if (nextSubDays < SCALING_GRACE_DAYS) {
+      return { lifecycle: "scaling", action: "none", reason: `ROI ${round2(roi)}% <${SCALING_FLOOR}% (${nextSubDays}/${SCALING_GRACE_DAYS}d) — observando antes de rebaixar de Escalando`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: nextSubDays } as any;
+    }
+    // passou da janela de tolerância → segue para classificação natural (vai rebaixar)
   }
 
   // A) ROI ≥ scale_min (default 30%) → escala via budget se saturado, senão CPA up.
