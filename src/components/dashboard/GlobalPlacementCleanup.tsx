@@ -57,7 +57,7 @@ interface PreviewStats {
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
-  const { filters, range } = useDashboardFilters();
+  const { filters, range, selectSite } = useDashboardFilters();
   // Janela efetiva selecionada no dashboard (em dias, inclusive)
   const analysisWindowDays = Math.max(
     1,
@@ -79,6 +79,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("all");
+  const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
   const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
 
@@ -101,8 +102,27 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .select("id, account_name, descriptive_name, customer_id")
         .order("account_name", { ascending: true });
       setAccounts((accs ?? []).map((a: any) => ({ id: a.id, name: a.account_name || a.descriptive_name || a.customer_id })));
+      const { data: ss } = await supabase
+        .from("sites")
+        .select("id, name")
+        .order("name", { ascending: true });
+      setSites((ss ?? []).map((s: any) => ({ id: s.id, name: s.name })));
     })();
   }, []);
+
+  // Handler para troca de site: carrega contas Ads vinculadas e aplica no contexto global
+  const handleSiteChange = async (siteId: string) => {
+    if (siteId === "all") {
+      selectSite("all", []);
+      return;
+    }
+    const { data: links } = await supabase
+      .from("account_site_links")
+      .select("google_account_id")
+      .eq("site_id", siteId);
+    const linked = (links ?? []).map((l: any) => l.google_account_id);
+    selectSite(siteId, linked);
+  };
 
   const persistConfig = async (patch: Partial<{
     placement_auto_cleanup_enabled: boolean;
@@ -283,7 +303,21 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
+        <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+          Site
+          <select
+            className="h-6 text-xs rounded border border-border bg-background px-2"
+            value={filters.siteId || "all"}
+            onChange={(e) => handleSiteChange(e.target.value)}
+          >
+            <option value="all">Todos os sites</option>
+            {sites.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+          </select>
+        </label>
+        <span className="text-[11px] text-muted-foreground">
+          Contas Ads vinculadas: <Badge variant="outline" className="text-[10px]">{filters.googleAccountIds?.length ?? 0}</Badge>
+        </span>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Dias mín. <Input type="number" value={minDays} onChange={(e) => setMinDays(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">ROI máx % <Input type="number" value={maxRoi} onChange={(e) => setMaxRoi(+e.target.value)} className="h-6 w-16 text-xs" /></label>
         <label className="text-[11px] text-muted-foreground flex items-center gap-1">Custo mín BRL <Input type="number" value={minCost} onChange={(e) => setMinCost(+e.target.value)} className="h-6 w-20 text-xs" /></label>
