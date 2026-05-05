@@ -231,6 +231,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Concilia receita GAM com custo Ads. O GAM pode truncar utm_placement
+    // (ex.: "recover.deleted"), enquanto o Ads vem completo
+    // ("recover.deleted.messages.business..."). Alocamos a receita por campanha
+    // para os placements Ads compatíveis, sem duplicar o total.
+    const revenueUsdByKey = allocateRevenueUsdByPlacement(siteScope, agg, revByCampaign, campMap, from);
+
     const upserts: any[] = [];
     const histInserts: any[] = [];
     const newlyBlocked: Array<{ campaign_id: string; placement: string; placement_type: string; cost_brl: number; revenue_brl: number; roi_pct: number; google_account_id: string | null; campaign_name: string }> = [];
@@ -240,10 +246,7 @@ Deno.serve(async (req) => {
       const meta = campMap.get(a.campaign_id);
       if (!meta) continue;
       const k = cpKey(siteScope, a.campaign_id, a.placement);
-      const campaignRevenue = revByCampaign.get(a.campaign_id) ?? new Map<string, number>();
-      const root = rootDomain(a.placement);
-      let usd = campaignRevenue.get(a.placement) ?? 0;
-      if (usd <= 0 && root && root !== a.placement) usd = campaignRevenue.get(root) ?? 0;
+      const usd = revenueUsdByKey.get(k) ?? 0;
       const revenue_brl = usd * REV_SHARE_NET * fxUsdBrl;
       const profit = revenue_brl - a.cost;
       const roi = a.cost > 0 ? (profit / a.cost) * 100 : 0;
