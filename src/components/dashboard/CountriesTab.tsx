@@ -147,21 +147,27 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       if (siteId === "all") {
         for (let i = 0; i < ids.length; i += 200) {
           const chunk = ids.slice(i, i + 200);
-          let dQ = supabase
-            .from("daily_metrics")
-            .select("campaign_id, date, spend, revenue")
-            .in("campaign_id", chunk)
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-          const { data } = await dQ.limit(50000);
-          for (const r of data ?? []) {
-            dailyAll.push({
-              campaign_id: String(r.campaign_id),
-              date: String(r.date),
-              spend: Number(r.spend) || 0,
-              revenue_usd: Number(r.revenue) || 0,
-            });
+          let start = 0;
+          for (;;) {
+            let dQ = supabase
+              .from("daily_metrics")
+              .select("campaign_id, date, spend, revenue")
+              .in("campaign_id", chunk)
+              .gte("date", range.from)
+              .lte("date", range.to);
+            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
+            const { data } = await dQ.range(start, start + 999);
+            const batch = data ?? [];
+            for (const r of batch) {
+              dailyAll.push({
+                campaign_id: String(r.campaign_id),
+                date: String(r.date),
+                spend: Number(r.spend) || 0,
+                revenue_usd: Number(r.revenue) || 0,
+              });
+            }
+            if (batch.length < 1000) break;
+            start += 1000;
           }
         }
       } else {
