@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     const minCountryCost = Math.max(0, Number(body?.min_country_cost_brl ?? 100));
     const minCountries = Math.max(1, Number(body?.min_countries ?? 3));
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 7));
-    const budgetMultiplier = Math.max(0.05, Number(body?.budget_multiplier ?? 0.5));
+    const budgetMultiplier = 1;
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null =
@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
 
 // ===== Duplicate campaign =====
 async function duplicateCampaign(
-  admin: any, userId: string, item: ApplyItem, budgetMultiplier: number, siteId: string | null,
+  admin: any, userId: string, item: ApplyItem, _budgetMultiplier: number, siteId: string | null,
   startStatus: "PAUSED" = "PAUSED",
 ) {
   // Carrega conta
