@@ -276,8 +276,6 @@ export function FinancialCalendarTab() {
                   <tr className="border-t-2 border-border">
                     <td className="px-2 py-2 uppercase text-xs">Total {MONTHS_PT[month - 1]}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.google)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.facebook)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.other)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.cost)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.gross)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.net)}</td>
@@ -286,7 +284,6 @@ export function FinancialCalendarTab() {
                       totals.profit >= 0 ? "text-success" : "text-destructive",
                     )}>{fmtCurrency(totals.profit)}</td>
                     <td className={cn("px-2 py-2 text-right font-mono", totalRoi >= 0 ? "text-success" : "text-destructive")}>{fmtPercent(totalRoi)}</td>
-                    <td className={cn("px-2 py-2 text-right font-mono", totalMargin >= 0 ? "text-success" : "text-destructive")}>{fmtPercent(totalMargin)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totalEcpm)}</td>
                     <td className="px-2 py-2 text-right font-mono">—</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtNumber(totals.impressions)}</td>
