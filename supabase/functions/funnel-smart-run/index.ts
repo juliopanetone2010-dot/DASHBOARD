@@ -51,7 +51,9 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;
+    const enrollAll = !!body?.enroll_all_created;
     const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
+    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids) ? body.google_account_ids : [];
     let onlyUserId: string | undefined = body?.user_id;
     let userJwt: string | null = null;
 
