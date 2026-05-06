@@ -240,8 +240,6 @@ export function FinancialCalendarTab() {
                           <span className="font-semibold">{r.date.slice(8, 10)}/{r.date.slice(5, 7)}</span>
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.google_ads_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.facebook_ads_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.other_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono font-medium">{fmtCurrency(Number(r.total_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.gross_revenue))}</td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.net_revenue))}</td>
