@@ -6,12 +6,12 @@
 //   custo_pais       = campaign_country_metrics.cost  (Google Ads geo report)
 //   receita_camp_dia = daily_metrics.revenue (USD bruto, mesma fonte da dash)
 //   site_factor      = quando há site_id:
-//                        gam_placement_revenue(site_id) / gam_placement_revenue(total)
+//                        gam_placement_revenue(site_id no período) / gam_placement_revenue(total no período)
 //                      caso a campanha NÃO apareça em gam_placement_revenue → 1.0
 //                      (a campanha pertence inteiramente a este site via account_site_links)
 //   share_pais       = impressões_pais / impressões_camp_dia
 //                      (fallback: cliques → conversões → custo)
-//   receita_pais_brl = receita_camp_dia × site_factor × share_pais × NET_FACTOR × fx
+//   receita_pais_brl = (daily_metrics.profit + daily_metrics.spend) × site_factor × share_pais × NET_FACTOR
 //
 //   roi_pais = (receita_pais_brl - custo_pais) / custo_pais * 100
 //
@@ -64,6 +64,7 @@ export interface CampaignTotals {
   daily_cost_brl: number;       // custo total de daily_metrics no período (sanity check)
   daily_revenue_usd: number;    // receita total bruta de daily_metrics
   site_revenue_usd: number;     // receita atribuída ao site (USD bruto)
+  site_revenue_brl_gross: number; // mesma base BRL bruta usada pela dashboard
 }
 
 export interface CountryEngineResult {
@@ -144,14 +145,14 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
     }
   }
 
-  // 4) daily_metrics — custo + receita bruta USD por (camp,date)
-  type DRow = { campaign_id: string; date: string; spend: number; revenue: number };
+  // 4) daily_metrics — mesma base da dashboard: spend/profit em BRL + revenue em USD debug
+  type DRow = { campaign_id: string; date: string; spend: number; revenue: number; profit: number };
   const dailyRows: DRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
     let start = 0;
     for (;;) {
       let q = p.admin.from("daily_metrics")
-        .select("campaign_id, date, spend, revenue")
+        .select("campaign_id, date, spend, revenue, profit")
         .eq("user_id", p.userId)
         .in("campaign_id", chunk)
         .gte("date", p.from).lte("date", p.to);
