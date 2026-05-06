@@ -171,7 +171,7 @@ export function FinancialCalendarTab() {
                 <CalendarDays className="h-5 w-5" /> Calendário Financeiro
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Snapshots imutáveis fechados às 00:05 BRT do dia seguinte. Valores não recalculam.
+                Snapshots imutáveis fechados às 04:00 BRT do dia seguinte. Valores não recalculam.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
