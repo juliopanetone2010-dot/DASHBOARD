@@ -216,6 +216,7 @@ export function SmartFunnelPanel() {
                 ))}
               </SelectContent>
             </Select>
+            {siteCfg && (
               <>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground">Esteira</span>
