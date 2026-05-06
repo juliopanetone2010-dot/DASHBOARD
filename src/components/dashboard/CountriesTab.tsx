@@ -117,7 +117,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-countries",
-        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId, account_ids: effectiveAccountIds } },
+        { body: { lookback_days: days, from: range.from, to: range.to, site_id: siteId === "all" ? undefined : siteId, account_ids: effectiveAccountIds } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message, variant: "destructive" });
