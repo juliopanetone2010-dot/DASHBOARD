@@ -51,9 +51,12 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;
-    const enrollAll = !!body?.enroll_all_created;
+    const enrollAll = !!body?.enroll_all_created || !!body?.enroll_all;
+    const onboardOnly = !!body?.onboard_only;
     const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
-    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids) ? body.google_account_ids : [];
+    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids)
+      ? body.google_account_ids.map((id: unknown) => String(id)).filter(Boolean)
+      : [];
     let onlyUserId: string | undefined = body?.user_id;
     let userJwt: string | null = null;
 
@@ -70,15 +73,26 @@ Deno.serve(async (req) => {
     let cfgQuery = admin.from("site_funnel_config").select("*");
     if (onlyUserId) cfgQuery = cfgQuery.eq("user_id", onlyUserId);
     if (selectedSiteId) cfgQuery = cfgQuery.eq("site_id", selectedSiteId);
+    if (selectedAccountIds.length > 0) cfgQuery = cfgQuery.in("google_account_id", selectedAccountIds);
     if (!force) cfgQuery = cfgQuery.eq("funnel_enabled", true);
 
-    const { data: configs, error: cfgErr } = await cfgQuery;
+    let { data: configs, error: cfgErr } = await cfgQuery;
     if (cfgErr) throw cfgErr;
+
+    if (enrollAll && force && (!configs || configs.length === 0) && onlyUserId) {
+      configs = await buildMissingConfigs(admin, onlyUserId, selectedSiteId, selectedAccountIds);
+      if (configs.length > 0) {
+        const { error: upsertCfgErr } = await admin
+          .from("site_funnel_config")
+          .upsert(configs, { onConflict: "user_id,site_id,google_account_id" });
+        if (upsertCfgErr) throw upsertCfgErr;
+      }
+    }
 
     const summary: any[] = [];
     for (const cfg of (configs ?? []) as SiteFunnelConfig[]) {
       try {
-        const result = await runForSite(admin, cfg, userJwt, enrollAll);
+        const result = await runForSite(admin, cfg, userJwt, enrollAll, onboardOnly);
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, ...result });
       } catch (e) {
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, error: String(e) });
@@ -92,12 +106,15 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false) {
+async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false, onboardOnly = false) {
   const { user_id, site_id, google_account_id, funnel_dry_run, initial_budget } = cfg;
   const dryRun = funnel_dry_run;
 
   // 1) Detectar campanhas novas para entrar no funil
-  await onboardNewCampaigns(admin, cfg, enrollAll);
+  const onboarded = await onboardNewCampaigns(admin, cfg, enrollAll);
+  if (onboardOnly) {
+    return { onboarded, evaluated: 0, actions: 0, errors: 0, dry_run: dryRun };
+  }
 
   // 2) Avaliar todas as campanhas atualmente no funil para esse user/site/conta
   const { data: funnelRows } = await admin
@@ -129,7 +146,48 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
     .eq("site_id", site_id)
     .eq("google_account_id", google_account_id);
 
-  return { evaluated, actions, errors, dry_run: dryRun };
+  return { onboarded, evaluated, actions, errors, dry_run: dryRun };
+}
+
+async function buildMissingConfigs(admin: any, userId: string, selectedSiteId: string | null, selectedAccountIds: string[]): Promise<SiteFunnelConfig[]> {
+  let accountIds = selectedAccountIds;
+  if (accountIds.length === 0 && selectedSiteId) {
+    const { data: links } = await admin
+      .from("account_site_links")
+      .select("google_account_id")
+      .eq("user_id", userId)
+      .eq("site_id", selectedSiteId);
+    accountIds = [...new Set((links ?? []).map((l: any) => String(l.google_account_id)).filter(Boolean))];
+  }
+
+  if (!selectedSiteId) {
+    let linkQ = admin.from("account_site_links").select("site_id, google_account_id").eq("user_id", userId);
+    if (accountIds.length > 0) linkQ = linkQ.in("google_account_id", accountIds);
+    const { data: links } = await linkQ;
+    const seen = new Set<string>();
+    return (links ?? []).filter((l: any) => {
+      const key = `${l.site_id}:${l.google_account_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((l: any) => ({
+      user_id: userId,
+      site_id: String(l.site_id),
+      google_account_id: String(l.google_account_id),
+      funnel_enabled: true,
+      funnel_dry_run: true,
+      initial_budget: 30,
+    }));
+  }
+
+  return accountIds.map((google_account_id) => ({
+    user_id: userId,
+    site_id: selectedSiteId,
+    google_account_id,
+    funnel_enabled: true,
+    funnel_dry_run: true,
+    initial_budget: 30,
+  }));
 }
 
 // === Onboarding: detecta campanhas novas, winners de geo-expansion, restarts manuais ===
@@ -194,7 +252,7 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
     }
   }
 
-  if (candidates.size === 0) return;
+  if (candidates.size === 0) return 0;
 
   const inserts = [...candidates.entries()].map(([campaign_id, v]) => ({
     user_id, site_id, google_account_id,
@@ -216,6 +274,7 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
       dry_run: true,
     });
   }
+  return inserts.length;
 }
 
 // === Avaliação por linha ===
