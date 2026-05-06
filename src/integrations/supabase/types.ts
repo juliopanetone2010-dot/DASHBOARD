@@ -847,6 +847,95 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_financial_snapshots: {
+        Row: {
+          adsense_revenue: number | null
+          adx_revenue: number | null
+          clicks: number
+          conversions: number
+          created_at: string
+          currency: string
+          date: string
+          ecpm: number
+          facebook_ads_cost: number
+          fixed_cost: number
+          google_ads_cost: number
+          gross_revenue: number
+          id: string
+          impressions: number
+          liquid_profit: number
+          net_revenue: number
+          other_cost: number
+          profit_margin_pct: number
+          revenue_after_revshare: number
+          site_id: string
+          taxes: number
+          total_cost: number
+          user_id: string
+          viewability: number
+        }
+        Insert: {
+          adsense_revenue?: number | null
+          adx_revenue?: number | null
+          clicks?: number
+          conversions?: number
+          created_at?: string
+          currency?: string
+          date: string
+          ecpm?: number
+          facebook_ads_cost?: number
+          fixed_cost?: number
+          google_ads_cost?: number
+          gross_revenue?: number
+          id?: string
+          impressions?: number
+          liquid_profit?: number
+          net_revenue?: number
+          other_cost?: number
+          profit_margin_pct?: number
+          revenue_after_revshare?: number
+          site_id: string
+          taxes?: number
+          total_cost?: number
+          user_id: string
+          viewability?: number
+        }
+        Update: {
+          adsense_revenue?: number | null
+          adx_revenue?: number | null
+          clicks?: number
+          conversions?: number
+          created_at?: string
+          currency?: string
+          date?: string
+          ecpm?: number
+          facebook_ads_cost?: number
+          fixed_cost?: number
+          google_ads_cost?: number
+          gross_revenue?: number
+          id?: string
+          impressions?: number
+          liquid_profit?: number
+          net_revenue?: number
+          other_cost?: number
+          profit_margin_pct?: number
+          revenue_after_revshare?: number
+          site_id?: string
+          taxes?: number
+          total_cost?: number
+          user_id?: string
+          viewability?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_financial_snapshots_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "sites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_metrics: {
         Row: {
           campaign_id: string
