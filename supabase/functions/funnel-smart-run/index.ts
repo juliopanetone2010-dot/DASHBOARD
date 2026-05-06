@@ -207,10 +207,11 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
   // (ou TODAS as criadas, se enrollAll=true)
   let campQuery = admin
     .from("campaigns")
-    .select("campaign_id, name, created_at, google_account_id, status")
+    .select("campaign_id, name, created_at, google_account_id, status, target_cpa_micros")
     .eq("user_id", user_id)
     .eq("google_account_id", google_account_id)
-    .eq("status", "enabled"); // só campanhas ativas
+    .eq("status", "enabled")
+    .is("target_cpa_micros", null); // só Maximizar Conversões (sem Target CPA)
   const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
   if (!enrollAll) campQuery = campQuery.gte("created_at", since);
   const { data: newCamps } = await campQuery;
