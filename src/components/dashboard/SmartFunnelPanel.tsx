@@ -78,7 +78,9 @@ const STATUS_META: Record<FunnelStatus, { label: string; cls: string }> = {
 };
 
 export function SmartFunnelPanel() {
-  const { selectedSiteId, selectedAccountIds } = useDashboardFilters();
+  const { filters } = useDashboardFilters();
+  const selectedSiteId = filters.siteId;
+  const selectedAccountIds = filters.googleAccountIds;
   const [rows, setRows] = useState<FunnelRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [siteCfg, setSiteCfg] = useState<SiteCfg | null>(null);
