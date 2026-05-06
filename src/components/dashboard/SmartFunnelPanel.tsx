@@ -131,12 +131,18 @@ export function SmartFunnelPanel() {
           force: true,
           enroll_all_created: enrollAll,
           enroll_all: enrollAll,
+          onboard_only: enrollAll,
           site_id: selectedSiteId && selectedSiteId !== "all" ? selectedSiteId : undefined,
           google_account_ids: selectedAccountIds,
         },
       });
       if (error) throw error;
-      toast({ title: enrollAll ? "Todas as criadas inscritas no Funil" : "Funil Inteligente executado", description: `Avaliadas: ${data?.summary?.[0]?.evaluated ?? 0} • Ações: ${data?.summary?.[0]?.actions ?? 0}` });
+      const totals = (data?.summary ?? []).reduce((acc: any, item: any) => ({
+        onboarded: acc.onboarded + (Number(item?.onboarded) || 0),
+        evaluated: acc.evaluated + (Number(item?.evaluated) || 0),
+        actions: acc.actions + (Number(item?.actions) || 0),
+      }), { onboarded: 0, evaluated: 0, actions: 0 });
+      toast({ title: enrollAll ? "Todas as criadas inscritas no Funil" : "Funil Inteligente executado", description: enrollAll ? `Inscritas: ${totals.onboarded}` : `Avaliadas: ${totals.evaluated} • Ações: ${totals.actions}` });
       await load();
     } catch (e) {
       toast({ title: "Erro ao rodar funil", description: String((e as any)?.message ?? e), variant: "destructive" });
