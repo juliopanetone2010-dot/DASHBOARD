@@ -25,6 +25,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
+import { SmartFunnelPanel } from "@/components/dashboard/SmartFunnelPanel";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { CreativesTab } from "@/components/dashboard/CreativesTab";
@@ -696,7 +697,8 @@ const IndexInner = () => {
             />
           </TabsContent>
 
-          <TabsContent value="funnel" className="mt-6">
+          <TabsContent value="funnel" className="mt-6 space-y-6">
+            <SmartFunnelPanel />
             <PlacementFunnelTab fxUsdBrl={usdBrl} />
           </TabsContent>
 

@@ -132,6 +132,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Funil Inteligente: campanhas em aprendizado/escala estão isoladas
+    const funnelLockedIds = new Set<string>();
+    for (const chunk of chunkArr(foundCampaignIds, 200)) {
+      const { data } = await admin
+        .from("campaign_funnel")
+        .select("campaign_id, funnel_status")
+        .eq("user_id", userId!)
+        .in("campaign_id", chunk)
+        .not("funnel_status", "in", "(graduated,failed-learning)");
+      for (const r of data ?? []) funnelLockedIds.add(String(r.campaign_id));
+    }
+
     // Já expandidas (evitar loop)
     const alreadyExpanded = new Set<string>();
     {
@@ -178,6 +190,7 @@ Deno.serve(async (req) => {
       };
       const reasons: string[] = [];
       if (testingIds.has(cell.campaign_id)) reasons.push("campanha em testing");
+      if (funnelLockedIds.has(cell.campaign_id)) reasons.push("campanha no Funil Inteligente");
       if (camp.countries.size < minCountries) reasons.push(`mín. países ${camp.countries.size}/${minCountries}`);
       if (camp.cost_brl < minCampaignCost) reasons.push(`custo campanha ${round(camp.cost_brl)} < ${minCampaignCost}`);
       if (cell.cost_brl < minCountryCost) reasons.push(`custo país ${round(cell.cost_brl)} < ${minCountryCost}`);

@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -400,6 +400,85 @@ Deno.serve(async (req) => {
       }
       await logAction("executed", { ads: cleaned, status: newStatus });
       return json({ ok: true, action, status: newStatus, count: cleaned.length });
+    }
+
+    // set_target_cpa: aplica TARGET_CPA na campanha + define target_cpa nos ad groups
+    // body: { target_cpa_brl: number }  (BRL/USD: assumimos moeda da conta)
+    if (action === "set_target_cpa") {
+      const targetCpa = Number((body as any)?.target_cpa ?? 0);
+      if (!Number.isFinite(targetCpa) || targetCpa <= 0) {
+        return json({ error: "target_cpa inválido" });
+      }
+      const targetMicros = Math.max(10_000, Math.round((targetCpa * 1_000_000) / 10000) * 10000);
+
+      // 1) Trocar bidding strategy da campanha para TARGET_CPA
+      const stratBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            targetCpa: { targetCpaMicros: String(targetMicros) },
+          },
+          updateMask: "target_cpa.target_cpa_micros",
+        }],
+      };
+      const sR = await fetch(`${apiBase}/campaigns:mutate`, {
+        method: "POST", headers, body: JSON.stringify(stratBody),
+      });
+      const sJ = await sR.json();
+      if (!sR.ok) {
+        await logAction("failed", stratBody, JSON.stringify(sJ));
+        return json({ error: sJ?.error?.message ?? JSON.stringify(sJ) });
+      }
+      await logAction("executed", { target_cpa: targetCpa, target_micros: targetMicros });
+      return json({ ok: true, action, target_cpa: targetCpa });
+    }
+
+    // set_budget_absolute: define o orçamento da campanha em valor absoluto (na moeda da conta)
+    if (action === "set_budget_absolute") {
+      const newBudget = Number((body as any)?.budget ?? 0);
+      if (!Number.isFinite(newBudget) || newBudget <= 0) {
+        return json({ error: "budget inválido" });
+      }
+      const query = `
+        SELECT campaign.id, campaign.campaign_budget, campaign_budget.id, campaign_budget.amount_micros
+        FROM campaign
+        WHERE campaign.id = ${camp.campaign_id}
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers, body: JSON.stringify({ query }),
+      });
+      const sJson = await sRes.json();
+      if (!sRes.ok) {
+        await logAction("failed", { query }, JSON.stringify(sJson));
+        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+      }
+      const row = (sJson.results ?? [])[0] as { campaignBudget?: { id?: string; amountMicros?: string } } | undefined;
+      const budgetId = row?.campaignBudget?.id;
+      if (!budgetId) {
+        await logAction("skipped", { reason: "Sem budget vinculado" });
+        return json({ error: "Campanha sem orçamento configurado" });
+      }
+      const nextMicros = Math.max(10_000, Math.round((newBudget * 1_000_000) / 10000) * 10000);
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaignBudgets/${budgetId}`,
+            amountMicros: String(nextMicros),
+          },
+          updateMask: "amount_micros",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaignBudgets:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", { meta: { budgetId, nextMicros }, body: mutateBody }, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("id", camp.id);
+      await logAction("executed", { budget_id: budgetId, to: nextMicros });
+      return json({ ok: true, action, budget: newBudget });
     }
 
     return json({ error: "unreachable" });

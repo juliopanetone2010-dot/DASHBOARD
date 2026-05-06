@@ -188,6 +188,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     .eq("status", "active");
   const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
 
+  // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
+  const { data: funnelRows } = await admin
+    .from("campaign_funnel")
+    .select("campaign_id, funnel_status")
+    .eq("user_id", userId)
+    .not("funnel_status", "in", "(graduated,failed-learning)");
+  const funnelLockedSet = new Set<string>((funnelRows ?? []).map((r: any) => String(r.campaign_id)));
+
   const { data: campRows } = await admin
     .from("campaigns")
     .select("campaign_id, name, status, google_account_id, budget_micros")
@@ -196,7 +204,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const campMeta = new Map<string, any>();
   for (const c of campRows ?? []) campMeta.set(String(c.campaign_id), c);
 
-  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0; let skippedRestartFlow = 0;
+  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0; let skippedRestartFlow = 0; let skippedFunnel = 0;
   for (const agg of byCamp.values()) {
     const meta = campMeta.get(agg.campaign_id);
     const status = String(meta?.status ?? "").toLowerCase();
@@ -207,6 +215,11 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
     if (restartActiveSet.has(agg.campaign_id)) {
       skippedRestartFlow++;
+      continue;
+    }
+
+    if (funnelLockedSet.has(agg.campaign_id)) {
+      skippedFunnel++;
       continue;
     }
 
