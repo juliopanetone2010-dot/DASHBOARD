@@ -51,7 +51,9 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;
+    const enrollAll = !!body?.enroll_all_created;
     const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
+    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids) ? body.google_account_ids : [];
     let onlyUserId: string | undefined = body?.user_id;
     let userJwt: string | null = null;
 
@@ -76,7 +78,7 @@ Deno.serve(async (req) => {
     const summary: any[] = [];
     for (const cfg of (configs ?? []) as SiteFunnelConfig[]) {
       try {
-        const result = await runForSite(admin, cfg, userJwt);
+        const result = await runForSite(admin, cfg, userJwt, enrollAll);
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, ...result });
       } catch (e) {
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, error: String(e) });
@@ -90,12 +92,12 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null) {
+async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false) {
   const { user_id, site_id, google_account_id, funnel_dry_run, initial_budget } = cfg;
   const dryRun = funnel_dry_run;
 
   // 1) Detectar campanhas novas para entrar no funil
-  await onboardNewCampaigns(admin, cfg);
+  await onboardNewCampaigns(admin, cfg, enrollAll);
 
   // 2) Avaliar todas as campanhas atualmente no funil para esse user/site/conta
   const { data: funnelRows } = await admin
@@ -131,7 +133,7 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
 }
 
 // === Onboarding: detecta campanhas novas, winners de geo-expansion, restarts manuais ===
-async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig) {
+async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll = false) {
   const { user_id, site_id, google_account_id, initial_budget } = cfg;
 
   // Já no funil
@@ -144,16 +146,18 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig) {
   const candidates = new Map<string, { name: string; source: string }>();
 
   // Auto: campanhas criadas nos últimos N dias na conta+site
-  const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
-  const { data: newCamps } = await admin
+  // (ou TODAS as criadas, se enrollAll=true)
+  let campQuery = admin
     .from("campaigns")
     .select("campaign_id, name, created_at, google_account_id")
     .eq("user_id", user_id)
-    .eq("google_account_id", google_account_id)
-    .gte("created_at", since);
+    .eq("google_account_id", google_account_id);
+  const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
+  if (!enrollAll) campQuery = campQuery.gte("created_at", since);
+  const { data: newCamps } = await campQuery;
   for (const c of newCamps ?? []) {
     if (!inFunnel.has(c.campaign_id)) {
-      candidates.set(c.campaign_id, { name: c.name, source: "auto" });
+      candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : "auto" });
     }
   }
 

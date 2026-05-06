@@ -123,17 +123,18 @@ export function SmartFunnelPanel() {
 
   useEffect(() => { load(); }, [selectedSiteId, selectedAccountIds.join(",")]);
 
-  const runNow = async () => {
+  const runNow = async (enrollAll = false) => {
     setRunning(true);
     try {
       const { data, error } = await supabase.functions.invoke("funnel-smart-run", {
         body: {
           force: true,
+          enroll_all_created: enrollAll,
           site_id: selectedSiteId && selectedSiteId !== "all" ? selectedSiteId : undefined,
         },
       });
       if (error) throw error;
-      toast({ title: "Funil Inteligente executado", description: `Avaliadas: ${data?.summary?.[0]?.evaluated ?? 0} • Ações: ${data?.summary?.[0]?.actions ?? 0}` });
+      toast({ title: enrollAll ? "Todas as criadas inscritas no Funil" : "Funil Inteligente executado", description: `Avaliadas: ${data?.summary?.[0]?.evaluated ?? 0} • Ações: ${data?.summary?.[0]?.actions ?? 0}` });
       await load();
     } catch (e) {
       toast({ title: "Erro ao rodar funil", description: String((e as any)?.message ?? e), variant: "destructive" });
@@ -205,7 +206,10 @@ export function SmartFunnelPanel() {
             <Button size="sm" variant="outline" onClick={load} disabled={loading}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </Button>
-            <Button size="sm" onClick={runNow} disabled={running}>
+            <Button size="sm" variant="secondary" onClick={() => runNow(true)} disabled={running} title="Inscreve TODAS as campanhas já criadas desse site/conta no Funil Inteligente">
+              Ativar todas criadas
+            </Button>
+            <Button size="sm" onClick={() => runNow(false)} disabled={running}>
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
               Rodar agora
             </Button>
