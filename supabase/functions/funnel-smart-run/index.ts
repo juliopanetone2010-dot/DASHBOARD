@@ -150,15 +150,29 @@ async function buildMissingConfigs(admin: any, userId: string, selectedSiteId: s
     accountIds = [...new Set((links ?? []).map((l: any) => String(l.google_account_id)).filter(Boolean))];
   }
 
-  if (accountIds.length === 0) {
-    let campQ = admin.from("campaigns").select("google_account_id").eq("user_id", userId).not("google_account_id", "is", null);
-    const { data: campaigns } = await campQ;
-    accountIds = [...new Set((campaigns ?? []).map((c: any) => String(c.google_account_id)).filter(Boolean))];
+  if (!selectedSiteId) {
+    let linkQ = admin.from("account_site_links").select("site_id, google_account_id").eq("user_id", userId);
+    if (accountIds.length > 0) linkQ = linkQ.in("google_account_id", accountIds);
+    const { data: links } = await linkQ;
+    const seen = new Set<string>();
+    return (links ?? []).filter((l: any) => {
+      const key = `${l.site_id}:${l.google_account_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((l: any) => ({
+      user_id: userId,
+      site_id: String(l.site_id),
+      google_account_id: String(l.google_account_id),
+      funnel_enabled: true,
+      funnel_dry_run: true,
+      initial_budget: 30,
+    }));
   }
 
   return accountIds.map((google_account_id) => ({
     user_id: userId,
-    site_id: selectedSiteId ?? "00000000-0000-0000-0000-000000000000",
+    site_id: selectedSiteId,
     google_account_id,
     funnel_enabled: true,
     funnel_dry_run: true,
