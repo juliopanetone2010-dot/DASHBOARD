@@ -92,12 +92,12 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null) {
+async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false) {
   const { user_id, site_id, google_account_id, funnel_dry_run, initial_budget } = cfg;
   const dryRun = funnel_dry_run;
 
   // 1) Detectar campanhas novas para entrar no funil
-  await onboardNewCampaigns(admin, cfg);
+  await onboardNewCampaigns(admin, cfg, enrollAll);
 
   // 2) Avaliar todas as campanhas atualmente no funil para esse user/site/conta
   const { data: funnelRows } = await admin
