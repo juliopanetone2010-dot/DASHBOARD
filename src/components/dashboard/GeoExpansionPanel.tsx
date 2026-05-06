@@ -273,7 +273,10 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         toast({ title: "Erro ao puxar campanhas", description: (campaignSyncData as any)?.error ?? campaignSyncError?.message, variant: "destructive" });
         return;
       }
-      const dashboardCampaignIds = await fetchDashboardCampaignIds(activeSiteId, selectedAccountIds, iso(fromDate), iso(toDate));
+      let dashboardCampaignIds = await fetchDashboardCampaignIds(activeSiteId, selectedAccountIds, iso(fromDate), iso(toDate));
+      if (filters.campaignId !== "all") {
+        dashboardCampaignIds = dashboardCampaignIds.filter((id) => id === filters.campaignId);
+      }
       if (dashboardCampaignIds.length === 0) {
         setItems([]);
         setStats({ period: { from: iso(fromDate), to: iso(toDate) }, total: 0, candidates_total: 0, top_candidates: [] });
