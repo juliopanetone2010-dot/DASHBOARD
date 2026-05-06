@@ -216,7 +216,7 @@ export function FinancialCalendarTab() {
                     <th className="px-2 py-2 text-right font-semibold">Rec. Líquida</th>
                     <th className="px-2 py-2 text-right font-semibold">Lucro</th>
                     <th className="px-2 py-2 text-right font-semibold">ROI</th>
-                    <th className="px-2 py-2 text-right font-semibold">Margem</th>
+                    
                     <th className="px-2 py-2 text-right font-semibold">eCPM</th>
                     <th className="px-2 py-2 text-right font-semibold">View.</th>
                     <th className="px-2 py-2 text-right font-semibold">Impr.</th>
