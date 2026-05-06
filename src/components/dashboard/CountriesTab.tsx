@@ -121,6 +121,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         site_id: siteId === "all" ? undefined : siteId,
         account_ids: effectiveAccountIds,
         revenue_only: true,
+        wait: true,
         include_yesterday_fallback: preset === "today",
       };
       const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-sync-campaigns", { body: syncBody });
