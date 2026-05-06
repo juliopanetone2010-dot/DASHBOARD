@@ -36,11 +36,12 @@ Deno.serve(async (req) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const today = new Date();
-    const toDate = new Date(today.getTime() - 86400_000);
-    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const from = iso(fromDate), to = iso(toDate);
+    const today = new Date();
+    const fallbackTo = iso(new Date(today.getTime() - 86400_000));
+    const fallbackFrom = iso(new Date(today.getTime() - lookbackDays * 86400_000));
+    const from = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : fallbackFrom;
+    const to = typeof body?.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.to) ? body.to : fallbackTo;
 
     let allowedAccountIds: string[] | null = null;
     if (siteId) {
