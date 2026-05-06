@@ -227,14 +227,14 @@ Deno.serve(async (req) => {
     }
     const inserts = [...dedup.values()];
 
-    // Limpa janela e re-insere
-    if (inserts.length) {
+    // Limpa a mesma janela/campanhas analisadas e re-insere, evitando linhas antigas contaminarem a preview.
+    {
       let deleteQuery = admin.from("campaign_country_metrics")
         .delete()
         .eq("user_id", userId)
         .gte("date", from)
-        .lte("date", to);
-      if (siteId) deleteQuery = deleteQuery.in("campaign_id", [...campMeta.keys()]);
+        .lte("date", to)
+        .in("campaign_id", [...campMeta.keys()]);
       await deleteQuery;
       for (const chunk of chunkArr(inserts, 1000)) {
         const { error } = await admin.from("campaign_country_metrics").insert(chunk);
