@@ -205,7 +205,17 @@ export function SmartFunnelPanel() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {siteCfg && (
+            <Select value={localSiteId} onValueChange={setLocalSiteId}>
+              <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectValue placeholder="Filtrar por site" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os sites</SelectItem>
+                {sites.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name || s.domain}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
               <>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground">Esteira</span>
