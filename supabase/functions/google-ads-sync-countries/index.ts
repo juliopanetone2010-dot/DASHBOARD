@@ -21,6 +21,12 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
     const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
+    const requestedAccountIds = Array.isArray(body?.account_ids)
+      ? [...new Set(body.account_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
+    const requestedCampaignIds = Array.isArray(body?.campaign_ids)
+      ? [...new Set(body.campaign_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
@@ -48,6 +54,14 @@ Deno.serve(async (req) => {
         return json({ ok: true, processed: 0, msg: "Nenhuma conta Ads vinculada ao site", period: { from, to } });
       }
     }
+    if (requestedAccountIds.length > 0) {
+      allowedAccountIds = allowedAccountIds
+        ? allowedAccountIds.filter((id) => requestedAccountIds.includes(id))
+        : requestedAccountIds;
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, processed: 0, msg: "Nenhuma conta da dashboard pertence ao site", period: { from, to } });
+      }
+    }
 
     let campsQuery = admin
       .from("campaigns")
@@ -55,6 +69,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .eq("status", "enabled");
     if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    if (requestedCampaignIds.length > 0) campsQuery = campsQuery.in("campaign_id", requestedCampaignIds);
     const { data: campsRaw, error: campsErr } = await campsQuery;
     if (campsErr) return json({ error: campsErr.message });
     const camps = (campsRaw ?? []) as CampaignRow[];
