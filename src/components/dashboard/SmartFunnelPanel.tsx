@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
@@ -79,14 +80,22 @@ const STATUS_META: Record<FunnelStatus, { label: string; cls: string }> = {
 
 export function SmartFunnelPanel() {
   const { filters } = useDashboardFilters();
-  const selectedSiteId = filters.siteId;
   const selectedAccountIds = filters.googleAccountIds;
+  const [localSiteId, setLocalSiteId] = useState<string>("all");
+  const selectedSiteId = localSiteId !== "all" ? localSiteId : filters.siteId;
+  const [sites, setSites] = useState<{ id: string; name: string; domain: string }[]>([]);
   const [rows, setRows] = useState<FunnelRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [siteCfg, setSiteCfg] = useState<SiteCfg | null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [openLogs, setOpenLogs] = useState(false);
+
+  useEffect(() => {
+    supabase.from("sites").select("id,name,domain").order("name").then(({ data }) => {
+      setSites((data ?? []) as any);
+    });
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -196,6 +205,17 @@ export function SmartFunnelPanel() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Select value={localSiteId} onValueChange={setLocalSiteId}>
+              <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectValue placeholder="Filtrar por site" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os sites</SelectItem>
+                {sites.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name || s.domain}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {siteCfg && (
               <>
                 <div className="flex items-center gap-2 text-xs">
