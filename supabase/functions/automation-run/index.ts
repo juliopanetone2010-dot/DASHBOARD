@@ -141,6 +141,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   // Garante que budget_micros e target_cpa_micros estão atualizados antes de decidir.
   // Sem isso, delivery_ratio fica null e a automação não consegue tomar ações de CPA/scale.
   const budgetSync = await syncCampaignBudgets(admin, userId, accountId);
+  const strategyByCamp: Map<string, { strategyType: string; targetCpaMicros: number | null }> =
+    (budgetSync as any).strategyByCamp ?? new Map();
 
   const { data: metrics } = await admin
     .from("daily_metrics")
