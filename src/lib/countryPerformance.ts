@@ -40,6 +40,7 @@ export interface ClientCampaignTotals {
   daily_cost_brl: number;
   daily_revenue_usd: number;
   site_revenue_usd: number;
+  site_revenue_brl_gross: number;
 }
 
 export interface ClientCountryEngineResult {
@@ -110,13 +111,13 @@ export async function computeCountryPerformanceClient(
     }
   }
 
-  type DRow = { campaign_id: string; date: string; spend: number; revenue: number };
+  type DRow = { campaign_id: string; date: string; spend: number; revenue: number; profit: number };
   const dailyRows: DRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
     let start = 0;
     for (;;) {
       let q = supabase.from("daily_metrics")
-        .select("campaign_id, date, spend, revenue")
+        .select("campaign_id, date, spend, revenue, profit")
         .in("campaign_id", chunk)
         .gte("date", p.from).lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
