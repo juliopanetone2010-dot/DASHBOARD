@@ -23,19 +23,6 @@ import { GeoCleanupPanel } from "@/components/dashboard/GeoCleanupPanel";
 import { GeoExpansionPanel } from "@/components/dashboard/GeoExpansionPanel";
 import { computeCountryPerformanceClient, type ClientCountryCell } from "@/lib/countryPerformance";
 
-interface CountryRow {
-  campaign_id: string;
-  date: string;
-  country_code: string;
-  country_name: string | null;
-  country_criterion_id: string | null;
-  google_account_id: string | null;
-  cost: number;
-  clicks: number;
-  impressions: number;
-  conversions: number;
-}
-
 interface Props { fxUsdBrl: number; }
 
 type SortKey = "cost" | "revenue" | "roi" | "clicks" | "impressions";
@@ -130,7 +117,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-countries",
-        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId } },
+        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId, account_ids: effectiveAccountIds } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -359,8 +346,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           <div className="flex-1 min-w-[260px]">
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
-              Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída por
-              eCPM × impressões do país (fallback: cliques → conversões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
+              Custo do Google Ads por país. Receita líquida usa a mesma base BRL da dashboard,
+              com fator do site e distribuição por impressões (fallback: cliques → conversões → custo).
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -485,7 +472,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       {showDebug && (
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs space-y-1">
           <div className="font-semibold mb-1">Debug — distribuição por país</div>
-          <div className="text-muted-foreground">Receita = receita campanha × (custo país / custo total da campanha no dia) × {NET_FACTOR} × FX</div>
+          <div className="text-muted-foreground">Receita = (profit + spend) da dashboard × fator do site × share do país × {NET_FACTOR}</div>
+          {engineWarnings.slice(0, 5).map((w) => <div key={w} className="text-warning">{w}</div>)}
           <div className="grid grid-cols-6 gap-2 font-mono mt-2 max-h-[300px] overflow-auto">
             <div className="font-semibold">País</div>
             <div className="font-semibold text-right">Custo</div>
