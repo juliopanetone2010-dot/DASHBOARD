@@ -128,11 +128,16 @@ const IndexInner = () => {
     queryFn: async () => {
       const todayISO = new Date().toISOString().slice(0, 10);
       const toIncl = range.to >= todayISO ? range.to : todayISO;
+      // GAM tem atraso típico de 1-3 dias; se o range for muito curto e ainda não houve sync recente,
+      // ampliamos retroativamente até 7 dias para sempre mostrar a última métrica disponível.
+      const fromDate = new Date(range.from + "T00:00:00Z");
+      const minLookback = new Date(Date.now() - 7 * 86400_000);
+      const fromIncl = (fromDate < minLookback ? range.from : minLookback.toISOString().slice(0, 10));
       const { data, error } = await supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
         .eq("site_id", filters.siteId)
-        .gte("date", range.from).lte("date", toIncl)
+        .gte("date", fromIncl).lte("date", toIncl)
         .order("date", { ascending: false })
         .limit(400);
       if (error) {
@@ -140,7 +145,7 @@ const IndexInner = () => {
         throw error;
       }
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: toIncl, count: data?.length ?? 0, sample: data?.[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: fromIncl, to: toIncl, count: data?.length ?? 0, sample: data?.[0] });
       }
       const totals = (data ?? []).reduce((a, r: any) => ({
         impr: a.impr + Number(r.impressions ?? 0),
