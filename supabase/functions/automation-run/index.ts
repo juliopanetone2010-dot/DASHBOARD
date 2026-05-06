@@ -398,6 +398,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
 
     const query = `
       SELECT campaign.id, campaign.name, campaign.status,
+             campaign.bidding_strategy_type,
              campaign_budget.amount_micros,
              campaign.target_cpa.target_cpa_micros,
              campaign.maximize_conversions.target_cpa_micros
