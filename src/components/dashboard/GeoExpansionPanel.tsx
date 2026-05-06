@@ -273,6 +273,20 @@ export function GeoExpansionPanel({ siteId }: { siteId: string | null }) {
         toast({ title: "Erro ao puxar campanhas", description: (campaignSyncData as any)?.error ?? campaignSyncError?.message, variant: "destructive" });
         return;
       }
+      const gamRes = await supabase.functions.invoke("gam-sync-revenue", {
+        body: {
+          site_id: activeSiteId,
+          account_ids: selectedAccountIds,
+          from: iso(fromDate),
+          to: iso(toDate),
+          revenue_only: true,
+          wait: true,
+        },
+      });
+      if (gamRes.error || (gamRes.data as any)?.error) {
+        toast({ title: "Erro ao atualizar receita", description: (gamRes.data as any)?.error ?? gamRes.error?.message, variant: "destructive" });
+        return;
+      }
       let dashboardCampaignIds = await fetchDashboardCampaignIds(activeSiteId, selectedAccountIds, iso(fromDate), iso(toDate));
       if (filters.campaignId !== "all") {
         dashboardCampaignIds = dashboardCampaignIds.filter((id) => id === filters.campaignId);
