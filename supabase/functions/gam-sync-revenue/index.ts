@@ -1108,7 +1108,14 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       const dimStrings = dimsVals.slice(0).map((d) => d?.stringValue ?? d?.intValue ?? "");
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      // Detecta padrão Active View: [IMPRESSIONS, MEASURABLE, VIEWABLE, REVENUE]
+      // GAM revenue: SEMPRE em micros quando vem como intValue (1 USD = 1_000_000).
+      // doubleValue (raro) já vem na moeda nativa.
+      const numRevenue = (v: any) => {
+        if (v == null) return 0;
+        if (v.intValue != null) return Number(v.intValue) / 1_000_000;
+        if (v.doubleValue != null) return Number(v.doubleValue);
+        return 0;
+      };
       const isActiveView = !!metrics && metrics.length === 4
         && metrics[1].includes("MEASURABLE") && metrics[2].includes("VIEWABLE");
       let impressions: number;
@@ -1119,13 +1126,13 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
         impressions = num(m[0]);
         _raw_measurable = num(m[1]);
         _raw_viewable = num(m[2]);
-        revenue = normalizeGamRevenue(num(m[3]));
+        revenue = numRevenue(m[3]);
       } else if (metrics) {
         impressions = num(m[0]);
-        revenue = normalizeGamRevenue(num(m[1]));
+        revenue = numRevenue(m[1]);
       } else {
         impressions = num(m[0]) + num(m[2]) + num(m[4]);
-        revenue = normalizeGamRevenue(num(m[1])) + normalizeGamRevenue(num(m[3])) + normalizeGamRevenue(num(m[5]));
+        revenue = numRevenue(m[1]) + numRevenue(m[3]) + numRevenue(m[5]);
       }
       allRows.push({ date, dims: dimStrings, impressions, revenue, _raw_measurable, _raw_viewable });
     }
