@@ -80,9 +80,10 @@ const STATUS_META: Record<FunnelStatus, { label: string; cls: string }> = {
 
 export function SmartFunnelPanel() {
   const { filters } = useDashboardFilters();
-  const selectedAccountIds = filters.googleAccountIds;
   const [localSiteId, setLocalSiteId] = useState<string>("all");
-  const selectedSiteId = localSiteId !== "all" ? localSiteId : filters.siteId;
+  const useLocal = localSiteId !== "all";
+  const selectedSiteId = useLocal ? localSiteId : filters.siteId;
+  const selectedAccountIds = useLocal ? [] : filters.googleAccountIds;
   const [sites, setSites] = useState<{ id: string; name: string; domain: string }[]>([]);
   const [rows, setRows] = useState<FunnelRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
