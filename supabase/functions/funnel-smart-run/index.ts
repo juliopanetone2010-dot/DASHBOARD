@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     const summary: any[] = [];
     for (const cfg of (configs ?? []) as SiteFunnelConfig[]) {
       try {
-        const result = await runForSite(admin, cfg, userJwt);
+        const result = await runForSite(admin, cfg, userJwt, enrollAll);
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, ...result });
       } catch (e) {
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, error: String(e) });
