@@ -188,6 +188,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     .eq("status", "active");
   const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
 
+  // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
+  const { data: funnelRows } = await admin
+    .from("campaign_funnel")
+    .select("campaign_id, funnel_status")
+    .eq("user_id", userId)
+    .not("funnel_status", "in", "(graduated,failed-learning)");
+  const funnelLockedSet = new Set<string>((funnelRows ?? []).map((r: any) => String(r.campaign_id)));
+
   const { data: campRows } = await admin
     .from("campaigns")
     .select("campaign_id, name, status, google_account_id, budget_micros")
