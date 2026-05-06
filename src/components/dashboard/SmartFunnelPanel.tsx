@@ -80,14 +80,22 @@ const STATUS_META: Record<FunnelStatus, { label: string; cls: string }> = {
 
 export function SmartFunnelPanel() {
   const { filters } = useDashboardFilters();
-  const selectedSiteId = filters.siteId;
   const selectedAccountIds = filters.googleAccountIds;
+  const [localSiteId, setLocalSiteId] = useState<string>("all");
+  const selectedSiteId = localSiteId !== "all" ? localSiteId : filters.siteId;
+  const [sites, setSites] = useState<{ id: string; name: string; domain: string }[]>([]);
   const [rows, setRows] = useState<FunnelRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [siteCfg, setSiteCfg] = useState<SiteCfg | null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [openLogs, setOpenLogs] = useState(false);
+
+  useEffect(() => {
+    supabase.from("sites").select("id,name,domain").order("name").then(({ data }) => {
+      setSites((data ?? []) as any);
+    });
+  }, []);
 
   const load = async () => {
     setLoading(true);
