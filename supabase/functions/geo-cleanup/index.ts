@@ -158,135 +158,18 @@ Deno.serve(async (req) => {
       }
     }
     const ageCutoffIso = new Date(Date.now() - minCampaignAgeDays * 86400_000).toISOString().slice(0, 10);
-    type CountryRow = {
-      campaign_id: string;
-      date: string;
-      country_code: string;
-      country_name: string | null;
-      country_criterion_id: string | null;
-      google_account_id: string | null;
-      cost: number;
-      clicks: number;
-      impressions: number;
-      conversions: number;
-    };
-    const countryRows: CountryRow[] = [];
-    for (const chunk of chunkArr(campIds, 200)) {
-      let start = 0;
-      for (;;) {
-        const { data, error } = await admin
-          .from("campaign_country_metrics")
-          .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-          .eq("user_id", userId)
-          .in("campaign_id", chunk)
-          .gte("date", from)
-          .lte("date", to)
-          .range(start, start + 999);
-        if (error) return json({ error: error.message });
-        const rows = (data ?? []) as CountryRow[];
-        countryRows.push(...rows);
-        if (rows.length < 1000) break;
-        start += 1000;
-      }
-    }
-
-    // Daily revenue (USD bruto) por campaign+date
-    type DailyRow = { campaign_id: string; date: string; spend: number; revenue: number };
-    const dailyRows: DailyRow[] = [];
-    for (const chunk of chunkArr(campIds, 200)) {
-      const { data, error } = await admin
-        .from("daily_metrics")
-        .select("campaign_id, date, spend, revenue")
-        .eq("user_id", userId)
-        .in("campaign_id", chunk)
-        .gte("date", from)
-        .lte("date", to)
-        .limit(50000);
-      if (error) return json({ error: error.message });
-      for (const r of data ?? []) {
-        dailyRows.push({
-          campaign_id: String(r.campaign_id),
-          date: String(r.date),
-          spend: Number(r.spend) || 0,
-          revenue: Number(r.revenue) || 0,
-        });
-      }
-    }
-
-    // Distribuição de receita por (camp,date) → país, proporcional a impressões (fallback cliques→conversões→custo)
-    const imprByCD = new Map<string, number>();
-    const clicksByCD = new Map<string, number>();
-    const convByCD = new Map<string, number>();
-    const costByCD = new Map<string, number>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      imprByCD.set(k, (imprByCD.get(k) ?? 0) + (r.impressions || 0));
-      clicksByCD.set(k, (clicksByCD.get(k) ?? 0) + (r.clicks || 0));
-      convByCD.set(k, (convByCD.get(k) ?? 0) + (r.conversions || 0));
-      costByCD.set(k, (costByCD.get(k) ?? 0) + (r.cost || 0));
-    }
-    const revByCD = new Map<string, number>();
-    for (const r of dailyRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      revByCD.set(k, (revByCD.get(k) ?? 0) + r.revenue);
-    }
-
-    interface Cell {
-      campaign_id: string;
-      country_code: string;
-      country_name: string;
-      country_criterion_id: string | null;
-      google_account_id: string | null;
-      cost_brl: number;
-      revenue_brl: number;
-      clicks: number;
-      impressions: number;
-    }
-    const cells = new Map<string, Cell>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.country_code}`;
-      let c = cells.get(k);
-      if (!c) {
-        c = {
-          campaign_id: r.campaign_id,
-          country_code: r.country_code,
-          country_name: r.country_name ?? r.country_code,
-          country_criterion_id: r.country_criterion_id,
-          google_account_id: r.google_account_id,
-          cost_brl: 0, revenue_brl: 0, clicks: 0, impressions: 0,
-        };
-        cells.set(k, c);
-      }
-      c.cost_brl += r.cost || 0;
-      c.clicks += r.clicks || 0;
-      c.impressions += r.impressions || 0;
-      if (!c.country_criterion_id && r.country_criterion_id) c.country_criterion_id = r.country_criterion_id;
-      if (!c.google_account_id && r.google_account_id) c.google_account_id = r.google_account_id;
-
-      const cd = `${r.campaign_id}|${r.date}`;
-      const revUsd = revByCD.get(cd) || 0;
-      if (revUsd > 0) {
-        const totalImpr = imprByCD.get(cd) || 0;
-        const totalClicks = clicksByCD.get(cd) || 0;
-        const totalConv = convByCD.get(cd) || 0;
-        const totalCost = costByCD.get(cd) || 0;
-        let share = 0;
-        if (totalImpr > 0) share = (r.impressions || 0) / totalImpr;
-        else if (totalClicks > 0) share = (r.clicks || 0) / totalClicks;
-        else if (totalConv > 0) share = (r.conversions || 0) / totalConv;
-        else if (totalCost > 0) share = (r.cost || 0) / totalCost;
-        if (share > 0) c.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
-      }
-    }
-
-    // Agrega por campanha (custo total, nº de países com tráfego)
+    // === Engine compartilhada: cálculo oficial de custo/receita por país ===
+    const engineResult = await computeCountryPerformance({
+      admin, userId: userId!, siteId,
+      accountIds: allowedAccountIds,
+      campaignIds: campIds,
+      from, to, fxUsdBrl, netFactor: NET_FACTOR,
+    });
+    const cells = engineResult.cells;
+    // Adapter: campAgg compatível com o restante do código
     const campAgg = new Map<string, { cost: number; revenue: number; countries: Set<string> }>();
-    for (const c of cells.values()) {
-      let a = campAgg.get(c.campaign_id);
-      if (!a) { a = { cost: 0, revenue: 0, countries: new Set() }; campAgg.set(c.campaign_id, a); }
-      a.cost += c.cost_brl;
-      a.revenue += c.revenue_brl;
-      a.countries.add(c.country_code);
+    for (const [cid, t] of engineResult.campaignTotals) {
+      campAgg.set(cid, { cost: t.cost_brl, revenue: t.revenue_brl_net, countries: new Set(t.countries) });
     }
 
     // ✅ Conta REAL de países segmentados na campanha (Google Ads campaign_criterion LOCATION positivos)
