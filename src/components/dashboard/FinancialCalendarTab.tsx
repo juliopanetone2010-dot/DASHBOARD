@@ -127,13 +127,13 @@ export function FinancialCalendarTab() {
   };
 
   const exportCsv = () => {
-    const header = ["Data","Google Ads","Facebook","Outros","Custo Total","Receita Bruta","Receita Líquida","Lucro","ROI %","Margem %","eCPM","Viewability %","Impressões","Cliques","Conversões"];
+    const header = ["Data","Google Ads","Custo Total","Receita Bruta","Receita Líquida","Lucro","ROI %","eCPM","Viewability %","Impressões","Cliques","Conversões"];
     const lines = [header.join(",")];
     for (const r of rows) {
       const roi = r.total_cost > 0 ? (r.liquid_profit / r.total_cost) * 100 : 0;
       lines.push([
-        r.date, r.google_ads_cost, r.facebook_ads_cost, r.other_cost, r.total_cost,
-        r.gross_revenue, r.net_revenue, r.liquid_profit, roi.toFixed(2), r.profit_margin_pct,
+        r.date, r.google_ads_cost, r.total_cost,
+        r.gross_revenue, r.net_revenue, r.liquid_profit, roi.toFixed(2),
         r.ecpm, r.viewability, r.impressions, r.clicks, r.conversions,
       ].join(","));
     }
