@@ -214,6 +214,7 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
     .is("target_cpa_micros", null); // só Maximizar Conversões (sem Target CPA)
   const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
   if (!enrollAll) campQuery = campQuery.gte("created_at", since);
+  const since3d = new Date(Date.now() - 3 * 86400_000).toISOString();
   const { data: newCamps } = await campQuery;
 
   // Filtro extra: precisa ter ao menos 1 ad ENABLED nos últimos 14 dias (ativo ou em análise)
@@ -234,7 +235,11 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
   for (const c of newCamps ?? []) {
     if (inFunnel.has(c.campaign_id)) continue;
     if (!withActiveAds.has(c.campaign_id)) continue; // pula campanhas sem ads ativos
-    candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : "auto" });
+    // Regra: só "winner" no nome OU criada nos últimos 3 dias
+    const isWinner = /winner/i.test(c.name ?? "");
+    const isRecent = c.created_at && c.created_at >= since3d;
+    if (!isWinner && !isRecent) continue;
+    candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : (isWinner ? "winner" : "auto") });
   }
 
   // Winners de geo-expansion
