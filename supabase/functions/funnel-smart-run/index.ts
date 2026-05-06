@@ -133,7 +133,7 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
 }
 
 // === Onboarding: detecta campanhas novas, winners de geo-expansion, restarts manuais ===
-async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig) {
+async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll = false) {
   const { user_id, site_id, google_account_id, initial_budget } = cfg;
 
   // Já no funil
@@ -146,16 +146,18 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig) {
   const candidates = new Map<string, { name: string; source: string }>();
 
   // Auto: campanhas criadas nos últimos N dias na conta+site
-  const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
-  const { data: newCamps } = await admin
+  // (ou TODAS as criadas, se enrollAll=true)
+  let campQuery = admin
     .from("campaigns")
     .select("campaign_id, name, created_at, google_account_id")
     .eq("user_id", user_id)
-    .eq("google_account_id", google_account_id)
-    .gte("created_at", since);
+    .eq("google_account_id", google_account_id);
+  const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
+  if (!enrollAll) campQuery = campQuery.gte("created_at", since);
+  const { data: newCamps } = await campQuery;
   for (const c of newCamps ?? []) {
     if (!inFunnel.has(c.campaign_id)) {
-      candidates.set(c.campaign_id, { name: c.name, source: "auto" });
+      candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : "auto" });
     }
   }
 
