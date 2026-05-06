@@ -21,6 +21,7 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { GeoCleanupPanel } from "@/components/dashboard/GeoCleanupPanel";
 import { GeoExpansionPanel } from "@/components/dashboard/GeoExpansionPanel";
+import { computeCountryPerformanceClient, type ClientCountryCell } from "@/lib/countryPerformance";
 
 interface CountryRow {
   campaign_id: string;
@@ -33,13 +34,6 @@ interface CountryRow {
   clicks: number;
   impressions: number;
   conversions: number;
-}
-
-interface DailyRev {
-  campaign_id: string;
-  date: string;
-  spend: number;       // BRL
-  revenue_usd: number; // USD bruto
 }
 
 interface Props { fxUsdBrl: number; }
@@ -64,8 +58,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [countryRows, setCountryRows] = useState<CountryRow[]>([]);
-  const [dailyRows, setDailyRows] = useState<DailyRev[]>([]);
+  const [countryRows, setCountryRows] = useState<ClientCountryCell[]>([]);
+  const [engineWarnings, setEngineWarnings] = useState<string[]>([]);
   const [campNames, setCampNames] = useState<Record<string, string>>({});
 
   // Período derivado do preset
