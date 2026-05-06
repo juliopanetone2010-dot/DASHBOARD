@@ -70,20 +70,17 @@ export function FinancialCalendarTab() {
     return rows.reduce(
       (a, r) => ({
         google: a.google + Number(r.google_ads_cost || 0),
-        facebook: a.facebook + Number(r.facebook_ads_cost || 0),
-        other: a.other + Number(r.other_cost || 0),
         cost: a.cost + Number(r.total_cost || 0),
         gross: a.gross + Number(r.gross_revenue || 0),
         net: a.net + Number(r.net_revenue || 0),
         profit: a.profit + Number(r.liquid_profit || 0),
         impressions: a.impressions + Number(r.impressions || 0),
       }),
-      { google: 0, facebook: 0, other: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
+      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
     );
   }, [rows]);
 
   const totalRoi = totals.cost > 0 ? ((totals.profit / totals.cost) * 100) : 0;
-  const totalMargin = totals.net > 0 ? ((totals.profit / totals.net) * 100) : 0;
   const totalEcpm = totals.impressions > 0 ? (totals.net / totals.impressions) * 1000 : 0;
 
   const regenerate = async (date: string) => {
