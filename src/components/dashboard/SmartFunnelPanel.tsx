@@ -206,7 +206,10 @@ export function SmartFunnelPanel() {
             <Button size="sm" variant="outline" onClick={load} disabled={loading}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </Button>
-            <Button size="sm" onClick={runNow} disabled={running}>
+            <Button size="sm" variant="secondary" onClick={() => runNow(true)} disabled={running} title="Inscreve TODAS as campanhas já criadas desse site/conta no Funil Inteligente">
+              Ativar todas criadas
+            </Button>
+            <Button size="sm" onClick={() => runNow(false)} disabled={running}>
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
               Rodar agora
             </Button>
