@@ -464,6 +464,9 @@ const IndexInner = () => {
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
             </TabsTrigger>
+            <TabsTrigger value="calendar" className="gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" /> Calendário
+            </TabsTrigger>
             <TabsTrigger value="integrations" className="gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Integrações
             </TabsTrigger>
