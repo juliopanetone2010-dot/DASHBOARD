@@ -66,7 +66,9 @@ async function runSync(req: Request): Promise<Response> {
       const includeFullReports = Boolean((body as any)?.include_full_reports);
       revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
       skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
-      skipViewability = revenueOnly || Boolean((body as any)?.skip_viewability);
+      // Viewability/eCPM diário (site_metrics_daily) é leve (só dimensão DATE) e crítico para o dashboard.
+      // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
+      skipViewability = Boolean((body as any)?.skip_viewability);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
