@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;
     const enrollAll = !!body?.enroll_all_created || !!body?.enroll_all;
+    const onboardOnly = !!body?.onboard_only;
     const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
     const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids)
       ? body.google_account_ids.map((id: unknown) => String(id)).filter(Boolean)
@@ -85,7 +86,7 @@ Deno.serve(async (req) => {
     const summary: any[] = [];
     for (const cfg of (configs ?? []) as SiteFunnelConfig[]) {
       try {
-        const result = await runForSite(admin, cfg, userJwt, enrollAll);
+        const result = await runForSite(admin, cfg, userJwt, enrollAll, onboardOnly);
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, ...result });
       } catch (e) {
         summary.push({ site_id: cfg.site_id, google_account_id: cfg.google_account_id, error: String(e) });
@@ -99,12 +100,15 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false) {
+async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | null, enrollAll = false, onboardOnly = false) {
   const { user_id, site_id, google_account_id, funnel_dry_run, initial_budget } = cfg;
   const dryRun = funnel_dry_run;
 
   // 1) Detectar campanhas novas para entrar no funil
-  await onboardNewCampaigns(admin, cfg, enrollAll);
+  const onboarded = await onboardNewCampaigns(admin, cfg, enrollAll);
+  if (onboardOnly) {
+    return { onboarded, evaluated: 0, actions: 0, errors: 0, dry_run: dryRun };
+  }
 
   // 2) Avaliar todas as campanhas atualmente no funil para esse user/site/conta
   const { data: funnelRows } = await admin
@@ -136,7 +140,7 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
     .eq("site_id", site_id)
     .eq("google_account_id", google_account_id);
 
-  return { evaluated, actions, errors, dry_run: dryRun };
+  return { onboarded, evaluated, actions, errors, dry_run: dryRun };
 }
 
 async function buildMissingConfigs(admin: any, userId: string, selectedSiteId: string | null, selectedAccountIds: string[]): Promise<SiteFunnelConfig[]> {
