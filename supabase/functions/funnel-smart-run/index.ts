@@ -207,16 +207,33 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
   // (ou TODAS as criadas, se enrollAll=true)
   let campQuery = admin
     .from("campaigns")
-    .select("campaign_id, name, created_at, google_account_id")
+    .select("campaign_id, name, created_at, google_account_id, status")
     .eq("user_id", user_id)
-    .eq("google_account_id", google_account_id);
+    .eq("google_account_id", google_account_id)
+    .eq("status", "enabled"); // só campanhas ativas
   const since = new Date(Date.now() - NEW_CAMPAIGN_LOOKBACK_DAYS * 86400_000).toISOString();
   if (!enrollAll) campQuery = campQuery.gte("created_at", since);
   const { data: newCamps } = await campQuery;
+
+  // Filtro extra: precisa ter ao menos 1 ad ENABLED nos últimos 14 dias (ativo ou em análise)
+  const campIds = (newCamps ?? []).map((c: any) => c.campaign_id);
+  const adsSince = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
+  const withActiveAds = new Set<string>();
+  if (campIds.length > 0) {
+    const { data: ads } = await admin
+      .from("creative_metrics")
+      .select("campaign_id")
+      .eq("user_id", user_id)
+      .eq("ad_status", "ENABLED")
+      .gte("date", adsSince)
+      .in("campaign_id", campIds);
+    for (const a of ads ?? []) withActiveAds.add(a.campaign_id);
+  }
+
   for (const c of newCamps ?? []) {
-    if (!inFunnel.has(c.campaign_id)) {
-      candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : "auto" });
-    }
+    if (inFunnel.has(c.campaign_id)) continue;
+    if (!withActiveAds.has(c.campaign_id)) continue; // pula campanhas sem ads ativos
+    candidates.set(c.campaign_id, { name: c.name, source: enrollAll ? "manual_bulk" : "auto" });
   }
 
   // Winners de geo-expansion
