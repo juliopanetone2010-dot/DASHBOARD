@@ -51,9 +51,11 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const force = !!body?.force;
-    const enrollAll = !!body?.enroll_all_created;
+    const enrollAll = !!body?.enroll_all_created || !!body?.enroll_all;
     const selectedSiteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
-    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids) ? body.google_account_ids : [];
+    const selectedAccountIds: string[] = Array.isArray(body?.google_account_ids)
+      ? body.google_account_ids.map((id: unknown) => String(id)).filter(Boolean)
+      : [];
     let onlyUserId: string | undefined = body?.user_id;
     let userJwt: string | null = null;
 
@@ -70,10 +72,15 @@ Deno.serve(async (req) => {
     let cfgQuery = admin.from("site_funnel_config").select("*");
     if (onlyUserId) cfgQuery = cfgQuery.eq("user_id", onlyUserId);
     if (selectedSiteId) cfgQuery = cfgQuery.eq("site_id", selectedSiteId);
+    if (selectedAccountIds.length > 0) cfgQuery = cfgQuery.in("google_account_id", selectedAccountIds);
     if (!force) cfgQuery = cfgQuery.eq("funnel_enabled", true);
 
-    const { data: configs, error: cfgErr } = await cfgQuery;
+    let { data: configs, error: cfgErr } = await cfgQuery;
     if (cfgErr) throw cfgErr;
+
+    if (enrollAll && force && (!configs || configs.length === 0) && onlyUserId) {
+      configs = await buildMissingConfigs(admin, onlyUserId, selectedSiteId, selectedAccountIds);
+    }
 
     const summary: any[] = [];
     for (const cfg of (configs ?? []) as SiteFunnelConfig[]) {
