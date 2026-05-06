@@ -190,12 +190,14 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
   }
 
   // 6) Indexes
-  const dailyByCD = new Map<string, { spend: number; revenue: number }>();
+  const dailyByCD = new Map<string, { spend: number; revenue: number; profit: number; grossRevenueBrl: number }>();
   for (const r of dailyRows) {
     const k = `${r.campaign_id}|${r.date}`;
-    const acc = dailyByCD.get(k) ?? { spend: 0, revenue: 0 };
+    const acc = dailyByCD.get(k) ?? { spend: 0, revenue: 0, profit: 0, grossRevenueBrl: 0 };
     acc.spend += Number(r.spend) || 0;
     acc.revenue += Number(r.revenue) || 0;
+    acc.profit += Number(r.profit) || 0;
+    acc.grossRevenueBrl += (Number(r.profit) || 0) + (Number(r.spend) || 0);
     dailyByCD.set(k, acc);
   }
 
@@ -216,6 +218,17 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
     }
   }
 
+  const gamTotalByCampaign = new Map<string, number>();
+  const gamSiteByCampaign = new Map<string, number>();
+  for (const [k, total] of gamTotalByCD) {
+    const [campaignId] = k.split("|");
+    gamTotalByCampaign.set(campaignId, (gamTotalByCampaign.get(campaignId) ?? 0) + total);
+  }
+  for (const [k, site] of gamSiteByCD) {
+    const [campaignId] = k.split("|");
+    gamSiteByCampaign.set(campaignId, (gamSiteByCampaign.get(campaignId) ?? 0) + site);
+  }
+
   // siteFactor(camp,date):
   //   - sem site_id: 1.0 (todos os sites)
   //   - com site_id e camp não está em gam_placement_revenue: 1.0 (assume single-site da conta)
@@ -223,6 +236,11 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
   const siteFactor = (campaignId: string, date: string): number => {
     if (!p.siteId) return 1;
     if (!campaignsInGam.has(campaignId)) return 1;
+    const periodTotal = gamTotalByCampaign.get(campaignId) ?? 0;
+    if (periodTotal > 0) {
+      const periodSite = gamSiteByCampaign.get(campaignId) ?? 0;
+      return Math.min(1, Math.max(0, periodSite / periodTotal));
+    }
     const k = `${campaignId}|${date}`;
     const total = gamTotalByCD.get(k) ?? 0;
     if (total <= 0) return 0;
