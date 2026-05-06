@@ -185,7 +185,7 @@ export function FinancialCalendarTab() {
               <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
                 <SelectTrigger className="h-9 w-[140px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {MONTHS_PT.map((m, i) => <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>)}
+                  {availableMonths.map(({ label, value }) => <SelectItem key={value} value={String(value)}>{label}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
