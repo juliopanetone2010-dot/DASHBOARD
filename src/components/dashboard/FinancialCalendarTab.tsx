@@ -295,7 +295,7 @@ export function FinancialCalendarTab() {
           )}
           <div className="flex flex-wrap gap-2 mt-3 text-xs">
             <Badge variant="outline">Snapshot fixo (não recalcula)</Badge>
-            <Badge variant="outline">Cron diário 00:05 BRT</Badge>
+            <Badge variant="outline">Cron diário 04:00 BRT</Badge>
             <Badge variant="outline">Receita já com rev share</Badge>
           </div>
         </CardContent>
