@@ -141,34 +141,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     } finally { setSyncing(false); }
   };
 
-  // ============= AGREGAÇÃO =============
-  // Estratégia: para cada (campaign,date), pegamos a receita BRUTA em USD do daily_metrics
-  // e distribuímos por país proporcional ao custo daquele país naquele dia.
-  // Garante que o total = total do dashboard.
-
   const { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals } = useMemo(() => {
-    // Estratégia (Opção A): receita por país = eCPM da campanha no dia × (impressões do país / 1000)
-    // O eCPM da campanha é derivado do daily_metrics: revenue_usd_total / impressões_totais_da_campanha_no_dia.
-    // Depois normalizamos para que a soma da receita dos países por (camp,date) bata com o total do daily_metrics.
-    // Isso faz o ROI variar por país pois CPM é constante na campanha mas o CPC/custo por país varia.
-    const convByCampDate = new Map<string, number>();
-    const clicksByCampDate = new Map<string, number>();
-    const imprByCampDate = new Map<string, number>();
-    const costByCampDate = new Map<string, number>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      convByCampDate.set(k, (convByCampDate.get(k) ?? 0) + (Number(r.conversions) || 0));
-      clicksByCampDate.set(k, (clicksByCampDate.get(k) ?? 0) + (Number(r.clicks) || 0));
-      imprByCampDate.set(k, (imprByCampDate.get(k) ?? 0) + (Number(r.impressions) || 0));
-      costByCampDate.set(k, (costByCampDate.get(k) ?? 0) + (Number(r.cost) || 0));
-    }
-    // index receita por (camp,date) — daily_metrics
-    const revByCampDate = new Map<string, number>();
-    for (const r of dailyRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      revByCampDate.set(k, (revByCampDate.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
-    }
-
     interface CCAcc {
       campaign_id: string;
       country_code: string;
@@ -176,55 +149,30 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       country_criterion_id: string | null;
       cost: number;
       revenue_brl: number;
+      revenue_gross_usd: number;
       clicks: number;
       impressions: number;
       conversions: number;
+      share_method: string;
+      share_pct: number;
+      site_factor_avg: number;
     }
     const cellMap = new Map<string, CCAcc>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.country_code}`;
-      let cell = cellMap.get(k);
-      if (!cell) {
-        cell = {
-          campaign_id: r.campaign_id,
-          country_code: r.country_code,
-          country_name: r.country_name ?? r.country_code,
-          country_criterion_id: r.country_criterion_id,
-          cost: 0, revenue_brl: 0, clicks: 0, impressions: 0, conversions: 0,
-        };
-        cellMap.set(k, cell);
-      }
-      const cost = Number(r.cost) || 0;
-      const conv = Number(r.conversions) || 0;
-      const clicks = Number(r.clicks) || 0;
-      const impr = Number(r.impressions) || 0;
-      cell.cost += cost;
-      cell.clicks += clicks;
-      cell.impressions += impr;
-      cell.conversions += conv;
-
-      const cdKey = `${r.campaign_id}|${r.date}`;
-      const revUsd = revByCampDate.get(cdKey) || 0;
-      if (revUsd > 0) {
-        // Opção A: distribuir receita proporcional a IMPRESSÕES (equivale a eCPM constante × impressões do país).
-        // Fallback: cliques → conversões → custo, caso não haja impressões.
-        const totalImpr = imprByCampDate.get(cdKey) || 0;
-        const totalClicks = clicksByCampDate.get(cdKey) || 0;
-        const totalConv = convByCampDate.get(cdKey) || 0;
-        const totalCost = costByCampDate.get(cdKey) || 0;
-        let share = 0;
-        if (totalImpr > 0) share = impr / totalImpr;
-        else if (totalClicks > 0) share = clicks / totalClicks;
-        else if (totalConv > 0) share = conv / totalConv;
-        else if (totalCost > 0) share = cost / totalCost;
-        if (share > 0) {
-          cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
-        }
-      }
-      if (!cell.country_criterion_id && r.country_criterion_id) {
-        cell.country_criterion_id = r.country_criterion_id;
-      }
-    }
+    for (const r of countryRows) cellMap.set(`${r.campaign_id}|${r.country_code}`, {
+      campaign_id: r.campaign_id,
+      country_code: r.country_code,
+      country_name: r.country_name ?? r.country_code,
+      country_criterion_id: r.country_criterion_id,
+      cost: Number(r.cost_brl) || 0,
+      revenue_brl: Number(r.revenue_brl) || 0,
+      revenue_gross_usd: Number(r.revenue_gross_usd) || 0,
+      clicks: Number(r.clicks) || 0,
+      impressions: Number(r.impressions) || 0,
+      conversions: Number(r.conversions) || 0,
+      share_method: r.share_method,
+      share_pct: Number(r.share_pct) || 0,
+      site_factor_avg: Number(r.site_factor_avg) || 0,
+    });
 
     // Por país
     const byCountryMap = new Map<string, {
@@ -298,7 +246,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       .sort((a, b) => b.cost - a.cost);
 
     return { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals, totalCost, totalRev };
-  }, [countryRows, dailyRows, fxUsdBrl, campNames]);
+  }, [countryRows, campNames]);
 
   const sortFn = (a: { cost: number; revenue_brl: number; roi: number; clicks: number; impressions: number },
                   b: { cost: number; revenue_brl: number; roi: number; clicks: number; impressions: number }) => {
