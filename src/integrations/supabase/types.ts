@@ -467,6 +467,192 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_funnel: {
+        Row: {
+          advanced_scaling_started_at: string | null
+          applied_target_cpa: number | null
+          avg_cpa_5d: number | null
+          bad_roi_days: number
+          campaign_id: string
+          campaign_name: string | null
+          consecutive_high_roi_days: number
+          cooldown_cpa_until: string | null
+          cooldown_scale_until: string | null
+          cpa_learning_started_at: string | null
+          created_at: string
+          current_budget: number | null
+          entered_at: string
+          entry_source: string
+          funnel_status: string
+          google_account_id: string | null
+          graduated_at: string | null
+          id: string
+          initial_budget: number
+          last_action: string | null
+          last_action_reason: string | null
+          last_cpa_change_at: string | null
+          last_delivery_rate: number | null
+          last_evaluated_at: string | null
+          last_roi_pct: number | null
+          last_scale_at: string | null
+          learning_started_at: string
+          next_action_hint: string | null
+          paused_at: string | null
+          scaling_started_at: string | null
+          site_id: string | null
+          stable_started_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          advanced_scaling_started_at?: string | null
+          applied_target_cpa?: number | null
+          avg_cpa_5d?: number | null
+          bad_roi_days?: number
+          campaign_id: string
+          campaign_name?: string | null
+          consecutive_high_roi_days?: number
+          cooldown_cpa_until?: string | null
+          cooldown_scale_until?: string | null
+          cpa_learning_started_at?: string | null
+          created_at?: string
+          current_budget?: number | null
+          entered_at?: string
+          entry_source?: string
+          funnel_status?: string
+          google_account_id?: string | null
+          graduated_at?: string | null
+          id?: string
+          initial_budget?: number
+          last_action?: string | null
+          last_action_reason?: string | null
+          last_cpa_change_at?: string | null
+          last_delivery_rate?: number | null
+          last_evaluated_at?: string | null
+          last_roi_pct?: number | null
+          last_scale_at?: string | null
+          learning_started_at?: string
+          next_action_hint?: string | null
+          paused_at?: string | null
+          scaling_started_at?: string | null
+          site_id?: string | null
+          stable_started_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          advanced_scaling_started_at?: string | null
+          applied_target_cpa?: number | null
+          avg_cpa_5d?: number | null
+          bad_roi_days?: number
+          campaign_id?: string
+          campaign_name?: string | null
+          consecutive_high_roi_days?: number
+          cooldown_cpa_until?: string | null
+          cooldown_scale_until?: string | null
+          cpa_learning_started_at?: string | null
+          created_at?: string
+          current_budget?: number | null
+          entered_at?: string
+          entry_source?: string
+          funnel_status?: string
+          google_account_id?: string | null
+          graduated_at?: string | null
+          id?: string
+          initial_budget?: number
+          last_action?: string | null
+          last_action_reason?: string | null
+          last_cpa_change_at?: string | null
+          last_delivery_rate?: number | null
+          last_evaluated_at?: string | null
+          last_roi_pct?: number | null
+          last_scale_at?: string | null
+          learning_started_at?: string
+          next_action_hint?: string | null
+          paused_at?: string | null
+          scaling_started_at?: string | null
+          site_id?: string | null
+          stable_started_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      campaign_funnel_logs: {
+        Row: {
+          action: string
+          avg_cpa: number | null
+          budget_after: number | null
+          budget_before: number | null
+          campaign_id: string
+          campaign_name: string | null
+          cpa_after: number | null
+          cpa_before: number | null
+          created_at: string
+          delivery_rate: number | null
+          dry_run: boolean
+          error: string | null
+          funnel_id: string | null
+          google_account_id: string | null
+          id: string
+          payload: Json | null
+          reason: string | null
+          roi_pct: number | null
+          site_id: string | null
+          status_from: string | null
+          status_to: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          avg_cpa?: number | null
+          budget_after?: number | null
+          budget_before?: number | null
+          campaign_id: string
+          campaign_name?: string | null
+          cpa_after?: number | null
+          cpa_before?: number | null
+          created_at?: string
+          delivery_rate?: number | null
+          dry_run?: boolean
+          error?: string | null
+          funnel_id?: string | null
+          google_account_id?: string | null
+          id?: string
+          payload?: Json | null
+          reason?: string | null
+          roi_pct?: number | null
+          site_id?: string | null
+          status_from?: string | null
+          status_to?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          avg_cpa?: number | null
+          budget_after?: number | null
+          budget_before?: number | null
+          campaign_id?: string
+          campaign_name?: string | null
+          cpa_after?: number | null
+          cpa_before?: number | null
+          created_at?: string
+          delivery_rate?: number | null
+          dry_run?: boolean
+          error?: string | null
+          funnel_id?: string | null
+          google_account_id?: string | null
+          id?: string
+          payload?: Json | null
+          reason?: string | null
+          roi_pct?: number | null
+          site_id?: string | null
+          status_from?: string | null
+          status_to?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_restart_flow: {
         Row: {
           applied_cpa: number | null
@@ -1299,6 +1485,8 @@ export type Database = {
           funnel_protect_min_clicks: number
           funnel_protect_recent_conv_days: number
           funnel_scale_min_roi: number
+          funnel_smart_enabled: boolean
+          funnel_smart_last_run_at: string | null
           funnel_test_max_cost: number
           geo_auto_cleanup_enabled: boolean
           geo_cleanup_interval_days: number
@@ -1371,6 +1559,8 @@ export type Database = {
           funnel_protect_min_clicks?: number
           funnel_protect_recent_conv_days?: number
           funnel_scale_min_roi?: number
+          funnel_smart_enabled?: boolean
+          funnel_smart_last_run_at?: string | null
           funnel_test_max_cost?: number
           geo_auto_cleanup_enabled?: boolean
           geo_cleanup_interval_days?: number
@@ -1443,6 +1633,8 @@ export type Database = {
           funnel_protect_min_clicks?: number
           funnel_protect_recent_conv_days?: number
           funnel_scale_min_roi?: number
+          funnel_smart_enabled?: boolean
+          funnel_smart_last_run_at?: string | null
           funnel_test_max_cost?: number
           geo_auto_cleanup_enabled?: boolean
           geo_cleanup_interval_days?: number
@@ -1509,6 +1701,45 @@ export type Database = {
           created_at?: string
           google_account_id?: string
           id?: string
+          last_run_at?: string | null
+          site_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      site_funnel_config: {
+        Row: {
+          created_at: string
+          funnel_dry_run: boolean
+          funnel_enabled: boolean
+          google_account_id: string
+          id: string
+          initial_budget: number
+          last_run_at: string | null
+          site_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          funnel_dry_run?: boolean
+          funnel_enabled?: boolean
+          google_account_id: string
+          id?: string
+          initial_budget?: number
+          last_run_at?: string | null
+          site_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          funnel_dry_run?: boolean
+          funnel_enabled?: boolean
+          google_account_id?: string
+          id?: string
+          initial_budget?: number
           last_run_at?: string | null
           site_id?: string
           updated_at?: string
