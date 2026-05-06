@@ -115,6 +115,24 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     try {
       // calcula lookback aproximado a partir do range
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
+      const syncBody = {
+        from: range.from,
+        to: range.to,
+        site_id: siteId === "all" ? undefined : siteId,
+        account_ids: effectiveAccountIds,
+        revenue_only: true,
+        include_yesterday_fallback: preset === "today",
+      };
+      const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-sync-campaigns", { body: syncBody });
+      if (adsRes.error || adsRes.data?.error) {
+        toast({ title: "Erro Google Ads", description: adsRes.data?.error ?? adsRes.error?.message, variant: "destructive" });
+        return;
+      }
+      const gamRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("gam-sync-revenue", { body: syncBody });
+      if (gamRes.error || gamRes.data?.error) {
+        toast({ title: "Erro GAM", description: gamRes.data?.error ?? gamRes.error?.message, variant: "destructive" });
+        return;
+      }
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-countries",
         { body: { lookback_days: days, from: range.from, to: range.to, site_id: siteId === "all" ? undefined : siteId, account_ids: effectiveAccountIds } },
