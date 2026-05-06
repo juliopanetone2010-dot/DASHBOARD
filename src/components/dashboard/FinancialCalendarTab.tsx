@@ -70,20 +70,17 @@ export function FinancialCalendarTab() {
     return rows.reduce(
       (a, r) => ({
         google: a.google + Number(r.google_ads_cost || 0),
-        facebook: a.facebook + Number(r.facebook_ads_cost || 0),
-        other: a.other + Number(r.other_cost || 0),
         cost: a.cost + Number(r.total_cost || 0),
         gross: a.gross + Number(r.gross_revenue || 0),
         net: a.net + Number(r.net_revenue || 0),
         profit: a.profit + Number(r.liquid_profit || 0),
         impressions: a.impressions + Number(r.impressions || 0),
       }),
-      { google: 0, facebook: 0, other: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
+      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
     );
   }, [rows]);
 
   const totalRoi = totals.cost > 0 ? ((totals.profit / totals.cost) * 100) : 0;
-  const totalMargin = totals.net > 0 ? ((totals.profit / totals.net) * 100) : 0;
   const totalEcpm = totals.impressions > 0 ? (totals.net / totals.impressions) * 1000 : 0;
 
   const regenerate = async (date: string) => {
@@ -130,13 +127,13 @@ export function FinancialCalendarTab() {
   };
 
   const exportCsv = () => {
-    const header = ["Data","Google Ads","Facebook","Outros","Custo Total","Receita Bruta","Receita Líquida","Lucro","ROI %","Margem %","eCPM","Viewability %","Impressões","Cliques","Conversões"];
+    const header = ["Data","Google Ads","Custo Total","Receita Bruta","Receita Líquida","Lucro","ROI %","eCPM","Viewability %","Impressões","Cliques","Conversões"];
     const lines = [header.join(",")];
     for (const r of rows) {
       const roi = r.total_cost > 0 ? (r.liquid_profit / r.total_cost) * 100 : 0;
       lines.push([
-        r.date, r.google_ads_cost, r.facebook_ads_cost, r.other_cost, r.total_cost,
-        r.gross_revenue, r.net_revenue, r.liquid_profit, roi.toFixed(2), r.profit_margin_pct,
+        r.date, r.google_ads_cost, r.total_cost,
+        r.gross_revenue, r.net_revenue, r.liquid_profit, roi.toFixed(2),
         r.ecpm, r.viewability, r.impressions, r.clicks, r.conversions,
       ].join(","));
     }
@@ -174,7 +171,7 @@ export function FinancialCalendarTab() {
                 <CalendarDays className="h-5 w-5" /> Calendário Financeiro
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Snapshots imutáveis fechados às 00:05 BRT do dia seguinte. Valores não recalculam.
+                Snapshots imutáveis fechados às 04:00 BRT do dia seguinte. Valores não recalculam.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -214,14 +211,12 @@ export function FinancialCalendarTab() {
                   <tr>
                     <th className="px-2 py-2 text-left font-semibold">Data</th>
                     <th className="px-2 py-2 text-right font-semibold">Google Ads</th>
-                    <th className="px-2 py-2 text-right font-semibold">Facebook</th>
-                    <th className="px-2 py-2 text-right font-semibold">Outros</th>
                     <th className="px-2 py-2 text-right font-semibold">Custo Total</th>
                     <th className="px-2 py-2 text-right font-semibold">Rec. Bruta</th>
                     <th className="px-2 py-2 text-right font-semibold">Rec. Líquida</th>
                     <th className="px-2 py-2 text-right font-semibold">Lucro</th>
                     <th className="px-2 py-2 text-right font-semibold">ROI</th>
-                    <th className="px-2 py-2 text-right font-semibold">Margem</th>
+                    
                     <th className="px-2 py-2 text-right font-semibold">eCPM</th>
                     <th className="px-2 py-2 text-right font-semibold">View.</th>
                     <th className="px-2 py-2 text-right font-semibold">Impr.</th>
@@ -245,8 +240,6 @@ export function FinancialCalendarTab() {
                           <span className="font-semibold">{r.date.slice(8, 10)}/{r.date.slice(5, 7)}</span>
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.google_ads_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.facebook_ads_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.other_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono font-medium">{fmtCurrency(Number(r.total_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.gross_revenue))}</td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.net_revenue))}</td>
@@ -259,9 +252,6 @@ export function FinancialCalendarTab() {
                         </td>
                         <td className={cn("px-2 py-1.5 text-right font-mono", positive ? "text-success" : "text-destructive")}>
                           {fmtPercent(roi)}
-                        </td>
-                        <td className={cn("px-2 py-1.5 text-right font-mono", Number(r.profit_margin_pct) >= 0 ? "text-success" : "text-destructive")}>
-                          {fmtPercent(Number(r.profit_margin_pct))}
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.ecpm))}</td>
                         <td className="px-2 py-1.5 text-right font-mono">{Number(r.viewability).toFixed(1)}%</td>
@@ -286,8 +276,6 @@ export function FinancialCalendarTab() {
                   <tr className="border-t-2 border-border">
                     <td className="px-2 py-2 uppercase text-xs">Total {MONTHS_PT[month - 1]}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.google)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.facebook)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.other)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.cost)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.gross)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.net)}</td>
@@ -296,7 +284,6 @@ export function FinancialCalendarTab() {
                       totals.profit >= 0 ? "text-success" : "text-destructive",
                     )}>{fmtCurrency(totals.profit)}</td>
                     <td className={cn("px-2 py-2 text-right font-mono", totalRoi >= 0 ? "text-success" : "text-destructive")}>{fmtPercent(totalRoi)}</td>
-                    <td className={cn("px-2 py-2 text-right font-mono", totalMargin >= 0 ? "text-success" : "text-destructive")}>{fmtPercent(totalMargin)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totalEcpm)}</td>
                     <td className="px-2 py-2 text-right font-mono">—</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtNumber(totals.impressions)}</td>
@@ -308,7 +295,7 @@ export function FinancialCalendarTab() {
           )}
           <div className="flex flex-wrap gap-2 mt-3 text-xs">
             <Badge variant="outline">Snapshot fixo (não recalcula)</Badge>
-            <Badge variant="outline">Cron diário 00:05 BRT</Badge>
+            <Badge variant="outline">Cron diário 04:00 BRT</Badge>
             <Badge variant="outline">Receita já com rev share</Badge>
           </div>
         </CardContent>
