@@ -84,150 +84,20 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      // 1) Custo/cliques/impressões por (campanha, país, dia) — paginado
-      const cmRows: CountryRow[] = [];
-      {
-        let start = 0;
-        for (;;) {
-          let cQ = supabase
-            .from("campaign_country_metrics")
-            .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
-          const { data: cm, error: cErr } = await cQ.range(start, start + 999);
-          if (cErr) {
-            toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
-            setCountryRows([]); setDailyRows([]);
-            return;
-          }
-          const batch = (cm ?? []) as CountryRow[];
-          cmRows.push(...batch);
-          if (batch.length < 1000) break;
-          start += 1000;
-        }
-      }
-      let rows = cmRows;
-      if (siteId !== "all") {
-        const siteCampaignIds = new Set<string>();
-        let start = 0;
-        for (;;) {
-          const { data: attributionRows } = await supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id")
-            .eq("site_id", siteId)
-            .gte("date", range.from)
-            .lte("date", range.to)
-            .range(start, start + 999);
-          const batch = attributionRows ?? [];
-          for (const r of batch as { campaign_id: string | null }[]) {
-            const id = String(r.campaign_id ?? "");
-            if (id && id !== "__aggregate__") siteCampaignIds.add(id);
-          }
-          if (batch.length < 1000) break;
-          start += 1000;
-        }
-        rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
-      }
-      setCountryRows(rows);
+      const result = await computeCountryPerformanceClient({
+        siteId: siteId === "all" ? null : siteId,
+        accountIds: effectiveAccountIds.length > 0 ? effectiveAccountIds : null,
+        campaignIds: null,
+        from: range.from,
+        to: range.to,
+        fxUsdBrl,
+        netFactor: NET_FACTOR,
+      });
+      const cells = [...result.cells.values()];
+      setCountryRows(cells);
+      setEngineWarnings(result.warnings);
 
-      // 2) Receita por (campanha, dia)
-      // - "all" sites: usa daily_metrics (total da campanha)
-      // - site específico: usa gam_placement_revenue filtrado por site_id (receita atribuída ao site)
-      const ids = [...new Set(rows.map((r) => r.campaign_id))];
-      if (ids.length === 0) { setDailyRows([]); setCampNames({}); return; }
-
-      const dailyAll: DailyRev[] = [];
-      if (siteId === "all") {
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            let dQ = supabase
-              .from("daily_metrics")
-              .select("campaign_id, date, spend, revenue")
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to);
-            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-            const { data } = await dQ.range(start, start + 999);
-            const batch = data ?? [];
-            for (const r of batch) {
-              dailyAll.push({
-                campaign_id: String(r.campaign_id),
-                date: String(r.date),
-                spend: Number(r.spend) || 0,
-                revenue_usd: Number(r.revenue) || 0,
-              });
-            }
-            if (batch.length < 1000) break;
-            start += 1000;
-          }
-        }
-      } else {
-        // Receita do site = soma do gam_placement_revenue por (campaign,date) filtrando site_id.
-        // Paginação via .range() — .limit() é capped em 1000 pelo PostgREST.
-        const revAgg = new Map<string, number>();
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            const { data, error } = await supabase
-              .from("gam_placement_revenue")
-              .select("campaign_id, date, revenue_usd")
-              .eq("site_id", siteId)
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to)
-              .range(start, start + 999);
-            if (error) break;
-            const rows = (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[];
-            for (const r of rows) {
-              const k = `${String(r.campaign_id)}|${String(r.date)}`;
-              revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
-            }
-            if (rows.length < 1000) break;
-            start += 1000;
-          }
-        }
-        // Custo (spend) vem do daily_metrics para casar com o Google Ads.
-        const spendAgg = new Map<string, number>();
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            let dQ = supabase
-              .from("daily_metrics")
-              .select("campaign_id, date, spend")
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to);
-            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-            const { data, error } = await dQ.range(start, start + 999);
-            if (error) break;
-            const rows = data ?? [];
-            for (const r of rows) {
-              const k = `${String(r.campaign_id)}|${String(r.date)}`;
-              spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
-            }
-            if (rows.length < 1000) break;
-            start += 1000;
-          }
-        }
-        const allKeys = new Set<string>([...revAgg.keys(), ...spendAgg.keys()]);
-        for (const k of allKeys) {
-          const [campaign_id, date] = k.split("|");
-          dailyAll.push({
-            campaign_id,
-            date,
-            spend: spendAgg.get(k) ?? 0,
-            revenue_usd: revAgg.get(k) ?? 0,
-          });
-        }
-      }
-      setDailyRows(dailyAll);
-
-      // 3) Nomes de campanha
+      const ids = [...new Set(cells.map((r) => r.campaign_id))];
       const names: Record<string, string> = {};
       for (const c of dash.campaigns) names[c.campaign_id] = c.name;
       for (let i = 0; i < ids.length; i += 200) {
@@ -238,6 +108,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
       }
       setCampNames(names);
+    } catch (e) {
+      toast({ title: "Erro ao carregar países", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+      setCountryRows([]);
+      setEngineWarnings([]);
+      setCampNames({});
     } finally {
       setLoading(false);
     }
