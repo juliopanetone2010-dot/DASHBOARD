@@ -81,6 +81,12 @@ Deno.serve(async (req) => {
 
     if (enrollAll && force && (!configs || configs.length === 0) && onlyUserId) {
       configs = await buildMissingConfigs(admin, onlyUserId, selectedSiteId, selectedAccountIds);
+      if (configs.length > 0) {
+        const { error: upsertCfgErr } = await admin
+          .from("site_funnel_config")
+          .upsert(configs, { onConflict: "user_id,site_id,google_account_id" });
+        if (upsertCfgErr) throw upsertCfgErr;
+      }
     }
 
     const summary: any[] = [];
