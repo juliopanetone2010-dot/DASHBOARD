@@ -679,6 +679,10 @@ const IndexInner = () => {
             </section>
           </TabsContent>
 
+          <TabsContent value="calendar" className="mt-6">
+            <FinancialCalendarTab />
+          </TabsContent>
+
           <TabsContent value="integrations" className="mt-6">
             <IntegrationsPanel
               googleAccounts={data.googleAccounts}
