@@ -246,7 +246,7 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
     }
   }
 
-  if (candidates.size === 0) return;
+  if (candidates.size === 0) return 0;
 
   const inserts = [...candidates.entries()].map(([campaign_id, v]) => ({
     user_id, site_id, google_account_id,
@@ -268,6 +268,7 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
       dry_run: true,
     });
   }
+  return inserts.length;
 }
 
 // === Avaliação por linha ===
