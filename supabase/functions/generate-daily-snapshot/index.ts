@@ -118,12 +118,29 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         const currency = String(smd?.currency ?? site.gam_currency ?? "USD").toUpperCase();
-        const grossNative = Number(smd?.revenue_native ?? 0);
+        let grossNative = Number(smd?.revenue_native ?? 0);
         const grossBrl = currency === "BRL" ? grossNative : grossNative * usdBrl;
-        const revenueAfterRevshare = grossBrl * NET_FACTOR;
         const impressions = Number(smd?.impressions ?? 0);
         const measurable = Number(smd?.measurable_impressions ?? 0);
         const viewable = Number(smd?.viewable_impressions ?? 0);
+
+        // Correção defensiva: alguns reports antigos ficaram com receita em micros dividida duas vezes
+        // (ex.: 1051 vira 0.001051). Quando houver impressões reais e receita absurda, usa o report
+        // legado por ad_unit do mesmo site/dia, que tem o valor nativo correto.
+        if (impressions > 1000 && grossNative > 0 && grossNative < 1) {
+          const { data: legacyRows } = await admin
+            .from("placements")
+            .select("revenue")
+            .eq("user_id", site.user_id)
+            .eq("site_id", site.id)
+            .eq("date", targetDate)
+            .not("ad_unit", "is", null);
+          const legacyRevenue = (legacyRows ?? []).reduce((sum: number, r: any) => sum + (Number(r.revenue) || 0), 0);
+          if (legacyRevenue > 1) grossNative = legacyRevenue;
+        }
+
+        const correctedGrossBrl = currency === "BRL" ? grossNative : grossNative * usdBrl;
+        const revenueAfterRevshare = correctedGrossBrl * NET_FACTOR;
         const viewability = measurable > 0 ? (viewable / measurable) * 100 : 0;
         const ecpm = impressions > 0 ? (revenueAfterRevshare / impressions) * 1000 : 0;
 
@@ -143,7 +160,7 @@ Deno.serve(async (req) => {
           facebook_ads_cost: round2(facebookAdsCost),
           other_cost: round2(otherCost),
           total_cost: round2(totalCost),
-          gross_revenue: round2(grossBrl),
+          gross_revenue: round2(correctedGrossBrl),
           net_revenue: round2(revenueAfterRevshare),
           adsense_revenue: null,
           adx_revenue: null,
