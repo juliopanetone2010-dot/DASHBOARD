@@ -277,6 +277,20 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
 
   if (candidates.size === 0) return 0;
 
+  // Resolve nomes que ainda estão como ID
+  const needName = [...candidates.entries()].filter(([id, v]) => !v.name || v.name === id).map(([id]) => id);
+  if (needName.length > 0) {
+    const { data: named } = await admin
+      .from("campaigns")
+      .select("campaign_id, name")
+      .eq("user_id", user_id)
+      .in("campaign_id", needName);
+    for (const n of named ?? []) {
+      const cur = candidates.get(n.campaign_id);
+      if (cur && n.name) candidates.set(n.campaign_id, { ...cur, name: n.name });
+    }
+  }
+
   const inserts = [...candidates.entries()].map(([campaign_id, v]) => ({
     user_id, site_id, google_account_id,
     campaign_id, campaign_name: v.name,
