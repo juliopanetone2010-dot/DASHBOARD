@@ -141,6 +141,8 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   // Garante que budget_micros e target_cpa_micros estão atualizados antes de decidir.
   // Sem isso, delivery_ratio fica null e a automação não consegue tomar ações de CPA/scale.
   const budgetSync = await syncCampaignBudgets(admin, userId, accountId);
+  const strategyByCamp: Map<string, { strategyType: string; targetCpaMicros: number | null }> =
+    (budgetSync as any).strategyByCamp ?? new Map();
 
   const { data: metrics } = await admin
     .from("daily_metrics")
@@ -238,6 +240,88 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const dailyBudget = meta?.budget_micros ? Number(meta.budget_micros) / 1_000_000 : 0;
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
+
+    // Auto-set Target CPA: se a campanha está em MAXIMIZE_CONVERSIONS sem target_cpa
+    // definido, calcula a média de CPA dos últimos 7 dias e aplica como target_cpa
+    // (uma vez só — depois vira TARGET_CPA e o fluxo normal de cpa_up/cpa_down assume).
+    const strat = strategyByCamp.get(agg.campaign_id);
+    const isMaxConvNoTarget =
+      strat &&
+      String(strat.strategyType).toUpperCase().includes("MAXIMIZE_CONVERSIONS") &&
+      (!strat.targetCpaMicros || strat.targetCpaMicros <= 0);
+    if (isMaxConvNoTarget) {
+      const last7 = (agg.daily as any[])
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 7);
+      let totSpend = 0; let totConv = 0;
+      for (const d of last7) {
+        totSpend += Number(d.spend) || 0;
+        totConv += Number((d as any).conversions) || 0;
+      }
+      // conversions não está no agg.daily — buscar direto do daily_metrics
+      const sevenDaysAgo = isoDate(new Date(Date.now() - 7 * 86400_000));
+      const { data: convRows } = await admin
+        .from("daily_metrics")
+        .select("spend, conversions")
+        .eq("user_id", userId)
+        .eq("campaign_id", agg.campaign_id)
+        .gte("date", sevenDaysAgo);
+      let s2 = 0; let c2 = 0;
+      for (const r of convRows ?? []) {
+        s2 += Number(r.spend) || 0;
+        c2 += Number(r.conversions) || 0;
+      }
+      const avgCpa = c2 > 0 ? s2 / c2 : 0;
+      if (avgCpa > 0) {
+        if (!dryRun) {
+          try {
+            const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (userJwt) headers.Authorization = `Bearer ${userJwt}`;
+            else { headers.Authorization = `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`; headers["x-system-user-id"] = userId; }
+            const r = await fetch(url, {
+              method: "POST", headers,
+              body: JSON.stringify({
+                action: "set_target_cpa",
+                campaign_id: agg.campaign_id,
+                google_account_id: accountId,
+                site_id: siteId,
+                target_cpa: Math.round(avgCpa * 100) / 100,
+              }),
+            });
+            const j = await r.json().catch(() => ({}));
+            await admin.from("automation_logs").insert({
+              user_id: userId, site_id: siteId, google_account_id: accountId,
+              campaign_id: agg.campaign_id,
+              action: "set_target_cpa",
+              reason: `MAXIMIZE_CONVERSIONS sem target_cpa → aplicando média 7d = R$ ${avgCpa.toFixed(2)} (spend ${s2.toFixed(2)} / conv ${c2})`,
+              decision: r.ok && !j?.error ? "executed" : "failed",
+              cost: round2(s2), revenue: null, roi: null,
+              payload: { avg_cpa: avgCpa, spend_7d: s2, conv_7d: c2 },
+              error: j?.error ?? null,
+            });
+          } catch (e) {
+            await admin.from("automation_logs").insert({
+              user_id: userId, site_id: siteId, google_account_id: accountId,
+              campaign_id: agg.campaign_id,
+              action: "set_target_cpa", reason: `MAXIMIZE_CONVERSIONS sem target_cpa`,
+              decision: "failed", error: String(e),
+            });
+          }
+        } else {
+          await admin.from("automation_logs").insert({
+            user_id: userId, site_id: siteId, google_account_id: accountId,
+            campaign_id: agg.campaign_id,
+            action: "set_target_cpa",
+            reason: `[dry-run] MAXIMIZE_CONVERSIONS sem target_cpa → aplicaria R$ ${avgCpa.toFixed(2)} (média 7d)`,
+            decision: "dry_run",
+            payload: { avg_cpa: avgCpa, spend_7d: s2, conv_7d: c2 },
+          });
+        }
+      }
+    }
+
 
     // ===== RAMO WINNER (isolado da automação padrão) =====
     if (isWinnerLifecycle(fromStatus)) {
@@ -398,6 +482,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
 
     const query = `
       SELECT campaign.id, campaign.name, campaign.status,
+             campaign.bidding_strategy_type,
              campaign_budget.amount_micros,
              campaign.target_cpa.target_cpa_micros,
              campaign.maximize_conversions.target_cpa_micros
@@ -412,17 +497,23 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
     if (!res.ok) return { updated: 0, error: `search: ${JSON.stringify(json).slice(0, 200)}` };
 
     const rows = (json.results ?? []) as any[];
-    const updates = rows.map((r) => ({
-      user_id: userId,
-      google_account_id: accountId,
-      campaign_id: String(r.campaign.id),
-      name: r.campaign.name ?? `Campaign ${r.campaign.id}`,
-      status: String(r.campaign.status ?? "enabled").toLowerCase(),
-      budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
-      target_cpa_micros: r.campaign.targetCpa?.targetCpaMicros
+    const strategyByCamp = new Map<string, { strategyType: string; targetCpaMicros: number | null }>();
+    const updates = rows.map((r) => {
+      const targetCpaMicros = r.campaign.targetCpa?.targetCpaMicros
         ? Number(r.campaign.targetCpa.targetCpaMicros)
-        : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null),
-    }));
+        : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null);
+      const strategyType = String(r.campaign.biddingStrategyType ?? "");
+      strategyByCamp.set(String(r.campaign.id), { strategyType, targetCpaMicros });
+      return {
+        user_id: userId,
+        google_account_id: accountId,
+        campaign_id: String(r.campaign.id),
+        name: r.campaign.name ?? `Campaign ${r.campaign.id}`,
+        status: String(r.campaign.status ?? "enabled").toLowerCase(),
+        budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
+        target_cpa_micros: targetCpaMicros,
+      };
+    });
     let updated = 0;
     for (let i = 0; i < updates.length; i += 200) {
       const slice = updates.slice(i, i + 200);
@@ -431,7 +522,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
         .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id" });
       if (!error) updated += slice.length;
     }
-    return { updated };
+    return { updated, strategyByCamp };
   } catch (e) {
     return { updated: 0, error: String(e instanceof Error ? e.message : e) };
   }
