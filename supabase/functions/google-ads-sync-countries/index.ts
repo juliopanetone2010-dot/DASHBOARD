@@ -1,5 +1,6 @@
 // Sincroniza métricas por país (segments.country_criterion_id) das campanhas ENABLED do usuário.
-// Receita é atribuída proporcional ao custo: revenue_usd_pais = revenue_usd_total_campanha * (cost_pais / cost_total)
+// Receita NÃO é materializada aqui: CountriesTab/geo-expansion/geo-cleanup calculam pela engine oficial
+// usando daily_metrics.profit+spend × site_factor × share do país.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { COUNTRY_BY_ID } from "./countries.ts";
@@ -151,33 +152,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Receita por (campaign_id, date) vinda do daily_metrics
-    const campIds = [...campMeta.keys()];
-    const revByCampDate = new Map<string, number>();
-    const costByCampDate = new Map<string, number>();
-    for (const chunk of chunkArr(campIds, 200)) {
-      const { data } = await admin
-        .from("daily_metrics")
-        .select("campaign_id, date, spend, revenue")
-        .eq("user_id", userId)
-        .in("campaign_id", chunk)
-        .gte("date", from)
-        .lte("date", to)
-        .limit(50000);
-      for (const r of data ?? []) {
-        const k = `${r.campaign_id}|${r.date}`;
-        revByCampDate.set(k, (revByCampDate.get(k) ?? 0) + Number(r.revenue ?? 0));
-        costByCampDate.set(k, (costByCampDate.get(k) ?? 0) + Number(r.spend ?? 0));
-      }
-    }
-
-    // Agrega custo por (campaign,date) a partir das linhas geo (para denominador da proporção)
-    const geoCostByCampDate = new Map<string, number>();
-    for (const r of all) {
-      const k = `${r.campaign_id}|${r.date}`;
-      geoCostByCampDate.set(k, (geoCostByCampDate.get(k) ?? 0) + r.cost);
-    }
-
     // Resolve países desconhecidos via Google Ads API (geo_target_constant)
     const unknownIds = new Set<string>();
     for (const r of all) {
@@ -191,10 +165,6 @@ Deno.serve(async (req) => {
     // Monta upsert (deduplicado por campaign+date+country_code)
     const dedup = new Map<string, CountryMetricInsert>();
     for (const r of all) {
-      const k = `${r.campaign_id}|${r.date}`;
-      const totalCost = geoCostByCampDate.get(k) || 1;
-      const revenueTotal = revByCampDate.get(k) ?? 0;
-      const revenueShare = totalCost > 0 ? (r.cost / totalCost) * revenueTotal : 0;
       const country =
         COUNTRY_BY_ID[r.country_id] ??
         resolved.get(r.country_id) ??
@@ -207,7 +177,7 @@ Deno.serve(async (req) => {
         existing.clicks += r.clicks;
         existing.impressions += r.impressions;
         existing.conversions += r.conversions;
-        existing.revenue_usd += revenueShare;
+        existing.revenue_usd = 0;
       } else {
         dedup.set(dk, {
           user_id: userId,
@@ -221,7 +191,7 @@ Deno.serve(async (req) => {
           clicks: r.clicks,
           impressions: r.impressions,
           conversions: r.conversions,
-          revenue_usd: revenueShare,
+          revenue_usd: 0,
         });
       }
     }
