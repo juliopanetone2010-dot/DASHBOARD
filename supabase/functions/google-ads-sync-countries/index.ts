@@ -21,6 +21,12 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
     const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
+    const requestedAccountIds = Array.isArray(body?.account_ids)
+      ? [...new Set(body.account_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
+    const requestedCampaignIds = Array.isArray(body?.campaign_ids)
+      ? [...new Set(body.campaign_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
@@ -48,6 +54,14 @@ Deno.serve(async (req) => {
         return json({ ok: true, processed: 0, msg: "Nenhuma conta Ads vinculada ao site", period: { from, to } });
       }
     }
+    if (requestedAccountIds.length > 0) {
+      allowedAccountIds = allowedAccountIds
+        ? allowedAccountIds.filter((id) => requestedAccountIds.includes(id))
+        : requestedAccountIds;
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, processed: 0, msg: "Nenhuma conta da dashboard pertence ao site", period: { from, to } });
+      }
+    }
 
     let campsQuery = admin
       .from("campaigns")
@@ -55,6 +69,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .eq("status", "enabled");
     if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    if (requestedCampaignIds.length > 0) campsQuery = campsQuery.in("campaign_id", requestedCampaignIds);
     const { data: campsRaw, error: campsErr } = await campsQuery;
     if (campsErr) return json({ error: campsErr.message });
     const camps = (campsRaw ?? []) as CampaignRow[];
@@ -212,14 +227,14 @@ Deno.serve(async (req) => {
     }
     const inserts = [...dedup.values()];
 
-    // Limpa janela e re-insere
-    if (inserts.length) {
+    // Limpa a mesma janela/campanhas analisadas e re-insere, evitando linhas antigas contaminarem a preview.
+    {
       let deleteQuery = admin.from("campaign_country_metrics")
         .delete()
         .eq("user_id", userId)
         .gte("date", from)
-        .lte("date", to);
-      if (siteId) deleteQuery = deleteQuery.in("campaign_id", [...campMeta.keys()]);
+        .lte("date", to)
+        .in("campaign_id", [...campMeta.keys()]);
       await deleteQuery;
       for (const chunk of chunkArr(inserts, 1000)) {
         const { error } = await admin.from("campaign_country_metrics").insert(chunk);

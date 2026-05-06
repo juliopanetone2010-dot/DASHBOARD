@@ -37,6 +37,12 @@ Deno.serve(async (req) => {
     const targetUserId: string | undefined = body?.user_id;
     const siteId: string | null =
       typeof body?.site_id === "string" && body.site_id && body.site_id !== "all" ? body.site_id : null;
+    const requestedAccountIds = Array.isArray(body?.account_ids)
+      ? [...new Set(body.account_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
+    const requestedCampaignIds = Array.isArray(body?.campaign_ids)
+      ? [...new Set(body.campaign_ids.map((id: unknown) => String(id)).filter(Boolean))]
+      : [];
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -94,6 +100,14 @@ Deno.serve(async (req) => {
         return json({ ok: true, items: [], stats: { period: { from, to } }, info: "Nenhuma conta Ads vinculada ao site." });
       }
     }
+    if (requestedAccountIds.length > 0) {
+      allowedAccountIds = allowedAccountIds
+        ? allowedAccountIds.filter((id) => requestedAccountIds.includes(id))
+        : requestedAccountIds;
+      if (allowedAccountIds.length === 0) {
+        return json({ ok: true, items: [], stats: { period: { from, to } }, info: "Nenhuma conta da dashboard pertence ao site." });
+      }
+    }
 
     // Campanhas enabled
     let campsQuery = admin
@@ -102,6 +116,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .eq("status", "enabled");
     if (allowedAccountIds) campsQuery = campsQuery.in("google_account_id", allowedAccountIds);
+    if (requestedCampaignIds.length > 0) campsQuery = campsQuery.in("campaign_id", requestedCampaignIds);
     const { data: camps } = await campsQuery;
     const campMap = new Map<string, { name: string; google_account_id: string; budget_micros: number | null }>();
     for (const c of camps ?? []) {
