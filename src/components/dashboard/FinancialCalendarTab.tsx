@@ -253,9 +253,6 @@ export function FinancialCalendarTab() {
                         <td className={cn("px-2 py-1.5 text-right font-mono", positive ? "text-success" : "text-destructive")}>
                           {fmtPercent(roi)}
                         </td>
-                        <td className={cn("px-2 py-1.5 text-right font-mono", Number(r.profit_margin_pct) >= 0 ? "text-success" : "text-destructive")}>
-                          {fmtPercent(Number(r.profit_margin_pct))}
-                        </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.ecpm))}</td>
                         <td className="px-2 py-1.5 text-right font-mono">{Number(r.viewability).toFixed(1)}%</td>
                         <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtNumber(Number(r.impressions))}</td>
