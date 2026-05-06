@@ -21,26 +21,7 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { GeoCleanupPanel } from "@/components/dashboard/GeoCleanupPanel";
 import { GeoExpansionPanel } from "@/components/dashboard/GeoExpansionPanel";
-
-interface CountryRow {
-  campaign_id: string;
-  date: string;
-  country_code: string;
-  country_name: string | null;
-  country_criterion_id: string | null;
-  google_account_id: string | null;
-  cost: number;
-  clicks: number;
-  impressions: number;
-  conversions: number;
-}
-
-interface DailyRev {
-  campaign_id: string;
-  date: string;
-  spend: number;       // BRL
-  revenue_usd: number; // USD bruto
-}
+import { computeCountryPerformanceClient, type ClientCountryCell } from "@/lib/countryPerformance";
 
 interface Props { fxUsdBrl: number; }
 
@@ -64,8 +45,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [countryRows, setCountryRows] = useState<CountryRow[]>([]);
-  const [dailyRows, setDailyRows] = useState<DailyRev[]>([]);
+  const [countryRows, setCountryRows] = useState<ClientCountryCell[]>([]);
+  const [engineWarnings, setEngineWarnings] = useState<string[]>([]);
   const [campNames, setCampNames] = useState<Record<string, string>>({});
 
   // Período derivado do preset
@@ -90,150 +71,20 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      // 1) Custo/cliques/impressões por (campanha, país, dia) — paginado
-      const cmRows: CountryRow[] = [];
-      {
-        let start = 0;
-        for (;;) {
-          let cQ = supabase
-            .from("campaign_country_metrics")
-            .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (effectiveAccountIds.length > 0) cQ = cQ.in("google_account_id", effectiveAccountIds);
-          const { data: cm, error: cErr } = await cQ.range(start, start + 999);
-          if (cErr) {
-            toast({ title: "Erro ao carregar países", description: cErr.message, variant: "destructive" });
-            setCountryRows([]); setDailyRows([]);
-            return;
-          }
-          const batch = (cm ?? []) as CountryRow[];
-          cmRows.push(...batch);
-          if (batch.length < 1000) break;
-          start += 1000;
-        }
-      }
-      let rows = cmRows;
-      if (siteId !== "all") {
-        const siteCampaignIds = new Set<string>();
-        let start = 0;
-        for (;;) {
-          const { data: attributionRows } = await supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id")
-            .eq("site_id", siteId)
-            .gte("date", range.from)
-            .lte("date", range.to)
-            .range(start, start + 999);
-          const batch = attributionRows ?? [];
-          for (const r of batch as { campaign_id: string | null }[]) {
-            const id = String(r.campaign_id ?? "");
-            if (id && id !== "__aggregate__") siteCampaignIds.add(id);
-          }
-          if (batch.length < 1000) break;
-          start += 1000;
-        }
-        rows = siteCampaignIds.size > 0 ? rows.filter((r) => siteCampaignIds.has(String(r.campaign_id))) : [];
-      }
-      setCountryRows(rows);
+      const result = await computeCountryPerformanceClient({
+        siteId: siteId === "all" ? null : siteId,
+        accountIds: effectiveAccountIds.length > 0 ? effectiveAccountIds : null,
+        campaignIds: null,
+        from: range.from,
+        to: range.to,
+        fxUsdBrl,
+        netFactor: NET_FACTOR,
+      });
+      const cells = [...result.cells.values()];
+      setCountryRows(cells);
+      setEngineWarnings(result.warnings);
 
-      // 2) Receita por (campanha, dia)
-      // - "all" sites: usa daily_metrics (total da campanha)
-      // - site específico: usa gam_placement_revenue filtrado por site_id (receita atribuída ao site)
-      const ids = [...new Set(rows.map((r) => r.campaign_id))];
-      if (ids.length === 0) { setDailyRows([]); setCampNames({}); return; }
-
-      const dailyAll: DailyRev[] = [];
-      if (siteId === "all") {
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            let dQ = supabase
-              .from("daily_metrics")
-              .select("campaign_id, date, spend, revenue")
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to);
-            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-            const { data } = await dQ.range(start, start + 999);
-            const batch = data ?? [];
-            for (const r of batch) {
-              dailyAll.push({
-                campaign_id: String(r.campaign_id),
-                date: String(r.date),
-                spend: Number(r.spend) || 0,
-                revenue_usd: Number(r.revenue) || 0,
-              });
-            }
-            if (batch.length < 1000) break;
-            start += 1000;
-          }
-        }
-      } else {
-        // Receita do site = soma do gam_placement_revenue por (campaign,date) filtrando site_id.
-        // Paginação via .range() — .limit() é capped em 1000 pelo PostgREST.
-        const revAgg = new Map<string, number>();
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            const { data, error } = await supabase
-              .from("gam_placement_revenue")
-              .select("campaign_id, date, revenue_usd")
-              .eq("site_id", siteId)
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to)
-              .range(start, start + 999);
-            if (error) break;
-            const rows = (data ?? []) as { campaign_id: string; date: string; revenue_usd: number | string }[];
-            for (const r of rows) {
-              const k = `${String(r.campaign_id)}|${String(r.date)}`;
-              revAgg.set(k, (revAgg.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
-            }
-            if (rows.length < 1000) break;
-            start += 1000;
-          }
-        }
-        // Custo (spend) vem do daily_metrics para casar com o Google Ads.
-        const spendAgg = new Map<string, number>();
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          let start = 0;
-          for (;;) {
-            let dQ = supabase
-              .from("daily_metrics")
-              .select("campaign_id, date, spend")
-              .in("campaign_id", chunk)
-              .gte("date", range.from)
-              .lte("date", range.to);
-            if (effectiveAccountIds.length > 0) dQ = dQ.in("google_account_id", effectiveAccountIds);
-            const { data, error } = await dQ.range(start, start + 999);
-            if (error) break;
-            const rows = data ?? [];
-            for (const r of rows) {
-              const k = `${String(r.campaign_id)}|${String(r.date)}`;
-              spendAgg.set(k, (spendAgg.get(k) ?? 0) + (Number(r.spend) || 0));
-            }
-            if (rows.length < 1000) break;
-            start += 1000;
-          }
-        }
-        const allKeys = new Set<string>([...revAgg.keys(), ...spendAgg.keys()]);
-        for (const k of allKeys) {
-          const [campaign_id, date] = k.split("|");
-          dailyAll.push({
-            campaign_id,
-            date,
-            spend: spendAgg.get(k) ?? 0,
-            revenue_usd: revAgg.get(k) ?? 0,
-          });
-        }
-      }
-      setDailyRows(dailyAll);
-
-      // 3) Nomes de campanha
+      const ids = [...new Set(cells.map((r) => r.campaign_id))];
       const names: Record<string, string> = {};
       for (const c of dash.campaigns) names[c.campaign_id] = c.name;
       for (let i = 0; i < ids.length; i += 200) {
@@ -244,6 +95,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
       }
       setCampNames(names);
+    } catch (e) {
+      toast({ title: "Erro ao carregar países", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+      setCountryRows([]);
+      setEngineWarnings([]);
+      setCampNames({});
     } finally {
       setLoading(false);
     }
@@ -259,9 +115,27 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     try {
       // calcula lookback aproximado a partir do range
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
+      const syncBody = {
+        from: range.from,
+        to: range.to,
+        site_id: siteId === "all" ? undefined : siteId,
+        account_ids: effectiveAccountIds,
+        revenue_only: true,
+        include_yesterday_fallback: preset === "today",
+      };
+      const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-sync-campaigns", { body: syncBody });
+      if (adsRes.error || adsRes.data?.error) {
+        toast({ title: "Erro Google Ads", description: adsRes.data?.error ?? adsRes.error?.message, variant: "destructive" });
+        return;
+      }
+      const gamRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("gam-sync-revenue", { body: syncBody });
+      if (gamRes.error || gamRes.data?.error) {
+        toast({ title: "Erro GAM", description: gamRes.data?.error ?? gamRes.error?.message, variant: "destructive" });
+        return;
+      }
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-countries",
-        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId } },
+        { body: { lookback_days: days, from: range.from, to: range.to, site_id: siteId === "all" ? undefined : siteId, account_ids: effectiveAccountIds } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -272,34 +146,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     } finally { setSyncing(false); }
   };
 
-  // ============= AGREGAÇÃO =============
-  // Estratégia: para cada (campaign,date), pegamos a receita BRUTA em USD do daily_metrics
-  // e distribuímos por país proporcional ao custo daquele país naquele dia.
-  // Garante que o total = total do dashboard.
-
   const { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals } = useMemo(() => {
-    // Estratégia (Opção A): receita por país = eCPM da campanha no dia × (impressões do país / 1000)
-    // O eCPM da campanha é derivado do daily_metrics: revenue_usd_total / impressões_totais_da_campanha_no_dia.
-    // Depois normalizamos para que a soma da receita dos países por (camp,date) bata com o total do daily_metrics.
-    // Isso faz o ROI variar por país pois CPM é constante na campanha mas o CPC/custo por país varia.
-    const convByCampDate = new Map<string, number>();
-    const clicksByCampDate = new Map<string, number>();
-    const imprByCampDate = new Map<string, number>();
-    const costByCampDate = new Map<string, number>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      convByCampDate.set(k, (convByCampDate.get(k) ?? 0) + (Number(r.conversions) || 0));
-      clicksByCampDate.set(k, (clicksByCampDate.get(k) ?? 0) + (Number(r.clicks) || 0));
-      imprByCampDate.set(k, (imprByCampDate.get(k) ?? 0) + (Number(r.impressions) || 0));
-      costByCampDate.set(k, (costByCampDate.get(k) ?? 0) + (Number(r.cost) || 0));
-    }
-    // index receita por (camp,date) — daily_metrics
-    const revByCampDate = new Map<string, number>();
-    for (const r of dailyRows) {
-      const k = `${r.campaign_id}|${r.date}`;
-      revByCampDate.set(k, (revByCampDate.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
-    }
-
     interface CCAcc {
       campaign_id: string;
       country_code: string;
@@ -307,55 +154,30 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       country_criterion_id: string | null;
       cost: number;
       revenue_brl: number;
+      revenue_gross_usd: number;
       clicks: number;
       impressions: number;
       conversions: number;
+      share_method: string;
+      share_pct: number;
+      site_factor_avg: number;
     }
     const cellMap = new Map<string, CCAcc>();
-    for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.country_code}`;
-      let cell = cellMap.get(k);
-      if (!cell) {
-        cell = {
-          campaign_id: r.campaign_id,
-          country_code: r.country_code,
-          country_name: r.country_name ?? r.country_code,
-          country_criterion_id: r.country_criterion_id,
-          cost: 0, revenue_brl: 0, clicks: 0, impressions: 0, conversions: 0,
-        };
-        cellMap.set(k, cell);
-      }
-      const cost = Number(r.cost) || 0;
-      const conv = Number(r.conversions) || 0;
-      const clicks = Number(r.clicks) || 0;
-      const impr = Number(r.impressions) || 0;
-      cell.cost += cost;
-      cell.clicks += clicks;
-      cell.impressions += impr;
-      cell.conversions += conv;
-
-      const cdKey = `${r.campaign_id}|${r.date}`;
-      const revUsd = revByCampDate.get(cdKey) || 0;
-      if (revUsd > 0) {
-        // Opção A: distribuir receita proporcional a IMPRESSÕES (equivale a eCPM constante × impressões do país).
-        // Fallback: cliques → conversões → custo, caso não haja impressões.
-        const totalImpr = imprByCampDate.get(cdKey) || 0;
-        const totalClicks = clicksByCampDate.get(cdKey) || 0;
-        const totalConv = convByCampDate.get(cdKey) || 0;
-        const totalCost = costByCampDate.get(cdKey) || 0;
-        let share = 0;
-        if (totalImpr > 0) share = impr / totalImpr;
-        else if (totalClicks > 0) share = clicks / totalClicks;
-        else if (totalConv > 0) share = conv / totalConv;
-        else if (totalCost > 0) share = cost / totalCost;
-        if (share > 0) {
-          cell.revenue_brl += revUsd * share * NET_FACTOR * fxUsdBrl;
-        }
-      }
-      if (!cell.country_criterion_id && r.country_criterion_id) {
-        cell.country_criterion_id = r.country_criterion_id;
-      }
-    }
+    for (const r of countryRows) cellMap.set(`${r.campaign_id}|${r.country_code}`, {
+      campaign_id: r.campaign_id,
+      country_code: r.country_code,
+      country_name: r.country_name ?? r.country_code,
+      country_criterion_id: r.country_criterion_id,
+      cost: Number(r.cost_brl) || 0,
+      revenue_brl: Number(r.revenue_brl) || 0,
+      revenue_gross_usd: Number(r.revenue_gross_usd) || 0,
+      clicks: Number(r.clicks) || 0,
+      impressions: Number(r.impressions) || 0,
+      conversions: Number(r.conversions) || 0,
+      share_method: r.share_method,
+      share_pct: Number(r.share_pct) || 0,
+      site_factor_avg: Number(r.site_factor_avg) || 0,
+    });
 
     // Por país
     const byCountryMap = new Map<string, {
@@ -429,7 +251,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       .sort((a, b) => b.cost - a.cost);
 
     return { byCountry, byCampaign, countriesByCampaign, campaignsByCountry, debugTotals, totalCost, totalRev };
-  }, [countryRows, dailyRows, fxUsdBrl, campNames]);
+  }, [countryRows, campNames]);
 
   const sortFn = (a: { cost: number; revenue_brl: number; roi: number; clicks: number; impressions: number },
                   b: { cost: number; revenue_brl: number; roi: number; clicks: number; impressions: number }) => {
@@ -542,8 +364,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           <div className="flex-1 min-w-[260px]">
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
-              Custo do Google Ads por país. Receita do GAM (mesma fonte da Dashboard) distribuída por
-              eCPM × impressões do país (fallback: cliques → conversões). Rev share aplicado: {((1 - NET_FACTOR) * 100).toFixed(1)}%.
+              Custo do Google Ads por país. Receita líquida usa a mesma base BRL da dashboard,
+              com fator do site e distribuição por impressões (fallback: cliques → conversões → custo).
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -668,7 +490,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       {showDebug && (
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs space-y-1">
           <div className="font-semibold mb-1">Debug — distribuição por país</div>
-          <div className="text-muted-foreground">Receita = receita campanha × (custo país / custo total da campanha no dia) × {NET_FACTOR} × FX</div>
+          <div className="text-muted-foreground">Receita = (profit + spend) da dashboard × fator do site × share do país × {NET_FACTOR}</div>
+          {engineWarnings.slice(0, 5).map((w) => <div key={w} className="text-warning">{w}</div>)}
           <div className="grid grid-cols-6 gap-2 font-mono mt-2 max-h-[300px] overflow-auto">
             <div className="font-semibold">País</div>
             <div className="font-semibold text-right">Custo</div>

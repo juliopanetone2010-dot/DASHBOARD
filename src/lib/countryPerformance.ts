@@ -40,6 +40,7 @@ export interface ClientCampaignTotals {
   daily_cost_brl: number;
   daily_revenue_usd: number;
   site_revenue_usd: number;
+  site_revenue_brl_gross: number;
 }
 
 export interface ClientCountryEngineResult {
@@ -110,13 +111,13 @@ export async function computeCountryPerformanceClient(
     }
   }
 
-  type DRow = { campaign_id: string; date: string; spend: number; revenue: number };
+  type DRow = { campaign_id: string; date: string; spend: number; revenue: number; profit: number };
   const dailyRows: DRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
     let start = 0;
     for (;;) {
       let q = supabase.from("daily_metrics")
-        .select("campaign_id, date, spend, revenue")
+        .select("campaign_id, date, spend, revenue, profit")
         .in("campaign_id", chunk)
         .gte("date", p.from).lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
@@ -148,21 +149,28 @@ export async function computeCountryPerformanceClient(
     }
   }
 
-  const dailyByCD = new Map<string, { spend: number; revenue: number }>();
+  const dailyByCD = new Map<string, { spend: number; revenue: number; profit: number; grossRevenueBrl: number }>();
   for (const r of dailyRows) {
     const k = `${r.campaign_id}|${r.date}`;
-    const acc = dailyByCD.get(k) ?? { spend: 0, revenue: 0 };
+    const acc = dailyByCD.get(k) ?? { spend: 0, revenue: 0, profit: 0, grossRevenueBrl: 0 };
     acc.spend += Number(r.spend) || 0;
     acc.revenue += Number(r.revenue) || 0;
+    acc.profit += Number(r.profit) || 0;
+    acc.grossRevenueBrl += (Number(r.profit) || 0) + (Number(r.spend) || 0);
     dailyByCD.set(k, acc);
   }
 
   const gamTotalByCD = new Map<string, number>();
   const gamSiteByCD = new Map<string, number>();
   const campaignsInGam = new Set<string>();
+  const gamSitesByCampaign = new Map<string, Set<string>>();
   for (const r of gamRows) {
     if (!r.site_id) continue;
-    campaignsInGam.add(String(r.campaign_id));
+    const campaignId = String(r.campaign_id);
+    campaignsInGam.add(campaignId);
+    const sites = gamSitesByCampaign.get(campaignId) ?? new Set<string>();
+    sites.add(String(r.site_id));
+    gamSitesByCampaign.set(campaignId, sites);
     const k = `${r.campaign_id}|${r.date}`;
     const v = Number(r.revenue_usd) || 0;
     gamTotalByCD.set(k, (gamTotalByCD.get(k) ?? 0) + v);
@@ -171,9 +179,26 @@ export async function computeCountryPerformanceClient(
     }
   }
 
+  const gamTotalByCampaign = new Map<string, number>();
+  const gamSiteByCampaign = new Map<string, number>();
+  for (const [k, total] of gamTotalByCD) {
+    const [campaignId] = k.split("|");
+    gamTotalByCampaign.set(campaignId, (gamTotalByCampaign.get(campaignId) ?? 0) + total);
+  }
+  for (const [k, site] of gamSiteByCD) {
+    const [campaignId] = k.split("|");
+    gamSiteByCampaign.set(campaignId, (gamSiteByCampaign.get(campaignId) ?? 0) + site);
+  }
+
   const siteFactor = (campaignId: string, date: string): number => {
     if (!p.siteId) return 1;
     if (!campaignsInGam.has(campaignId)) return 1;
+    if ((gamSitesByCampaign.get(campaignId)?.size ?? 0) <= 1) return 1;
+    const periodTotal = gamTotalByCampaign.get(campaignId) ?? 0;
+    if (periodTotal > 0) {
+      const periodSite = gamSiteByCampaign.get(campaignId) ?? 0;
+      return Math.min(1, Math.max(0, periodSite / periodTotal));
+    }
     const k = `${campaignId}|${date}`;
     const total = gamTotalByCD.get(k) ?? 0;
     if (total <= 0) return 0;
@@ -229,7 +254,7 @@ export async function computeCountryPerformanceClient(
     const cd = `${r.campaign_id}|${r.date}`;
     const totals = totalsByCD.get(cd);
     const daily = dailyByCD.get(cd);
-    if (!totals || !daily || daily.revenue <= 0) continue;
+    if (!totals || !daily || daily.grossRevenueBrl <= 0) continue;
 
     let share = 0;
     let method: ClientCountryCell["share_method"] = "none";
@@ -243,8 +268,9 @@ export async function computeCountryPerformanceClient(
     if (sf <= 0) continue;
 
     const grossUsd = daily.revenue * sf * share;
+    const grossBrl = daily.grossRevenueBrl * sf * share;
     cell.revenue_gross_usd += grossUsd;
-    cell.revenue_brl += grossUsd * p.netFactor * p.fxUsdBrl;
+    cell.revenue_brl += grossBrl * p.netFactor;
     if (cell.share_method === "none") cell.share_method = method;
 
     acc.shareSum += share; acc.shareCount += 1;
@@ -264,7 +290,7 @@ export async function computeCountryPerformanceClient(
       t = {
         campaign_id: cell.campaign_id,
         cost_brl: 0, revenue_brl_net: 0, countries: new Set(),
-        daily_cost_brl: 0, daily_revenue_usd: 0, site_revenue_usd: 0,
+        daily_cost_brl: 0, daily_revenue_usd: 0, site_revenue_usd: 0, site_revenue_brl_gross: 0,
       };
       campaignTotals.set(cell.campaign_id, t);
     }
@@ -280,6 +306,7 @@ export async function computeCountryPerformanceClient(
     t.daily_revenue_usd += v.revenue;
     const sf = siteFactor(campaign_id, date);
     t.site_revenue_usd += v.revenue * sf;
+    t.site_revenue_brl_gross += v.grossRevenueBrl * sf;
   }
 
   for (const t of campaignTotals.values()) {
