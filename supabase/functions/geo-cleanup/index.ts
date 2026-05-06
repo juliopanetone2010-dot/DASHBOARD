@@ -244,7 +244,16 @@ Deno.serve(async (req) => {
 
     // Decisão por país
     type Status = "ok" | "monitor" | "remove";
-    interface Item extends Cell {
+    interface Item {
+      campaign_id: string;
+      google_account_id: string | null;
+      country_code: string;
+      country_name: string;
+      country_criterion_id: string | null;
+      cost_brl: number;
+      revenue_brl: number;
+      clicks: number;
+      impressions: number;
       profit_brl: number;
       roi_pct: number;
       status: Status;
