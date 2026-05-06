@@ -12,6 +12,11 @@ const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_30_D
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  const control = await req.clone().json().catch(() => ({}));
+  if (control?.wait === true || control?.sync === true) {
+    return await runSync(req);
+  }
+
   // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
   const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
   // @ts-ignore EdgeRuntime is available in Supabase edge runtime
