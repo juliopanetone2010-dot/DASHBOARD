@@ -123,6 +123,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Campanhas no Funil Inteligente: ignorar (lifecycle isolado)
+    const funnelLockedIds = new Set<string>();
+    for (const chunk of chunkArr(campIds, 200)) {
+      const { data } = await admin
+        .from("campaign_funnel")
+        .select("campaign_id, funnel_status")
+        .eq("user_id", userId)
+        .in("campaign_id", chunk)
+        .not("funnel_status", "in", "(graduated,failed-learning)");
+      for (const r of data ?? []) funnelLockedIds.add(String(r.campaign_id));
+    }
+
     // Campanhas com mudança recente de países (últimos N dias) → ignorar
     const recentlyChangedIds = new Set<string>();
     if (recentChangeDays > 0) {
