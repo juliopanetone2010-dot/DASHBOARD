@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { getRevSharePct } from "../_shared/revshare.ts";
+import { computeCountryPerformance } from "../_shared/country_performance.ts";
 
 interface ApplyItem {
   campaign_id: string;
