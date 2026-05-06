@@ -163,9 +163,14 @@ export async function computeCountryPerformanceClient(
   const gamTotalByCD = new Map<string, number>();
   const gamSiteByCD = new Map<string, number>();
   const campaignsInGam = new Set<string>();
+  const gamSitesByCampaign = new Map<string, Set<string>>();
   for (const r of gamRows) {
     if (!r.site_id) continue;
-    campaignsInGam.add(String(r.campaign_id));
+    const campaignId = String(r.campaign_id);
+    campaignsInGam.add(campaignId);
+    const sites = gamSitesByCampaign.get(campaignId) ?? new Set<string>();
+    sites.add(String(r.site_id));
+    gamSitesByCampaign.set(campaignId, sites);
     const k = `${r.campaign_id}|${r.date}`;
     const v = Number(r.revenue_usd) || 0;
     gamTotalByCD.set(k, (gamTotalByCD.get(k) ?? 0) + v);
@@ -188,6 +193,7 @@ export async function computeCountryPerformanceClient(
   const siteFactor = (campaignId: string, date: string): number => {
     if (!p.siteId) return 1;
     if (!campaignsInGam.has(campaignId)) return 1;
+    if ((gamSitesByCampaign.get(campaignId)?.size ?? 0) <= 1) return 1;
     const periodTotal = gamTotalByCampaign.get(campaignId) ?? 0;
     if (periodTotal > 0) {
       const periodSite = gamSiteByCampaign.get(campaignId) ?? 0;
