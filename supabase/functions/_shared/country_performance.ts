@@ -299,7 +299,7 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
     const cd = `${r.campaign_id}|${r.date}`;
     const totals = totalsByCD.get(cd);
     const daily = dailyByCD.get(cd);
-    if (!totals || !daily || daily.revenue <= 0) continue;
+    if (!totals || !daily || daily.grossRevenueBrl <= 0) continue;
 
     let share = 0;
     let method: CountryCell["share_method"] = "none";
@@ -313,8 +313,9 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
     if (sf <= 0) continue;
 
     const grossUsd = daily.revenue * sf * share;
+    const grossBrl = daily.grossRevenueBrl * sf * share;
     cell.revenue_gross_usd += grossUsd;
-    cell.revenue_brl += grossUsd * p.netFactor * p.fxUsdBrl;
+    cell.revenue_brl += grossBrl * p.netFactor;
     if (cell.share_method === "none") cell.share_method = method;
 
     acc.shareSum += share; acc.shareCount += 1;
@@ -335,7 +336,7 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
       t = {
         campaign_id: cell.campaign_id,
         cost_brl: 0, revenue_brl_net: 0, countries: new Set(),
-        daily_cost_brl: 0, daily_revenue_usd: 0, site_revenue_usd: 0,
+        daily_cost_brl: 0, daily_revenue_usd: 0, site_revenue_usd: 0, site_revenue_brl_gross: 0,
       };
       campaignTotals.set(cell.campaign_id, t);
     }
@@ -352,6 +353,7 @@ export async function computeCountryPerformance(p: CountryEngineParams): Promise
     t.daily_revenue_usd += v.revenue;
     const sf = siteFactor(campaign_id, k.split("|")[1]);
     t.site_revenue_usd += v.revenue * sf;
+    t.site_revenue_brl_gross += v.grossRevenueBrl * sf;
   }
 
   // 9) Warnings de consistência
