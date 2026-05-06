@@ -412,17 +412,23 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
     if (!res.ok) return { updated: 0, error: `search: ${JSON.stringify(json).slice(0, 200)}` };
 
     const rows = (json.results ?? []) as any[];
-    const updates = rows.map((r) => ({
-      user_id: userId,
-      google_account_id: accountId,
-      campaign_id: String(r.campaign.id),
-      name: r.campaign.name ?? `Campaign ${r.campaign.id}`,
-      status: String(r.campaign.status ?? "enabled").toLowerCase(),
-      budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
-      target_cpa_micros: r.campaign.targetCpa?.targetCpaMicros
+    const strategyByCamp = new Map<string, { strategyType: string; targetCpaMicros: number | null }>();
+    const updates = rows.map((r) => {
+      const targetCpaMicros = r.campaign.targetCpa?.targetCpaMicros
         ? Number(r.campaign.targetCpa.targetCpaMicros)
-        : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null),
-    }));
+        : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null);
+      const strategyType = String(r.campaign.biddingStrategyType ?? "");
+      strategyByCamp.set(String(r.campaign.id), { strategyType, targetCpaMicros });
+      return {
+        user_id: userId,
+        google_account_id: accountId,
+        campaign_id: String(r.campaign.id),
+        name: r.campaign.name ?? `Campaign ${r.campaign.id}`,
+        status: String(r.campaign.status ?? "enabled").toLowerCase(),
+        budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
+        target_cpa_micros: targetCpaMicros,
+      };
+    });
     let updated = 0;
     for (let i = 0; i < updates.length; i += 200) {
       const slice = updates.slice(i, i + 200);
@@ -431,7 +437,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
         .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id" });
       if (!error) updated += slice.length;
     }
-    return { updated };
+    return { updated, strategyByCamp };
   } catch (e) {
     return { updated: 0, error: String(e instanceof Error ? e.message : e) };
   }
