@@ -297,6 +297,9 @@ Deno.serve(async (req) => {
       if (testingIds.has(c.campaign_id)) {
         skippedTesting++;
         continue;
+      } else if (funnelLockedIds.has(c.campaign_id)) {
+        skippedTesting++;
+        continue;
       } else if (recentlyChangedIds.has(c.campaign_id)) {
         skippedRecentChange++;
         continue;
