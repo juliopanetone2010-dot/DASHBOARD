@@ -139,6 +139,33 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
   return { evaluated, actions, errors, dry_run: dryRun };
 }
 
+async function buildMissingConfigs(admin: any, userId: string, selectedSiteId: string | null, selectedAccountIds: string[]): Promise<SiteFunnelConfig[]> {
+  let accountIds = selectedAccountIds;
+  if (accountIds.length === 0 && selectedSiteId) {
+    const { data: links } = await admin
+      .from("account_site_links")
+      .select("google_account_id")
+      .eq("user_id", userId)
+      .eq("site_id", selectedSiteId);
+    accountIds = [...new Set((links ?? []).map((l: any) => String(l.google_account_id)).filter(Boolean))];
+  }
+
+  if (accountIds.length === 0) {
+    let campQ = admin.from("campaigns").select("google_account_id").eq("user_id", userId).not("google_account_id", "is", null);
+    const { data: campaigns } = await campQ;
+    accountIds = [...new Set((campaigns ?? []).map((c: any) => String(c.google_account_id)).filter(Boolean))];
+  }
+
+  return accountIds.map((google_account_id) => ({
+    user_id: userId,
+    site_id: selectedSiteId ?? "00000000-0000-0000-0000-000000000000",
+    google_account_id,
+    funnel_enabled: true,
+    funnel_dry_run: true,
+    initial_budget: 30,
+  }));
+}
+
 // === Onboarding: detecta campanhas novas, winners de geo-expansion, restarts manuais ===
 async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll = false) {
   const { user_id, site_id, google_account_id, initial_budget } = cfg;
