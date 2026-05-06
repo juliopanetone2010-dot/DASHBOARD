@@ -211,8 +211,6 @@ export function FinancialCalendarTab() {
                   <tr>
                     <th className="px-2 py-2 text-left font-semibold">Data</th>
                     <th className="px-2 py-2 text-right font-semibold">Google Ads</th>
-                    <th className="px-2 py-2 text-right font-semibold">Facebook</th>
-                    <th className="px-2 py-2 text-right font-semibold">Outros</th>
                     <th className="px-2 py-2 text-right font-semibold">Custo Total</th>
                     <th className="px-2 py-2 text-right font-semibold">Rec. Bruta</th>
                     <th className="px-2 py-2 text-right font-semibold">Rec. Líquida</th>
