@@ -144,11 +144,18 @@ export function FinancialCalendarTab() {
     URL.revokeObjectURL(url);
   };
 
+  // Limite mínimo: Maio/2026
+  const MIN_YEAR = 2026;
+  const MIN_MONTH = 5;
   const years = useMemo(() => {
     const arr: number[] = [];
-    for (let y = today.getFullYear(); y >= today.getFullYear() - 4; y--) arr.push(y);
+    for (let y = today.getFullYear(); y >= MIN_YEAR; y--) arr.push(y);
     return arr;
   }, []);
+  const availableMonths = useMemo(() => {
+    return MONTHS_PT.map((m, i) => ({ label: m, value: i + 1 }))
+      .filter(({ value }) => year > MIN_YEAR || value >= MIN_MONTH);
+  }, [year]);
 
   if (filters.siteId === "all") {
     return (
@@ -178,7 +185,7 @@ export function FinancialCalendarTab() {
               <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
                 <SelectTrigger className="h-9 w-[140px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {MONTHS_PT.map((m, i) => <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>)}
+                  {availableMonths.map(({ label, value }) => <SelectItem key={value} value={String(value)}>{label}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
