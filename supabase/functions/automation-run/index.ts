@@ -204,7 +204,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const campMeta = new Map<string, any>();
   for (const c of campRows ?? []) campMeta.set(String(c.campaign_id), c);
 
-  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0; let skippedRestartFlow = 0;
+  let decisions = 0; let executed = 0; let skippedInactive = 0; let skippedSiteMismatch = 0; let skippedAmbiguousSite = 0; let skippedRestartFlow = 0; let skippedFunnel = 0;
   for (const agg of byCamp.values()) {
     const meta = campMeta.get(agg.campaign_id);
     const status = String(meta?.status ?? "").toLowerCase();
@@ -215,6 +215,11 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
     if (restartActiveSet.has(agg.campaign_id)) {
       skippedRestartFlow++;
+      continue;
+    }
+
+    if (funnelLockedSet.has(agg.campaign_id)) {
+      skippedFunnel++;
       continue;
     }
 
