@@ -130,7 +130,9 @@ export function SmartFunnelPanel() {
         body: {
           force: true,
           enroll_all_created: enrollAll,
+          enroll_all: enrollAll,
           site_id: selectedSiteId && selectedSiteId !== "all" ? selectedSiteId : undefined,
+          google_account_ids: selectedAccountIds,
         },
       });
       if (error) throw error;
