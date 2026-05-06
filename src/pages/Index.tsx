@@ -696,7 +696,8 @@ const IndexInner = () => {
             />
           </TabsContent>
 
-          <TabsContent value="funnel" className="mt-6">
+          <TabsContent value="funnel" className="mt-6 space-y-6">
+            <SmartFunnelPanel />
             <PlacementFunnelTab fxUsdBrl={usdBrl} />
           </TabsContent>
 
