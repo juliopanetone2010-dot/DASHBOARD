@@ -341,6 +341,10 @@ export function AutomationTab() {
         {(siteFilter !== "all" || accountFilter.length > 0) && (
           <Button variant="ghost" size="sm" onClick={() => { setSiteFilter("all"); setAccountFilter([]); }}>Limpar filtros</Button>
         )}
+        <div className="flex items-center gap-2 ml-2">
+          <Switch id="show-new" checked={showNew} onCheckedChange={setShowNew} />
+          <Label htmlFor="show-new" className="text-xs cursor-pointer">Incluir novas (3d)</Label>
+        </div>
         <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
       </div>
 
