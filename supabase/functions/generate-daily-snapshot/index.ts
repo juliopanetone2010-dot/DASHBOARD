@@ -54,6 +54,29 @@ Deno.serve(async (req) => {
 
     const results: any[] = [];
 
+    // Antes de gerar snapshots, força sync do GAM para targetDate (garante dados frescos
+    // mesmo se o GAM ainda não fechou o dia anterior na 1ª passada do cron 04:00).
+    for (const site of sites ?? []) {
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/gam-sync-revenue`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            site_id: site.id,
+            user_id: site.user_id,
+            from: targetDate,
+            to: targetDate,
+            revenue_only: true,
+          }),
+        });
+      } catch (e) {
+        console.warn("[snapshot] gam-sync pre-call failed", site.name, String(e));
+      }
+    }
+
     for (const site of sites ?? []) {
       try {
         // Skip se já existe e não é force

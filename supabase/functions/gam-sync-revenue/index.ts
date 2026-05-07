@@ -43,6 +43,7 @@ async function runSync(req: Request): Promise<Response> {
     let dateTo: string | null = null;
     let requestedSiteId: string | null = null;
     let requestedAccountIds: string[] = [];
+    let requestedUserId: string | null = null;
     let includeYesterdayFallback = false;
     let testMode = false;
     let revenueOnly = true;
@@ -58,6 +59,7 @@ async function runSync(req: Request): Promise<Response> {
       dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
       dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
       requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
+      requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
       requestedAccountIds = Array.isArray((body as any)?.account_ids)
         ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
         : [];
@@ -87,8 +89,16 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const token = authHeader.replace("Bearer ", "");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    let userId: string | undefined;
+    if (token && serviceRoleKey && token === serviceRoleKey) {
+      // Chamada interna (cron/snapshot): usa user_id passado no body
+      userId = requestedUserId ?? undefined;
+    } else {
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
