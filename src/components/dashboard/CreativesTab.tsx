@@ -350,8 +350,20 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     } finally { setActing(false); }
   };
 
-  const totalCost = campaigns.reduce((a, c) => a + c.cost, 0);
-  const totalRev = campaigns.reduce((a, c) => a + c.revenue_brl, 0);
+  const visibleCampaigns = useMemo(() => {
+    if (!onlyNew) return campaigns;
+    return campaigns
+      .map((c) => ({ ...c, ads: c.ads.filter((a) => a.isNew) }))
+      .filter((c) => c.ads.length > 0);
+  }, [campaigns, onlyNew]);
+
+  const newAdsCount = useMemo(
+    () => campaigns.reduce((acc, c) => acc + c.ads.filter((a) => a.isNew).length, 0),
+    [campaigns],
+  );
+
+  const totalCost = visibleCampaigns.reduce((a, c) => a + (onlyNew ? c.ads.reduce((x, y) => x + y.cost, 0) : c.cost), 0);
+  const totalRev = visibleCampaigns.reduce((a, c) => a + (onlyNew ? c.ads.reduce((x, y) => x + y.revenue_brl, 0) : c.revenue_brl), 0);
   const totalRoi = totalCost > 0 ? ((totalRev - totalCost) / totalCost) * 100 : 0;
 
   return (
