@@ -310,6 +310,44 @@ async function runSync(req: Request): Promise<Response> {
       .update({ last_synced_at: new Date().toISOString(), status: hasErrors ? "pending" : "connected" })
       .eq("user_id", userId);
 
+    // Re-gera os snapshots financeiros dos dias sincronizados, para que o calendário
+    // sempre reflita a receita GAM mais recente (evita defasagem como 06/05 ficar com R$ 39 quando o GAM já tinha R$ 76).
+    try {
+      const allDates = Array.from(new Set(
+        summary.flatMap((s) => Array.isArray(s.date_range)
+          ? (s.date_range as string[]).flatMap((label) => label.split("..").filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))
+          : []),
+      ));
+      // Expande ranges X..Y em datas individuais
+      const expanded = new Set<string>();
+      for (const lbl of allDates) expanded.add(lbl);
+      for (const s of summary) {
+        if (!Array.isArray(s.date_range)) continue;
+        for (const lbl of s.date_range as string[]) {
+          const m = String(lbl).match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
+          if (m) {
+            const a = new Date(m[1] + "T00:00:00Z"); const b = new Date(m[2] + "T00:00:00Z");
+            for (const d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
+              expanded.add(d.toISOString().slice(0, 10));
+            }
+          }
+        }
+      }
+      for (const d of expanded) {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
+          method: "POST",
+          headers: {
+            Authorization: authHeader!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
+        }).catch(() => {});
+      }
+      debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
+    } catch (e) {
+      debug.push(`[snapshot] regen failed: ${String(e)}`);
+    }
+
     return json({ ok: true, date_preset: datePreset, summary, gam_debug: gamDebug, debug });
   } catch (e) {
     console.error("[gam-sync-revenue] uncaught", e);
