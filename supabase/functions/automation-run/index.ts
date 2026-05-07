@@ -241,15 +241,28 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
-    // Auto-set Target CPA: se a campanha está em MAXIMIZE_CONVERSIONS sem target_cpa
-    // definido, calcula a média de CPA dos últimos 7 dias e aplica como target_cpa
-    // (uma vez só — depois vira TARGET_CPA e o fluxo normal de cpa_up/cpa_down assume).
+    // Campanhas em MAXIMIZE_CONVERSIONS sem target_cpa estão em fase de aprendizado
+    // (provavelmente reset manual ou campanha nova). A automação padrão NÃO toca:
+    // sem set_target_cpa automático, sem pause por ROI histórico, sem scale.
+    // Esse caso é gerido pelo Funil Inteligente (ou manualmente pelo usuário).
     const strat = strategyByCamp.get(agg.campaign_id);
     const isMaxConvNoTarget =
       strat &&
       String(strat.strategyType).toUpperCase().includes("MAXIMIZE_CONVERSIONS") &&
       (!strat.targetCpaMicros || strat.targetCpaMicros <= 0);
     if (isMaxConvNoTarget) {
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: agg.campaign_id,
+        action: "classify",
+        reason: "MAXIMIZE_CONVERSIONS sem target_cpa → fase de aprendizado, automação padrão não atua (use o Funil Inteligente).",
+        decision: "skipped",
+        payload: { name: meta?.name ?? null, strategy: strat?.strategyType ?? null },
+      });
+      continue;
+    }
+    // (bloco antigo desativado — mantido como referência)
+    if (false && isMaxConvNoTarget) {
       const last7 = (agg.daily as any[])
         .slice()
         .sort((a, b) => b.date.localeCompare(a.date))
