@@ -59,6 +59,7 @@ async function runSync(req: Request): Promise<Response> {
       dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
       dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
       requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
+      requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
       requestedAccountIds = Array.isArray((body as any)?.account_ids)
         ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
         : [];
