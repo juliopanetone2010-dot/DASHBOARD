@@ -93,11 +93,8 @@ async function runSync(req: Request): Promise<Response> {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
     if (token && serviceRoleKey && token === serviceRoleKey) {
-      // Chamada interna (cron/snapshot): aceita user_id no body
-      try {
-        const peekBody = await req.clone().json().catch(() => ({}));
-        userId = typeof (peekBody as any)?.user_id === "string" ? (peekBody as any).user_id : undefined;
-      } catch { /* */ }
+      // Chamada interna (cron/snapshot): usa user_id passado no body
+      userId = requestedUserId ?? undefined;
     } else {
       const { data: claims } = await userClient.auth.getClaims(token);
       userId = claims?.claims?.sub;
