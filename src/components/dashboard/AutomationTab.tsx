@@ -406,7 +406,10 @@ export function AutomationTab() {
                   return (
                     <TableRow key={s.id}>
                       <TableCell className="text-xs">
-                        <div className="font-medium">{campMeta[s.campaign_id]?.name || "(sem nome)"}</div>
+                        <div className="font-medium flex items-center gap-1.5">
+                          {campMeta[s.campaign_id]?.name || "(sem nome)"}
+                          {s._isNew && <Badge className="bg-primary/15 text-primary text-[10px] px-1.5 py-0">✨ Nova</Badge>}
+                        </div>
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
