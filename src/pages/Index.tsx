@@ -672,6 +672,11 @@ const IndexInner = () => {
               </div>
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
+                downAccountIds={new Set(
+                  (data.googleAccounts ?? [])
+                    .filter((a) => a.status === "suspended" || a.status === "canceled")
+                    .map((a) => a.id)
+                )}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
                 onRefresh={data.refresh}
