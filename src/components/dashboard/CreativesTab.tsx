@@ -89,6 +89,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set()); // key: campaign|adgroup|adid
   const [showDebug, setShowDebug] = useState(false);
+  const [onlyNew, setOnlyNew] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
