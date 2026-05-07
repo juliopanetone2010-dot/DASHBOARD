@@ -130,12 +130,19 @@ Deno.serve(async (req) => {
             continue;
           }
           const rows = (cJson.results ?? []) as Array<{
-            customerClient: { id: string; descriptiveName?: string; currencyCode?: string };
+            customerClient: { id: string; descriptiveName?: string; currencyCode?: string; status?: string };
           }>;
 
           for (const r of rows) {
             const childCid = String(r.customerClient.id);
             const name = r.customerClient.descriptiveName ?? `Conta ${childCid}`;
+            // Map Google Ads customer status → app status
+            // ENABLED → connected; SUSPENDED → suspended; CANCELED/CLOSED → canceled
+            const gStatus = String(r.customerClient.status ?? "ENABLED").toUpperCase();
+            const appStatus =
+              gStatus === "SUSPENDED" ? "suspended" :
+              (gStatus === "CANCELED" || gStatus === "CLOSED") ? "canceled" :
+              "connected";
             // upsert
             const { data: up } = await admin
               .from("google_accounts")
@@ -149,7 +156,7 @@ Deno.serve(async (req) => {
                   descriptive_name: name,
                   currency: r.customerClient.currencyCode ?? null,
                   is_mcc: false,
-                  status: "connected",
+                  status: appStatus,
                   refresh_token: root.refresh_token,
                   last_synced_at: new Date().toISOString(),
                 },
