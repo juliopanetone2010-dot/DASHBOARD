@@ -40,7 +40,7 @@ export function AutomationTab() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
-  const [campMeta, setCampMeta] = useState<Record<string, { name: string; google_account_id: string | null }>>({});
+  const [campMeta, setCampMeta] = useState<Record<string, { name: string; google_account_id: string | null; created_at: string | null }>>({});
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
@@ -52,6 +52,7 @@ export function AutomationTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [showNew, setShowNew] = useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -63,18 +64,18 @@ export function AutomationTab() {
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
-      supabase.from("campaigns").select("campaign_id, name, status, google_account_id").limit(2000),
+      supabase.from("campaigns").select("campaign_id, name, status, google_account_id, created_at").limit(2000),
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id"),
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
       supabase.from("site_automation_config").select("*"),
       supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit, date").gte("date", ymd(start15)).limit(20000),
     ]);
-    const meta: Record<string, { name: string; google_account_id: string | null }> = {};
+    const meta: Record<string, { name: string; google_account_id: string | null; created_at: string | null }> = {};
     const activeIds = new Set<string>();
     for (const c of camps ?? []) {
       const cid = String((c as any).campaign_id);
-      meta[cid] = { name: String((c as any).name ?? ""), google_account_id: (c as any).google_account_id ?? null };
+      meta[cid] = { name: String((c as any).name ?? ""), google_account_id: (c as any).google_account_id ?? null, created_at: (c as any).created_at ?? null };
       const st = String((c as any).status ?? "").toLowerCase();
       if (st === "enabled" || st === "active") activeIds.add(cid);
     }
@@ -138,7 +139,38 @@ export function AutomationTab() {
     return matchCampaign(String(row.campaign_id));
   };
 
-  const filteredStates = useMemo(() => states.filter(matchAutomationRow), [states, campMeta, accountFilter, allowedAccountIds, siteFilter]);
+  const filteredStates = useMemo(() => {
+    const base = states.filter(matchAutomationRow);
+    if (!showNew) return base;
+    const have = new Set(base.map((s) => String(s.campaign_id)));
+    const threeDaysMs = 3 * 86400_000;
+    const now = Date.now();
+    const synthetic: any[] = [];
+    for (const [cid, m] of Object.entries(campMeta)) {
+      if (have.has(cid)) continue;
+      if (!m.created_at) continue;
+      if (now - new Date(m.created_at).getTime() > threeDaysMs) continue;
+      if (!matchCampaign(cid)) continue;
+      synthetic.push({
+        id: `new-${cid}`,
+        campaign_id: cid,
+        google_account_id: m.google_account_id,
+        site_id: null,
+        lifecycle_status: "testing",
+        last_roi: null,
+        roi_trend: null,
+        days_in_standby: 0,
+        last_action: null,
+        last_action_date: null,
+        cooldown_until: null,
+        delivery_ratio: null,
+        daily_budget: null,
+        _isNew: true,
+        created_at: m.created_at,
+      });
+    }
+    return [...synthetic, ...base];
+  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew]);
   const filteredLogs = useMemo(() => logs.filter(matchAutomationRow), [logs, campMeta, accountFilter, allowedAccountIds, siteFilter]);
 
   type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
@@ -309,6 +341,10 @@ export function AutomationTab() {
         {(siteFilter !== "all" || accountFilter.length > 0) && (
           <Button variant="ghost" size="sm" onClick={() => { setSiteFilter("all"); setAccountFilter([]); }}>Limpar filtros</Button>
         )}
+        <div className="flex items-center gap-2 ml-2">
+          <Switch id="show-new" checked={showNew} onCheckedChange={setShowNew} />
+          <Label htmlFor="show-new" className="text-xs cursor-pointer">Incluir novas (3d)</Label>
+        </div>
         <div className="ml-auto text-xs text-muted-foreground">{filteredStates.length} campanha(s)</div>
       </div>
 
@@ -370,7 +406,10 @@ export function AutomationTab() {
                   return (
                     <TableRow key={s.id}>
                       <TableCell className="text-xs">
-                        <div className="font-medium">{campMeta[s.campaign_id]?.name || "(sem nome)"}</div>
+                        <div className="font-medium flex items-center gap-1.5">
+                          {campMeta[s.campaign_id]?.name || "(sem nome)"}
+                          {s._isNew && <Badge className="bg-primary/15 text-primary text-[10px] px-1.5 py-0">✨ Nova</Badge>}
+                        </div>
                         <div className="font-mono text-[10px] text-muted-foreground">{s.campaign_id}</div>
                       </TableCell>
                       <TableCell><span className={`px-2 py-0.5 rounded text-xs ${v.cls}`}>{v.label}</span></TableCell>
