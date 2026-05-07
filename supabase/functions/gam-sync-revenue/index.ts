@@ -43,6 +43,7 @@ async function runSync(req: Request): Promise<Response> {
     let dateTo: string | null = null;
     let requestedSiteId: string | null = null;
     let requestedAccountIds: string[] = [];
+    let requestedUserId: string | null = null;
     let includeYesterdayFallback = false;
     let testMode = false;
     let revenueOnly = true;
