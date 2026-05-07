@@ -52,6 +52,7 @@ export function AutomationTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [showNew, setShowNew] = useState(true);
 
   const load = async () => {
     setLoading(true);
