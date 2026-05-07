@@ -491,10 +491,17 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 3) Estratégia — sempre força Maximize Conversions sem CPA; se o Google bloquear, retorna erro.
+  // 3) Estratégia — tenta forçar Maximize Conversions sem CPA; se o Google bloquear (incompatibilidade
+  //    com tipo de orçamento/estratégia atual), seguimos só com o ajuste de orçamento e mantemos a
+  //    estratégia vigente. O fluxo de reinício continua, e o usuário pode ajustar manualmente depois.
   const bidding = await applyRestartBidding(ctx, campaignId, currentStrat);
-  if (bidding.error) return { error: bidding.error };
-
+  if (bidding.error) {
+    return {
+      ok: true,
+      budget_brl: budgetBrl,
+      bidding: { ok: false, kept: currentStrat, warning: bidding.error },
+    };
+  }
   return { ok: true, budget_brl: budgetBrl, bidding };
 }
 
