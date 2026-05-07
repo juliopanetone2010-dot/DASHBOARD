@@ -40,7 +40,7 @@ export function AutomationTab() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
-  const [campMeta, setCampMeta] = useState<Record<string, { name: string; google_account_id: string | null }>>({});
+  const [campMeta, setCampMeta] = useState<Record<string, { name: string; google_account_id: string | null; created_at: string | null }>>({});
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
