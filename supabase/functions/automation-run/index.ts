@@ -254,13 +254,26 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       String(strat.strategyType).toUpperCase().includes("MAXIMIZE_CONVERSIONS") &&
       (!strat.targetCpaMicros || strat.targetCpaMicros <= 0);
     if (isMaxConvNoTarget && !isWinnerLifecycle(fromStatus)) {
-      const fiveDaysAgo = isoDate(new Date(Date.now() - 5 * 86400_000));
+      // Busca o último restart desta campanha para garantir que o janelamento de 5 dias
+      // só conte dias APÓS o reinício (evita misturar dados pré/pós restart).
+      const { data: lastRestart } = await admin
+        .from("campaign_restart_flow")
+        .select("start_date")
+        .eq("user_id", userId)
+        .eq("campaign_id", agg.campaign_id)
+        .order("start_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const restartDate = lastRestart?.start_date ? isoDate(new Date(lastRestart.start_date)) : null;
+      const fiveDaysAgoDate = isoDate(new Date(Date.now() - 5 * 86400_000));
+      // Usa o mais recente entre (hoje-5d) e (data do último restart)
+      const windowStart = restartDate && restartDate > fiveDaysAgoDate ? restartDate : fiveDaysAgoDate;
       const { data: dm5 } = await admin
         .from("daily_metrics")
         .select("date, spend, conversions, revenue")
         .eq("user_id", userId)
         .eq("campaign_id", agg.campaign_id)
-        .gte("date", fiveDaysAgo)
+        .gte("date", windowStart)
         .order("date", { ascending: false });
       const rows5 = (dm5 ?? []).filter((r: any) => Number(r.spend) > 0);
       const daysActive = rows5.length;
