@@ -233,10 +233,13 @@ export function CreativesTab({ fxUsdBrl }: Props) {
         });
       }
     }
+    const threeDaysAgo = new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
     for (const a of adMap.values()) {
       a.days = a.datesSet.size;
       a.roi = a.cost > 0 ? ((a.revenue_brl - a.cost) / a.cost) * 100 : 0;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
+      a.firstSeen = [...a.datesSet].sort()[0];
+      a.isNew = a.firstSeen >= threeDaysAgo;
       const camp = campMap.get(a.campaign_id);
       if (camp) camp.ads.push(a);
     }
