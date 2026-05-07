@@ -521,11 +521,11 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={11} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
-            ) : campaigns.length === 0 ? (
+            ) : visibleCampaigns.length === 0 ? (
               <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
-                Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.
+                {onlyNew ? "Nenhum criativo novo nos últimos 3 dias." : <>Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.</>}
               </TableCell></TableRow>
-            ) : campaigns.map((c) => {
+            ) : visibleCampaigns.map((c) => {
               const isOpen = expanded.has(c.campaign_id);
               const eligible = c.ads.filter((a) => a.cost >= minCost && a.days >= minDays);
               const bestRoi = eligible.length > 0 ? Math.max(...eligible.map((a) => a.roi)) : null;
