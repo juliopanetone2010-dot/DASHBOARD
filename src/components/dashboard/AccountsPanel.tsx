@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { GoogleAccount } from "@/types/domain";
 
 interface Props {
