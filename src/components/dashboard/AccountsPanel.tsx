@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, ShieldCheck, ShieldAlert, Briefcase } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, ShieldAlert, Briefcase, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
