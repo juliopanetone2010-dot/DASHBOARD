@@ -422,6 +422,16 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           <Bug className="h-3.5 w-3.5" /> Debug
         </Button>
 
+        <Button
+          variant={onlyNew ? "default" : "outline"}
+          size="sm"
+          onClick={() => setOnlyNew((v) => !v)}
+          className="gap-1.5"
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Novos (3d)
+          <Badge variant="secondary" className="ml-1">{newAdsCount}</Badge>
+        </Button>
+
         <div className="ml-auto flex items-center gap-3">
           <div className="text-xs text-muted-foreground">
             Custo: <span className="font-medium text-foreground">{fmtBRL(totalCost)}</span> ·
