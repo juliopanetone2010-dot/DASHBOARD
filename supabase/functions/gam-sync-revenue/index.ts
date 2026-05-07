@@ -87,8 +87,19 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const token = authHeader.replace("Bearer ", "");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    let userId: string | undefined;
+    if (token && serviceRoleKey && token === serviceRoleKey) {
+      // Chamada interna (cron/snapshot): aceita user_id no body
+      try {
+        const peekBody = await req.clone().json().catch(() => ({}));
+        userId = typeof (peekBody as any)?.user_id === "string" ? (peekBody as any).user_id : undefined;
+      } catch { /* */ }
+    } else {
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
