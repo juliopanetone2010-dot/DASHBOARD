@@ -185,7 +185,9 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
   // Aplica orçamento R$40/dia + bidding MAXIMIZE_CONVERSIONS (sem CPA)
   const apply = await applyInitialConfig(admin, userId, camp.google_account_id, campaignId, INITIAL_BUDGET_BRL);
   if (apply.error) return { error: `Falha ao aplicar config inicial: ${apply.error}` };
-  const initialNotes = apply?.bidding?.strategy === "TARGET_CPA"
+  const initialNotes = apply?.bidding?.ok === false
+    ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; bidding mantido (${apply.bidding.kept || "atual"}) — Google bloqueou troca: ${String(apply.bidding.warning || "").slice(0, 300)}`
+    : apply?.bidding?.strategy === "TARGET_CPA"
     ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; Google manteve Target CPA por restrição da campanha`
     : `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`;
 
@@ -491,10 +493,17 @@ async function applyInitialConfig(admin: any, userId: string, accountId: string,
   if (!bRes.ok) return { error: `budget mutate: ${JSON.stringify(bJson).slice(0, 200)}` };
   await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("user_id", userId).eq("campaign_id", campaignId);
 
-  // 3) Estratégia — sempre força Maximize Conversions sem CPA; se o Google bloquear, retorna erro.
+  // 3) Estratégia — tenta forçar Maximize Conversions sem CPA; se o Google bloquear (incompatibilidade
+  //    com tipo de orçamento/estratégia atual), seguimos só com o ajuste de orçamento e mantemos a
+  //    estratégia vigente. O fluxo de reinício continua, e o usuário pode ajustar manualmente depois.
   const bidding = await applyRestartBidding(ctx, campaignId, currentStrat);
-  if (bidding.error) return { error: bidding.error };
-
+  if (bidding.error) {
+    return {
+      ok: true,
+      budget_brl: budgetBrl,
+      bidding: { ok: false, kept: currentStrat, warning: bidding.error },
+    };
+  }
   return { ok: true, budget_brl: budgetBrl, bidding };
 }
 
