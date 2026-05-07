@@ -21,12 +21,13 @@ type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
+  downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
 
-export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
