@@ -56,6 +56,8 @@ interface AdAgg {
   days: number;
   roi: number;
   ctr: number;
+  firstSeen: string;
+  isNew: boolean;
 }
 
 interface CampAgg {
