@@ -214,6 +214,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           ad_name: r.ad_name ?? `Ad ${r.ad_id}`, ad_type: r.ad_type ?? "", ad_status: r.ad_status ?? "ENABLED",
           cost: r.cost, revenue_brl: revBrl, clicks: r.clicks, impressions: r.impressions,
           conversions: r.conversions, days: 0, roi: 0, ctr: 0,
+          firstSeen: r.date, isNew: false,
           datesSet: new Set([r.date]),
         });
       }
