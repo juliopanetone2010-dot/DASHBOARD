@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, ShieldCheck, ShieldAlert, Briefcase } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, ShieldAlert, Briefcase, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { GoogleAccount } from "@/types/domain";
 
 interface Props {
@@ -90,18 +91,30 @@ export function AccountsPanel({ accounts, onAdd, onRemove, isGuest }: Props) {
         <p className="text-sm text-muted-foreground text-center py-6">Nenhuma conta cadastrada.</p>
       ) : (
         <ul className="space-y-2">
-          {accounts.map((a) => (
-            <li key={a.id} className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2">
+          {accounts.map((a) => {
+            const isDown = a.status === "suspended" || a.status === "canceled";
+            return (
+            <li key={a.id} className={cn(
+              "flex items-center justify-between rounded-lg border px-3 py-2",
+              isDown ? "border-danger/50 bg-danger-soft/30" : "border-border bg-muted/30"
+            )}>
               <div className="flex items-center gap-3 min-w-0">
-                {a.status === "connected" ? (
+                {isDown ? (
+                  <ShieldX className="h-4 w-4 text-danger shrink-0" />
+                ) : a.status === "connected" ? (
                   <ShieldCheck className="h-4 w-4 text-success shrink-0" />
                 ) : (
                   <ShieldAlert className="h-4 w-4 text-warning shrink-0" />
                 )}
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium truncate">{a.account_name ?? a.customer_id}</span>
+                    <span className={cn("text-sm font-medium truncate", isDown && "text-danger")}>{a.account_name ?? a.customer_id}</span>
                     {a.is_mcc && <Badge variant="secondary" className="text-[10px]">MCC</Badge>}
+                    {isDown && (
+                      <Badge variant="destructive" className="text-[10px] uppercase">
+                        {a.status === "suspended" ? "Suspensa" : "Cancelada"}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground font-mono">{a.customer_id}</p>
                 </div>
@@ -111,7 +124,8 @@ export function AccountsPanel({ accounts, onAdd, onRemove, isGuest }: Props) {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

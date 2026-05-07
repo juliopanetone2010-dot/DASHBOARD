@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -20,12 +21,13 @@ type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
+  downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
 
-export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
@@ -129,10 +131,11 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
             {sortedCampaigns.map((c) => {
               const positive = c.profit >= 0;
               const isPaused = c.status === "paused";
+              const accountDown = !!(c.google_account_id && downAccountIds?.has(c.google_account_id));
               const rowKey = c.campaign_id;
               const loading = busy === rowKey;
               return (
-                <TableRow key={c.campaign_id} className="group">
+                <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {c.campaign_id}
                   </TableCell>
@@ -140,9 +143,15 @@ export function CampaignsTable({ campaigns, onPause, onBoost, onRefresh }: Props
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
+                        accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className="truncate max-w-[240px]">{c.name}</span>
+                      <span className={cn("truncate max-w-[240px]", accountDown && "text-danger")}>{c.name}</span>
+                      {accountDown && (
+                        <Badge variant="destructive" className="text-[10px] gap-1">
+                          <ShieldX className="h-3 w-3" /> Conta suspensa
+                        </Badge>
+                      )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
