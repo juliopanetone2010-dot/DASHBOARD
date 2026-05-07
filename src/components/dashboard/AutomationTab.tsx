@@ -63,7 +63,7 @@ export function AutomationTab() {
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
       supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
-      supabase.from("campaigns").select("campaign_id, name, status, google_account_id").limit(2000),
+      supabase.from("campaigns").select("campaign_id, name, status, google_account_id, created_at").limit(2000),
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id"),
       supabase.from("sites").select("id, name"),
       supabase.from("account_site_links").select("google_account_id, site_id"),
