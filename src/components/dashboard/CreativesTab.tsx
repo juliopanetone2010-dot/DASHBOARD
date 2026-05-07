@@ -571,10 +571,11 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                             {decision.tag === "best" && <Badge className="bg-success text-success-foreground">🟢 Melhor</Badge>}
                             {decision.tag === "ok" && <Badge variant="secondary">🟡 Ok</Badge>}
                             {decision.tag === "bad" && <Badge variant="destructive">🔴 Ruim</Badge>}
+                            {a.isNew && <Badge className="bg-primary text-primary-foreground">✨ Novo</Badge>}
                             <span className="text-sm">{a.ad_name}</span>
                           </div>
                           <div className="text-xs text-muted-foreground mt-0.5">
-                            {a.ad_group_name} · {a.ad_type} · {a.days}d
+                            {a.ad_group_name} · {a.ad_type} · {a.days}d · desde {a.firstSeen}
                             {showDebug && bestRoi != null && (
                               <span className="ml-2 italic">[best ROI: {bestRoi.toFixed(1)}% · {decision.reason}]</span>
                             )}
