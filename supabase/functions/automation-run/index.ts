@@ -241,24 +241,157 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
-    // Campanhas em MAXIMIZE_CONVERSIONS sem target_cpa estão em fase de aprendizado
-    // (provavelmente reset manual ou campanha nova). A automação padrão NÃO toca:
-    // sem set_target_cpa automático, sem pause por ROI histórico, sem scale.
-    // Esse caso é gerido pelo Funil Inteligente (ou manualmente pelo usuário).
+    // Campanhas em MAXIMIZE_CONVERSIONS sem target_cpa: fase de aprendizado.
+    // Regra:
+    //  - Por até 5 dias com spend > 0, automação não toca (deixa aprender).
+    //  - A partir do 5º dia, avalia ROI dos últimos 5 dias:
+    //      • ROI <= -15%  → continua protegida (não mexer; usuário decide).
+    //      • ROI > -15%   → aplica target_cpa = média de CPA dos 5 dias.
+    //      • Se ROI > 0%  → também inscreve no Funil Inteligente para escalar.
     const strat = strategyByCamp.get(agg.campaign_id);
     const isMaxConvNoTarget =
       strat &&
       String(strat.strategyType).toUpperCase().includes("MAXIMIZE_CONVERSIONS") &&
       (!strat.targetCpaMicros || strat.targetCpaMicros <= 0);
     if (isMaxConvNoTarget) {
+      const fiveDaysAgo = isoDate(new Date(Date.now() - 5 * 86400_000));
+      const { data: dm5 } = await admin
+        .from("daily_metrics")
+        .select("date, spend, conversions, revenue")
+        .eq("user_id", userId)
+        .eq("campaign_id", agg.campaign_id)
+        .gte("date", fiveDaysAgo)
+        .order("date", { ascending: false });
+      const rows5 = (dm5 ?? []).filter((r: any) => Number(r.spend) > 0);
+      const daysActive = rows5.length;
+      let s5 = 0, c5 = 0, rev5 = 0;
+      for (const r of rows5) {
+        s5 += Number(r.spend) || 0;
+        c5 += Number(r.conversions) || 0;
+        rev5 += Number(r.revenue) || 0;
+      }
+      const roi5 = s5 > 0 ? (((rev5 * NET_FACTOR) - s5) / s5) * 100 : 0;
+      const avgCpa = c5 > 0 ? s5 / c5 : 0;
+
+      if (daysActive < 5) {
+        await admin.from("automation_logs").insert({
+          user_id: userId, site_id: siteId, google_account_id: accountId,
+          campaign_id: agg.campaign_id,
+          action: "classify",
+          reason: `MAX_CONV em aprendizado (${daysActive}/5 dias com spend) → não atuar.`,
+          decision: "skipped",
+          payload: { name: meta?.name ?? null, days_active: daysActive, roi_5d: round2(roi5) },
+        });
+        continue;
+      }
+
+      if (roi5 <= -15) {
+        await admin.from("automation_logs").insert({
+          user_id: userId, site_id: siteId, google_account_id: accountId,
+          campaign_id: agg.campaign_id,
+          action: "classify",
+          reason: `MAX_CONV 5d com ROI ${round2(roi5)}% (<= -15%) → manter protegida; revisar manualmente.`,
+          decision: "skipped",
+          payload: { name: meta?.name ?? null, days_active: daysActive, roi_5d: round2(roi5), spend_5d: round2(s5), conv_5d: c5, avg_cpa: round2(avgCpa) },
+        });
+        continue;
+      }
+
+      if (avgCpa <= 0) {
+        await admin.from("automation_logs").insert({
+          user_id: userId, site_id: siteId, google_account_id: accountId,
+          campaign_id: agg.campaign_id,
+          action: "classify",
+          reason: `MAX_CONV 5d ROI ${round2(roi5)}% mas sem conversões → manter protegida.`,
+          decision: "skipped",
+          payload: { name: meta?.name ?? null, days_active: daysActive, spend_5d: round2(s5), conv_5d: c5 },
+        });
+        continue;
+      }
+
+      const targetCpa = Math.round(avgCpa * 100) / 100;
+      let applyOk = false;
+      let applyErr: string | null = null;
+      if (!dryRun) {
+        try {
+          const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (userJwt) headers.Authorization = `Bearer ${userJwt}`;
+          else { headers.Authorization = `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`; headers["x-system-user-id"] = userId; }
+          const r = await fetch(url, {
+            method: "POST", headers,
+            body: JSON.stringify({
+              action: "set_target_cpa",
+              campaign_id: agg.campaign_id,
+              google_account_id: accountId,
+              site_id: siteId,
+              target_cpa: targetCpa,
+            }),
+          });
+          const j = await r.json().catch(() => ({}));
+          applyOk = r.ok && !j?.error;
+          applyErr = j?.error ?? null;
+        } catch (e) {
+          applyErr = String(e);
+        }
+      }
       await admin.from("automation_logs").insert({
         user_id: userId, site_id: siteId, google_account_id: accountId,
         campaign_id: agg.campaign_id,
-        action: "classify",
-        reason: "MAXIMIZE_CONVERSIONS sem target_cpa → fase de aprendizado, automação padrão não atua (use o Funil Inteligente).",
-        decision: "skipped",
-        payload: { name: meta?.name ?? null, strategy: strat?.strategyType ?? null },
+        action: "set_target_cpa",
+        reason: `MAX_CONV 5d ROI ${round2(roi5)}% (> -15%) → aplicando target_cpa = R$ ${targetCpa.toFixed(2)} (média 5d: spend ${s5.toFixed(2)} / conv ${c5})`,
+        decision: dryRun ? "dry_run" : (applyOk ? "executed" : "failed"),
+        cost: round2(s5), revenue: round2(rev5), roi: round2(roi5),
+        payload: { name: meta?.name ?? null, avg_cpa: avgCpa, spend_5d: s5, conv_5d: c5, roi_5d: round2(roi5), days_active: daysActive },
+        error: applyErr,
       });
+
+      if (roi5 > 0 && (applyOk || dryRun)) {
+        try {
+          const { data: existingFunnel } = await admin
+            .from("campaign_funnel")
+            .select("id, funnel_status")
+            .eq("user_id", userId)
+            .eq("campaign_id", agg.campaign_id)
+            .maybeSingle();
+          if (!existingFunnel || ["graduated", "failed-learning"].includes(String(existingFunnel.funnel_status))) {
+            if (!dryRun) {
+              await admin.from("campaign_funnel").upsert({
+                user_id: userId,
+                site_id: siteId,
+                google_account_id: accountId,
+                campaign_id: agg.campaign_id,
+                campaign_name: meta?.name ?? null,
+                funnel_status: "scaling",
+                entry_source: "automation_max_conv_graduate",
+                applied_target_cpa: targetCpa,
+                current_budget: dailyBudget,
+                last_roi_pct: round2(roi5),
+                avg_cpa_5d: avgCpa,
+                last_evaluated_at: new Date().toISOString(),
+              }, { onConflict: "user_id,campaign_id" });
+            }
+            await admin.from("automation_logs").insert({
+              user_id: userId, site_id: siteId, google_account_id: accountId,
+              campaign_id: agg.campaign_id,
+              action: "enroll_funnel",
+              reason: `ROI 5d ${round2(roi5)}% positivo após target_cpa → inscrita no Funil Inteligente para escalar.`,
+              decision: dryRun ? "dry_run" : "executed",
+              roi: round2(roi5),
+              payload: { name: meta?.name ?? null, target_cpa: targetCpa },
+            });
+          }
+        } catch (e) {
+          await admin.from("automation_logs").insert({
+            user_id: userId, site_id: siteId, google_account_id: accountId,
+            campaign_id: agg.campaign_id,
+            action: "enroll_funnel",
+            reason: `Falha ao inscrever no Funil Inteligente`,
+            decision: "failed",
+            error: String(e),
+          });
+        }
+      }
       continue;
     }
     // (bloco antigo desativado — mantido como referência)
