@@ -123,7 +123,8 @@ export function AccountsPanel({ accounts, onAdd, onRemove, isGuest }: Props) {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>
