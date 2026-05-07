@@ -253,7 +253,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       strat &&
       String(strat.strategyType).toUpperCase().includes("MAXIMIZE_CONVERSIONS") &&
       (!strat.targetCpaMicros || strat.targetCpaMicros <= 0);
-    if (isMaxConvNoTarget) {
+    if (isMaxConvNoTarget && !isWinnerLifecycle(fromStatus)) {
       const fiveDaysAgo = isoDate(new Date(Date.now() - 5 * 86400_000));
       const { data: dm5 } = await admin
         .from("daily_metrics")
