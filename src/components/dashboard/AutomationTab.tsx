@@ -139,7 +139,38 @@ export function AutomationTab() {
     return matchCampaign(String(row.campaign_id));
   };
 
-  const filteredStates = useMemo(() => states.filter(matchAutomationRow), [states, campMeta, accountFilter, allowedAccountIds, siteFilter]);
+  const filteredStates = useMemo(() => {
+    const base = states.filter(matchAutomationRow);
+    if (!showNew) return base;
+    const have = new Set(base.map((s) => String(s.campaign_id)));
+    const threeDaysMs = 3 * 86400_000;
+    const now = Date.now();
+    const synthetic: any[] = [];
+    for (const [cid, m] of Object.entries(campMeta)) {
+      if (have.has(cid)) continue;
+      if (!m.created_at) continue;
+      if (now - new Date(m.created_at).getTime() > threeDaysMs) continue;
+      if (!matchCampaign(cid)) continue;
+      synthetic.push({
+        id: `new-${cid}`,
+        campaign_id: cid,
+        google_account_id: m.google_account_id,
+        site_id: null,
+        lifecycle_status: "testing",
+        last_roi: null,
+        roi_trend: null,
+        days_in_standby: 0,
+        last_action: null,
+        last_action_date: null,
+        cooldown_until: null,
+        delivery_ratio: null,
+        daily_budget: null,
+        _isNew: true,
+        created_at: m.created_at,
+      });
+    }
+    return [...synthetic, ...base];
+  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew]);
   const filteredLogs = useMemo(() => logs.filter(matchAutomationRow), [logs, campMeta, accountFilter, allowedAccountIds, siteFilter]);
 
   type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
