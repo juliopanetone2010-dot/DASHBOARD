@@ -65,7 +65,8 @@ export function FinancialCalendarTab() {
     },
   });
 
-  const rows = snapshotsQuery.data ?? [];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const rows = (snapshotsQuery.data ?? []).filter((r) => r.date < todayStr);
   const totals = useMemo(() => {
     return rows.reduce(
       (a, r) => ({
