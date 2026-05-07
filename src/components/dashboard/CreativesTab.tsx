@@ -56,6 +56,8 @@ interface AdAgg {
   days: number;
   roi: number;
   ctr: number;
+  firstSeen: string;
+  isNew: boolean;
 }
 
 interface CampAgg {
@@ -87,6 +89,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set()); // key: campaign|adgroup|adid
   const [showDebug, setShowDebug] = useState(false);
+  const [onlyNew, setOnlyNew] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -211,6 +214,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           ad_name: r.ad_name ?? `Ad ${r.ad_id}`, ad_type: r.ad_type ?? "", ad_status: r.ad_status ?? "ENABLED",
           cost: r.cost, revenue_brl: revBrl, clicks: r.clicks, impressions: r.impressions,
           conversions: r.conversions, days: 0, roi: 0, ctr: 0,
+          firstSeen: r.date, isNew: false,
           datesSet: new Set([r.date]),
         });
       }
@@ -229,10 +233,13 @@ export function CreativesTab({ fxUsdBrl }: Props) {
         });
       }
     }
+    const threeDaysAgo = new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
     for (const a of adMap.values()) {
       a.days = a.datesSet.size;
       a.roi = a.cost > 0 ? ((a.revenue_brl - a.cost) / a.cost) * 100 : 0;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
+      a.firstSeen = [...a.datesSet].sort()[0];
+      a.isNew = a.firstSeen >= threeDaysAgo;
       const camp = campMap.get(a.campaign_id);
       if (camp) camp.ads.push(a);
     }
@@ -343,8 +350,20 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     } finally { setActing(false); }
   };
 
-  const totalCost = campaigns.reduce((a, c) => a + c.cost, 0);
-  const totalRev = campaigns.reduce((a, c) => a + c.revenue_brl, 0);
+  const visibleCampaigns = useMemo(() => {
+    if (!onlyNew) return campaigns;
+    return campaigns
+      .map((c) => ({ ...c, ads: c.ads.filter((a) => a.isNew) }))
+      .filter((c) => c.ads.length > 0);
+  }, [campaigns, onlyNew]);
+
+  const newAdsCount = useMemo(
+    () => campaigns.reduce((acc, c) => acc + c.ads.filter((a) => a.isNew).length, 0),
+    [campaigns],
+  );
+
+  const totalCost = visibleCampaigns.reduce((a, c) => a + (onlyNew ? c.ads.reduce((x, y) => x + y.cost, 0) : c.cost), 0);
+  const totalRev = visibleCampaigns.reduce((a, c) => a + (onlyNew ? c.ads.reduce((x, y) => x + y.revenue_brl, 0) : c.revenue_brl), 0);
   const totalRoi = totalCost > 0 ? ((totalRev - totalCost) / totalCost) * 100 : 0;
 
   return (
@@ -401,6 +420,16 @@ export function CreativesTab({ fxUsdBrl }: Props) {
 
         <Button variant="ghost" size="sm" onClick={() => setShowDebug((s) => !s)} className="gap-1.5">
           <Bug className="h-3.5 w-3.5" /> Debug
+        </Button>
+
+        <Button
+          variant={onlyNew ? "default" : "outline"}
+          size="sm"
+          onClick={() => setOnlyNew((v) => !v)}
+          className="gap-1.5"
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Novos (3d)
+          <Badge variant="secondary" className="ml-1">{newAdsCount}</Badge>
         </Button>
 
         <div className="ml-auto flex items-center gap-3">
@@ -492,11 +521,11 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={11} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
-            ) : campaigns.length === 0 ? (
+            ) : visibleCampaigns.length === 0 ? (
               <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
-                Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.
+                {onlyNew ? "Nenhum criativo novo nos últimos 3 dias." : <>Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.</>}
               </TableCell></TableRow>
-            ) : campaigns.map((c) => {
+            ) : visibleCampaigns.map((c) => {
               const isOpen = expanded.has(c.campaign_id);
               const eligible = c.ads.filter((a) => a.cost >= minCost && a.days >= minDays);
               const bestRoi = eligible.length > 0 ? Math.max(...eligible.map((a) => a.roi)) : null;
@@ -542,10 +571,11 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                             {decision.tag === "best" && <Badge className="bg-success text-success-foreground">🟢 Melhor</Badge>}
                             {decision.tag === "ok" && <Badge variant="secondary">🟡 Ok</Badge>}
                             {decision.tag === "bad" && <Badge variant="destructive">🔴 Ruim</Badge>}
+                            {a.isNew && <Badge className="bg-primary text-primary-foreground">✨ Novo</Badge>}
                             <span className="text-sm">{a.ad_name}</span>
                           </div>
                           <div className="text-xs text-muted-foreground mt-0.5">
-                            {a.ad_group_name} · {a.ad_type} · {a.days}d
+                            {a.ad_group_name} · {a.ad_type} · {a.days}d · desde {a.firstSeen}
                             {showDebug && bestRoi != null && (
                               <span className="ml-2 italic">[best ROI: {bestRoi.toFixed(1)}% · {decision.reason}]</span>
                             )}
