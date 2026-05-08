@@ -219,6 +219,18 @@ export function MigrationTab() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="pending" className="space-y-4 mt-4">
+          <PendingHtml5List
+            items={pendingQ.data ?? []}
+            isLoading={pendingQ.isLoading}
+            onRefresh={() => pendingQ.refetch()}
+            onUploaded={() => {
+              qc.invalidateQueries({ queryKey: ["mig-pending"] });
+              qc.invalidateQueries({ queryKey: ["mig-history"] });
+            }}
+          />
+        </TabsContent>
+
         <TabsContent value="history" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
