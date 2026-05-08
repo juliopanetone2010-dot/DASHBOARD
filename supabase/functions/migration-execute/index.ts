@@ -809,7 +809,6 @@ async function reuploadAssets(
     try {
       const rows = await searchAll(srcBase, srcHeaders, `
         SELECT asset.resource_name, asset.id, asset.type, asset.name,
-               asset.image_asset.data,
                asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels,
                asset.image_asset.mime_type,
                asset.youtube_video_asset.youtube_video_id
