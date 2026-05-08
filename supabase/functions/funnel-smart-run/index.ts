@@ -520,6 +520,7 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
           last_scale_at: now.toISOString(),
           cooldown_scale_until: addDays(now, SCALE_COOLDOWN_DAYS).toISOString(),
           advanced_scaling_started_at: row.advanced_scaling_started_at ?? now.toISOString(),
+        });
     } else if (!inCooldown && roiPct >= SCALE_MIN_ROI && deliveryRate >= SCALE_MIN_DELIVERY) {
       // Scaling normal +20%
       const newBudget = budget * 1.20;
