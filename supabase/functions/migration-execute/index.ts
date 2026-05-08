@@ -963,12 +963,14 @@ async function reuploadAssets(
         let bundleUrl: string | undefined;
         try {
           const mfRows = await searchAll(srcBase, srcHeaders, `
-            SELECT media_file.id, media_file.type, media_file.media_bundle.url
+            SELECT media_file.id, media_file.type, media_file.name, media_file.media_bundle.url, media_file.source_url
             FROM media_file
             WHERE media_file.id = ${id}
           `);
-          bundleUrl = mfRows[0]?.mediaFile?.mediaBundle?.url;
+          bundleUrl = mfRows[0]?.mediaFile?.mediaBundle?.url || mfRows[0]?.mediaFile?.sourceUrl;
+          console.log(`[html5] media_file lookup id=${id} rows=${mfRows.length} url=${bundleUrl ?? "(none)"} raw=${JSON.stringify(mfRows[0]?.mediaFile ?? null)}`);
         } catch (e) {
+          console.log(`[html5] media_file query failed id=${id}: ${(e as Error).message}`);
           errors.push({ step: "read_media_file", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
         }
         if (bundleUrl) {
