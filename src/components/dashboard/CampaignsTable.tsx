@@ -278,6 +278,12 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                             campaignName={c.name}
                             onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
                           />
+
+                          <AttachHtml5Button
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                            googleAccountId={(c as any).google_account_id ?? null}
+                          />
                         </>
                       )}
                     </div>
