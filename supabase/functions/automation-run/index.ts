@@ -144,9 +144,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const strategyByCamp: Map<string, { strategyType: string; targetCpaMicros: number | null }> =
     (budgetSync as any).strategyByCamp ?? new Map();
 
+  // SAFEGUARD #1 — Antes de ler daily_metrics, força sincronização da receita GAM
+  // dos últimos `days` dias. Sem isto a automação pode rodar sobre dias com
+  // revenue=0 (ainda não sincronizado) e calcular ROI=-100%, pausando campanhas boas.
+  const revenueSync = await syncGamRevenueWindow(userId, siteId, fromIso, toIso);
+
   const { data: metrics } = await admin
     .from("daily_metrics")
-    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions")
+    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions, revenue")
     .eq("user_id", userId)
     .eq("google_account_id", accountId)
     .gte("date", fromIso)
@@ -157,13 +162,25 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     campaign_id: string; google_account_id: string;
     spend: number; grossRevBrl: number; days: Set<string>;
     daily: { date: string; spend: number; profit: number; roi: number }[];
+    skippedUnsyncedDays: number;
   }>();
   for (const r of metrics ?? []) {
     const cid = String(r.campaign_id);
     let agg = byCamp.get(cid);
-    if (!agg) { agg = { campaign_id: cid, google_account_id: accountId, spend: 0, grossRevBrl: 0, days: new Set(), daily: [] }; byCamp.set(cid, agg); }
+    if (!agg) { agg = { campaign_id: cid, google_account_id: accountId, spend: 0, grossRevBrl: 0, days: new Set(), daily: [], skippedUnsyncedDays: 0 }; byCamp.set(cid, agg); }
     const spend = Number(r.spend) || 0;
     const profit = Number(r.profit) || 0;
+    const revenue = Number(r.revenue) || 0;
+
+    // SAFEGUARD #2 — Dia com gasto > 0 mas receita=0 e profit=-spend é dia
+    // ainda NÃO sincronizado pelo GAM. Tratar como ROI=-100% pausaria campanhas
+    // saudáveis. Ignoramos esses dias do agregado (não entram em spend/revenue/days).
+    const isUnsynced = spend > 0 && revenue <= 0 && Math.abs(profit + spend) < 0.01;
+    if (isUnsynced) {
+      agg.skippedUnsyncedDays++;
+      continue;
+    }
+
     const grossRevBrl = spend + profit;
     agg.spend += spend;
     agg.grossRevBrl += grossRevBrl;
@@ -600,11 +617,46 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     });
   }
 
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, skipped_restart_flow: skippedRestartFlow, budget_sync: budgetSync };
+  const totalSkippedUnsynced = [...byCamp.values()].reduce((s, a) => s + (a.skippedUnsyncedDays || 0), 0);
+  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, skipped_restart_flow: skippedRestartFlow, budget_sync: budgetSync, revenue_sync: revenueSync, skipped_unsynced_days: totalSkippedUnsynced };
 }
 
 // Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,
 // para que a automação tenha delivery_ratio confiável antes de decidir ações.
+// SAFEGUARD — Força sincronização da receita GAM da janela analisada antes de
+// qualquer decisão de automação. Evita que dias com revenue=0 (ainda não puxado
+// do GAM) gerem ROI=-100% e pausem campanhas saudáveis.
+async function syncGamRevenueWindow(userId: string, siteId: string, fromIso: string, toIso: string): Promise<{ ok: boolean; error?: string; ms?: number }> {
+  const t0 = Date.now();
+  try {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/gam-sync-revenue`;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        sync: true,            // espera concluir (não roda em background)
+        user_id: userId,
+        site_id: siteId,
+        from: fromIso,
+        to: toIso,
+        revenue_only: true,
+        skip_viewability: true,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      return { ok: false, error: `status ${res.status}: ${txt.slice(0, 200)}`, ms: Date.now() - t0 };
+    }
+    return { ok: true, ms: Date.now() - t0 };
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e), ms: Date.now() - t0 };
+  }
+}
+
 async function syncCampaignBudgets(admin: any, userId: string, accountId: string): Promise<{ updated: number; error?: string }> {
   try {
     const { data: acc } = await admin
