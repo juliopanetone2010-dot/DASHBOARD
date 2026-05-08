@@ -508,30 +508,19 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
     const spend5 = last5.reduce((s, d) => s + d.spend, 0);
     const net5 = last5.reduce((s, d) => s + d.netRev, 0);
     const roi5 = spend5 > 0 ? ((net5 - spend5) / spend5) * 100 : 0;
-    const advanced = last5.length >= ADV_SCALE_DAYS && roi5 >= ADV_SCALE_MIN_ROI && deliveryRate >= SCALE_MIN_DELIVERY;
+    const advanced = last5.length >= ADV_SCALE_DAYS && roi5 >= ADV_SCALE_MIN_ROI && deliveryRate >= ADV_SCALE_MIN_DELIVERY;
 
     if (advanced && !inCooldown) {
-      // +20% budget e -5% CPA
+      // ROI alto + delivery saturado (≥90%) → só sobe budget, NÃO mexe no CPA
       const newBudget = budget * 1.20;
       acted = await apply("set_budget_absolute", { budget: Number(newBudget.toFixed(2)) },
-        `Advanced scaling: ROI5d=${roi5.toFixed(1)}% — +${SCALE_PCT}% budget`,
+        `Advanced scaling: ROI5d=${roi5.toFixed(1)}%, delivery=${(deliveryRate*100).toFixed(0)}% — +${SCALE_PCT}% budget`,
         "advanced-scaling", {
           current_budget: newBudget,
           last_scale_at: now.toISOString(),
           cooldown_scale_until: addDays(now, SCALE_COOLDOWN_DAYS).toISOString(),
           advanced_scaling_started_at: row.advanced_scaling_started_at ?? now.toISOString(),
         });
-      // CPA -5% (se cooldown CPA permitir)
-      const cpaCdUntil = row.cooldown_cpa_until ? new Date(row.cooldown_cpa_until) : null;
-      if (!cpaCdUntil || cpaCdUntil <= now) {
-        await apply("adjust_cpa", { delta_pct: ADV_CPA_REDUCE_PCT },
-          `Advanced scaling: -5% no Target CPA`,
-          "advanced-scaling", {
-            last_cpa_change_at: now.toISOString(),
-            cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
-          });
-      }
-    } else if (!inCooldown && roiPct >= SCALE_MIN_ROI && deliveryRate >= SCALE_MIN_DELIVERY) {
       // Scaling normal +20%
       const newBudget = budget * 1.20;
       acted = await apply("set_budget_absolute", { budget: Number(newBudget.toFixed(2)) },
