@@ -25,7 +25,7 @@ const STABLE_DAYS = 7;
 const PROTECT_BAD_ROI_DAYS = 3;
 
 // Limiares
-const FAIL_LEARNING_ROI = -15;
+const FAIL_LEARNING_ROI = -30;
 const SCALE_MIN_ROI = 15;
 const ADV_SCALE_MIN_ROI = 25;
 const SCALE_MIN_DELIVERY = 0.7;
