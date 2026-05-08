@@ -242,6 +242,52 @@ async function runMigration(a: RunArgs) {
     WHERE ad_group_ad.ad_group IN (${srcAgRefs}) AND ad_group_ad.status != 'REMOVED'
   `);
   if (adRows.length === 0) return { ok: false, error: "Origem sem anúncios ativos" };
+  debug.source.ads_total = adRows.length;
+
+  // === Filtra: pega APENAS o anúncio com maior ROI da campanha (últimos 30d) ===
+  if (adRows.length > 1) {
+    const since = new Date(); since.setUTCDate(since.getUTCDate() - 30);
+    const { data: metricsRows } = await admin
+      .from("creative_metrics")
+      .select("ad_id, cost, revenue_usd")
+      .eq("user_id", userId)
+      .eq("campaign_id", String(srcCamp.campaign_id))
+      .gte("date", since.toISOString().slice(0, 10));
+
+    const byAd = new Map<string, { cost: number; rev: number }>();
+    for (const r of metricsRows ?? []) {
+      const id = String(r.ad_id);
+      const cur = byAd.get(id) ?? { cost: 0, rev: 0 };
+      cur.cost += Number(r.cost) || 0;
+      cur.rev += Number(r.revenue_usd) || 0;
+      byAd.set(id, cur);
+    }
+
+    let bestId: string | null = null;
+    let bestRoi = -Infinity;
+    for (const row of adRows) {
+      const id = String(row.adGroupAd?.ad?.id ?? "");
+      if (!id) continue;
+      const m = byAd.get(id);
+      if (!m || m.cost <= 0) continue;
+      const roi = ((m.rev - m.cost) / m.cost) * 100;
+      if (roi > bestRoi) { bestRoi = roi; bestId = id; }
+    }
+
+    if (bestId) {
+      const filtered = adRows.filter((r: any) => String(r.adGroupAd?.ad?.id ?? "") === bestId);
+      if (filtered.length > 0) {
+        adRows.length = 0; adRows.push(...filtered);
+        debug.source.best_ad_selected = { ad_id: bestId, roi_pct: Math.round(bestRoi * 100) / 100 };
+      }
+    } else {
+      // Sem métricas — mantém só o primeiro pra evitar puxar todos
+      const first = adRows[0];
+      adRows.length = 0; adRows.push(first);
+      debug.source.best_ad_selected = { fallback: "first_ad", reason: "sem métricas" };
+    }
+  }
+
   debug.source.ads = adRows.length;
 
   // Campaign criteria (geo, language, device, audiences, etc) — para migração COPIAMOS geo
