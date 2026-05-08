@@ -200,7 +200,33 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
-  const toggle = (k: string) => {
+  const [resyncing, setResyncing] = useState(false);
+  const runResyncAndPreview = async () => {
+    if (!filters.siteId || filters.siteId === "all") {
+      toast({ title: "Selecione um site", variant: "destructive" });
+      return;
+    }
+    setResyncing(true);
+    try {
+      toast({ title: "Ressincronizando receita do GAM…", description: `${effectiveRange.from} → ${effectiveRange.to}` });
+      const { error: gamErr } = await supabase.functions.invoke("gam-sync-revenue", {
+        body: {
+          from: effectiveRange.from,
+          to: effectiveRange.to,
+          account_ids: filters.googleAccountIds ?? [],
+          revenue_only: true,
+        },
+      });
+      if (gamErr) {
+        toast({ title: "Erro no GAM sync", description: gamErr.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Receita atualizada — rechecando placements…" });
+      await runPreview();
+    } finally {
+      setResyncing(false);
+    }
+  };
     setSelected((s) => {
       const n = new Set(s);
       n.has(k) ? n.delete(k) : n.add(k);
