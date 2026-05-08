@@ -277,10 +277,11 @@ export function MigrationTab() {
 function MigrationStepSummary({ result }: { result: any }) {
   const steps = result?.debug?.steps;
   if (!steps) return null;
+  const crossAccount = result?.debug?.cross_account !== false;
   const rows = [
     ["Campanha", steps.campaign_created],
     ["Ad groups", steps.ad_groups_created],
-    ["Assets", steps.assets_reuploaded || (Number(result?.assets_reuploaded) > 0)],
+    ["Assets", !crossAccount || steps.assets_reuploaded || (Number(result?.assets_reuploaded) > 0)],
     ["Ads", steps.ads_created || (Number(result?.ads_cloned) > 0)],
   ] as const;
   return (
