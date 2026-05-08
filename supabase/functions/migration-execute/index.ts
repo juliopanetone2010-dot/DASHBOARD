@@ -794,9 +794,9 @@ async function reuploadAssets(
   srcBase: string, srcHeaders: Record<string, string>,
   dstBase: string, dstHeaders: Record<string, string>,
   _dstCustomerId: string, refs: string[],
-): Promise<{ map: Map<string, string>; skipped: number; errors: string[] }> {
+): Promise<{ map: Map<string, string>; skipped: number; errors: any[] }> {
   const map = new Map<string, string>();
-  const errors: string[] = [];
+  const errors: any[] = [];
   let skipped = 0;
   // Lê data/url dos assets origem
   // resourceName tipo: customers/X/assets/123 → id=123
@@ -809,6 +809,7 @@ async function reuploadAssets(
     try {
       const rows = await searchAll(srcBase, srcHeaders, `
         SELECT asset.resource_name, asset.id, asset.type, asset.name,
+               asset.image_asset.data,
                asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels,
                asset.image_asset.mime_type,
                asset.youtube_video_asset.youtube_video_id
@@ -817,7 +818,7 @@ async function reuploadAssets(
       `);
       for (const r of rows) srcAssets.set(String(r.asset?.id), r.asset);
     } catch (e) {
-      errors.push(`read assets: ${String((e as Error).message || e)}`);
+      errors.push({ step: "read_assets", message: String((e as Error).message || e), asset_ids: ch });
     }
   }
 
