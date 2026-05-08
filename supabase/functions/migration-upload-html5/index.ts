@@ -88,7 +88,16 @@ Deno.serve(async (req) => {
       "Content-Type": "application/json",
     };
     if (dstAcc.login_customer_id) headers["login-customer-id"] = dstAcc.login_customer_id;
-    const apiBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
+
+    // CRÍTICO: usar o customer_id que está DENTRO do destination_ad_group_resource,
+    // não o do google_accounts (podem divergir se a conta foi remapeada).
+    const agResource = String(pending.destination_ad_group_resource || "");
+    const agCustomerMatch = agResource.match(/^customers\/(\d+)\/adGroups\//);
+    const operatingCustomerId = agCustomerMatch?.[1] || pending.destination_customer_id || dstAcc.customer_id;
+    if (operatingCustomerId !== dstAcc.customer_id) {
+      console.warn(`[html5-upload] customer mismatch: dstAcc=${dstAcc.customer_id} ad_group=${operatingCustomerId} — usando ${operatingCustomerId}`);
+    }
+    const apiBase = `https://googleads.googleapis.com/v21/customers/${operatingCustomerId}`;
 
     // 0) Valida que o ad group destino ainda existe e não está removido
     try {
