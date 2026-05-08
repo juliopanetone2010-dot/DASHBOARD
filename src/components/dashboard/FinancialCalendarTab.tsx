@@ -77,13 +77,16 @@ export function FinancialCalendarTab() {
         net: a.net + Number(r.net_revenue || 0),
         profit: a.profit + Number(r.liquid_profit || 0),
         impressions: a.impressions + Number(r.impressions || 0),
+        ecpmWeighted: a.ecpmWeighted + Number(r.ecpm || 0) * Number(r.impressions || 0),
       }),
-      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
+      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0, ecpmWeighted: 0 },
     );
   }, [rows]);
 
   const totalRoi = totals.cost > 0 ? ((totals.profit / totals.cost) * 100) : 0;
-  const totalEcpm = totals.impressions > 0 ? (totals.net / totals.impressions) * 1000 : 0;
+  const totalEcpm = totals.impressions > 0 ? totals.ecpmWeighted / totals.impressions : 0;
+  const revCurrency = (rows.find((r) => r.revenue_currency)?.revenue_currency ?? "BRL").toUpperCase();
+  const fmtRev = (v: number) => (revCurrency === "USD" ? fmtUSD(v) : fmtBRL(v));
 
   const regenerate = async (date: string) => {
     if (filters.siteId === "all") return;
