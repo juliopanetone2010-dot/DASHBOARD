@@ -250,8 +250,8 @@ async function runMigration(a: RunArgs) {
   const agCriteriaRows = await readAdGroupCriteria(srcBase, srcHeaders, srcAgRefs, debug);
   debug.source.ad_group_criteria = agCriteriaRows.length;
 
-  // ===== Reuploads de assets para cross-account =====
-  // Coleta TODOS os asset resource names referenciados em ads (imagens/videos)
+  // Coleta TODOS os asset resource names referenciados em ads (imagens/videos).
+  // O re-upload acontece só depois de campanha/ad groups criados para permitir modo safe parcial.
   const assetRefs = new Set<string>();
   for (const r of adRows) {
     const rda = r.adGroupAd?.ad?.responsiveDisplayAd;
@@ -260,15 +260,7 @@ async function runMigration(a: RunArgs) {
       for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
     }
   }
-  // Map old asset resource → new asset resource (na conta destino)
-  const assetMap = new Map<string, string>();
-  if (a.crossAccount && assetRefs.size > 0) {
-    const reupResult = await reuploadAssets(srcBase, srcHeaders, dstBase, dstHeaders, dstAcc.customer_id, [...assetRefs]);
-    for (const [k, v] of reupResult.map.entries()) assetMap.set(k, v);
-    debug.cloned.assets_reuploaded = assetMap.size;
-    debug.skipped.assets = reupResult.skipped;
-    if (reupResult.errors.length > 0) debug.partial_failures.push({ step: "reupload_assets", errors: reupResult.errors });
-  }
+  debug.source.assets = assetRefs.size;
 
   // ===== Cria budget na conta destino =====
   const seed = Date.now();
@@ -465,8 +457,7 @@ async function runMigration(a: RunArgs) {
       debug,
     };
   } catch (e) {
-    if (newCampResource) await removeCampaign(dstBase, dstHeaders, newCampResource).catch(() => {});
-    return { ok: false, error: String((e as Error).message || e), debug };
+    return { ok: false, partial: !!newCampResource, new_campaign_id: newCampId || undefined, error: String((e as Error).message || e), debug };
   }
 }
 
