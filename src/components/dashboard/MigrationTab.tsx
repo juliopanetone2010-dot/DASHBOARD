@@ -290,12 +290,12 @@ function MigrationDrawer({ item, accounts, sites, onClose, onSuccess }: DrawerPr
   const [initialBudget, setInitialBudget] = useState("30");
   const [submitting, setSubmitting] = useState(false);
 
-  // reset quando abre
-  if (item && !destAccountId && accounts[0]) {
-    // pré-popula com primeira conta destino diferente da origem
-    const firstDifferent = accounts.find((a) => a.id !== item.google_account_id);
-    if (firstDifferent) setTimeout(() => setDestAccountId(firstDifferent.id), 0);
-  }
+  useEffect(() => {
+    if (item && !destAccountId && accounts.length > 0) {
+      const firstDifferent = accounts.find((a) => a.id !== item.google_account_id && a.status === "connected");
+      if (firstDifferent) setDestAccountId(firstDifferent.id);
+    }
+  }, [item, accounts, destAccountId]);
 
   async function submit() {
     if (!item) return;
