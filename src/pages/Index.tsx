@@ -30,6 +30,7 @@ import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { CreativesTab } from "@/components/dashboard/CreativesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
+import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
@@ -488,6 +489,9 @@ const IndexInner = () => {
             <TabsTrigger value="automation" className="gap-1.5">
               <Bot className="h-3.5 w-3.5" /> Automação
             </TabsTrigger>
+            <TabsTrigger value="migration" className="gap-1.5">
+              <Repeat className="h-3.5 w-3.5" /> Migração
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
@@ -734,6 +738,10 @@ const IndexInner = () => {
 
           <TabsContent value="automation" className="mt-6">
             <AutomationTab />
+          </TabsContent>
+
+          <TabsContent value="migration" className="mt-6">
+            <MigrationTab />
           </TabsContent>
 
           <TabsContent value="rules" className="mt-6">
