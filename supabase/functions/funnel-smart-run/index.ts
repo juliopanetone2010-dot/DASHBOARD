@@ -16,7 +16,7 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 const NET_FACTOR = 0.935;
 
 // Janelas (dias)
-const LEARNING_DAYS = 20;
+const LEARNING_DAYS = 5;
 const CPA_LEARNING_DAYS = 3;
 const SCALE_COOLDOWN_DAYS = 2;
 const ADV_SCALE_DAYS = 5;
