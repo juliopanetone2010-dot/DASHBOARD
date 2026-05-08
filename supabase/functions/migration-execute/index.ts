@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
       });
 
       await admin.from("campaign_migrations").update({
-        status: result.ok ? "success" : "failed",
+        status: result.ok ? "success" : result.partial ? "partial" : "failed",
         executed_at: new Date().toISOString(),
         destination_campaign_id: result.new_campaign_id || null,
         error: result.error || null,
@@ -165,7 +165,19 @@ async function runMigration(a: RunArgs) {
   const dstBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
 
   const srcCampResource = `customers/${srcAcc.customer_id}/campaigns/${srcCamp.campaign_id}`;
-  const debug: any = { source: {}, cloned: {}, skipped: {}, partial_failures: [], cross_account: a.crossAccount };
+  const debug: any = {
+    source: {},
+    cloned: {},
+    skipped: {},
+    steps: {
+      campaign_created: false,
+      ad_groups_created: false,
+      assets_reuploaded: false,
+      ads_created: false,
+    },
+    partial_failures: [],
+    cross_account: a.crossAccount,
+  };
 
   // 1) Lê config da campanha origem
   const cRows = await searchAll(srcBase, srcHeaders, `
@@ -238,8 +250,8 @@ async function runMigration(a: RunArgs) {
   const agCriteriaRows = await readAdGroupCriteria(srcBase, srcHeaders, srcAgRefs, debug);
   debug.source.ad_group_criteria = agCriteriaRows.length;
 
-  // ===== Reuploads de assets para cross-account =====
-  // Coleta TODOS os asset resource names referenciados em ads (imagens/videos)
+  // Coleta TODOS os asset resource names referenciados em ads (imagens/videos).
+  // O re-upload acontece só depois de campanha/ad groups criados para permitir modo safe parcial.
   const assetRefs = new Set<string>();
   for (const r of adRows) {
     const rda = r.adGroupAd?.ad?.responsiveDisplayAd;
@@ -248,15 +260,7 @@ async function runMigration(a: RunArgs) {
       for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
     }
   }
-  // Map old asset resource → new asset resource (na conta destino)
-  const assetMap = new Map<string, string>();
-  if (a.crossAccount && assetRefs.size > 0) {
-    const reupResult = await reuploadAssets(srcBase, srcHeaders, dstBase, dstHeaders, dstAcc.customer_id, [...assetRefs]);
-    for (const [k, v] of reupResult.map.entries()) assetMap.set(k, v);
-    debug.cloned.assets_reuploaded = assetMap.size;
-    debug.skipped.assets = reupResult.skipped;
-    if (reupResult.errors.length > 0) debug.partial_failures.push({ step: "reupload_assets", errors: reupResult.errors });
-  }
+  debug.source.assets = assetRefs.size;
 
   // ===== Cria budget na conta destino =====
   const seed = Date.now();
@@ -306,10 +310,11 @@ async function runMigration(a: RunArgs) {
         negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
       };
     }
-    const campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create");
+    const campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create", [{ campaign_name: newName }]);
     newCampResource = campRes.results[0]?.resourceName ?? "";
     newCampId = newCampResource.split("/").pop() ?? "";
     if (!newCampResource) return { ok: false, error: `campaign create: ${extractError(campRes.partialFailureError)}`, debug, payload: campCreate };
+    debug.steps.campaign_created = true;
 
     // ===== Campaign criteria (geo, language, device, audiences se mesma conta) =====
     const campCritOps: any[] = [];
@@ -332,7 +337,9 @@ async function runMigration(a: RunArgs) {
         type: row.adGroup.type ?? "DISPLAY_STANDARD",
       }),
     }));
-    const agRes = await mutate(dstBase, dstHeaders, "adGroups", agOps, "ad_groups");
+    const agContexts = agRows.map((row: any) => ({ source_ad_group_id: String(row.adGroup?.id), ad_group_name: row.adGroup?.name }));
+    const agRes = await mutate(dstBase, dstHeaders, "adGroups", agOps, "ad_groups", agContexts);
+    if (agRes.errors?.length) debug.partial_failures.push({ step: "ad_groups", errors: agRes.errors });
     agRows.forEach((row: any, i: number) => {
       const rn = agRes.results[i]?.resourceName;
       if (rn) oldToNewAg.set(String(row.adGroup.id), rn);
@@ -342,6 +349,7 @@ async function runMigration(a: RunArgs) {
       await removeCampaign(dstBase, dstHeaders, newCampResource);
       return { ok: false, error: `ad groups falharam: ${extractError(agRes.partialFailureError)}`, debug };
     }
+    debug.steps.ad_groups_created = true;
 
     // ===== Ad group criteria =====
     const agCritOps: any[] = [];
@@ -355,14 +363,59 @@ async function runMigration(a: RunArgs) {
     const agCritRes = await mutate(dstBase, dstHeaders, "adGroupCriteria", agCritOps, "ag_crits");
     debug.cloned.ad_group_criteria = agCritRes.created;
 
+    // ===== Assets: no cross-account, só re-upload DEPOIS que campanha/ad groups existem.
+    // Se falhar, fica em modo safe: mantém campanha + ad groups e registra parcial.
+    const assetMap = new Map<string, string>();
+    if (a.crossAccount && assetRefs.size > 0) {
+      const reupResult = await reuploadAssets(srcBase, srcHeaders, dstBase, dstHeaders, dstAcc.customer_id, [...assetRefs]);
+      for (const [k, v] of reupResult.map.entries()) assetMap.set(k, v);
+      debug.cloned.assets_reuploaded = assetMap.size;
+      debug.skipped.assets = reupResult.skipped;
+      debug.asset_errors = reupResult.errors;
+      debug.steps.assets_reuploaded = assetMap.size > 0 && reupResult.errors.length === 0;
+      if (reupResult.errors.length > 0) debug.partial_failures.push({ step: "assets", errors: reupResult.errors });
+    }
+
+    const registerLocalPartial = async (stage: string) => {
+      await persistLocalCampaignAndFunnel(admin, {
+        userId,
+        dstSiteId: a.dstSiteId,
+        dstGoogleAccountId: a.dstAcc.id,
+        campaignId: newCampId,
+        campaignName: newName,
+        budgetMicros: newBudgetMicros,
+        initialBudget: a.initialBudget,
+      });
+      return {
+        ok: false,
+        partial: true,
+        stage,
+        new_campaign_id: newCampId,
+        new_campaign_name: newName,
+        destination_customer_id: dstAcc.customer_id,
+        ad_groups_cloned: oldToNewAg.size,
+        ads_cloned: 0,
+        assets_reuploaded: a.crossAccount ? assetMap.size : 0,
+        campaign_criteria_cloned: ccr.created,
+        ad_group_criteria_cloned: agCritRes.created,
+        debug,
+      };
+    };
+
+    if (a.crossAccount && assetRefs.size > 0 && assetMap.size === 0) {
+      const partial = await registerLocalPartial("assets_failed");
+      return { ...partial, error: "assets falharam: nenhum asset foi recriado na conta destino" };
+    }
+
     // ===== Ads — com final_urls SOBRESCRITA =====
     const adOps: any[] = [];
+    const adContexts: any[] = [];
     let adsSkipped = 0;
     for (const row of adRows) {
       const newAg = oldToNewAg.get(String(row.adGroup?.id));
       if (!newAg) { adsSkipped++; continue; }
       const ad = row.adGroupAd?.ad ?? {};
-      const built = buildAd(ad, assetMap, a.crossAccount);
+      const built = buildAd(ad, assetMap, a.crossAccount, debug, row.adGroup?.id);
       if (!built) { adsSkipped++; debug.skipped[`ad_${ad.type ?? "UNK"}`] = (debug.skipped[`ad_${ad.type ?? "UNK"}`] ?? 0) + 1; continue; }
       // Override final URL
       built.finalUrls = [a.finalUrl];
@@ -370,40 +423,34 @@ async function runMigration(a: RunArgs) {
       adOps.push({
         create: { adGroup: newAg, status: row.adGroupAd?.status ?? "ENABLED", ad: built },
       });
+      adContexts.push({ source_ad_group_id: String(row.adGroup?.id), source_ad_id: String(ad.id ?? ""), ad_name: ad.name ?? null });
     }
-    const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads");
+    const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
+    if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
     if (adsRes.created === 0) {
-      await removeCampaign(dstBase, dstHeaders, newCampResource);
-      return { ok: false, error: `ads falharam: ${extractError(adsRes.partialFailureError)}`, debug };
+      const partial = await registerLocalPartial("ads_failed");
+      return { ...partial, error: `ads falharam: ${extractError(adsRes.partialFailureError)}` };
     }
+    debug.steps.ads_created = true;
 
     // ===== Persistência local =====
-    await admin.from("campaigns").insert({
-      user_id: userId,
-      google_account_id: a.dstAcc.id,
-      campaign_id: newCampId,
-      name: newName,
-      status: "paused",
-      channel_type: "DISPLAY",
-      budget_micros: newBudgetMicros,
+    await persistLocalCampaignAndFunnel(admin, {
+      userId,
+      dstSiteId: a.dstSiteId,
+      dstGoogleAccountId: a.dstAcc.id,
+      campaignId: newCampId,
+      campaignName: newName,
+      budgetMicros: newBudgetMicros,
+      initialBudget: a.initialBudget,
     });
 
-    await admin.from("campaign_funnel").insert({
-      user_id: userId,
-      site_id: a.dstSiteId,
-      google_account_id: a.dstAcc.id,
-      campaign_id: newCampId,
-      campaign_name: newName,
-      funnel_status: "learning",
-      entry_source: "migration",
-      initial_budget: a.initialBudget,
-      current_budget: a.initialBudget,
-    });
-
+    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0;
     return {
-      ok: true,
+      ok: !hasPartialErrors,
+      partial: hasPartialErrors,
+      error: hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null,
       new_campaign_id: newCampId,
       new_campaign_name: newName,
       destination_customer_id: dstAcc.customer_id,
@@ -415,8 +462,18 @@ async function runMigration(a: RunArgs) {
       debug,
     };
   } catch (e) {
-    if (newCampResource) await removeCampaign(dstBase, dstHeaders, newCampResource).catch(() => {});
-    return { ok: false, error: String((e as Error).message || e), debug };
+    if (newCampResource && newCampId) {
+      await persistLocalCampaignAndFunnel(admin, {
+        userId,
+        dstSiteId: a.dstSiteId,
+        dstGoogleAccountId: a.dstAcc.id,
+        campaignId: newCampId,
+        campaignName: newName,
+        budgetMicros: newBudgetMicros,
+        initialBudget: a.initialBudget,
+      }).catch(() => {});
+    }
+    return { ok: false, partial: !!newCampResource, new_campaign_id: newCampId || undefined, error: String((e as Error).message || e), debug };
   }
 }
 
@@ -460,28 +517,33 @@ async function searchAll(apiBase: string, headers: Record<string, string>, query
   return out;
 }
 
-async function mutate(apiBase: string, headers: Record<string, string>, resource: string, ops: any[], step: string) {
+async function mutate(apiBase: string, headers: Record<string, string>, resource: string, ops: any[], step: string, contexts: any[] = []) {
   const results: any[] = [];
   let partialFailureError: any = null;
+  const errors: any[] = [];
   if (ops.length === 0) return { created: 0, results, partialFailureError };
   for (let i = 0; i < ops.length; i += 100) {
     const chunk = ops.slice(i, i + 100);
+    const chunkContexts = contexts.slice(i, i + 100);
     const res = await fetch(`${apiBase}/${resource}:mutate`, {
       method: "POST", headers, body: JSON.stringify({ operations: chunk, partialFailure: true }),
     });
-    const j = await res.json();
+    const text = await res.text();
+    let j: any; try { j = JSON.parse(text); } catch { j = { raw: text }; }
     if (!res.ok) {
       console.error(`[migration] ${step} HTTP error`, JSON.stringify(j));
       partialFailureError = j;
+      errors.push(...normalizeGoogleErrors(j, chunkContexts, i));
       continue;
     }
     results.push(...(j.results ?? []));
     if (j.partialFailureError) {
       console.error(`[migration] ${step} partial`, JSON.stringify(j.partialFailureError));
       partialFailureError = j.partialFailureError;
+      errors.push(...normalizeGoogleErrors(j.partialFailureError, chunkContexts, i));
     }
   }
-  return { created: results.filter((x: any) => x?.resourceName).length, results, partialFailureError };
+  return { created: results.filter((x: any) => x?.resourceName).length, results, partialFailureError, errors };
 }
 
 async function removeCampaign(apiBase: string, headers: Record<string, string>, resource: string) {
@@ -493,6 +555,67 @@ async function removeCampaign(apiBase: string, headers: Record<string, string>, 
       partialFailure: true,
     }),
   }).catch(() => {});
+}
+
+async function persistLocalCampaignAndFunnel(admin: any, row: {
+  userId: string;
+  dstSiteId: string;
+  dstGoogleAccountId: string;
+  campaignId: string;
+  campaignName: string;
+  budgetMicros: number;
+  initialBudget: number;
+}) {
+  if (!row.campaignId) return;
+  await admin.from("campaigns").upsert({
+    user_id: row.userId,
+    google_account_id: row.dstGoogleAccountId,
+    campaign_id: row.campaignId,
+    name: row.campaignName,
+    status: "paused",
+    channel_type: "DISPLAY",
+    budget_micros: row.budgetMicros,
+  }, { onConflict: "user_id,google_account_id,campaign_id" });
+
+  await admin.from("campaign_funnel").upsert({
+    user_id: row.userId,
+    site_id: row.dstSiteId,
+    google_account_id: row.dstGoogleAccountId,
+    campaign_id: row.campaignId,
+    campaign_name: row.campaignName,
+    funnel_status: "learning",
+    entry_source: "migration",
+    initial_budget: row.initialBudget,
+    current_budget: row.initialBudget,
+  }, { onConflict: "user_id,campaign_id" });
+}
+
+function normalizeGoogleErrors(err: any, contexts: any[] = [], baseIndex = 0): any[] {
+  const details = err?.error?.details ?? err?.details ?? [];
+  const out: any[] = [];
+  for (const d of details) {
+    for (const e of d?.errors ?? []) {
+      const operationIndex = Number(e?.location?.fieldPathElements?.find((p: any) => p?.fieldName === "operations")?.index ?? NaN);
+      const localIndex = Number.isFinite(operationIndex) ? operationIndex : null;
+      const ctx = localIndex !== null ? contexts[localIndex] : undefined;
+      out.push({
+        operation_index: localIndex !== null ? baseIndex + localIndex : null,
+        field_path: fieldPath(e?.location?.fieldPathElements),
+        error_code: e?.errorCode ?? null,
+        message: e?.message ?? extractError(e),
+        trigger: e?.trigger ?? null,
+        context: ctx ?? null,
+        raw: e,
+      });
+    }
+  }
+  if (out.length) return out;
+  return [{ operation_index: null, field_path: null, message: extractError(err), raw: err }];
+}
+
+function fieldPath(parts: any[] | undefined): string | null {
+  if (!Array.isArray(parts)) return null;
+  return parts.map((p) => p?.index !== undefined ? `${p.fieldName}[${p.index}]` : p?.fieldName).filter(Boolean).join(".") || null;
 }
 
 async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, campResource: string, debug: any) {
@@ -618,13 +741,15 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
   return { create: clean(create) };
 }
 
-function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) {
+function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
   if (!ad?.responsiveDisplayAd) return null; // só RDA por ora
   const rda = ad.responsiveDisplayAd;
-  const remap = (items: any[] | undefined) => (items ?? [])
+  const missingAssets: any[] = [];
+  const remap = (items: any[] | undefined, field: string) => (items ?? [])
     .map((it: any) => {
       if (!it?.asset) return null;
       const newAsset = crossAccount ? assetMap.get(it.asset) : it.asset;
+      if (crossAccount && !newAsset) missingAssets.push({ field, source_asset: it.asset, source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? "") });
       if (!newAsset) return null;
       return { asset: newAsset };
     }).filter(Boolean);
@@ -635,11 +760,11 @@ function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) 
       longHeadline: rda.longHeadline?.text ? { text: rda.longHeadline.text } : undefined,
       descriptions: (rda.descriptions ?? []).map((h: any) => h?.text ? clean({ text: h.text, pinnedField: h.pinnedField }) : null).filter(Boolean),
       businessName: rda.businessName,
-      marketingImages: remap(rda.marketingImages),
-      squareMarketingImages: remap(rda.squareMarketingImages),
-      logoImages: remap(rda.logoImages),
-      squareLogoImages: remap(rda.squareLogoImages),
-      youtubeVideos: remap(rda.youtubeVideos),
+      marketingImages: remap(rda.marketingImages, "marketing_images"),
+      squareMarketingImages: remap(rda.squareMarketingImages, "square_marketing_images"),
+      logoImages: remap(rda.logoImages, "logo_images"),
+      squareLogoImages: remap(rda.squareLogoImages, "square_logo_images"),
+      youtubeVideos: remap(rda.youtubeVideos, "youtube_videos"),
       callToActionText: rda.callToActionText,
       allowFlexibleColor: rda.allowFlexibleColor,
       accentColor: rda.accentColor,
@@ -647,9 +772,21 @@ function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) 
       formatSetting: rda.formatSetting,
     }),
   });
-  // Validações mínimas RDA exige: ≥1 marketing img, ≥1 square marketing img, ≥1 logo (preferível), ≥1 headline, ≥1 description
+  if (missingAssets.length) debug.partial_failures.push({ step: "build_ad_asset_mapping", errors: missingAssets });
+  // RDA precisa ser reconstruído do zero com textos + imagens + logo + business name.
   const r = built.responsiveDisplayAd;
-  if (!r.marketingImages?.length || !r.squareMarketingImages?.length || !r.headlines?.length || !r.descriptions?.length) return null;
+  const missingFields = [];
+  if (!r.headlines?.length) missingFields.push("headlines");
+  if (!r.longHeadline) missingFields.push("long_headline");
+  if (!r.descriptions?.length) missingFields.push("descriptions");
+  if (!r.businessName) missingFields.push("business_name");
+  if (!r.marketingImages?.length) missingFields.push("marketing_images");
+  if (!r.squareMarketingImages?.length) missingFields.push("square_marketing_images");
+  if (!r.logoImages?.length && !r.squareLogoImages?.length) missingFields.push("logo_images");
+  if (missingFields.length) {
+    debug.partial_failures.push({ step: "build_responsive_display_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: missingFields });
+    return null;
+  }
   return built;
 }
 
@@ -657,9 +794,9 @@ async function reuploadAssets(
   srcBase: string, srcHeaders: Record<string, string>,
   dstBase: string, dstHeaders: Record<string, string>,
   _dstCustomerId: string, refs: string[],
-): Promise<{ map: Map<string, string>; skipped: number; errors: string[] }> {
+): Promise<{ map: Map<string, string>; skipped: number; errors: any[] }> {
   const map = new Map<string, string>();
-  const errors: string[] = [];
+  const errors: any[] = [];
   let skipped = 0;
   // Lê data/url dos assets origem
   // resourceName tipo: customers/X/assets/123 → id=123
@@ -680,7 +817,7 @@ async function reuploadAssets(
       `);
       for (const r of rows) srcAssets.set(String(r.asset?.id), r.asset);
     } catch (e) {
-      errors.push(`read assets: ${String((e as Error).message || e)}`);
+      errors.push({ step: "read_assets", message: String((e as Error).message || e), asset_ids: ch });
     }
   }
 
@@ -692,7 +829,7 @@ async function reuploadAssets(
     try {
       if (asset.type === "IMAGE" && asset.imageAsset?.fullSize?.url) {
         const imgRes = await fetch(asset.imageAsset.fullSize.url);
-        if (!imgRes.ok) { skipped++; errors.push(`download img ${id}: HTTP ${imgRes.status}`); continue; }
+        if (!imgRes.ok) { skipped++; errors.push({ step: "download_image", source_asset: ref, asset_id: id, http_status: imgRes.status, message: `HTTP ${imgRes.status}` }); continue; }
         const buf = new Uint8Array(await imgRes.arrayBuffer());
         const b64 = base64Encode(buf);
         const create: any = {
@@ -700,25 +837,26 @@ async function reuploadAssets(
           type: "IMAGE",
           imageAsset: { data: b64 },
         };
-        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_image_${id}`);
+        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_image_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
-        else { skipped++; errors.push(`upload img ${id}: ${extractError(r.partialFailureError)}`); }
+        else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_image", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "YOUTUBE_VIDEO" && asset.youtubeVideoAsset?.youtubeVideoId) {
         const create: any = {
           name: asset.name || `migrated-yt-${id}-${Date.now()}`,
           type: "YOUTUBE_VIDEO",
           youtubeVideoAsset: { youtubeVideoId: asset.youtubeVideoAsset.youtubeVideoId },
         };
-        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_yt_${id}`);
+        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_yt_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
-        else { skipped++; }
+        else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else {
         skipped++;
+        errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
       }
     } catch (e) {
-      errors.push(`asset ${id}: ${String((e as Error).message || e)}`);
+      errors.push({ step: "asset_exception", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
       skipped++;
     }
   }

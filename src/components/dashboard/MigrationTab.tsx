@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDownAZ, RefreshCw, ArrowRightLeft, AlertCircle } from "lucide-react";
+import { ArrowDownAZ, RefreshCw, ArrowRightLeft, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -236,15 +236,17 @@ export function MigrationTab() {
                             <div className="text-xs text-muted-foreground">novo: {m.destination_campaign_id}</div>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-[220px]">
                           <Badge
                             variant={m.status === "success" ? "default" : m.status === "failed" ? "destructive" : "secondary"}
                           >
                             {m.status}
                           </Badge>
+                          <MigrationStepSummary result={m.result} />
                           {m.error && (
                             <div className="text-xs text-rose-600 max-w-[260px] truncate" title={m.error}>{m.error}</div>
                           )}
+                          <MigrationFailurePreview result={m.result} />
                         </TableCell>
                         <TableCell className="text-xs max-w-[280px] truncate" title={m.final_url}>{m.final_url}</TableCell>
                       </TableRow>
@@ -268,6 +270,42 @@ export function MigrationTab() {
           qc.invalidateQueries({ queryKey: ["mig-eligible"] });
         }}
       />
+    </div>
+  );
+}
+
+function MigrationStepSummary({ result }: { result: any }) {
+  const steps = result?.debug?.steps;
+  if (!steps) return null;
+  const crossAccount = result?.debug?.cross_account !== false;
+  const rows = [
+    ["Campanha", steps.campaign_created],
+    ["Ad groups", steps.ad_groups_created],
+    ["Assets", !crossAccount || steps.assets_reuploaded || (Number(result?.assets_reuploaded) > 0)],
+    ["Ads", steps.ads_created || (Number(result?.ads_cloned) > 0)],
+  ] as const;
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+      {rows.map(([label, ok]) => (
+        <div key={label} className={ok ? "flex items-center gap-1 text-emerald-600" : "flex items-center gap-1 text-rose-600"}>
+          {ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+          {label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MigrationFailurePreview({ result }: { result: any }) {
+  const failures = result?.debug?.partial_failures;
+  if (!Array.isArray(failures) || failures.length === 0) return null;
+  const lines = failures.flatMap((f: any) => {
+    const errors = Array.isArray(f.errors) ? f.errors : [f];
+    return errors.map((e: any) => `${f.step || e.step || "erro"}: ${e.message || e.field_path || JSON.stringify(e).slice(0, 120)}`);
+  }).slice(0, 3);
+  return (
+    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+      {lines.map((line, i) => <div key={i} className="max-w-[320px] truncate" title={line}>{line}</div>)}
     </div>
   );
 }
@@ -322,6 +360,14 @@ function MigrationDrawer({ item, accounts, sites, onClose, onSuccess }: DrawerPr
         },
       });
       if (error) throw new Error(error.message);
+      if ((data as any)?.partial) {
+        toast({
+          title: "Migração parcial criada",
+          description: `Campanha ${(data as any).new_campaign_id || "nova"} e ad groups mantidos. ${(data as any).error || "Revise os detalhes no histórico."}`,
+        });
+        onSuccess();
+        return;
+      }
       if (!(data as any)?.ok) throw new Error((data as any)?.error || "Falha desconhecida");
       toast({
         title: "Migrada com sucesso",
