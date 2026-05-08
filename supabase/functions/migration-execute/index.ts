@@ -313,7 +313,14 @@ async function runMigration(a: RunArgs) {
         negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
       };
     }
-    const campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create", [{ campaign_name: newName }]);
+    let campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create", [{ campaign_name: newName }]);
+    // Retry com sufixo aleatório se o nome já existir na conta destino
+    if (!campRes.results[0]?.resourceName && /DUPLICATE_CAMPAIGN_NAME/i.test(JSON.stringify(campRes.partialFailureError ?? ""))) {
+      const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+      newName = `${baseName} ${stamp}-${rand}`.slice(0, 250);
+      campCreate.name = newName;
+      campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create_retry", [{ campaign_name: newName }]);
+    }
     newCampResource = campRes.results[0]?.resourceName ?? "";
     newCampId = newCampResource.split("/").pop() ?? "";
     if (!newCampResource) return { ok: false, error: `campaign create: ${extractError(campRes.partialFailureError)}`, debug, payload: campCreate };
