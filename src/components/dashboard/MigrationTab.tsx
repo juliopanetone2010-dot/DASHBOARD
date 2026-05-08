@@ -521,3 +521,126 @@ function MigrationDrawer({ item, accounts, sites, onClose, onSuccess }: DrawerPr
     </Sheet>
   );
 }
+
+function PendingHtml5List({
+  items, isLoading, onRefresh, onUploaded,
+}: { items: any[]; isLoading: boolean; onRefresh: () => void; onUploaded: () => void }) {
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const handleFile = async (pending: any, file: File) => {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      toast({ title: "Arquivo inválido", description: "Envie um .zip do HTML5", variant: "destructive" });
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      toast({ title: "Arquivo muito grande", description: "Limite 12MB", variant: "destructive" });
+      return;
+    }
+    setUploadingId(pending.id);
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as any);
+      }
+      const b64 = btoa(bin);
+      const sess = (await supabase.auth.getSession()).data.session;
+      const r = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-upload-html5`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sess?.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ pending_ad_id: pending.id, zip_base64: b64, zip_filename: file.name }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        toast({ title: "Falha no upload", description: j.error || "erro desconhecido", variant: "destructive" });
+      } else {
+        toast({ title: "Anúncio criado", description: pending.source_ad_name || "HTML5 migrado" });
+        onUploaded();
+      }
+    } catch (e: any) {
+      toast({ title: "Erro", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5" />
+            Anúncios HTML5 pendentes
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            A API do Google Ads não libera os bytes do ZIP HTML5. Suba o .zip original aqui — o sistema cria o anúncio na campanha nova.
+          </p>
+        </div>
+        <Button variant="outline" size="icon" onClick={onRefresh}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-muted-foreground text-sm">Carregando…</p>
+        ) : items.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Nenhum anúncio HTML5 pendente. 🎉</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Anúncio origem</TableHead>
+                <TableHead>Ad group destino</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Motivo</TableHead>
+                <TableHead className="text-right">Ação</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="max-w-[240px]">
+                    <div className="font-medium truncate">{p.source_ad_name || "(sem nome)"}</div>
+                    <div className="text-xs text-muted-foreground">ad id: {p.source_ad_id || "—"}</div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="truncate max-w-[200px]" title={p.destination_ad_group_name || ""}>{p.destination_ad_group_name || "—"}</div>
+                    <div className="text-muted-foreground">camp: {p.destination_campaign_id}</div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <Badge variant="outline">{p.display_upload_product_type || p.source_ad_type}</Badge>
+                  </TableCell>
+                  <TableCell className="text-xs max-w-[260px] truncate" title={p.reason || ""}>{p.reason || "—"}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      asChild
+                      size="sm"
+                      variant={uploadingId === p.id ? "secondary" : "default"}
+                      disabled={uploadingId === p.id}
+                    >
+                      <label className="cursor-pointer">
+                        {uploadingId === p.id ? "Enviando…" : "Upload ZIP"}
+                        <input
+                          type="file"
+                          accept=".zip,application/zip"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleFile(p, f);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
