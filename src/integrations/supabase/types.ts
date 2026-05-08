@@ -653,6 +653,81 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_migrations: {
+        Row: {
+          created_at: string
+          destination_campaign_id: string | null
+          destination_domain: string | null
+          destination_google_account_id: string | null
+          destination_site_id: string | null
+          error: string | null
+          executed_at: string | null
+          final_url: string
+          final_url_suffix: string | null
+          id: string
+          initial_budget: number | null
+          name_suffix: string | null
+          payload: Json | null
+          result: Json | null
+          source_campaign_id: string
+          source_campaign_name: string | null
+          source_domain: string | null
+          source_google_account_id: string | null
+          source_site_id: string | null
+          status: string
+          tracking_template: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          destination_campaign_id?: string | null
+          destination_domain?: string | null
+          destination_google_account_id?: string | null
+          destination_site_id?: string | null
+          error?: string | null
+          executed_at?: string | null
+          final_url: string
+          final_url_suffix?: string | null
+          id?: string
+          initial_budget?: number | null
+          name_suffix?: string | null
+          payload?: Json | null
+          result?: Json | null
+          source_campaign_id: string
+          source_campaign_name?: string | null
+          source_domain?: string | null
+          source_google_account_id?: string | null
+          source_site_id?: string | null
+          status?: string
+          tracking_template?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          destination_campaign_id?: string | null
+          destination_domain?: string | null
+          destination_google_account_id?: string | null
+          destination_site_id?: string | null
+          error?: string | null
+          executed_at?: string | null
+          final_url?: string
+          final_url_suffix?: string | null
+          id?: string
+          initial_budget?: number | null
+          name_suffix?: string | null
+          payload?: Json | null
+          result?: Json | null
+          source_campaign_id?: string
+          source_campaign_name?: string | null
+          source_domain?: string | null
+          source_google_account_id?: string | null
+          source_site_id?: string | null
+          status?: string
+          tracking_template?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_restart_flow: {
         Row: {
           applied_cpa: number | null
