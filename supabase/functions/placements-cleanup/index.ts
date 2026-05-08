@@ -257,9 +257,15 @@ Deno.serve(async (req) => {
     const revenueUsdByCp = new Map<string, number>();
     let totalGamUsd = 0;
     let attributedGamUsd = 0;
+    const campaignRevenueTotals = new Map<string, number>();
     for (const [cid, revenues] of revByCampaign) {
       const ads = adsByCampaign.get(cid) ?? [];
-      for (const usd of revenues.values()) totalGamUsd += usd;
+      let campaignGamUsd = 0;
+      for (const usd of revenues.values()) {
+        totalGamUsd += usd;
+        campaignGamUsd += usd;
+      }
+      campaignRevenueTotals.set(cid, campaignGamUsd);
       if (ads.length === 0) continue;
       const indexes = buildPlacementIndexes(ads);
       const claimed = new Set<string>();
@@ -375,6 +381,17 @@ Deno.serve(async (req) => {
         t.cost_brl += Number(r.spend) || 0;
         t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
+    }
+    for (const [cid, revenueUsd] of campaignRevenueTotals) {
+      const meta = campMap.get(cid);
+      if (!meta) continue;
+      let t = totalsMap.get(cid);
+      if (!t) {
+        t = { campaign_id: cid, name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(cid) };
+        totalsMap.set(cid, t);
+      }
+      const liveRevenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
+      if (liveRevenueBrl > t.revenue_brl) t.revenue_brl = liveRevenueBrl;
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
