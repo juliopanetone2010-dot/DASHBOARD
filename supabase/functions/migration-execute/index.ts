@@ -270,6 +270,8 @@ async function runMigration(a: RunArgs) {
     }
     const dua = ad?.displayUploadAd;
     if (dua?.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
+    const ia = ad?.imageAd;
+    if (ia?.imageAsset?.asset) assetRefs.add(ia.imageAsset.asset);
   }
   debug.source.assets = assetRefs.size;
 
