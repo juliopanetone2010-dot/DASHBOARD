@@ -227,6 +227,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setResyncing(false);
     }
   };
+
+  const toggle = (k: string) => {
     setSelected((s) => {
       const n = new Set(s);
       n.has(k) ? n.delete(k) : n.add(k);
