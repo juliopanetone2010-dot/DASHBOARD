@@ -370,14 +370,58 @@ async function runMigration(a: RunArgs) {
     const agCritRes = await mutate(dstBase, dstHeaders, "adGroupCriteria", agCritOps, "ag_crits");
     debug.cloned.ad_group_criteria = agCritRes.created;
 
+    // ===== Assets: no cross-account, só re-upload DEPOIS que campanha/ad groups existem.
+    // Se falhar, fica em modo safe: mantém campanha + ad groups e registra parcial.
+    const assetMap = new Map<string, string>();
+    if (a.crossAccount && assetRefs.size > 0) {
+      const reupResult = await reuploadAssets(srcBase, srcHeaders, dstBase, dstHeaders, dstAcc.customer_id, [...assetRefs]);
+      for (const [k, v] of reupResult.map.entries()) assetMap.set(k, v);
+      debug.cloned.assets_reuploaded = assetMap.size;
+      debug.skipped.assets = reupResult.skipped;
+      debug.asset_errors = reupResult.errors;
+      debug.steps.assets_reuploaded = assetMap.size > 0 && reupResult.errors.length === 0;
+      if (reupResult.errors.length > 0) debug.partial_failures.push({ step: "assets", errors: reupResult.errors });
+    }
+
+    const registerLocalPartial = async (stage: string) => {
+      await persistLocalCampaignAndFunnel(admin, {
+        userId,
+        dstSiteId: a.dstSiteId,
+        dstGoogleAccountId: a.dstAcc.id,
+        campaignId: newCampId,
+        campaignName: newName,
+        budgetMicros: newBudgetMicros,
+        initialBudget: a.initialBudget,
+      });
+      return {
+        ok: false,
+        partial: true,
+        stage,
+        new_campaign_id: newCampId,
+        new_campaign_name: newName,
+        destination_customer_id: dstAcc.customer_id,
+        ad_groups_cloned: oldToNewAg.size,
+        ads_cloned: 0,
+        assets_reuploaded: a.crossAccount ? assetMap.size : 0,
+        campaign_criteria_cloned: ccr.created,
+        ad_group_criteria_cloned: agCritRes.created,
+        debug,
+      };
+    };
+
+    if (a.crossAccount && assetRefs.size > 0 && assetMap.size === 0) {
+      return await registerLocalPartial("assets_failed");
+    }
+
     // ===== Ads — com final_urls SOBRESCRITA =====
     const adOps: any[] = [];
+    const adContexts: any[] = [];
     let adsSkipped = 0;
     for (const row of adRows) {
       const newAg = oldToNewAg.get(String(row.adGroup?.id));
       if (!newAg) { adsSkipped++; continue; }
       const ad = row.adGroupAd?.ad ?? {};
-      const built = buildAd(ad, assetMap, a.crossAccount);
+      const built = buildAd(ad, assetMap, a.crossAccount, debug, row.adGroup?.id);
       if (!built) { adsSkipped++; debug.skipped[`ad_${ad.type ?? "UNK"}`] = (debug.skipped[`ad_${ad.type ?? "UNK"}`] ?? 0) + 1; continue; }
       // Override final URL
       built.finalUrls = [a.finalUrl];
@@ -385,36 +429,27 @@ async function runMigration(a: RunArgs) {
       adOps.push({
         create: { adGroup: newAg, status: row.adGroupAd?.status ?? "ENABLED", ad: built },
       });
+      adContexts.push({ source_ad_group_id: String(row.adGroup?.id), source_ad_id: String(ad.id ?? ""), ad_name: ad.name ?? null });
     }
-    const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads");
+    const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
     if (adsRes.created === 0) {
-      await removeCampaign(dstBase, dstHeaders, newCampResource);
-      return { ok: false, error: `ads falharam: ${extractError(adsRes.partialFailureError)}`, debug };
+      debug.partial_failures.push({ step: "ads", errors: normalizeGoogleErrors(adsRes.partialFailureError, adContexts) });
+      const partial = await registerLocalPartial("ads_failed");
+      return { ...partial, error: `ads falharam: ${extractError(adsRes.partialFailureError)}` };
     }
+    debug.steps.ads_created = true;
 
     // ===== Persistência local =====
-    await admin.from("campaigns").insert({
-      user_id: userId,
-      google_account_id: a.dstAcc.id,
-      campaign_id: newCampId,
-      name: newName,
-      status: "paused",
-      channel_type: "DISPLAY",
-      budget_micros: newBudgetMicros,
-    });
-
-    await admin.from("campaign_funnel").insert({
-      user_id: userId,
-      site_id: a.dstSiteId,
-      google_account_id: a.dstAcc.id,
-      campaign_id: newCampId,
-      campaign_name: newName,
-      funnel_status: "learning",
-      entry_source: "migration",
-      initial_budget: a.initialBudget,
-      current_budget: a.initialBudget,
+    await persistLocalCampaignAndFunnel(admin, {
+      userId,
+      dstSiteId: a.dstSiteId,
+      dstGoogleAccountId: a.dstAcc.id,
+      campaignId: newCampId,
+      campaignName: newName,
+      budgetMicros: newBudgetMicros,
+      initialBudget: a.initialBudget,
     });
 
     return {
