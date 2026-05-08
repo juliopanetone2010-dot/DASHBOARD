@@ -488,6 +488,9 @@ const IndexInner = () => {
             <TabsTrigger value="automation" className="gap-1.5">
               <Bot className="h-3.5 w-3.5" /> Automação
             </TabsTrigger>
+            <TabsTrigger value="migration" className="gap-1.5">
+              <Repeat className="h-3.5 w-3.5" /> Migração
+            </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
