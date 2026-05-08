@@ -956,42 +956,16 @@ async function reuploadAssets(
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "MEDIA_BUNDLE") {
-        // O Google expõe o ZIP do bundle HTML5 em asset.media_bundle_asset.url
-        // (campo output-only, URL pública tipo https://tpc.googlesyndication.com/simgad/...)
-        // Igual ao que o Google Ads Editor usa pra copiar entre contas.
-        let bundleBytes: Uint8Array | null = null;
-        const bundleUrl: string | undefined = asset.mediaBundleAsset?.url;
-        if (bundleUrl) {
-          try {
-            const bRes = await fetch(bundleUrl);
-            if (bRes.ok) {
-              bundleBytes = new Uint8Array(await bRes.arrayBuffer());
-            } else {
-              errors.push({ step: "download_media_bundle", source_asset: ref, asset_id: id, http_status: bRes.status, message: `HTTP ${bRes.status} ao baixar ${bundleUrl}` });
-            }
-          } catch (e) {
-            errors.push({ step: "download_media_bundle", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
-          }
-        }
-        if (bundleBytes && bundleBytes.length > 0) {
-          const create: any = {
-            name: asset.name || `migrated-html5-${id}-${Date.now()}`,
-            type: "MEDIA_BUNDLE",
-            mediaBundleAsset: { data: base64Encode(bundleBytes) },
-          };
-          const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_bundle_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
-          const newRn = r.results[0]?.resourceName;
-          if (newRn) { map.set(ref, newRn); continue; }
-          errors.push({ step: "upload_media_bundle", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) });
-        }
+        // Limitação real: a Google Ads API não expõe os bytes nem URL do ZIP HTML5
+        // (MediaBundleAsset.data é write-only e não há campo `url` selecionável em v21).
+        // O Google Ads Editor consegue copiar entre contas porque usa APIs internas
+        // não-públicas. Marcamos o ad como pendente para upload manual do .zip.
         skipped++;
-        if (!bundleUrl) {
-          errors.push({
-            step: "html5_bundle_no_url",
-            source_asset: ref, asset_id: id, asset_type: asset.type,
-            message: "Bundle HTML5 não expôs URL pública. Anúncio ficou pendente — use o botão de upload manual.",
-          });
-        }
+        errors.push({
+          step: "html5_bundle_not_portable",
+          source_asset: ref, asset_id: id, asset_type: asset.type,
+          message: "Bundle HTML5 não é portável via API pública do Google Ads. Faça upload manual do .zip original na aba 'Pendentes HTML5'.",
+        });
       } else {
         skipped++;
         errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
