@@ -480,7 +480,73 @@ Deno.serve(async (req) => {
           })),
         }));
 
-      const result = await applyNegativePlacements(admin, userId, selected);
+      // ============================================================
+      // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
+      // direto no banco (gam_placement_revenue + ads_placements) antes
+      // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
+      // Match por root domain + variantes (sk2.x.com, www.x.com etc).
+      // ============================================================
+      const safetyRejected: any[] = [];
+      const safetyApproved: ApplyItem[] = [];
+      for (const it of selected) {
+        const checks: { campaign_id: string; cost_brl: number; revenue_usd: number; roi_pct: number; ok: boolean }[] = [];
+        for (const c of it.campaigns) {
+          const root = rootDomain(it.placement);
+          const variants = [it.placement, root, `www.${root}`].filter(Boolean);
+          // custo real (BRL) — soma de todas variantes/subdomínios
+          const { data: costRows } = await admin
+            .from("ads_placements")
+            .select("cost, placement, placement_clean")
+            .eq("user_id", userId)
+            .eq("campaign_id", c.campaign_id)
+            .gte("date", from)
+            .lte("date", to)
+            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
+            .limit(5000);
+          const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          // receita real (USD) — match por root + variantes
+          let gamQ = admin
+            .from("gam_placement_revenue")
+            .select("revenue_usd, placement")
+            .eq("user_id", userId)
+            .eq("campaign_id", c.campaign_id)
+            .gte("date", from)
+            .lte("date", to)
+            .ilike("placement", `%${root}%`);
+          if (siteId) gamQ = gamQ.eq("site_id", siteId);
+          const { data: revRows } = await gamQ.limit(5000);
+          const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
+          const revBrl = revUsd * NET_FACTOR * fxUsdBrl;
+          const profit = revBrl - costBrl;
+          const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
+          // Aceita bloqueio só se ROI real ≤ maxRoiPct E custo significativo
+          const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
+          checks.push({ campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok });
+        }
+        const allOk = checks.every((x) => x.ok);
+        if (allOk) {
+          safetyApproved.push(it);
+        } else {
+          safetyRejected.push({ placement: it.placement, reason: "safety_recheck_failed", checks });
+          console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
+        }
+      }
+
+      if (safetyApproved.length === 0) {
+        return json({
+          ok: true,
+          applied: 0,
+          failed: 0,
+          details: [],
+          safety_rejected: safetyRejected,
+          stats,
+          message: `Trava de segurança: nenhum placement aprovado para bloqueio (${safetyRejected.length} rejeitado(s) por ROI real > ${maxRoiPct}%).`,
+        });
+      }
+
+      const result = await applyNegativePlacements(admin, userId, safetyApproved);
+      (result as any).safety_rejected = safetyRejected;
+
 
       // Registra log de impacto por campanha (snapshot ROI antes + qtd removida)
       try {
@@ -561,7 +627,7 @@ Deno.serve(async (req) => {
         console.error("[placements-cleanup] funnel resync error", e);
       }
 
-      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats, funnel_resync: evalResults });
+      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, safety_rejected: (result as any).safety_rejected ?? [], stats, funnel_resync: evalResults });
     }
 
     return json({ error: "mode inválido" });

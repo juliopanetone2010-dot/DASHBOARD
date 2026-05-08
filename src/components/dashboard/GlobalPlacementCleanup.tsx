@@ -278,7 +278,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             .map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
         }))
         .filter((p) => p.campaigns.length > 0);
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number }>(
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; safety_rejected?: any[] }>(
         "placements-cleanup",
         { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds } },
       );
@@ -286,10 +286,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
         return;
       }
+      const rejected = data?.safety_rejected ?? [];
       toast({
         title: "Limpeza aplicada",
-        description: `${data?.applied ?? 0} excluído(s) · ${data?.failed ?? 0} falha(s).`,
+        description: `${data?.applied ?? 0} excluído(s) · ${data?.failed ?? 0} falha(s)${rejected.length ? ` · 🛡️ ${rejected.length} bloqueado(s) pela trava de segurança (ROI real positivo)` : ""}.`,
       });
+      if (rejected.length) {
+        console.warn("[safety] placements rejeitados pela re-verificação:", rejected);
+      }
+
       setOpen(false);
     } finally {
       setApplying(false);
