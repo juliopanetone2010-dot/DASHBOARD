@@ -1000,13 +1000,7 @@ async function reuploadAssets(
           source_asset: ref, asset_id: id, asset_type: asset.type,
           message: bundleUrl ? "Bundle HTML5 não pôde ser baixado/recriado automaticamente. Faça upload manual do .zip." : "media_file não retornou URL do bundle. Faça upload manual do .zip.",
         });
-      } else {
-        skipped++;
-        errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
-      }
-        skipped++;
-        errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
-      }
+    } catch (e) {
     } catch (e) {
       errors.push({ step: "asset_exception", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
       skipped++;
