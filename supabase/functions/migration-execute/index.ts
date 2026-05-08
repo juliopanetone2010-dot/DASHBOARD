@@ -235,7 +235,9 @@ async function runMigration(a: RunArgs) {
            ad_group_ad.ad.responsive_display_ad.allow_flexible_color,
            ad_group_ad.ad.responsive_display_ad.accent_color,
            ad_group_ad.ad.responsive_display_ad.main_color,
-           ad_group_ad.ad.responsive_display_ad.format_setting
+           ad_group_ad.ad.responsive_display_ad.format_setting,
+           ad_group_ad.ad.display_upload_ad.media_bundle,
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${srcAgRefs}) AND ad_group_ad.status != 'REMOVED'
   `);
@@ -254,11 +256,15 @@ async function runMigration(a: RunArgs) {
   // O re-upload acontece só depois de campanha/ad groups criados para permitir modo safe parcial.
   const assetRefs = new Set<string>();
   for (const r of adRows) {
-    const rda = r.adGroupAd?.ad?.responsiveDisplayAd;
-    if (!rda) continue;
-    for (const list of [rda.marketingImages, rda.squareMarketingImages, rda.logoImages, rda.squareLogoImages, rda.youtubeVideos]) {
-      for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
+    const ad = r.adGroupAd?.ad;
+    const rda = ad?.responsiveDisplayAd;
+    if (rda) {
+      for (const list of [rda.marketingImages, rda.squareMarketingImages, rda.logoImages, rda.squareLogoImages, rda.youtubeVideos]) {
+        for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
+      }
     }
+    const dua = ad?.displayUploadAd;
+    if (dua?.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
   }
   debug.source.assets = assetRefs.size;
 
@@ -306,7 +312,9 @@ async function runMigration(a: RunArgs) {
       maximizeConversions: {},
     };
     if (a.trackingTemplate) campCreate.trackingUrlTemplate = a.trackingTemplate;
-    if (a.finalUrlSuffix) campCreate.finalUrlSuffix = a.finalUrlSuffix;
+    // UTM padrão SEMPRE aplicado a nível de campanha (sobrescreve o input se vier)
+    const DEFAULT_UTM_SUFFIX = "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
+    campCreate.finalUrlSuffix = a.finalUrlSuffix && a.finalUrlSuffix.trim().length > 0 ? a.finalUrlSuffix : DEFAULT_UTM_SUFFIX;
     if (sourceGeoSetting) {
       campCreate.geoTargetTypeSetting = {
         positiveGeoTargetType: sourceGeoSetting.positiveGeoTargetType ?? "PRESENCE_OR_INTEREST",
@@ -451,7 +459,7 @@ async function runMigration(a: RunArgs) {
         .join(", ");
       const apiErr = extractError(adsRes.partialFailureError);
       const reason = adOps.length === 0
-        ? `nenhum ad foi enviado — tipos de ad não suportados pela migração (apenas RESPONSIVE_DISPLAY_AD é replicado). Origem tinha: ${skippedTypes || "0"}. Crie os ads manualmente na campanha nova.`
+        ? `nenhum ad foi enviado — tipos: ${skippedTypes || "0"}. RDA é replicado automaticamente; HTML5 (display upload) precisa ter o ZIP re-uploadado manualmente no ad group novo (a API do Google Ads não expõe os bytes do bundle).`
         : `ads falharam: ${apiErr || "sem detalhe da API"}`;
       return { ...partial, error: reason };
     }
@@ -764,7 +772,28 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
 }
 
 function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
-  if (!ad?.responsiveDisplayAd) return null; // só RDA por ora
+  // ===== HTML5 / display upload =====
+  if (ad?.displayUploadAd) {
+    const dua = ad.displayUploadAd;
+    const sourceBundleRef = dua.mediaBundle?.asset;
+    if (!sourceBundleRef) {
+      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["media_bundle"] });
+      return null;
+    }
+    const newBundle = crossAccount ? assetMap.get(sourceBundleRef) : sourceBundleRef;
+    if (!newBundle) {
+      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceBundleRef, message: "media_bundle não foi re-uploadado" });
+      return null;
+    }
+    return clean({
+      name: ad.name,
+      displayUploadAd: clean({
+        displayUploadProductType: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD",
+        mediaBundle: { asset: newBundle },
+      }),
+    });
+  }
+  if (!ad?.responsiveDisplayAd) return null; // tipos não suportados
   const rda = ad.responsiveDisplayAd;
   const missingAssets: any[] = [];
   const remap = (items: any[] | undefined, field: string) => (items ?? [])
@@ -873,6 +902,15 @@ async function reuploadAssets(
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
+      } else if (asset.type === "MEDIA_BUNDLE") {
+        // Google Ads API NÃO expõe os bytes do ZIP do HTML5 (write-only).
+        // Não é possível baixar e re-uploadar. Marca como pendente para upload manual.
+        skipped++;
+        errors.push({
+          step: "html5_bundle_not_portable",
+          source_asset: ref, asset_id: id, asset_type: asset.type,
+          message: "Bundle HTML5 não pode ser baixado pela API (write-only). Faça o re-upload manual do ZIP no ad group da nova campanha.",
+        });
       } else {
         skipped++;
         errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
