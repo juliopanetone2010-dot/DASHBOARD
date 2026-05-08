@@ -30,6 +30,7 @@ import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { CreativesTab } from "@/components/dashboard/CreativesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
+import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
