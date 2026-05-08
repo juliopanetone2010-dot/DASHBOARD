@@ -772,7 +772,28 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
 }
 
 function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
-  if (!ad?.responsiveDisplayAd) return null; // só RDA por ora
+  // ===== HTML5 / display upload =====
+  if (ad?.displayUploadAd) {
+    const dua = ad.displayUploadAd;
+    const sourceBundleRef = dua.mediaBundle?.asset;
+    if (!sourceBundleRef) {
+      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["media_bundle"] });
+      return null;
+    }
+    const newBundle = crossAccount ? assetMap.get(sourceBundleRef) : sourceBundleRef;
+    if (!newBundle) {
+      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceBundleRef, message: "media_bundle não foi re-uploadado" });
+      return null;
+    }
+    return clean({
+      name: ad.name,
+      displayUploadAd: clean({
+        displayUploadProductType: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD",
+        mediaBundle: { asset: newBundle },
+      }),
+    });
+  }
+  if (!ad?.responsiveDisplayAd) return null; // tipos não suportados
   const rda = ad.responsiveDisplayAd;
   const missingAssets: any[] = [];
   const remap = (items: any[] | undefined, field: string) => (items ?? [])
