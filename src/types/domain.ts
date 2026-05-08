@@ -53,6 +53,22 @@ export interface RulesConfig {
   auto_boost_enabled: boolean;
   budget_increase_pct: number;
   revenue_share_pct?: number;
+  // Automação – dias e thresholds
+  auto_analysis_days?: number;
+  auto_stoploss_days?: number;
+  auto_stoploss_min_roi?: number;
+  auto_stoploss_min_cost?: number;
+  auto_scale_min_roi?: number;
+  auto_scale_budget_pct?: number;
+  auto_scale_interval_days?: number;
+  auto_cpa_up_pct?: number;
+  auto_cpa_down_pct?: number;
+  auto_cpa_review_days?: number;
+  auto_standby_enter_days?: number;
+  auto_standby_max_days?: number;
+  auto_standby_roi_low?: number;
+  auto_standby_roi_high?: number;
+  auto_standby_exit_roi?: number;
 }
 
 export interface Alert {

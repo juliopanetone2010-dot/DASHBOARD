@@ -69,14 +69,6 @@ export function RulesPanel({ rules, onSave }: Props) {
           onChange={(v) => set("boost_roi_pct", v)}
         />
         <Field
-          label="Dias para análise"
-          hint="Janela usada nas regras."
-          id="days"
-          value={form.analysis_days}
-          step="1"
-          onChange={(v) => set("analysis_days", v)}
-        />
-        <Field
           label="Gasto mínimo para avaliar (R$)"
           hint="Abaixo disso, ignora a campanha."
           id="min_spend"
@@ -97,6 +89,133 @@ export function RulesPanel({ rules, onSave }: Props) {
           value={form.revenue_share_pct ?? 6.5}
           onChange={(v) => set("revenue_share_pct", v)}
         />
+      </div>
+
+      <Separator />
+
+      <div>
+        <h3 className="font-semibold text-sm mb-3">Automação — Dias</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Field
+            label="Dias de análise (automação)"
+            hint="Janela usada pelo algoritmo de automação."
+            id="auto_analysis_days"
+            value={form.auto_analysis_days ?? 15}
+            step="1"
+            onChange={(v) => set("auto_analysis_days", v)}
+          />
+          <Field
+            label="Intervalo entre escaladas (dias)"
+            hint="Cooldown após aumentar orçamento."
+            id="auto_scale_interval_days"
+            value={form.auto_scale_interval_days ?? 3}
+            step="1"
+            onChange={(v) => set("auto_scale_interval_days", v)}
+          />
+          <Field
+            label="Dias para stop-loss"
+            hint="Dias seguidos com ROI ruim antes de pausar."
+            id="auto_stoploss_days"
+            value={form.auto_stoploss_days ?? 7}
+            step="1"
+            onChange={(v) => set("auto_stoploss_days", v)}
+          />
+          <Field
+            label="Dias entre revisões de CPA"
+            hint="Cooldown para ajustar target CPA."
+            id="auto_cpa_review_days"
+            value={form.auto_cpa_review_days ?? 3}
+            step="1"
+            onChange={(v) => set("auto_cpa_review_days", v)}
+          />
+          <Field
+            label="Dias para entrar em standby"
+            hint="Quanto tempo em baixo rendimento antes de standby."
+            id="auto_standby_enter_days"
+            value={form.auto_standby_enter_days ?? 7}
+            step="1"
+            onChange={(v) => set("auto_standby_enter_days", v)}
+          />
+          <Field
+            label="Dias máximos em standby"
+            hint="Limite antes de forçar pausa."
+            id="auto_standby_max_days"
+            value={form.auto_standby_max_days ?? 14}
+            step="1"
+            onChange={(v) => set("auto_standby_max_days", v)}
+          />
+        </div>
+      </div>
+
+      <Separator />
+
+      <div>
+        <h3 className="font-semibold text-sm mb-3">Automação — Thresholds</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Field
+            label="ROI mínimo para escalar (%)"
+            hint="Acima disso a campanha pode escalar."
+            id="auto_scale_min_roi"
+            value={form.auto_scale_min_roi ?? 30}
+            onChange={(v) => set("auto_scale_min_roi", v)}
+          />
+          <Field
+            label="% de aumento na escala"
+            hint="Quanto o orçamento sobe ao escalar."
+            id="auto_scale_budget_pct"
+            value={form.auto_scale_budget_pct ?? 20}
+            onChange={(v) => set("auto_scale_budget_pct", v)}
+          />
+          <Field
+            label="ROI stop-loss (%)"
+            hint="Abaixo disso, pausa (negativo)."
+            id="auto_stoploss_min_roi"
+            value={form.auto_stoploss_min_roi ?? -20}
+            onChange={(v) => set("auto_stoploss_min_roi", v)}
+          />
+          <Field
+            label="Gasto mínimo stop-loss (R$)"
+            hint="Só pausa se gastou isso ou mais."
+            id="auto_stoploss_min_cost"
+            value={form.auto_stoploss_min_cost ?? 0}
+            onChange={(v) => set("auto_stoploss_min_cost", v)}
+          />
+          <Field
+            label="% aumento CPA"
+            hint="Quanto sobe o target CPA para destravar."
+            id="auto_cpa_up_pct"
+            value={form.auto_cpa_up_pct ?? 10}
+            onChange={(v) => set("auto_cpa_up_pct", v)}
+          />
+          <Field
+            label="% redução CPA"
+            hint="Quanto desce o target CPA para proteger."
+            id="auto_cpa_down_pct"
+            value={form.auto_cpa_down_pct ?? 10}
+            onChange={(v) => set("auto_cpa_down_pct", v)}
+          />
+          <Field
+            label="ROI baixo standby (%)"
+            hint="Piso inferior do standby."
+            id="auto_standby_roi_low"
+            value={form.auto_standby_roi_low ?? 1}
+            onChange={(v) => set("auto_standby_roi_low", v)}
+          />
+          <Field
+            label="ROI alto standby (%)"
+            hint="Teto do standby antes de virar learning."
+            id="auto_standby_roi_high"
+            value={form.auto_standby_roi_high ?? 10}
+            onChange={(v) => set("auto_standby_roi_high", v)}
+          />
+          <Field
+            label="ROI para sair do standby (%)"
+            hint="Acima disso, a campanha sai do standby."
+            id="auto_standby_exit_roi"
+            value={form.auto_standby_exit_roi ?? 10}
+            onChange={(v) => set("auto_standby_exit_roi", v)}
+          />
+        </div>
       </div>
 
       <Separator />
