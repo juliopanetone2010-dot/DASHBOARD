@@ -623,6 +623,40 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
 // Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,
 // para que a automação tenha delivery_ratio confiável antes de decidir ações.
+// SAFEGUARD — Força sincronização da receita GAM da janela analisada antes de
+// qualquer decisão de automação. Evita que dias com revenue=0 (ainda não puxado
+// do GAM) gerem ROI=-100% e pausem campanhas saudáveis.
+async function syncGamRevenueWindow(userId: string, siteId: string, fromIso: string, toIso: string): Promise<{ ok: boolean; error?: string; ms?: number }> {
+  const t0 = Date.now();
+  try {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/gam-sync-revenue`;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        sync: true,            // espera concluir (não roda em background)
+        user_id: userId,
+        site_id: siteId,
+        from: fromIso,
+        to: toIso,
+        revenue_only: true,
+        skip_viewability: true,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      return { ok: false, error: `status ${res.status}: ${txt.slice(0, 200)}`, ms: Date.now() - t0 };
+    }
+    return { ok: true, ms: Date.now() - t0 };
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e), ms: Date.now() - t0 };
+  }
+}
+
 async function syncCampaignBudgets(admin: any, userId: string, accountId: string): Promise<{ updated: number; error?: string }> {
   try {
     const { data: acc } = await admin
