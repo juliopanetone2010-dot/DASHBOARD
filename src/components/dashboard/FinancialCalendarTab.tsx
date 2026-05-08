@@ -29,6 +29,7 @@ interface Snapshot {
   impressions: number;
   clicks: number;
   conversions: number;
+  revenue_currency?: string | null;
 }
 
 const MONTHS_PT = [
