@@ -594,6 +594,38 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         </Button>
       </div>
 
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base font-semibold">🔄 Como funciona a limpeza automática (a cada 15 dias)</span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 text-xs">
+          <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
+            <div className="font-semibold text-sm">1. Cron por site/conta</div>
+            <p className="text-muted-foreground">Roda automaticamente para cada site com a esteira ativada, respeitando o intervalo de dias configurado.</p>
+          </div>
+          <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
+            <div className="font-semibold text-sm">2. Verificação de ROI real</div>
+            <p className="text-muted-foreground">Cruza <b>custo real</b> (ads_placements) × <b>receita real</b> (GAM) por domínio raiz, aplicando NET_FACTOR (0.935) × FX.</p>
+          </div>
+          <div className="rounded-lg border border-success/40 bg-success/5 p-3 space-y-1.5">
+            <div className="font-semibold text-sm text-success">🛡️ 3. Trava de segurança</div>
+            <p className="text-muted-foreground">Só bloqueia se <b>custo ≥ R$ 100</b> E <b>ROI ≤ -10%</b>. Se ROI for positivo → <b>rejeita o bloqueio</b> (safety_rejected).</p>
+          </div>
+          <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
+            <div className="font-semibold text-sm">4. Quando bloqueia, sincroniza tudo:</div>
+            <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+              <li>Negativa no Google Ads</li>
+              <li>Insere blacklist em placement_actions</li>
+              <li>Marca placement_status = blocked</li>
+              <li>Re-avalia esteira em todos os sites</li>
+            </ul>
+          </div>
+        </div>
+        <div className="text-[11px] text-muted-foreground border-t border-border pt-2">
+          <b>Funil Inteligente de campanhas</b> é separado — cuida de campanhas novas (Maximize Conv → Target CPA → Scaling). A limpeza de placements <b>não mexe</b> nas campanhas do funil, só nos sites onde os anúncios aparecem.
+        </div>
+      </div>
+
       <GlobalPlacementCleanup fxUsdBrl={fxUsdBrl} />
 
       {!campaignId && (
