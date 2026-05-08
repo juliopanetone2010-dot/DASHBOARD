@@ -502,28 +502,33 @@ async function searchAll(apiBase: string, headers: Record<string, string>, query
   return out;
 }
 
-async function mutate(apiBase: string, headers: Record<string, string>, resource: string, ops: any[], step: string) {
+async function mutate(apiBase: string, headers: Record<string, string>, resource: string, ops: any[], step: string, contexts: any[] = []) {
   const results: any[] = [];
   let partialFailureError: any = null;
+  const errors: any[] = [];
   if (ops.length === 0) return { created: 0, results, partialFailureError };
   for (let i = 0; i < ops.length; i += 100) {
     const chunk = ops.slice(i, i + 100);
+    const chunkContexts = contexts.slice(i, i + 100);
     const res = await fetch(`${apiBase}/${resource}:mutate`, {
       method: "POST", headers, body: JSON.stringify({ operations: chunk, partialFailure: true }),
     });
-    const j = await res.json();
+    const text = await res.text();
+    let j: any; try { j = JSON.parse(text); } catch { j = { raw: text }; }
     if (!res.ok) {
       console.error(`[migration] ${step} HTTP error`, JSON.stringify(j));
       partialFailureError = j;
+      errors.push(...normalizeGoogleErrors(j, chunkContexts, i));
       continue;
     }
     results.push(...(j.results ?? []));
     if (j.partialFailureError) {
       console.error(`[migration] ${step} partial`, JSON.stringify(j.partialFailureError));
       partialFailureError = j.partialFailureError;
+      errors.push(...normalizeGoogleErrors(j.partialFailureError, chunkContexts, i));
     }
   }
-  return { created: results.filter((x: any) => x?.resourceName).length, results, partialFailureError };
+  return { created: results.filter((x: any) => x?.resourceName).length, results, partialFailureError, errors };
 }
 
 async function removeCampaign(apiBase: string, headers: Record<string, string>, resource: string) {
