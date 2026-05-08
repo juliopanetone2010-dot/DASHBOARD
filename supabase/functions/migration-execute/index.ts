@@ -665,13 +665,15 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
   return { create: clean(create) };
 }
 
-function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) {
+function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
   if (!ad?.responsiveDisplayAd) return null; // só RDA por ora
   const rda = ad.responsiveDisplayAd;
-  const remap = (items: any[] | undefined) => (items ?? [])
+  const missingAssets: any[] = [];
+  const remap = (items: any[] | undefined, field: string) => (items ?? [])
     .map((it: any) => {
       if (!it?.asset) return null;
       const newAsset = crossAccount ? assetMap.get(it.asset) : it.asset;
+      if (crossAccount && !newAsset) missingAssets.push({ field, source_asset: it.asset, source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? "") });
       if (!newAsset) return null;
       return { asset: newAsset };
     }).filter(Boolean);
@@ -682,11 +684,11 @@ function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) 
       longHeadline: rda.longHeadline?.text ? { text: rda.longHeadline.text } : undefined,
       descriptions: (rda.descriptions ?? []).map((h: any) => h?.text ? clean({ text: h.text, pinnedField: h.pinnedField }) : null).filter(Boolean),
       businessName: rda.businessName,
-      marketingImages: remap(rda.marketingImages),
-      squareMarketingImages: remap(rda.squareMarketingImages),
-      logoImages: remap(rda.logoImages),
-      squareLogoImages: remap(rda.squareLogoImages),
-      youtubeVideos: remap(rda.youtubeVideos),
+      marketingImages: remap(rda.marketingImages, "marketing_images"),
+      squareMarketingImages: remap(rda.squareMarketingImages, "square_marketing_images"),
+      logoImages: remap(rda.logoImages, "logo_images"),
+      squareLogoImages: remap(rda.squareLogoImages, "square_logo_images"),
+      youtubeVideos: remap(rda.youtubeVideos, "youtube_videos"),
       callToActionText: rda.callToActionText,
       allowFlexibleColor: rda.allowFlexibleColor,
       accentColor: rda.accentColor,
@@ -694,9 +696,21 @@ function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean) 
       formatSetting: rda.formatSetting,
     }),
   });
-  // Validações mínimas RDA exige: ≥1 marketing img, ≥1 square marketing img, ≥1 logo (preferível), ≥1 headline, ≥1 description
+  if (missingAssets.length) debug.partial_failures.push({ step: "build_ad_asset_mapping", errors: missingAssets });
+  // RDA precisa ser reconstruído do zero com textos + imagens + logo + business name.
   const r = built.responsiveDisplayAd;
-  if (!r.marketingImages?.length || !r.squareMarketingImages?.length || !r.headlines?.length || !r.descriptions?.length) return null;
+  const missingFields = [];
+  if (!r.headlines?.length) missingFields.push("headlines");
+  if (!r.longHeadline) missingFields.push("long_headline");
+  if (!r.descriptions?.length) missingFields.push("descriptions");
+  if (!r.businessName) missingFields.push("business_name");
+  if (!r.marketingImages?.length) missingFields.push("marketing_images");
+  if (!r.squareMarketingImages?.length) missingFields.push("square_marketing_images");
+  if (!r.logoImages?.length && !r.squareLogoImages?.length) missingFields.push("logo_images");
+  if (missingFields.length) {
+    debug.partial_failures.push({ step: "build_responsive_display_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: missingFields });
+    return null;
+  }
   return built;
 }
 
