@@ -162,10 +162,14 @@ Deno.serve(async (req) => {
           if (legacyRevenue > 1) grossNative = legacyRevenue;
         }
 
-        const correctedGrossBrl = currency === "BRL" ? grossNative : grossNative * usdBrl;
-        const revenueAfterRevshare = correctedGrossBrl * NET_FACTOR;
+        // Receita armazenada na MOEDA NATIVA do GAM (USD ou BRL).
+        // Custos/lucro/eCPM continuam em BRL para reconciliação.
+        const grossNativeFinal = grossNative;
+        const netNative = grossNativeFinal * NET_FACTOR;
+        const correctedGrossBrl = currency === "BRL" ? grossNativeFinal : grossNativeFinal * usdBrl;
+        const revenueAfterRevshareBrl = correctedGrossBrl * NET_FACTOR;
         const viewability = measurable > 0 ? (viewable / measurable) * 100 : 0;
-        const ecpm = impressions > 0 ? (revenueAfterRevshare / impressions) * 1000 : 0;
+        const ecpm = impressions > 0 ? (revenueAfterRevshareBrl / impressions) * 1000 : 0;
 
         const facebookAdsCost = 0; // placeholder até integração FB
         const otherCost = 0;
