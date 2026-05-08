@@ -62,6 +62,21 @@ const RULES_DEFAULT: RulesConfig = {
   auto_pause_enabled: true,
   auto_boost_enabled: false,
   budget_increase_pct: 20,
+  auto_analysis_days: 15,
+  auto_stoploss_days: 7,
+  auto_stoploss_min_roi: -20,
+  auto_stoploss_min_cost: 0,
+  auto_scale_min_roi: 30,
+  auto_scale_budget_pct: 20,
+  auto_scale_interval_days: 3,
+  auto_cpa_up_pct: 10,
+  auto_cpa_down_pct: 10,
+  auto_cpa_review_days: 3,
+  auto_standby_enter_days: 7,
+  auto_standby_max_days: 14,
+  auto_standby_roi_low: 1,
+  auto_standby_roi_high: 10,
+  auto_standby_exit_roi: 10,
 };
 
 interface GuestStore {
