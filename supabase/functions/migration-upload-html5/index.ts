@@ -85,6 +85,31 @@ Deno.serve(async (req) => {
     if (dstAcc.login_customer_id) headers["login-customer-id"] = dstAcc.login_customer_id;
     const apiBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
 
+    // 0) Valida que o ad group destino ainda existe e não está removido
+    try {
+      const agRn = pending.destination_ad_group_resource as string;
+      const agId = agRn?.split("/").pop();
+      const searchRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          query: `SELECT ad_group.id, ad_group.status, campaign.status FROM ad_group WHERE ad_group.id = ${agId}`,
+        }),
+      });
+      const searchJ = await searchRes.json();
+      const row = searchJ?.results?.[0];
+      const agStatus = row?.adGroup?.status;
+      const campStatus = row?.campaign?.status;
+      if (!row || agStatus === "REMOVED" || campStatus === "REMOVED") {
+        const msg = !row
+          ? "ad group destino não encontrado (foi removido?)"
+          : `ad group ou campanha destino está REMOVED (ad_group=${agStatus}, campaign=${campStatus}). Recrie a campanha destino antes de subir o HTML5.`;
+        await admin.from("migration_pending_ads").update({ status: "failed", reason: msg }).eq("id", pending.id);
+        return json({ error: msg }, 400);
+      }
+    } catch (e) {
+      console.error("ad_group validation error:", (e as Error).message);
+    }
+
     // 1) Cria asset MEDIA_BUNDLE
     const assetCreate = {
       name: pending.source_ad_name ? `${pending.source_ad_name}-${Date.now()}` : `html5-${Date.now()}`,
@@ -123,9 +148,13 @@ Deno.serve(async (req) => {
     });
     const adJ = await adRes.json();
     if (!adRes.ok || !adJ?.results?.[0]?.resourceName) {
-      const msg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
-      await admin.from("migration_pending_ads").update({ reason: `asset criado mas ad falhou: ${msg}`, zip_storage_path: path }).eq("id", pending.id);
-      return json({ error: `asset OK porém adGroupAd falhou: ${msg}`, asset_resource: newAssetRn }, 500);
+      const rawMsg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
+      const isRemoved = /not allowed for removed resources/i.test(rawMsg);
+      const friendly = isRemoved
+        ? `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`
+        : rawMsg;
+      await admin.from("migration_pending_ads").update({ status: "failed", reason: `asset criado mas ad falhou: ${friendly}`, zip_storage_path: path }).eq("id", pending.id);
+      return json({ error: friendly, asset_resource: newAssetRn, removed_destination: isRemoved }, 400);
     }
 
     await admin.from("migration_pending_ads").update({
