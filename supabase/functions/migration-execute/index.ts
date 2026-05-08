@@ -339,6 +339,7 @@ async function runMigration(a: RunArgs) {
     }));
     const agContexts = agRows.map((row: any) => ({ source_ad_group_id: String(row.adGroup?.id), ad_group_name: row.adGroup?.name }));
     const agRes = await mutate(dstBase, dstHeaders, "adGroups", agOps, "ad_groups", agContexts);
+    if (agRes.errors?.length) debug.partial_failures.push({ step: "ad_groups", errors: agRes.errors });
     agRows.forEach((row: any, i: number) => {
       const rn = agRes.results[i]?.resourceName;
       if (rn) oldToNewAg.set(String(row.adGroup.id), rn);
@@ -427,8 +428,8 @@ async function runMigration(a: RunArgs) {
     const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
+    if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
     if (adsRes.created === 0) {
-      debug.partial_failures.push({ step: "ads", errors: normalizeGoogleErrors(adsRes.partialFailureError, adContexts) });
       const partial = await registerLocalPartial("ads_failed");
       return { ...partial, error: `ads falharam: ${extractError(adsRes.partialFailureError)}` };
     }
@@ -458,6 +459,17 @@ async function runMigration(a: RunArgs) {
       debug,
     };
   } catch (e) {
+    if (newCampResource && newCampId) {
+      await persistLocalCampaignAndFunnel(admin, {
+        userId,
+        dstSiteId: a.dstSiteId,
+        dstGoogleAccountId: a.dstAcc.id,
+        campaignId: newCampId,
+        campaignName: newName,
+        budgetMicros: newBudgetMicros,
+        initialBudget: a.initialBudget,
+      }).catch(() => {});
+    }
     return { ok: false, partial: !!newCampResource, new_campaign_id: newCampId || undefined, error: String((e as Error).message || e), debug };
   }
 }
