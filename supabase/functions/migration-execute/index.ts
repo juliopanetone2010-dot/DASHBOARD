@@ -435,6 +435,7 @@ async function runMigration(a: RunArgs) {
     // ===== Ads — com final_urls SOBRESCRITA =====
     const adOps: any[] = [];
     const adContexts: any[] = [];
+    const pendingAds: any[] = [];
     let adsSkipped = 0;
     for (const row of adRows) {
       const newAg = oldToNewAg.get(String(row.adGroup?.id));
@@ -442,6 +443,19 @@ async function runMigration(a: RunArgs) {
       const ad = row.adGroupAd?.ad ?? {};
       const built = buildAd(ad, assetMap, a.crossAccount, debug, row.adGroup?.id);
       if (!built) { adsSkipped++; debug.skipped[`ad_${ad.type ?? "UNK"}`] = (debug.skipped[`ad_${ad.type ?? "UNK"}`] ?? 0) + 1; continue; }
+      if (built.__pending) {
+        pendingAds.push({
+          destination_ad_group_resource: newAg,
+          destination_ad_group_name: row.adGroup?.name ?? null,
+          source_ad_id: String(ad.id ?? ""),
+          source_ad_name: built.name ?? ad.name ?? null,
+          source_ad_type: built.ad_type,
+          display_upload_product_type: built.display_upload_product_type ?? null,
+          source_bundle_asset: built.source_bundle_asset ?? null,
+          reason: built.reason ?? null,
+        });
+        continue;
+      }
       // Override final URL
       built.finalUrls = [a.finalUrl];
       delete built.finalMobileUrls;
@@ -450,29 +464,42 @@ async function runMigration(a: RunArgs) {
       });
       adContexts.push({ source_ad_group_id: String(row.adGroup?.id), source_ad_id: String(ad.id ?? ""), ad_name: ad.name ?? null });
     }
-    // Se não havia NENHUM ad enviado (todos pulados por tipo não suportado), nem chamamos a API
     let adsRes: any = { created: 0, errors: [], partialFailureError: null };
     if (adOps.length > 0) {
       adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
     }
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
+    debug.pending_ads = pendingAds.length;
     if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
-    if (adsRes.created === 0) {
-      const partial = await registerLocalPartial("ads_failed");
-      const skippedTypes = Object.entries(debug.skipped)
-        .filter(([k]) => k.startsWith("ad_"))
-        .map(([k, v]) => `${k.replace("ad_", "")}=${v}`)
-        .join(", ");
-      const apiErr = extractError(adsRes.partialFailureError);
-      const reason = adOps.length === 0
-        ? `nenhum ad foi enviado — tipos: ${skippedTypes || "0"}. RDA é replicado automaticamente; HTML5 (display upload) precisa ter o ZIP re-uploadado manualmente no ad group novo (a API do Google Ads não expõe os bytes do bundle).`
-        : `ads falharam: ${apiErr || "sem detalhe da API"}`;
-      return { ...partial, error: reason };
-    }
-    debug.steps.ads_created = true;
 
-    // ===== Persistência local =====
+    // Registra pending HTML5 ads no banco — não bloqueia migração
+    if (pendingAds.length > 0) {
+      const rows = pendingAds.map((p) => ({
+        user_id: userId,
+        migration_id: a.migrationId,
+        destination_google_account_id: a.dstAcc.id,
+        destination_customer_id: dstAcc.customer_id,
+        destination_campaign_id: newCampId,
+        destination_ad_group_resource: p.destination_ad_group_resource,
+        destination_ad_group_name: p.destination_ad_group_name,
+        source_ad_id: p.source_ad_id,
+        source_ad_name: p.source_ad_name,
+        source_ad_type: p.source_ad_type,
+        display_upload_product_type: p.display_upload_product_type,
+        source_bundle_asset: p.source_bundle_asset,
+        final_url: a.finalUrl,
+        final_url_suffix: a.finalUrlSuffix ?? null,
+        reason: p.reason,
+        status: "pending",
+      }));
+      const { error: pErr } = await admin.from("migration_pending_ads").insert(rows);
+      if (pErr) debug.partial_failures.push({ step: "persist_pending_ads", message: pErr.message });
+    }
+
+    debug.steps.ads_created = adsRes.created > 0;
+
+    // ===== Persistência local — sempre roda enquanto a campanha existir =====
     await persistLocalCampaignAndFunnel(admin, {
       userId,
       dstSiteId: a.dstSiteId,
@@ -483,16 +510,20 @@ async function runMigration(a: RunArgs) {
       initialBudget: a.initialBudget,
     });
 
-    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0;
+    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0 || pendingAds.length > 0;
+    const errorMsg = pendingAds.length > 0
+      ? `migração concluída com ${pendingAds.length} anúncio(s) HTML5 pendente(s) — faça upload manual do ZIP`
+      : hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null;
     return {
       ok: !hasPartialErrors,
       partial: hasPartialErrors,
-      error: hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null,
+      error: errorMsg,
       new_campaign_id: newCampId,
       new_campaign_name: newName,
       destination_customer_id: dstAcc.customer_id,
       ad_groups_cloned: oldToNewAg.size,
       ads_cloned: adsRes.created,
+      pending_ads: pendingAds.length,
       assets_reuploaded: a.crossAccount ? assetMap.size : 0,
       campaign_criteria_cloned: ccr.created,
       ad_group_criteria_cloned: agCritRes.created,
