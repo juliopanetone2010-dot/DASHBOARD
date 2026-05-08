@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownAZ, RefreshCw, ArrowRightLeft, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
