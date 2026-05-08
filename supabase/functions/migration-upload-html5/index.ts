@@ -148,9 +148,13 @@ Deno.serve(async (req) => {
     });
     const adJ = await adRes.json();
     if (!adRes.ok || !adJ?.results?.[0]?.resourceName) {
-      const msg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
-      await admin.from("migration_pending_ads").update({ reason: `asset criado mas ad falhou: ${msg}`, zip_storage_path: path }).eq("id", pending.id);
-      return json({ error: `asset OK porém adGroupAd falhou: ${msg}`, asset_resource: newAssetRn }, 500);
+      const rawMsg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
+      const isRemoved = /not allowed for removed resources/i.test(rawMsg);
+      const friendly = isRemoved
+        ? `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`
+        : rawMsg;
+      await admin.from("migration_pending_ads").update({ status: "failed", reason: `asset criado mas ad falhou: ${friendly}`, zip_storage_path: path }).eq("id", pending.id);
+      return json({ error: friendly, asset_resource: newAssetRn, removed_destination: isRemoved }, 400);
     }
 
     await admin.from("migration_pending_ads").update({
