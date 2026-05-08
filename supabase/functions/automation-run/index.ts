@@ -144,9 +144,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const strategyByCamp: Map<string, { strategyType: string; targetCpaMicros: number | null }> =
     (budgetSync as any).strategyByCamp ?? new Map();
 
+  // SAFEGUARD #1 — Antes de ler daily_metrics, força sincronização da receita GAM
+  // dos últimos `days` dias. Sem isto a automação pode rodar sobre dias com
+  // revenue=0 (ainda não sincronizado) e calcular ROI=-100%, pausando campanhas boas.
+  const revenueSync = await syncGamRevenueWindow(userId, siteId, fromIso, toIso);
+
   const { data: metrics } = await admin
     .from("daily_metrics")
-    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions")
+    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions, revenue")
     .eq("user_id", userId)
     .eq("google_account_id", accountId)
     .gte("date", fromIso)
@@ -157,13 +162,25 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     campaign_id: string; google_account_id: string;
     spend: number; grossRevBrl: number; days: Set<string>;
     daily: { date: string; spend: number; profit: number; roi: number }[];
+    skippedUnsyncedDays: number;
   }>();
   for (const r of metrics ?? []) {
     const cid = String(r.campaign_id);
     let agg = byCamp.get(cid);
-    if (!agg) { agg = { campaign_id: cid, google_account_id: accountId, spend: 0, grossRevBrl: 0, days: new Set(), daily: [] }; byCamp.set(cid, agg); }
+    if (!agg) { agg = { campaign_id: cid, google_account_id: accountId, spend: 0, grossRevBrl: 0, days: new Set(), daily: [], skippedUnsyncedDays: 0 }; byCamp.set(cid, agg); }
     const spend = Number(r.spend) || 0;
     const profit = Number(r.profit) || 0;
+    const revenue = Number(r.revenue) || 0;
+
+    // SAFEGUARD #2 — Dia com gasto > 0 mas receita=0 e profit=-spend é dia
+    // ainda NÃO sincronizado pelo GAM. Tratar como ROI=-100% pausaria campanhas
+    // saudáveis. Ignoramos esses dias do agregado (não entram em spend/revenue/days).
+    const isUnsynced = spend > 0 && revenue <= 0 && Math.abs(profit + spend) < 0.01;
+    if (isUnsynced) {
+      agg.skippedUnsyncedDays++;
+      continue;
+    }
+
     const grossRevBrl = spend + profit;
     agg.spend += spend;
     agg.grossRevBrl += grossRevBrl;
