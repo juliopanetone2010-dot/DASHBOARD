@@ -693,7 +693,8 @@ async function readCampaignCriteria(apiBase: string, headers: Record<string, str
     { label: "INCOME_RANGE", fields: "campaign_criterion.income_range.type" },
     { label: "PARENTAL_STATUS", fields: "campaign_criterion.parental_status.type" },
     { label: "USER_LIST", fields: "campaign_criterion.user_list.user_list" },
-    { label: "AUDIENCE", fields: "campaign_criterion.audience.audience" },
+    // AUDIENCE removido: campo 'campaign_criterion.audience.audience' não é selecionável no v21.
+    // Audience targeting geralmente vive em ad_group_criterion (já tratado).
     { label: "TOPIC", fields: "campaign_criterion.topic.topic_constant" },
     { label: "PLACEMENT", fields: "campaign_criterion.placement.url" },
   ];
