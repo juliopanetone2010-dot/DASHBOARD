@@ -1317,6 +1317,57 @@ export type Database = {
         }
         Relationships: []
       }
+      html5_bundle_library: {
+        Row: {
+          content_type: string | null
+          created_at: string
+          file_size: number | null
+          id: string
+          notes: string | null
+          source_ad_id: string | null
+          source_ad_name: string | null
+          source_campaign_id: string | null
+          source_campaign_name: string | null
+          source_google_account_id: string | null
+          updated_at: string
+          user_id: string
+          zip_filename: string | null
+          zip_storage_path: string
+        }
+        Insert: {
+          content_type?: string | null
+          created_at?: string
+          file_size?: number | null
+          id?: string
+          notes?: string | null
+          source_ad_id?: string | null
+          source_ad_name?: string | null
+          source_campaign_id?: string | null
+          source_campaign_name?: string | null
+          source_google_account_id?: string | null
+          updated_at?: string
+          user_id: string
+          zip_filename?: string | null
+          zip_storage_path: string
+        }
+        Update: {
+          content_type?: string | null
+          created_at?: string
+          file_size?: number | null
+          id?: string
+          notes?: string | null
+          source_ad_id?: string | null
+          source_ad_name?: string | null
+          source_campaign_id?: string | null
+          source_campaign_name?: string | null
+          source_google_account_id?: string | null
+          updated_at?: string
+          user_id?: string
+          zip_filename?: string | null
+          zip_storage_path?: string
+        }
+        Relationships: []
+      }
       migration_pending_ads: {
         Row: {
           created_at: string
