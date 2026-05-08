@@ -85,6 +85,31 @@ Deno.serve(async (req) => {
     if (dstAcc.login_customer_id) headers["login-customer-id"] = dstAcc.login_customer_id;
     const apiBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
 
+    // 0) Valida que o ad group destino ainda existe e não está removido
+    try {
+      const agRn = pending.destination_ad_group_resource as string;
+      const agId = agRn?.split("/").pop();
+      const searchRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          query: `SELECT ad_group.id, ad_group.status, campaign.status FROM ad_group WHERE ad_group.id = ${agId}`,
+        }),
+      });
+      const searchJ = await searchRes.json();
+      const row = searchJ?.results?.[0];
+      const agStatus = row?.adGroup?.status;
+      const campStatus = row?.campaign?.status;
+      if (!row || agStatus === "REMOVED" || campStatus === "REMOVED") {
+        const msg = !row
+          ? "ad group destino não encontrado (foi removido?)"
+          : `ad group ou campanha destino está REMOVED (ad_group=${agStatus}, campaign=${campStatus}). Recrie a campanha destino antes de subir o HTML5.`;
+        await admin.from("migration_pending_ads").update({ status: "failed", reason: msg }).eq("id", pending.id);
+        return json({ error: msg }, 400);
+      }
+    } catch (e) {
+      console.error("ad_group validation error:", (e as Error).message);
+    }
+
     // 1) Cria asset MEDIA_BUNDLE
     const assetCreate = {
       name: pending.source_ad_name ? `${pending.source_ad_name}-${Date.now()}` : `html5-${Date.now()}`,
