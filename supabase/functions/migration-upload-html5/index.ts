@@ -163,16 +163,29 @@ Deno.serve(async (req) => {
     const adJ = await adRes.json();
     if (!adRes.ok || !adJ?.results?.[0]?.resourceName) {
       const rawMsg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
+      const errCode = adJ?.error?.details?.[0]?.errors?.[0]?.errorCode || {};
+      console.error("[html5-upload] adGroupAds:mutate failed", JSON.stringify({
+        status: adRes.status, rawMsg, errCode,
+        operatingCustomerId, dstCustomerId: dstAcc.customer_id,
+        loginCustomerId: dstAcc.login_customer_id,
+        adGroup: pending.destination_ad_group_resource,
+        assetRn: newAssetRn,
+        fullError: adJ?.error,
+      }));
       const isRemoved = /not allowed for removed resources/i.test(rawMsg);
-      const isMutateNotAllowed = /Mutates are not allowed for the requested resource/i.test(rawMsg);
-      let friendly = rawMsg;
-      if (isRemoved) {
-        friendly = `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`;
-      } else if (isMutateNotAllowed) {
-        friendly = `Google Ads recusou o anúncio nessa conta destino (${dstAcc.account_name || dstAcc.customer_id}). Causas comuns: (1) a conta é uma MCC/manager, (2) está suspensa/cancelada, (3) está faltando login-customer-id correto. Verifique a conta destino no Google Ads.`;
-      }
+      const friendly = `Google Ads erro [${adRes.status}]: ${rawMsg}`;
       await admin.from("migration_pending_ads").update({ status: "failed", reason: `asset criado mas ad falhou: ${friendly}`, zip_storage_path: path }).eq("id", pending.id);
-      return json({ error: friendly, asset_resource: newAssetRn, removed_destination: isRemoved }, 400);
+      return json({
+        error: friendly,
+        raw: rawMsg,
+        google_error_code: errCode,
+        operating_customer_id: operatingCustomerId,
+        dst_customer_id: dstAcc.customer_id,
+        login_customer_id: dstAcc.login_customer_id,
+        ad_group_resource: pending.destination_ad_group_resource,
+        asset_resource: newAssetRn,
+        removed_destination: isRemoved,
+      }, 400);
     }
 
     await admin.from("migration_pending_ads").update({
