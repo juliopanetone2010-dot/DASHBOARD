@@ -111,6 +111,9 @@ export function MigrationTab() {
       <Tabs defaultValue="eligible">
         <TabsList>
           <TabsTrigger value="eligible">Elegíveis</TabsTrigger>
+          <TabsTrigger value="pending">
+            Pendentes HTML5{pendingQ.data && pendingQ.data.length > 0 ? ` (${pendingQ.data.length})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="history">Histórico</TabsTrigger>
         </TabsList>
 
