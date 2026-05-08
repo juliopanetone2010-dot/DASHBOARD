@@ -67,18 +67,10 @@ export function MigrationTab() {
     queryFn: async () => {
       const params = new URLSearchParams({ days: "15" });
       if (sourceAccountId !== "all") params.set("google_account_id", sourceAccountId);
-      const { data, error } = await supabase.functions.invoke("migration-list-eligible", {
-        method: "GET" as any,
-        // edge fn lê query params da URL — use full URL
-      } as any);
-      // Fallback: chamar via fetch direto pra passar query params
-      if (error || !data) {
-        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-list-eligible?${params}`;
-        const sess = (await supabase.auth.getSession()).data.session;
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${sess?.access_token}` } });
-        return (await r.json()) as { items: EligibleItem[] };
-      }
-      return data as { items: EligibleItem[] };
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-list-eligible?${params}`;
+      const sess = (await supabase.auth.getSession()).data.session;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${sess?.access_token}` } });
+      return (await r.json()) as { items: EligibleItem[] };
     },
   });
 
