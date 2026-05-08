@@ -557,6 +557,67 @@ async function removeCampaign(apiBase: string, headers: Record<string, string>, 
   }).catch(() => {});
 }
 
+async function persistLocalCampaignAndFunnel(admin: any, row: {
+  userId: string;
+  dstSiteId: string;
+  dstGoogleAccountId: string;
+  campaignId: string;
+  campaignName: string;
+  budgetMicros: number;
+  initialBudget: number;
+}) {
+  if (!row.campaignId) return;
+  await admin.from("campaigns").upsert({
+    user_id: row.userId,
+    google_account_id: row.dstGoogleAccountId,
+    campaign_id: row.campaignId,
+    name: row.campaignName,
+    status: "paused",
+    channel_type: "DISPLAY",
+    budget_micros: row.budgetMicros,
+  }, { onConflict: "user_id,google_account_id,campaign_id" });
+
+  await admin.from("campaign_funnel").upsert({
+    user_id: row.userId,
+    site_id: row.dstSiteId,
+    google_account_id: row.dstGoogleAccountId,
+    campaign_id: row.campaignId,
+    campaign_name: row.campaignName,
+    funnel_status: "learning",
+    entry_source: "migration",
+    initial_budget: row.initialBudget,
+    current_budget: row.initialBudget,
+  }, { onConflict: "user_id,campaign_id" });
+}
+
+function normalizeGoogleErrors(err: any, contexts: any[] = [], baseIndex = 0): any[] {
+  const details = err?.error?.details ?? err?.details ?? [];
+  const out: any[] = [];
+  for (const d of details) {
+    for (const e of d?.errors ?? []) {
+      const operationIndex = Number(e?.location?.fieldPathElements?.find((p: any) => p?.fieldName === "operations")?.index ?? NaN);
+      const localIndex = Number.isFinite(operationIndex) ? operationIndex : null;
+      const ctx = localIndex !== null ? contexts[localIndex] : undefined;
+      out.push({
+        operation_index: localIndex !== null ? baseIndex + localIndex : null,
+        field_path: fieldPath(e?.location?.fieldPathElements),
+        error_code: e?.errorCode ?? null,
+        message: e?.message ?? extractError(e),
+        trigger: e?.trigger ?? null,
+        context: ctx ?? null,
+        raw: e,
+      });
+    }
+  }
+  if (out.length) return out;
+  return [{ operation_index: null, field_path: null, message: extractError(err), raw: err }];
+}
+
+function fieldPath(parts: any[] | undefined): string | null {
+  if (!Array.isArray(parts)) return null;
+  return parts.map((p) => p?.index !== undefined ? `${p.fieldName}[${p.index}]` : p?.fieldName).filter(Boolean).join(".") || null;
+}
+
 async function readCampaignCriteria(apiBase: string, headers: Record<string, string>, campResource: string, debug: any) {
   const base = "campaign_criterion.resource_name, campaign_criterion.type, campaign_criterion.status, campaign_criterion.negative, campaign_criterion.bid_modifier";
   const queries = [
