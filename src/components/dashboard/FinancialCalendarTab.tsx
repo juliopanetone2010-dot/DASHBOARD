@@ -289,8 +289,8 @@ export function FinancialCalendarTab() {
                     <td className="px-2 py-2 uppercase text-xs">Total {MONTHS_PT[month - 1]}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.google)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.cost)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.gross)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.net)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.gross)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.net)}</td>
                     <td className={cn(
                       "px-2 py-2 text-right font-mono font-bold",
                       totals.profit >= 0 ? "text-success" : "text-destructive",
