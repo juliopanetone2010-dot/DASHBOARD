@@ -359,6 +359,14 @@ function MigrationDrawer({ item, accounts, sites, onClose, onSuccess }: DrawerPr
         },
       });
       if (error) throw new Error(error.message);
+      if ((data as any)?.partial) {
+        toast({
+          title: "Migração parcial criada",
+          description: `Campanha ${(data as any).new_campaign_id || "nova"} e ad groups mantidos. ${(data as any).error || "Revise os detalhes no histórico."}`,
+        });
+        onSuccess();
+        return;
+      }
       if (!(data as any)?.ok) throw new Error((data as any)?.error || "Falha desconhecida");
       toast({
         title: "Migrada com sucesso",
