@@ -274,6 +274,41 @@ export function MigrationTab() {
   );
 }
 
+function MigrationStepSummary({ result }: { result: any }) {
+  const steps = result?.debug?.steps;
+  if (!steps) return null;
+  const rows = [
+    ["Campanha", steps.campaign_created],
+    ["Ad groups", steps.ad_groups_created],
+    ["Assets", steps.assets_reuploaded || (Number(result?.assets_reuploaded) > 0)],
+    ["Ads", steps.ads_created || (Number(result?.ads_cloned) > 0)],
+  ] as const;
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+      {rows.map(([label, ok]) => (
+        <div key={label} className={ok ? "flex items-center gap-1 text-emerald-600" : "flex items-center gap-1 text-rose-600"}>
+          {ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+          {label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MigrationFailurePreview({ result }: { result: any }) {
+  const failures = result?.debug?.partial_failures;
+  if (!Array.isArray(failures) || failures.length === 0) return null;
+  const lines = failures.flatMap((f: any) => {
+    const errors = Array.isArray(f.errors) ? f.errors : [f];
+    return errors.map((e: any) => `${f.step || e.step || "erro"}: ${e.message || e.field_path || JSON.stringify(e).slice(0, 120)}`);
+  }).slice(0, 3);
+  return (
+    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+      {lines.map((line, i) => <div key={i} className="max-w-[320px] truncate" title={line}>{line}</div>)}
+    </div>
+  );
+}
+
 interface DrawerProps {
   item: EligibleItem | null;
   accounts: any[];
