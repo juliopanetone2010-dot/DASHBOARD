@@ -778,25 +778,45 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
   return { create: clean(create) };
 }
 
-function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
+function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string): any {
   // ===== HTML5 / display upload =====
   if (ad?.displayUploadAd) {
     const dua = ad.displayUploadAd;
     const sourceBundleRef = dua.mediaBundle?.asset;
     if (!sourceBundleRef) {
       debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["media_bundle"] });
-      return null;
+      return { __pending: true, ad_type: "DISPLAY_UPLOAD_AD", display_upload_product_type: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD", source_bundle_asset: null, reason: "media_bundle ausente na origem", name: ad.name };
     }
     const newBundle = crossAccount ? assetMap.get(sourceBundleRef) : sourceBundleRef;
     if (!newBundle) {
-      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceBundleRef, message: "media_bundle não foi re-uploadado" });
-      return null;
+      // Sem bytes do ZIP — registra como pendente p/ upload manual
+      return { __pending: true, ad_type: "DISPLAY_UPLOAD_AD", display_upload_product_type: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD", source_bundle_asset: sourceBundleRef, reason: "Google Ads não expõe os bytes do ZIP HTML5 (media_bundle write-only). Faça upload manual do .zip original.", name: ad.name };
     }
     return clean({
       name: ad.name,
       displayUploadAd: clean({
         displayUploadProductType: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD",
         mediaBundle: { asset: newBundle },
+      }),
+    });
+  }
+  // ===== IMAGE_AD =====
+  if (ad?.imageAd) {
+    const ia = ad.imageAd;
+    const sourceImg = ia.imageAsset?.asset;
+    if (!sourceImg) {
+      debug.partial_failures.push({ step: "build_image_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["image_asset"] });
+      return null;
+    }
+    const newImg = crossAccount ? assetMap.get(sourceImg) : sourceImg;
+    if (!newImg) {
+      debug.partial_failures.push({ step: "build_image_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceImg, message: "image_asset não foi re-uploadado" });
+      return null;
+    }
+    return clean({
+      name: ad.name,
+      imageAd: clean({
+        imageAsset: { asset: newImg },
       }),
     });
   }
