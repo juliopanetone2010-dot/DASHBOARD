@@ -915,8 +915,7 @@ async function reuploadAssets(
         SELECT asset.resource_name, asset.id, asset.type, asset.name,
                asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels,
                asset.image_asset.mime_type,
-               asset.youtube_video_asset.youtube_video_id,
-               asset.media_bundle_asset.url
+               asset.youtube_video_asset.youtube_video_id
         FROM asset
         WHERE asset.id IN (${ch.join(",")})
       `);
