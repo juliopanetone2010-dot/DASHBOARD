@@ -71,7 +71,8 @@ Deno.serve(async (req) => {
         );
         const sj = await sr.json();
         if (!sr.ok) {
-          out.push({ campaign_id: g.campaign_id, error: sj?.error?.message ?? JSON.stringify(sj) });
+          console.error("[undo] search err", g.campaign_id, JSON.stringify(sj));
+          out.push({ campaign_id: g.campaign_id, error: sj?.error?.message ?? JSON.stringify(sj), full: sj });
           failed += g.placements.length;
           continue;
         }
