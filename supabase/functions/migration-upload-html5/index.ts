@@ -155,9 +155,13 @@ Deno.serve(async (req) => {
     if (!adRes.ok || !adJ?.results?.[0]?.resourceName) {
       const rawMsg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
       const isRemoved = /not allowed for removed resources/i.test(rawMsg);
-      const friendly = isRemoved
-        ? `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`
-        : rawMsg;
+      const isMutateNotAllowed = /Mutates are not allowed for the requested resource/i.test(rawMsg);
+      let friendly = rawMsg;
+      if (isRemoved) {
+        friendly = `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`;
+      } else if (isMutateNotAllowed) {
+        friendly = `Google Ads recusou o anúncio nessa conta destino (${dstAcc.account_name || dstAcc.customer_id}). Causas comuns: (1) a conta é uma MCC/manager, (2) está suspensa/cancelada, (3) está faltando login-customer-id correto. Verifique a conta destino no Google Ads.`;
+      }
       await admin.from("migration_pending_ads").update({ status: "failed", reason: `asset criado mas ad falhou: ${friendly}`, zip_storage_path: path }).eq("id", pending.id);
       return json({ error: friendly, asset_resource: newAssetRn, removed_destination: isRemoved }, 400);
     }
