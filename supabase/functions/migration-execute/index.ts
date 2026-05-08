@@ -446,8 +446,11 @@ async function runMigration(a: RunArgs) {
       initialBudget: a.initialBudget,
     });
 
+    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0;
     return {
-      ok: true,
+      ok: !hasPartialErrors,
+      partial: hasPartialErrors,
+      error: hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null,
       new_campaign_id: newCampId,
       new_campaign_name: newName,
       destination_customer_id: dstAcc.customer_id,
