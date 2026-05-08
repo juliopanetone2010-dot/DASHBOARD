@@ -11,7 +11,7 @@ const NET_FACTOR = 0.935;
 
 // Parâmetros do fluxo
 const INITIAL_BUDGET_BRL = 40;
-const PHASE1_DAYS = 20;
+const PHASE1_DAYS = 4;
 const PHASE1_MIN_ROI = -30;
 const PHASE2_DAYS = 2;
 const PHASE2_BUDGET_PCT = 10;
