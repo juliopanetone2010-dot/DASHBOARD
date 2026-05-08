@@ -402,7 +402,8 @@ async function runMigration(a: RunArgs) {
     };
 
     if (a.crossAccount && assetRefs.size > 0 && assetMap.size === 0) {
-      return await registerLocalPartial("assets_failed");
+      const partial = await registerLocalPartial("assets_failed");
+      return { ...partial, error: "assets falharam: nenhum asset foi recriado na conta destino" };
     }
 
     // ===== Ads — com final_urls SOBRESCRITA =====
