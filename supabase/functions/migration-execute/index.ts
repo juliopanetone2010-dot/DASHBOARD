@@ -256,11 +256,15 @@ async function runMigration(a: RunArgs) {
   // O re-upload acontece só depois de campanha/ad groups criados para permitir modo safe parcial.
   const assetRefs = new Set<string>();
   for (const r of adRows) {
-    const rda = r.adGroupAd?.ad?.responsiveDisplayAd;
-    if (!rda) continue;
-    for (const list of [rda.marketingImages, rda.squareMarketingImages, rda.logoImages, rda.squareLogoImages, rda.youtubeVideos]) {
-      for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
+    const ad = r.adGroupAd?.ad;
+    const rda = ad?.responsiveDisplayAd;
+    if (rda) {
+      for (const list of [rda.marketingImages, rda.squareMarketingImages, rda.logoImages, rda.squareLogoImages, rda.youtubeVideos]) {
+        for (const it of list ?? []) if (it?.asset) assetRefs.add(it.asset);
+      }
     }
+    const dua = ad?.displayUploadAd;
+    if (dua?.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
   }
   debug.source.assets = assetRefs.size;
 
