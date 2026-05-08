@@ -435,13 +435,25 @@ async function runMigration(a: RunArgs) {
       });
       adContexts.push({ source_ad_group_id: String(row.adGroup?.id), source_ad_id: String(ad.id ?? ""), ad_name: ad.name ?? null });
     }
-    const adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
+    // Se não havia NENHUM ad enviado (todos pulados por tipo não suportado), nem chamamos a API
+    let adsRes: any = { created: 0, errors: [], partialFailureError: null };
+    if (adOps.length > 0) {
+      adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
+    }
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
     if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
     if (adsRes.created === 0) {
       const partial = await registerLocalPartial("ads_failed");
-      return { ...partial, error: `ads falharam: ${extractError(adsRes.partialFailureError)}` };
+      const skippedTypes = Object.entries(debug.skipped)
+        .filter(([k]) => k.startsWith("ad_"))
+        .map(([k, v]) => `${k.replace("ad_", "")}=${v}`)
+        .join(", ");
+      const apiErr = extractError(adsRes.partialFailureError);
+      const reason = adOps.length === 0
+        ? `nenhum ad foi enviado — tipos de ad não suportados pela migração (apenas RESPONSIVE_DISPLAY_AD é replicado). Origem tinha: ${skippedTypes || "0"}. Crie os ads manualmente na campanha nova.`
+        : `ads falharam: ${apiErr || "sem detalhe da API"}`;
+      return { ...partial, error: reason };
     }
     debug.steps.ads_created = true;
 
