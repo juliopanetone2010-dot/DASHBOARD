@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
       });
 
       await admin.from("campaign_migrations").update({
-        status: result.ok ? "success" : "failed",
+        status: result.ok ? "success" : result.partial ? "partial" : "failed",
         executed_at: new Date().toISOString(),
         destination_campaign_id: result.new_campaign_id || null,
         error: result.error || null,
@@ -165,7 +165,19 @@ async function runMigration(a: RunArgs) {
   const dstBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
 
   const srcCampResource = `customers/${srcAcc.customer_id}/campaigns/${srcCamp.campaign_id}`;
-  const debug: any = { source: {}, cloned: {}, skipped: {}, partial_failures: [], cross_account: a.crossAccount };
+  const debug: any = {
+    source: {},
+    cloned: {},
+    skipped: {},
+    steps: {
+      campaign_created: false,
+      ad_groups_created: false,
+      assets_reuploaded: false,
+      ads_created: false,
+    },
+    partial_failures: [],
+    cross_account: a.crossAccount,
+  };
 
   // 1) Lê config da campanha origem
   const cRows = await searchAll(srcBase, srcHeaders, `
@@ -306,10 +318,11 @@ async function runMigration(a: RunArgs) {
         negativeGeoTargetType: sourceGeoSetting.negativeGeoTargetType ?? "PRESENCE",
       };
     }
-    const campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create");
+    const campRes = await mutate(dstBase, dstHeaders, "campaigns", [{ create: campCreate }], "campaign_create", [{ campaign_name: newName }]);
     newCampResource = campRes.results[0]?.resourceName ?? "";
     newCampId = newCampResource.split("/").pop() ?? "";
     if (!newCampResource) return { ok: false, error: `campaign create: ${extractError(campRes.partialFailureError)}`, debug, payload: campCreate };
+    debug.steps.campaign_created = true;
 
     // ===== Campaign criteria (geo, language, device, audiences se mesma conta) =====
     const campCritOps: any[] = [];
@@ -332,7 +345,8 @@ async function runMigration(a: RunArgs) {
         type: row.adGroup.type ?? "DISPLAY_STANDARD",
       }),
     }));
-    const agRes = await mutate(dstBase, dstHeaders, "adGroups", agOps, "ad_groups");
+    const agContexts = agRows.map((row: any) => ({ source_ad_group_id: String(row.adGroup?.id), ad_group_name: row.adGroup?.name }));
+    const agRes = await mutate(dstBase, dstHeaders, "adGroups", agOps, "ad_groups", agContexts);
     agRows.forEach((row: any, i: number) => {
       const rn = agRes.results[i]?.resourceName;
       if (rn) oldToNewAg.set(String(row.adGroup.id), rn);
@@ -342,6 +356,7 @@ async function runMigration(a: RunArgs) {
       await removeCampaign(dstBase, dstHeaders, newCampResource);
       return { ok: false, error: `ad groups falharam: ${extractError(agRes.partialFailureError)}`, debug };
     }
+    debug.steps.ad_groups_created = true;
 
     // ===== Ad group criteria =====
     const agCritOps: any[] = [];
