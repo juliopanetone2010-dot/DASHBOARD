@@ -306,7 +306,9 @@ async function runMigration(a: RunArgs) {
       maximizeConversions: {},
     };
     if (a.trackingTemplate) campCreate.trackingUrlTemplate = a.trackingTemplate;
-    if (a.finalUrlSuffix) campCreate.finalUrlSuffix = a.finalUrlSuffix;
+    // UTM padrão SEMPRE aplicado a nível de campanha (sobrescreve o input se vier)
+    const DEFAULT_UTM_SUFFIX = "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
+    campCreate.finalUrlSuffix = a.finalUrlSuffix && a.finalUrlSuffix.trim().length > 0 ? a.finalUrlSuffix : DEFAULT_UTM_SUFFIX;
     if (sourceGeoSetting) {
       campCreate.geoTargetTypeSetting = {
         positiveGeoTargetType: sourceGeoSetting.positiveGeoTargetType ?? "PRESENCE_OR_INTEREST",
