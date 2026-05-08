@@ -827,14 +827,11 @@ async function reuploadAssets(
     const asset = srcAssets.get(id);
     if (!asset) { skipped++; continue; }
     try {
-      if (asset.type === "IMAGE" && (asset.imageAsset?.data || asset.imageAsset?.fullSize?.url)) {
-        let b64 = asset.imageAsset?.data;
-        if (!b64 && asset.imageAsset?.fullSize?.url) {
-          const imgRes = await fetch(asset.imageAsset.fullSize.url);
-          if (!imgRes.ok) { skipped++; errors.push({ step: "download_image", source_asset: ref, asset_id: id, http_status: imgRes.status, message: `HTTP ${imgRes.status}` }); continue; }
-          const buf = new Uint8Array(await imgRes.arrayBuffer());
-          b64 = base64Encode(buf);
-        }
+      if (asset.type === "IMAGE" && asset.imageAsset?.fullSize?.url) {
+        const imgRes = await fetch(asset.imageAsset.fullSize.url);
+        if (!imgRes.ok) { skipped++; errors.push({ step: "download_image", source_asset: ref, asset_id: id, http_status: imgRes.status, message: `HTTP ${imgRes.status}` }); continue; }
+        const buf = new Uint8Array(await imgRes.arrayBuffer());
+        const b64 = base64Encode(buf);
         const create: any = {
           name: asset.name || `migrated-${id}-${Date.now()}`,
           type: "IMAGE",
