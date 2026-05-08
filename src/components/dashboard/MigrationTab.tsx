@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDownAZ, RefreshCw, ArrowRightLeft, AlertCircle } from "lucide-react";
+import { ArrowDownAZ, RefreshCw, ArrowRightLeft, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -236,15 +236,17 @@ export function MigrationTab() {
                             <div className="text-xs text-muted-foreground">novo: {m.destination_campaign_id}</div>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-[220px]">
                           <Badge
                             variant={m.status === "success" ? "default" : m.status === "failed" ? "destructive" : "secondary"}
                           >
                             {m.status}
                           </Badge>
+                          <MigrationStepSummary result={m.result} />
                           {m.error && (
                             <div className="text-xs text-rose-600 max-w-[260px] truncate" title={m.error}>{m.error}</div>
                           )}
+                          <MigrationFailurePreview result={m.result} />
                         </TableCell>
                         <TableCell className="text-xs max-w-[280px] truncate" title={m.final_url}>{m.final_url}</TableCell>
                       </TableRow>
