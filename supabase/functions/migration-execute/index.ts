@@ -961,13 +961,39 @@ async function reuploadAssets(
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "MEDIA_BUNDLE") {
-        // Google Ads API NÃO expõe os bytes do ZIP do HTML5 (write-only).
-        // Não é possível baixar e re-uploadar. Marca como pendente para upload manual.
+        // Best-effort: tenta o recurso legado media_file que historicamente expõe bytes.
+        // Em geral falha (campo write-only) — quando isso acontece o ad fica pendente para upload manual.
+        let bundleBytes: Uint8Array | null = null;
+        try {
+          const mfRows = await searchAll(srcBase, srcHeaders, `
+            SELECT media_file.id, media_file.type, media_file.media_bundle.data
+            FROM media_file
+            WHERE media_file.id = ${id}
+          `);
+          const data = mfRows[0]?.mediaFile?.mediaBundle?.data;
+          if (typeof data === "string" && data.length > 0) {
+            const bin = atob(data);
+            const arr = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+            bundleBytes = arr;
+          }
+        } catch (_) { /* media_file pode não estar disponível na conta — fallback seguro */ }
+        if (bundleBytes) {
+          const create: any = {
+            name: asset.name || `migrated-html5-${id}-${Date.now()}`,
+            type: "MEDIA_BUNDLE",
+            mediaBundleAsset: { data: base64Encode(bundleBytes) },
+          };
+          const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_bundle_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
+          const newRn = r.results[0]?.resourceName;
+          if (newRn) { map.set(ref, newRn); continue; }
+          errors.push({ step: "upload_media_bundle", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) });
+        }
         skipped++;
         errors.push({
           step: "html5_bundle_not_portable",
           source_asset: ref, asset_id: id, asset_type: asset.type,
-          message: "Bundle HTML5 não pode ser baixado pela API (write-only). Faça o re-upload manual do ZIP no ad group da nova campanha.",
+          message: "Bundle HTML5 não foi recuperado automaticamente (API do Google é write-only). Anúncio ficou pendente — use o botão de upload manual.",
         });
       } else {
         skipped++;
