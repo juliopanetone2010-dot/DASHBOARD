@@ -264,7 +264,10 @@ async function runMigration(a: RunArgs) {
 
   // ===== Cria budget na conta destino =====
   const seed = Date.now();
-  const newName = `${srcCamp.name} ${a.nameSuffix}`.slice(0, 250);
+  // Inclui seed no nome para evitar DUPLICATE_CAMPAIGN_NAME ao migrar a mesma campanha mais de uma vez
+  const stamp = new Date(seed).toISOString().slice(5, 16).replace(/[-T:]/g, "");
+  const baseName = `${srcCamp.name} ${a.nameSuffix}`.slice(0, 230);
+  let newName = `${baseName} ${stamp}`.slice(0, 250);
   const newBudgetMicros = Math.round(a.initialBudget * 1_000_000);
   let newCampResource = "";
   let newCampId = "";
