@@ -467,9 +467,81 @@ async function runMigration(a: RunArgs) {
     debug.pending_ads = pendingAds.length;
     if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
 
-    // Registra pending HTML5 ads no banco — não bloqueia migração
+    // ===== Auto-uso da biblioteca HTML5: tenta resolver pendings com ZIPs já salvos =====
+    let autoResolved = 0;
+    const stillPending: any[] = [];
     if (pendingAds.length > 0) {
-      const rows = pendingAds.map((p) => ({
+      const adIds = pendingAds.map((p) => p.source_ad_id).filter(Boolean);
+      const adNames = pendingAds.map((p) => p.source_ad_name).filter(Boolean);
+      const { data: libRows } = await admin
+        .from("html5_bundle_library")
+        .select("id, source_ad_id, source_ad_name, zip_storage_path, zip_filename")
+        .eq("user_id", userId)
+        .or([
+          adIds.length ? `source_ad_id.in.(${adIds.map((x) => `"${x}"`).join(",")})` : "",
+          adNames.length ? `source_ad_name.in.(${adNames.map((x) => `"${String(x).replace(/"/g, '\\"')}"`).join(",")})` : "",
+        ].filter(Boolean).join(","));
+
+      const byAdId = new Map<string, any>();
+      const byAdName = new Map<string, any>();
+      (libRows ?? []).forEach((r: any) => {
+        if (r.source_ad_id) byAdId.set(r.source_ad_id, r);
+        if (r.source_ad_name) byAdName.set(r.source_ad_name, r);
+      });
+
+      for (const p of pendingAds) {
+        const lib = (p.source_ad_id && byAdId.get(p.source_ad_id)) || (p.source_ad_name && byAdName.get(p.source_ad_name));
+        if (!lib) { stillPending.push(p); continue; }
+        try {
+          const dl = await admin.storage.from("html5-bundles").download(lib.zip_storage_path);
+          if (dl.error || !dl.data) { stillPending.push({ ...p, reason: `${p.reason || ""} (lib: download falhou)` }); continue; }
+          const buf = new Uint8Array(await dl.data.arrayBuffer());
+          let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+          const b64 = btoa(bin);
+
+          // 1) cria asset MEDIA_BUNDLE
+          const aR = await fetch(`${dstBase}/assets:mutate`, {
+            method: "POST", headers: dstHeaders,
+            body: JSON.stringify({ operations: [{ create: { name: `${p.source_ad_name || "html5"}-${Date.now()}`, type: "MEDIA_BUNDLE", mediaBundleAsset: { data: b64 } } }] }),
+          });
+          const aJ = await aR.json();
+          const newAssetRn = aJ?.results?.[0]?.resourceName;
+          if (!aR.ok || !newAssetRn) { stillPending.push({ ...p, reason: `lib asset falhou: ${aJ?.error?.message || "?"}` }); continue; }
+
+          // 2) cria adGroupAd
+          const adR = await fetch(`${dstBase}/adGroupAds:mutate`, {
+            method: "POST", headers: dstHeaders,
+            body: JSON.stringify({ operations: [{ create: {
+              adGroup: p.destination_ad_group_resource,
+              status: "ENABLED",
+              ad: {
+                name: p.source_ad_name || `html5-${Date.now()}`,
+                finalUrls: [a.finalUrl],
+                ...(a.finalUrlSuffix ? { finalUrlSuffix: a.finalUrlSuffix } : {}),
+                displayUploadAd: {
+                  displayUploadProductType: p.display_upload_product_type || "HTML5_UPLOAD_AD",
+                  mediaBundle: { asset: newAssetRn },
+                },
+              },
+            } }] }),
+          });
+          const adJ = await adR.json();
+          if (!adR.ok || !adJ?.results?.[0]?.resourceName) {
+            stillPending.push({ ...p, reason: `lib ad falhou: ${adJ?.error?.message || "?"}` });
+            continue;
+          }
+          autoResolved++;
+        } catch (e) {
+          stillPending.push({ ...p, reason: `lib exception: ${(e as Error).message}` });
+        }
+      }
+    }
+    debug.html5_auto_resolved = autoResolved;
+    debug.pending_ads = stillPending.length;
+
+    // Registra pending HTML5 ads no banco — não bloqueia migração
+    if (stillPending.length > 0) {
+      const rows = stillPending.map((p) => ({
         user_id: userId,
         migration_id: a.migrationId,
         destination_google_account_id: a.dstAcc.id,
@@ -490,6 +562,8 @@ async function runMigration(a: RunArgs) {
       const { error: pErr } = await admin.from("migration_pending_ads").insert(rows);
       if (pErr) debug.partial_failures.push({ step: "persist_pending_ads", message: pErr.message });
     }
+    // reescreve pendingAds para o resto da função usar a lista pós-auto
+    pendingAds.length = 0; pendingAds.push(...stillPending);
 
     debug.steps.ads_created = adsRes.created > 0;
 
