@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
         const query = `SELECT campaign_criterion.resource_name, campaign_criterion.placement.url, campaign_criterion.mobile_application.app_id, campaign_criterion.type, campaign_criterion.negative FROM campaign_criterion WHERE campaign.id = ${g.campaign_id} AND campaign_criterion.negative = TRUE AND campaign_criterion.type IN ('PLACEMENT','MOBILE_APPLICATION')`;
         const sr = await fetch(
           `https://googleads.googleapis.com/v21/customers/${g.acc.customer_id}/googleAds:search`,
-          { method: "POST", headers, body: JSON.stringify({ query, pageSize: 1000 }) },
+          { method: "POST", headers, body: JSON.stringify({ query }) },
         );
         const sj = await sr.json();
         if (!sr.ok) {
