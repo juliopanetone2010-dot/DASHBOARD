@@ -237,7 +237,12 @@ async function runMigration(a: RunArgs) {
            ad_group_ad.ad.responsive_display_ad.main_color,
            ad_group_ad.ad.responsive_display_ad.format_setting,
            ad_group_ad.ad.display_upload_ad.media_bundle,
-           ad_group_ad.ad.display_upload_ad.display_upload_product_type
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type,
+           ad_group_ad.ad.image_ad.image_asset,
+           ad_group_ad.ad.image_ad.name,
+           ad_group_ad.ad.image_ad.mime_type,
+           ad_group_ad.ad.image_ad.pixel_width,
+           ad_group_ad.ad.image_ad.pixel_height
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${srcAgRefs}) AND ad_group_ad.status != 'REMOVED'
   `);
@@ -265,6 +270,8 @@ async function runMigration(a: RunArgs) {
     }
     const dua = ad?.displayUploadAd;
     if (dua?.mediaBundle?.asset) assetRefs.add(dua.mediaBundle.asset);
+    const ia = ad?.imageAd;
+    if (ia?.imageAsset?.asset) assetRefs.add(ia.imageAsset.asset);
   }
   debug.source.assets = assetRefs.size;
 
@@ -428,6 +435,7 @@ async function runMigration(a: RunArgs) {
     // ===== Ads — com final_urls SOBRESCRITA =====
     const adOps: any[] = [];
     const adContexts: any[] = [];
+    const pendingAds: any[] = [];
     let adsSkipped = 0;
     for (const row of adRows) {
       const newAg = oldToNewAg.get(String(row.adGroup?.id));
@@ -435,6 +443,19 @@ async function runMigration(a: RunArgs) {
       const ad = row.adGroupAd?.ad ?? {};
       const built = buildAd(ad, assetMap, a.crossAccount, debug, row.adGroup?.id);
       if (!built) { adsSkipped++; debug.skipped[`ad_${ad.type ?? "UNK"}`] = (debug.skipped[`ad_${ad.type ?? "UNK"}`] ?? 0) + 1; continue; }
+      if (built.__pending) {
+        pendingAds.push({
+          destination_ad_group_resource: newAg,
+          destination_ad_group_name: row.adGroup?.name ?? null,
+          source_ad_id: String(ad.id ?? ""),
+          source_ad_name: built.name ?? ad.name ?? null,
+          source_ad_type: built.ad_type,
+          display_upload_product_type: built.display_upload_product_type ?? null,
+          source_bundle_asset: built.source_bundle_asset ?? null,
+          reason: built.reason ?? null,
+        });
+        continue;
+      }
       // Override final URL
       built.finalUrls = [a.finalUrl];
       delete built.finalMobileUrls;
@@ -443,29 +464,42 @@ async function runMigration(a: RunArgs) {
       });
       adContexts.push({ source_ad_group_id: String(row.adGroup?.id), source_ad_id: String(ad.id ?? ""), ad_name: ad.name ?? null });
     }
-    // Se não havia NENHUM ad enviado (todos pulados por tipo não suportado), nem chamamos a API
     let adsRes: any = { created: 0, errors: [], partialFailureError: null };
     if (adOps.length > 0) {
       adsRes = await mutate(dstBase, dstHeaders, "adGroupAds", adOps, "ads", adContexts);
     }
     debug.cloned.ads = adsRes.created;
     debug.skipped.ads = adsSkipped;
+    debug.pending_ads = pendingAds.length;
     if (adsRes.errors?.length) debug.partial_failures.push({ step: "ads", errors: adsRes.errors });
-    if (adsRes.created === 0) {
-      const partial = await registerLocalPartial("ads_failed");
-      const skippedTypes = Object.entries(debug.skipped)
-        .filter(([k]) => k.startsWith("ad_"))
-        .map(([k, v]) => `${k.replace("ad_", "")}=${v}`)
-        .join(", ");
-      const apiErr = extractError(adsRes.partialFailureError);
-      const reason = adOps.length === 0
-        ? `nenhum ad foi enviado — tipos: ${skippedTypes || "0"}. RDA é replicado automaticamente; HTML5 (display upload) precisa ter o ZIP re-uploadado manualmente no ad group novo (a API do Google Ads não expõe os bytes do bundle).`
-        : `ads falharam: ${apiErr || "sem detalhe da API"}`;
-      return { ...partial, error: reason };
-    }
-    debug.steps.ads_created = true;
 
-    // ===== Persistência local =====
+    // Registra pending HTML5 ads no banco — não bloqueia migração
+    if (pendingAds.length > 0) {
+      const rows = pendingAds.map((p) => ({
+        user_id: userId,
+        migration_id: a.migrationId,
+        destination_google_account_id: a.dstAcc.id,
+        destination_customer_id: dstAcc.customer_id,
+        destination_campaign_id: newCampId,
+        destination_ad_group_resource: p.destination_ad_group_resource,
+        destination_ad_group_name: p.destination_ad_group_name,
+        source_ad_id: p.source_ad_id,
+        source_ad_name: p.source_ad_name,
+        source_ad_type: p.source_ad_type,
+        display_upload_product_type: p.display_upload_product_type,
+        source_bundle_asset: p.source_bundle_asset,
+        final_url: a.finalUrl,
+        final_url_suffix: a.finalUrlSuffix ?? null,
+        reason: p.reason,
+        status: "pending",
+      }));
+      const { error: pErr } = await admin.from("migration_pending_ads").insert(rows);
+      if (pErr) debug.partial_failures.push({ step: "persist_pending_ads", message: pErr.message });
+    }
+
+    debug.steps.ads_created = adsRes.created > 0;
+
+    // ===== Persistência local — sempre roda enquanto a campanha existir =====
     await persistLocalCampaignAndFunnel(admin, {
       userId,
       dstSiteId: a.dstSiteId,
@@ -476,16 +510,20 @@ async function runMigration(a: RunArgs) {
       initialBudget: a.initialBudget,
     });
 
-    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0;
+    const hasPartialErrors = (adsRes.errors?.length ?? 0) > 0 || (debug.asset_errors?.length ?? 0) > 0 || pendingAds.length > 0;
+    const errorMsg = pendingAds.length > 0
+      ? `migração concluída com ${pendingAds.length} anúncio(s) HTML5 pendente(s) — faça upload manual do ZIP`
+      : hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null;
     return {
       ok: !hasPartialErrors,
       partial: hasPartialErrors,
-      error: hasPartialErrors ? "migração parcial: alguns assets/ads falharam" : null,
+      error: errorMsg,
       new_campaign_id: newCampId,
       new_campaign_name: newName,
       destination_customer_id: dstAcc.customer_id,
       ad_groups_cloned: oldToNewAg.size,
       ads_cloned: adsRes.created,
+      pending_ads: pendingAds.length,
       assets_reuploaded: a.crossAccount ? assetMap.size : 0,
       campaign_criteria_cloned: ccr.created,
       ad_group_criteria_cloned: agCritRes.created,
@@ -771,25 +809,45 @@ function buildCriterionOp(scope: "campaign" | "adGroup", c: any, parent: string,
   return { create: clean(create) };
 }
 
-function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string) {
+function buildAd(ad: any, assetMap: Map<string, string>, crossAccount: boolean, debug: any, sourceAdGroupId: string): any {
   // ===== HTML5 / display upload =====
   if (ad?.displayUploadAd) {
     const dua = ad.displayUploadAd;
     const sourceBundleRef = dua.mediaBundle?.asset;
     if (!sourceBundleRef) {
       debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["media_bundle"] });
-      return null;
+      return { __pending: true, ad_type: "DISPLAY_UPLOAD_AD", display_upload_product_type: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD", source_bundle_asset: null, reason: "media_bundle ausente na origem", name: ad.name };
     }
     const newBundle = crossAccount ? assetMap.get(sourceBundleRef) : sourceBundleRef;
     if (!newBundle) {
-      debug.partial_failures.push({ step: "build_display_upload_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceBundleRef, message: "media_bundle não foi re-uploadado" });
-      return null;
+      // Sem bytes do ZIP — registra como pendente p/ upload manual
+      return { __pending: true, ad_type: "DISPLAY_UPLOAD_AD", display_upload_product_type: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD", source_bundle_asset: sourceBundleRef, reason: "Google Ads não expõe os bytes do ZIP HTML5 (media_bundle write-only). Faça upload manual do .zip original.", name: ad.name };
     }
     return clean({
       name: ad.name,
       displayUploadAd: clean({
         displayUploadProductType: dua.displayUploadProductType ?? "HTML5_UPLOAD_AD",
         mediaBundle: { asset: newBundle },
+      }),
+    });
+  }
+  // ===== IMAGE_AD =====
+  if (ad?.imageAd) {
+    const ia = ad.imageAd;
+    const sourceImg = ia.imageAsset?.asset;
+    if (!sourceImg) {
+      debug.partial_failures.push({ step: "build_image_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), missing_fields: ["image_asset"] });
+      return null;
+    }
+    const newImg = crossAccount ? assetMap.get(sourceImg) : sourceImg;
+    if (!newImg) {
+      debug.partial_failures.push({ step: "build_image_ad", source_ad_group_id: String(sourceAdGroupId ?? ""), source_ad_id: String(ad.id ?? ""), source_asset: sourceImg, message: "image_asset não foi re-uploadado" });
+      return null;
+    }
+    return clean({
+      name: ad.name,
+      imageAd: clean({
+        imageAsset: { asset: newImg },
       }),
     });
   }
@@ -903,13 +961,39 @@ async function reuploadAssets(
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "MEDIA_BUNDLE") {
-        // Google Ads API NÃO expõe os bytes do ZIP do HTML5 (write-only).
-        // Não é possível baixar e re-uploadar. Marca como pendente para upload manual.
+        // Best-effort: tenta o recurso legado media_file que historicamente expõe bytes.
+        // Em geral falha (campo write-only) — quando isso acontece o ad fica pendente para upload manual.
+        let bundleBytes: Uint8Array | null = null;
+        try {
+          const mfRows = await searchAll(srcBase, srcHeaders, `
+            SELECT media_file.id, media_file.type, media_file.media_bundle.data
+            FROM media_file
+            WHERE media_file.id = ${id}
+          `);
+          const data = mfRows[0]?.mediaFile?.mediaBundle?.data;
+          if (typeof data === "string" && data.length > 0) {
+            const bin = atob(data);
+            const arr = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+            bundleBytes = arr;
+          }
+        } catch (_) { /* media_file pode não estar disponível na conta — fallback seguro */ }
+        if (bundleBytes) {
+          const create: any = {
+            name: asset.name || `migrated-html5-${id}-${Date.now()}`,
+            type: "MEDIA_BUNDLE",
+            mediaBundleAsset: { data: base64Encode(bundleBytes) },
+          };
+          const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_bundle_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
+          const newRn = r.results[0]?.resourceName;
+          if (newRn) { map.set(ref, newRn); continue; }
+          errors.push({ step: "upload_media_bundle", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) });
+        }
         skipped++;
         errors.push({
           step: "html5_bundle_not_portable",
           source_asset: ref, asset_id: id, asset_type: asset.type,
-          message: "Bundle HTML5 não pode ser baixado pela API (write-only). Faça o re-upload manual do ZIP no ad group da nova campanha.",
+          message: "Bundle HTML5 não foi recuperado automaticamente (API do Google é write-only). Anúncio ficou pendente — use o botão de upload manual.",
         });
       } else {
         skipped++;

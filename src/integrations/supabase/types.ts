@@ -1317,6 +1317,89 @@ export type Database = {
         }
         Relationships: []
       }
+      migration_pending_ads: {
+        Row: {
+          created_at: string
+          destination_ad_group_name: string | null
+          destination_ad_group_resource: string
+          destination_campaign_id: string
+          destination_customer_id: string
+          destination_google_account_id: string | null
+          display_upload_product_type: string | null
+          final_url: string
+          final_url_suffix: string | null
+          id: string
+          migration_id: string
+          reason: string | null
+          resolved_at: string | null
+          source_ad_id: string | null
+          source_ad_name: string | null
+          source_ad_type: string
+          source_bundle_asset: string | null
+          status: string
+          updated_at: string
+          uploaded_ad_resource: string | null
+          user_id: string
+          zip_storage_path: string | null
+        }
+        Insert: {
+          created_at?: string
+          destination_ad_group_name?: string | null
+          destination_ad_group_resource: string
+          destination_campaign_id: string
+          destination_customer_id: string
+          destination_google_account_id?: string | null
+          display_upload_product_type?: string | null
+          final_url: string
+          final_url_suffix?: string | null
+          id?: string
+          migration_id: string
+          reason?: string | null
+          resolved_at?: string | null
+          source_ad_id?: string | null
+          source_ad_name?: string | null
+          source_ad_type: string
+          source_bundle_asset?: string | null
+          status?: string
+          updated_at?: string
+          uploaded_ad_resource?: string | null
+          user_id: string
+          zip_storage_path?: string | null
+        }
+        Update: {
+          created_at?: string
+          destination_ad_group_name?: string | null
+          destination_ad_group_resource?: string
+          destination_campaign_id?: string
+          destination_customer_id?: string
+          destination_google_account_id?: string | null
+          display_upload_product_type?: string | null
+          final_url?: string
+          final_url_suffix?: string | null
+          id?: string
+          migration_id?: string
+          reason?: string | null
+          resolved_at?: string | null
+          source_ad_id?: string | null
+          source_ad_name?: string | null
+          source_ad_type?: string
+          source_bundle_asset?: string | null
+          status?: string
+          updated_at?: string
+          uploaded_ad_resource?: string | null
+          user_id?: string
+          zip_storage_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "migration_pending_ads_migration_id_fkey"
+            columns: ["migration_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_migrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       placement_actions: {
         Row: {
           action: string
