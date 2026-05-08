@@ -915,7 +915,8 @@ async function reuploadAssets(
         SELECT asset.resource_name, asset.id, asset.type, asset.name,
                asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels,
                asset.image_asset.mime_type,
-               asset.youtube_video_asset.youtube_video_id
+               asset.youtube_video_asset.youtube_video_id,
+               asset.media_bundle_asset.url
         FROM asset
         WHERE asset.id IN (${ch.join(",")})
       `);
@@ -956,24 +957,24 @@ async function reuploadAssets(
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "MEDIA_BUNDLE") {
-        // Best-effort: tenta o recurso legado media_file que historicamente expõe bytes.
-        // Em geral falha (campo write-only) — quando isso acontece o ad fica pendente para upload manual.
+        // O Google expõe o ZIP do bundle HTML5 em asset.media_bundle_asset.url
+        // (campo output-only, URL pública tipo https://tpc.googlesyndication.com/simgad/...)
+        // Igual ao que o Google Ads Editor usa pra copiar entre contas.
         let bundleBytes: Uint8Array | null = null;
-        try {
-          const mfRows = await searchAll(srcBase, srcHeaders, `
-            SELECT media_file.id, media_file.type, media_file.media_bundle.data
-            FROM media_file
-            WHERE media_file.id = ${id}
-          `);
-          const data = mfRows[0]?.mediaFile?.mediaBundle?.data;
-          if (typeof data === "string" && data.length > 0) {
-            const bin = atob(data);
-            const arr = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-            bundleBytes = arr;
+        const bundleUrl: string | undefined = asset.mediaBundleAsset?.url;
+        if (bundleUrl) {
+          try {
+            const bRes = await fetch(bundleUrl);
+            if (bRes.ok) {
+              bundleBytes = new Uint8Array(await bRes.arrayBuffer());
+            } else {
+              errors.push({ step: "download_media_bundle", source_asset: ref, asset_id: id, http_status: bRes.status, message: `HTTP ${bRes.status} ao baixar ${bundleUrl}` });
+            }
+          } catch (e) {
+            errors.push({ step: "download_media_bundle", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
           }
-        } catch (_) { /* media_file pode não estar disponível na conta — fallback seguro */ }
-        if (bundleBytes) {
+        }
+        if (bundleBytes && bundleBytes.length > 0) {
           const create: any = {
             name: asset.name || `migrated-html5-${id}-${Date.now()}`,
             type: "MEDIA_BUNDLE",
@@ -985,11 +986,13 @@ async function reuploadAssets(
           errors.push({ step: "upload_media_bundle", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) });
         }
         skipped++;
-        errors.push({
-          step: "html5_bundle_not_portable",
-          source_asset: ref, asset_id: id, asset_type: asset.type,
-          message: "Bundle HTML5 não foi recuperado automaticamente (API do Google é write-only). Anúncio ficou pendente — use o botão de upload manual.",
-        });
+        if (!bundleUrl) {
+          errors.push({
+            step: "html5_bundle_no_url",
+            source_asset: ref, asset_id: id, asset_type: asset.type,
+            message: "Bundle HTML5 não expôs URL pública. Anúncio ficou pendente — use o botão de upload manual.",
+          });
+        }
       } else {
         skipped++;
         errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
