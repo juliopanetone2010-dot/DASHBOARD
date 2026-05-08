@@ -627,7 +627,7 @@ Deno.serve(async (req) => {
         console.error("[placements-cleanup] funnel resync error", e);
       }
 
-      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, stats, funnel_resync: evalResults });
+      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, safety_rejected: (result as any).safety_rejected ?? [], stats, funnel_resync: evalResults });
     }
 
     return json({ error: "mode inválido" });
