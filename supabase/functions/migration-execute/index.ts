@@ -237,7 +237,12 @@ async function runMigration(a: RunArgs) {
            ad_group_ad.ad.responsive_display_ad.main_color,
            ad_group_ad.ad.responsive_display_ad.format_setting,
            ad_group_ad.ad.display_upload_ad.media_bundle,
-           ad_group_ad.ad.display_upload_ad.display_upload_product_type
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type,
+           ad_group_ad.ad.image_ad.image_asset,
+           ad_group_ad.ad.image_ad.name,
+           ad_group_ad.ad.image_ad.mime_type,
+           ad_group_ad.ad.image_ad.pixel_width,
+           ad_group_ad.ad.image_ad.pixel_height
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${srcAgRefs}) AND ad_group_ad.status != 'REMOVED'
   `);
