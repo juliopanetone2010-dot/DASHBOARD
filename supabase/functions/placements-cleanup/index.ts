@@ -257,9 +257,15 @@ Deno.serve(async (req) => {
     const revenueUsdByCp = new Map<string, number>();
     let totalGamUsd = 0;
     let attributedGamUsd = 0;
+    const campaignRevenueTotals = new Map<string, number>();
     for (const [cid, revenues] of revByCampaign) {
       const ads = adsByCampaign.get(cid) ?? [];
-      for (const usd of revenues.values()) totalGamUsd += usd;
+      let campaignGamUsd = 0;
+      for (const usd of revenues.values()) {
+        totalGamUsd += usd;
+        campaignGamUsd += usd;
+      }
+      campaignRevenueTotals.set(cid, campaignGamUsd);
       if (ads.length === 0) continue;
       const indexes = buildPlacementIndexes(ads);
       const claimed = new Set<string>();
@@ -329,8 +335,8 @@ Deno.serve(async (req) => {
         type: v.type,
         app_id: v.app_id,
         cost_brl: round(v.cost),
-        revenue_brl: round(revenueBrl),
-        revenue_usd: round(revenueUsd),
+        revenue_brl: round4(revenueBrl),
+        revenue_usd: round4(revenueUsd),
         profit_brl: round(profitBrl),
         roi_pct: round(roi),
         clicks: v.clicks,
@@ -342,7 +348,7 @@ Deno.serve(async (req) => {
           name: meta.name,
           google_account_id: meta.google_account_id,
           cost_brl: round(v.cost),
-          revenue_usd: round(revenueUsd),
+          revenue_usd: round4(revenueUsd),
           matched_utm: matched,
           roi_pct: round(roi),
         }],
@@ -375,6 +381,17 @@ Deno.serve(async (req) => {
         t.cost_brl += Number(r.spend) || 0;
         t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
+    }
+    for (const [cid, revenueUsd] of campaignRevenueTotals) {
+      const meta = campMap.get(cid);
+      if (!meta) continue;
+      let t = totalsMap.get(cid);
+      if (!t) {
+        t = { campaign_id: cid, name: meta.name, google_account_id: meta.google_account_id, cost_brl: 0, revenue_brl: 0, profit_brl: 0, roi_pct: 0, bad_count: 0, eligible: eligible.has(cid) };
+        totalsMap.set(cid, t);
+      }
+      const liveRevenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
+      if (liveRevenueBrl > t.revenue_brl) t.revenue_brl = liveRevenueBrl;
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
@@ -717,6 +734,7 @@ function rootDomain(host: string): string {
 }
 
 function round(n: number) { return Math.round(n * 100) / 100; }
+function round4(n: number) { return Math.round(n * 10000) / 10000; }
 
 function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
 
