@@ -335,8 +335,8 @@ Deno.serve(async (req) => {
         type: v.type,
         app_id: v.app_id,
         cost_brl: round(v.cost),
-        revenue_brl: round(revenueBrl),
-        revenue_usd: round(revenueUsd),
+        revenue_brl: round4(revenueBrl),
+        revenue_usd: round4(revenueUsd),
         profit_brl: round(profitBrl),
         roi_pct: round(roi),
         clicks: v.clicks,
@@ -348,7 +348,7 @@ Deno.serve(async (req) => {
           name: meta.name,
           google_account_id: meta.google_account_id,
           cost_brl: round(v.cost),
-          revenue_usd: round(revenueUsd),
+          revenue_usd: round4(revenueUsd),
           matched_utm: matched,
           roi_pct: round(roi),
         }],
@@ -734,6 +734,7 @@ function rootDomain(host: string): string {
 }
 
 function round(n: number) { return Math.round(n * 100) / 100; }
+function round4(n: number) { return Math.round(n * 10000) / 10000; }
 
 function compactPlacement(host: string) { return normalize(host).replace(/[^a-z0-9]/g, ""); }
 
