@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Loader2, Trash2, ShieldAlert, Play } from "lucide-react";
+import { Loader2, Trash2, ShieldAlert, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -200,6 +200,34 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
+  const [resyncing, setResyncing] = useState(false);
+  const runResyncAndPreview = async () => {
+    if (!filters.siteId || filters.siteId === "all") {
+      toast({ title: "Selecione um site", variant: "destructive" });
+      return;
+    }
+    setResyncing(true);
+    try {
+      toast({ title: "Ressincronizando receita do GAM…", description: `${effectiveRange.from} → ${effectiveRange.to}` });
+      const { error: gamErr } = await supabase.functions.invoke("gam-sync-revenue", {
+        body: {
+          from: effectiveRange.from,
+          to: effectiveRange.to,
+          account_ids: filters.googleAccountIds ?? [],
+          revenue_only: true,
+        },
+      });
+      if (gamErr) {
+        toast({ title: "Erro no GAM sync", description: gamErr.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Receita atualizada — rechecando placements…" });
+      await runPreview();
+    } finally {
+      setResyncing(false);
+    }
+  };
+
   const toggle = (k: string) => {
     setSelected((s) => {
       const n = new Set(s);
@@ -388,8 +416,18 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <option value="all">Todas as contas ({accounts.length})</option>
                 {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
               </select>
-              <span className="ml-auto flex items-center gap-2 text-xs">
-                Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
+              <span className="ml-auto flex items-center gap-3 text-xs">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={runResyncAndPreview}
+                  disabled={resyncing || loading}
+                  title="Re-puxa receita do GAM no período e roda o preview de novo"
+                >
+                  {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                  Ressincronizar receita & rechecar
+                </Button>
+                <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
           </DialogHeader>
