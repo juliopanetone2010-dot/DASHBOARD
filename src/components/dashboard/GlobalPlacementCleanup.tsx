@@ -55,6 +55,18 @@ interface PreviewStats {
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
+interface GamSyncResp {
+  ok?: boolean;
+  error?: string;
+  status?: string;
+  summary?: Array<Record<string, unknown>>;
+  gam_debug?: { rows_returned?: number; error?: string | null };
+}
+
+const fmtPlacementRevenue = (usd: number) => {
+  if (!Number.isFinite(usd) || usd <= 0) return "$0.00";
+  return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
+};
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters, range, selectSite } = useDashboardFilters();
@@ -208,20 +220,29 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
     setResyncing(true);
     try {
-      toast({ title: "Ressincronizando receita do GAM…", description: `${effectiveRange.from} → ${effectiveRange.to}` });
-      const { error: gamErr } = await supabase.functions.invoke("gam-sync-revenue", {
+      toast({ title: "Ressincronizando receita do GAM…", description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}` });
+      const { data: gamData, error: gamErr } = await supabase.functions.invoke<GamSyncResp>("gam-sync-revenue", {
         body: {
+          wait: true,
+          sync: true,
           from: effectiveRange.from,
           to: effectiveRange.to,
+          site_id: filters.siteId,
           account_ids: filters.googleAccountIds ?? [],
           revenue_only: true,
+          skip_viewability: true,
         },
       });
-      if (gamErr) {
-        toast({ title: "Erro no GAM sync", description: gamErr.message, variant: "destructive" });
+      if (gamErr || gamData?.error) {
+        toast({ title: "Erro no GAM sync", description: gamErr?.message ?? gamData?.error, variant: "destructive" });
         return;
       }
-      toast({ title: "Receita atualizada — rechecando placements…" });
+      const googleRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_rows ?? s.rows_returned ?? 0), 0);
+      const placementRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_placement_rows ?? 0), 0);
+      toast({
+        title: "Receita atualizada — rechecando placements…",
+        description: `${googleRows} linha(s) de campanha · ${placementRows} linha(s) de placement`,
+      });
       await runPreview();
     } finally {
       setResyncing(false);
@@ -509,7 +530,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
-                                      <TableCell className="text-right tabular-nums text-xs">${(c?.revenue_usd ?? 0).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs">{fmtPlacementRevenue(c?.revenue_usd ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
                                       {showDebug && (
                                         <TableCell>
