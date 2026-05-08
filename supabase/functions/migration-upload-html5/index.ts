@@ -41,9 +41,14 @@ Deno.serve(async (req) => {
     if (pending.status === "uploaded") return json({ error: "anúncio já foi recriado" }, 400);
 
     const { data: dstAcc } = await admin.from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id")
+      .select("id, customer_id, refresh_token, login_customer_id, is_mcc, account_name")
       .eq("id", pending.destination_google_account_id).eq("user_id", userId).maybeSingle();
     if (!dstAcc?.refresh_token) return json({ error: "conta destino sem refresh_token" }, 400);
+    if (dstAcc.is_mcc) {
+      const msg = `A conta destino "${dstAcc.account_name || dstAcc.customer_id}" é uma MCC (manager). Não é possível criar anúncios numa MCC — escolha uma conta-filha como destino e rode a migração novamente.`;
+      await admin.from("migration_pending_ads").update({ status: "failed", reason: msg }).eq("id", pending.id);
+      return json({ error: msg }, 400);
+    }
 
     // Normaliza base64 (remove prefixo data: se presente)
     const b64 = body.zip_base64.includes(",") ? body.zip_base64.split(",")[1] : body.zip_base64;
@@ -150,9 +155,13 @@ Deno.serve(async (req) => {
     if (!adRes.ok || !adJ?.results?.[0]?.resourceName) {
       const rawMsg = adJ?.error?.details?.[0]?.errors?.[0]?.message || adJ?.error?.message || JSON.stringify(adJ);
       const isRemoved = /not allowed for removed resources/i.test(rawMsg);
-      const friendly = isRemoved
-        ? `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`
-        : rawMsg;
+      const isMutateNotAllowed = /Mutates are not allowed for the requested resource/i.test(rawMsg);
+      let friendly = rawMsg;
+      if (isRemoved) {
+        friendly = `O ad group/campanha destino foi removido no Google Ads. Recrie a campanha destino (rode a migração novamente) e suba o HTML5 de novo.`;
+      } else if (isMutateNotAllowed) {
+        friendly = `Google Ads recusou o anúncio nessa conta destino (${dstAcc.account_name || dstAcc.customer_id}). Causas comuns: (1) a conta é uma MCC/manager, (2) está suspensa/cancelada, (3) está faltando login-customer-id correto. Verifique a conta destino no Google Ads.`;
+      }
       await admin.from("migration_pending_ads").update({ status: "failed", reason: `asset criado mas ad falhou: ${friendly}`, zip_storage_path: path }).eq("id", pending.id);
       return json({ error: friendly, asset_resource: newAssetRn, removed_destination: isRemoved }, 400);
     }
