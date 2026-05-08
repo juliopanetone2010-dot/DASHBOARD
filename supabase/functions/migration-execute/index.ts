@@ -828,35 +828,39 @@ async function reuploadAssets(
     const asset = srcAssets.get(id);
     if (!asset) { skipped++; continue; }
     try {
-      if (asset.type === "IMAGE" && asset.imageAsset?.fullSize?.url) {
-        const imgRes = await fetch(asset.imageAsset.fullSize.url);
-        if (!imgRes.ok) { skipped++; errors.push(`download img ${id}: HTTP ${imgRes.status}`); continue; }
-        const buf = new Uint8Array(await imgRes.arrayBuffer());
-        const b64 = base64Encode(buf);
+      if (asset.type === "IMAGE" && (asset.imageAsset?.data || asset.imageAsset?.fullSize?.url)) {
+        let b64 = asset.imageAsset?.data;
+        if (!b64 && asset.imageAsset?.fullSize?.url) {
+          const imgRes = await fetch(asset.imageAsset.fullSize.url);
+          if (!imgRes.ok) { skipped++; errors.push({ step: "download_image", source_asset: ref, asset_id: id, http_status: imgRes.status, message: `HTTP ${imgRes.status}` }); continue; }
+          const buf = new Uint8Array(await imgRes.arrayBuffer());
+          b64 = base64Encode(buf);
+        }
         const create: any = {
           name: asset.name || `migrated-${id}-${Date.now()}`,
           type: "IMAGE",
           imageAsset: { data: b64 },
         };
-        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_image_${id}`);
+        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_image_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
-        else { skipped++; errors.push(`upload img ${id}: ${extractError(r.partialFailureError)}`); }
+        else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_image", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else if (asset.type === "YOUTUBE_VIDEO" && asset.youtubeVideoAsset?.youtubeVideoId) {
         const create: any = {
           name: asset.name || `migrated-yt-${id}-${Date.now()}`,
           type: "YOUTUBE_VIDEO",
           youtubeVideoAsset: { youtubeVideoId: asset.youtubeVideoAsset.youtubeVideoId },
         };
-        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_yt_${id}`);
+        const r = await mutate(dstBase, dstHeaders, "assets", [{ create }], `reupload_yt_${id}`, [{ source_asset: ref, asset_id: id, asset_name: asset.name, asset_type: asset.type }]);
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
-        else { skipped++; }
+        else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
       } else {
         skipped++;
+        errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
       }
     } catch (e) {
-      errors.push(`asset ${id}: ${String((e as Error).message || e)}`);
+      errors.push({ step: "asset_exception", source_asset: ref, asset_id: id, message: String((e as Error).message || e) });
       skipped++;
     }
   }
