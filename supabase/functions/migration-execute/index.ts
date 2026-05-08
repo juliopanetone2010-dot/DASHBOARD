@@ -902,6 +902,15 @@ async function reuploadAssets(
         const newRn = r.results[0]?.resourceName;
         if (newRn) map.set(ref, newRn);
         else { skipped++; errors.push(...(r.errors?.length ? r.errors : [{ step: "upload_youtube", source_asset: ref, asset_id: id, message: extractError(r.partialFailureError) }])); }
+      } else if (asset.type === "MEDIA_BUNDLE") {
+        // Google Ads API NÃO expõe os bytes do ZIP do HTML5 (write-only).
+        // Não é possível baixar e re-uploadar. Marca como pendente para upload manual.
+        skipped++;
+        errors.push({
+          step: "html5_bundle_not_portable",
+          source_asset: ref, asset_id: id, asset_type: asset.type,
+          message: "Bundle HTML5 não pode ser baixado pela API (write-only). Faça o re-upload manual do ZIP no ad group da nova campanha.",
+        });
       } else {
         skipped++;
         errors.push({ step: "unsupported_asset", source_asset: ref, asset_id: id, asset_type: asset.type, message: "asset sem dados de imagem/vídeo portáveis" });
