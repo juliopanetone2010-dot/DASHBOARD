@@ -235,7 +235,9 @@ async function runMigration(a: RunArgs) {
            ad_group_ad.ad.responsive_display_ad.allow_flexible_color,
            ad_group_ad.ad.responsive_display_ad.accent_color,
            ad_group_ad.ad.responsive_display_ad.main_color,
-           ad_group_ad.ad.responsive_display_ad.format_setting
+           ad_group_ad.ad.responsive_display_ad.format_setting,
+           ad_group_ad.ad.display_upload_ad.media_bundle,
+           ad_group_ad.ad.display_upload_ad.display_upload_product_type
     FROM ad_group_ad
     WHERE ad_group_ad.ad_group IN (${srcAgRefs}) AND ad_group_ad.status != 'REMOVED'
   `);
