@@ -739,6 +739,10 @@ const IndexInner = () => {
             <AutomationTab />
           </TabsContent>
 
+          <TabsContent value="migration" className="mt-6">
+            <MigrationTab />
+          </TabsContent>
+
           <TabsContent value="rules" className="mt-6">
             <RulesPanel rules={data.rules} onSave={data.saveRules} />
           </TabsContent>
