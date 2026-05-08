@@ -459,7 +459,7 @@ async function runMigration(a: RunArgs) {
         .join(", ");
       const apiErr = extractError(adsRes.partialFailureError);
       const reason = adOps.length === 0
-        ? `nenhum ad foi enviado — tipos de ad não suportados pela migração (apenas RESPONSIVE_DISPLAY_AD é replicado). Origem tinha: ${skippedTypes || "0"}. Crie os ads manualmente na campanha nova.`
+        ? `nenhum ad foi enviado — tipos: ${skippedTypes || "0"}. RDA é replicado automaticamente; HTML5 (display upload) precisa ter o ZIP re-uploadado manualmente no ad group novo (a API do Google Ads não expõe os bytes do bundle).`
         : `ads falharam: ${apiErr || "sem detalhe da API"}`;
       return { ...partial, error: reason };
     }
