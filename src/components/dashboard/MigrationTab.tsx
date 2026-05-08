@@ -86,6 +86,19 @@ export function MigrationTab() {
     },
   });
 
+  const pendingQ = useQuery({
+    queryKey: ["mig-pending"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("migration_pending_ads")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+    refetchInterval: 30000,
+  });
+
   const items = (eligibleQ.data?.items ?? []).slice().sort((a, b) => {
     if (sortBy === "roi") return b.roi_pct - a.roi_pct;
     if (sortBy === "spend") return b.spend - a.spend;
