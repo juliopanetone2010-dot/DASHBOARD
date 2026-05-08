@@ -422,10 +422,9 @@ async function runMigration(a: RunArgs) {
       };
     };
 
-    if (a.crossAccount && assetRefs.size > 0 && assetMap.size === 0) {
-      const partial = await registerLocalPartial("assets_failed");
-      return { ...partial, error: "assets falharam: nenhum asset foi recriado na conta destino" };
-    }
+    // NOTA: não abortamos mais quando assets falham — ads que dependem de assets
+    // não-portáveis (HTML5/MEDIA_BUNDLE) entram em pendingAds e o usuário faz upload manual.
+    // Ads que não dependem de assets ausentes seguem normalmente.
 
     // ===== Ads — com final_urls SOBRESCRITA =====
     const adOps: any[] = [];
