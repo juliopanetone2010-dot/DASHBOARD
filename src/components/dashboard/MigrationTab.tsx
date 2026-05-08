@@ -65,7 +65,7 @@ export function MigrationTab() {
   const eligibleQ = useQuery({
     queryKey: ["mig-eligible", sourceAccountId],
     queryFn: async () => {
-      const params = new URLSearchParams({ days: "15" });
+      const params = new URLSearchParams({ days: "20" });
       if (sourceAccountId !== "all") params.set("google_account_id", sourceAccountId);
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-list-eligible?${params}`;
       const sess = (await supabase.auth.getSession()).data.session;
@@ -123,7 +123,7 @@ export function MigrationTab() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <ArrowRightLeft className="h-5 w-5" />
-                  Recuperação de campanhas (15 dias)
+                  Recuperação de campanhas (20 dias)
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   Campanhas DISPLAY da conta selecionada. Escolha qual migrar e defina manualmente a URL nova.
@@ -165,7 +165,7 @@ export function MigrationTab() {
               {eligibleQ.isLoading ? (
                 <p className="text-muted-foreground text-sm">Carregando…</p>
               ) : items.length === 0 ? (
-                <p className="text-muted-foreground text-sm">Nenhuma campanha DISPLAY encontrada nos últimos 15 dias.</p>
+                <p className="text-muted-foreground text-sm">Nenhuma campanha DISPLAY encontrada nos últimos 20 dias.</p>
               ) : (
                 <Table>
                   <TableHeader>
