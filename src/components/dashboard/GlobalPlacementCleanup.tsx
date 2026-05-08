@@ -416,8 +416,18 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <option value="all">Todas as contas ({accounts.length})</option>
                 {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
               </select>
-              <span className="ml-auto flex items-center gap-2 text-xs">
-                Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} />
+              <span className="ml-auto flex items-center gap-3 text-xs">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={runResyncAndPreview}
+                  disabled={resyncing || loading}
+                  title="Re-puxa receita do GAM no período e roda o preview de novo"
+                >
+                  {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                  Ressincronizar receita & rechecar
+                </Button>
+                <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
           </DialogHeader>
