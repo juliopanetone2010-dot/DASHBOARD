@@ -1,0 +1,1 @@
+ALTER TABLE public.daily_financial_snapshots ADD COLUMN IF NOT EXISTS revenue_currency text NOT NULL DEFAULT 'BRL';

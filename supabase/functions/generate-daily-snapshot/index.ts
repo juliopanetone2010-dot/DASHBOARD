@@ -162,18 +162,22 @@ Deno.serve(async (req) => {
           if (legacyRevenue > 1) grossNative = legacyRevenue;
         }
 
-        const correctedGrossBrl = currency === "BRL" ? grossNative : grossNative * usdBrl;
-        const revenueAfterRevshare = correctedGrossBrl * NET_FACTOR;
+        // Receita armazenada na MOEDA NATIVA do GAM (USD ou BRL).
+        // Custos/lucro/eCPM continuam em BRL para reconciliação.
+        const grossNativeFinal = grossNative;
+        const netNative = grossNativeFinal * NET_FACTOR;
+        const correctedGrossBrl = currency === "BRL" ? grossNativeFinal : grossNativeFinal * usdBrl;
+        const revenueAfterRevshareBrl = correctedGrossBrl * NET_FACTOR;
         const viewability = measurable > 0 ? (viewable / measurable) * 100 : 0;
-        const ecpm = impressions > 0 ? (revenueAfterRevshare / impressions) * 1000 : 0;
+        const ecpm = impressions > 0 ? (revenueAfterRevshareBrl / impressions) * 1000 : 0;
 
         const facebookAdsCost = 0; // placeholder até integração FB
         const otherCost = 0;
         const taxes = 0;
         const fixedCost = 0;
         const totalCost = googleAdsCost + facebookAdsCost + otherCost + taxes + fixedCost;
-        const liquidProfit = revenueAfterRevshare - totalCost;
-        const profitMargin = revenueAfterRevshare > 0 ? (liquidProfit / revenueAfterRevshare) * 100 : 0;
+        const liquidProfit = revenueAfterRevshareBrl - totalCost;
+        const profitMargin = revenueAfterRevshareBrl > 0 ? (liquidProfit / revenueAfterRevshareBrl) * 100 : 0;
 
         const payload = {
           user_id: site.user_id,
@@ -183,11 +187,12 @@ Deno.serve(async (req) => {
           facebook_ads_cost: round2(facebookAdsCost),
           other_cost: round2(otherCost),
           total_cost: round2(totalCost),
-          gross_revenue: round2(correctedGrossBrl),
-          net_revenue: round2(revenueAfterRevshare),
+          // gross/net armazenados na moeda nativa do GAM (USD ou BRL)
+          gross_revenue: round2(grossNativeFinal),
+          net_revenue: round2(netNative),
           adsense_revenue: null,
           adx_revenue: null,
-          revenue_after_revshare: round2(revenueAfterRevshare),
+          revenue_after_revshare: round2(revenueAfterRevshareBrl),
           taxes: round2(taxes),
           fixed_cost: round2(fixedCost),
           liquid_profit: round2(liquidProfit),
@@ -198,6 +203,7 @@ Deno.serve(async (req) => {
           clicks,
           conversions: round2(conversions),
           currency: "BRL",
+          revenue_currency: currency,
         };
 
         await admin

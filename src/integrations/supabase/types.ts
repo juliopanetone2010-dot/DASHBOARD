@@ -868,6 +868,7 @@ export type Database = {
           other_cost: number
           profit_margin_pct: number
           revenue_after_revshare: number
+          revenue_currency: string
           site_id: string
           taxes: number
           total_cost: number
@@ -894,6 +895,7 @@ export type Database = {
           other_cost?: number
           profit_margin_pct?: number
           revenue_after_revshare?: number
+          revenue_currency?: string
           site_id: string
           taxes?: number
           total_cost?: number
@@ -920,6 +922,7 @@ export type Database = {
           other_cost?: number
           profit_margin_pct?: number
           revenue_after_revshare?: number
+          revenue_currency?: string
           site_id?: string
           taxes?: number
           total_cost?: number

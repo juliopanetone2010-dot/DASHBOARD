@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CalendarDays, RefreshCw, TrendingUp, TrendingDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
-import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtPercent, fmtNumber, fmtUSD, fmtBRL } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ interface Snapshot {
   impressions: number;
   clicks: number;
   conversions: number;
+  revenue_currency?: string | null;
 }
 
 const MONTHS_PT = [
@@ -76,13 +77,16 @@ export function FinancialCalendarTab() {
         net: a.net + Number(r.net_revenue || 0),
         profit: a.profit + Number(r.liquid_profit || 0),
         impressions: a.impressions + Number(r.impressions || 0),
+        ecpmWeighted: a.ecpmWeighted + Number(r.ecpm || 0) * Number(r.impressions || 0),
       }),
-      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0 },
+      { google: 0, cost: 0, gross: 0, net: 0, profit: 0, impressions: 0, ecpmWeighted: 0 },
     );
   }, [rows]);
 
   const totalRoi = totals.cost > 0 ? ((totals.profit / totals.cost) * 100) : 0;
-  const totalEcpm = totals.impressions > 0 ? (totals.net / totals.impressions) * 1000 : 0;
+  const totalEcpm = totals.impressions > 0 ? totals.ecpmWeighted / totals.impressions : 0;
+  const revCurrency = (rows.find((r) => r.revenue_currency)?.revenue_currency ?? "BRL").toUpperCase();
+  const fmtRev = (v: number) => (revCurrency === "USD" ? fmtUSD(v) : fmtBRL(v));
 
   const regenerate = async (date: string) => {
     if (filters.siteId === "all") return;
@@ -249,8 +253,8 @@ export function FinancialCalendarTab() {
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.google_ads_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono font-medium">{fmtCurrency(Number(r.total_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{fmtCurrency(Number(r.gross_revenue))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.net_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.gross_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.net_revenue))}</td>
                         <td className={cn(
                           "px-2 py-1.5 text-right font-mono font-bold",
                           positive ? "text-success" : "text-destructive",
@@ -285,8 +289,8 @@ export function FinancialCalendarTab() {
                     <td className="px-2 py-2 uppercase text-xs">Total {MONTHS_PT[month - 1]}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.google)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.cost)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.gross)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.net)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.gross)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.net)}</td>
                     <td className={cn(
                       "px-2 py-2 text-right font-mono font-bold",
                       totals.profit >= 0 ? "text-success" : "text-destructive",
