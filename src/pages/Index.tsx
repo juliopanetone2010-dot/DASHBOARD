@@ -390,8 +390,27 @@ const IndexInner = () => {
   const extraOtherUsd = extraRevQuery.data?.other ?? 0;
   const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
   const extraNetBrl = extraNetUsd * usdBrl;
-  const totalRevenueUsd = baseTotals.revenue + extraNetUsd;
-  const totalProfitBrl = baseTotals.profit + extraNetBrl;
+
+  // Receita REAL do GAM em BRL (independe do display). Inclui impressões SEM UTM.
+  // Quando disponível, vira a base do ROI/lucro — assim o ROI reflete a verdade do Ad Manager.
+  const realGamRevenueBrl = (() => {
+    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
+    let total = 0;
+    for (const [cur, val] of Object.entries(byCur)) {
+      if (cur === "BRL") total += val;
+      else total += val * usdBrl; // USD ou fallback
+    }
+    return total;
+  })();
+  const hasRealGam = realGamRevenueBrl > 0;
+  // Se temos receita real do GAM, usamos ela (líquida) como base do ROI.
+  // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
+  const totalProfitBrl = hasRealGam
+    ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
+    : baseTotals.profit + extraNetBrl;
+  const totalRevenueUsd = hasRealGam
+    ? realGamRevenueBrl / usdBrl
+    : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
   const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
   const totals = {
@@ -419,17 +438,10 @@ const IndexInner = () => {
   // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
   // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
   // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
-  const realGamRevenueDisplay = (() => {
-    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
-    let total = 0;
-    for (const [cur, val] of Object.entries(byCur)) {
-      if (cur === "BRL") total += isBrlSite ? val : (val / usdBrl);
-      else if (cur === "USD") total += isBrlSite ? val * usdBrl : val;
-      else total += isBrlSite ? val * usdBrl : val; // fallback: trata como USD
-    }
-    return total;
-  })();
-  const attributedRevenueDisplay = revenueDisplay; // antiga "Receita" (apenas atribuído via UTM)
+  const realGamRevenueDisplay = isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl;
+  // Receita "atribuída" antiga = só Google UTM + push/outras (sem impressões sem tag)
+  const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
+  const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
   const attributionPct = realGamRevenueDisplay > 0
     ? (attributedRevenueDisplay / realGamRevenueDisplay) * 100
     : 0;
