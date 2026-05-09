@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
   TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays,
@@ -118,8 +118,8 @@ const IndexInner = () => {
       if (error) throw error;
       return data as { lastHour: number | null; label: string; isToday: boolean; isYesterday: boolean; date: string };
     },
-    staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 30 * 60_000,
   });
 
   // Viewability + eCPM por site (GAM)
@@ -282,8 +282,12 @@ const IndexInner = () => {
   }, [engine?.alerts.length]);
 
   const [syncing, setSyncing] = useState(false);
+  // Cache: evita refazer GAM/Ads sync se já foi sincronizado há < 10min com os mesmos filtros.
+  // Trocas de filtro rápidas (zapping) não estouram quota; botão "Atualizar" sempre força.
+  const SYNC_CACHE_MS = 10 * 60_000;
+  const lastSyncRef = useRef<{ key: string; at: number } | null>(null);
 
-  const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
+  const syncDashboardData = useCallback(async (nextFilters: DashboardFilters, opts?: { force?: boolean }) => {
     const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
     const defaultRange = (() => {
       const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -293,6 +297,13 @@ const IndexInner = () => {
     })();
     const from = nextFilters.fromDate || defaultRange.from;
     const to = nextFilters.toDate || defaultRange.to;
+    const cacheKey = `${nextFilters.siteId}|${from}|${to}|${(nextFilters.googleAccountIds ?? []).join(",")}`;
+    const now = Date.now();
+    if (!opts?.force && lastSyncRef.current && lastSyncRef.current.key === cacheKey && (now - lastSyncRef.current.at) < SYNC_CACHE_MS) {
+      // Cache hit — usa só dados do banco (refresh leve), sem chamar GAM/Ads.
+      void data.refresh();
+      return;
+    }
     const body = {
       from,
       to,
@@ -312,6 +323,7 @@ const IndexInner = () => {
           supabase.functions.invoke("gam-sync-revenue", { body }),
         ]);
       }
+      lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
@@ -321,7 +333,7 @@ const IndexInner = () => {
   }, [allSites, data]);
 
   const handleRefresh = async () => {
-    await syncDashboardData(filters);
+    await syncDashboardData(filters, { force: true });
   };
 
   const handleFilterChange = (nextFilters: DashboardFilters) => {
