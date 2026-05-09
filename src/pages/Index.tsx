@@ -164,6 +164,30 @@ const IndexInner = () => {
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
   });
+
+  // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
+  // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
+  const siteRealRevenueQuery = useQuery({
+    queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
+    queryFn: async () => {
+      let q = supabase.from("site_metrics_daily")
+        .select("revenue_native, currency, impressions, site_id")
+        .gte("date", range.from).lte("date", range.to)
+        .limit(5000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      const totals = (data ?? []).reduce((a, r: any) => {
+        const cur = String(r.currency || "USD").toUpperCase();
+        a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
+        a.impressions += Number(r.impressions ?? 0);
+        return a;
+      }, { byCurrency: {} as Record<string, number>, impressions: 0 });
+      return totals;
+    },
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
   // Atribuição por site quando uma conta Ads serve N sites:
   // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
@@ -392,6 +416,24 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
+  // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
+  // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
+  // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
+  const realGamRevenueDisplay = (() => {
+    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
+    let total = 0;
+    for (const [cur, val] of Object.entries(byCur)) {
+      if (cur === "BRL") total += isBrlSite ? val : (val / usdBrl);
+      else if (cur === "USD") total += isBrlSite ? val * usdBrl : val;
+      else total += isBrlSite ? val * usdBrl : val; // fallback: trata como USD
+    }
+    return total;
+  })();
+  const attributedRevenueDisplay = revenueDisplay; // antiga "Receita" (apenas atribuído via UTM)
+  const attributionPct = realGamRevenueDisplay > 0
+    ? (attributedRevenueDisplay / realGamRevenueDisplay) * 100
+    : 0;
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-10">
@@ -567,13 +609,15 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtRevenue(revenueDisplay)}
+                value={fmtRevenue(realGamRevenueDisplay > 0 ? realGamRevenueDisplay : attributedRevenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  totals.revenue === 0
+                  realGamRevenueDisplay === 0 && attributedRevenueDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                    : realGamRevenueDisplay > 0
+                      ? `Atribuído ao Google Ads: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                      : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
               <MetricCard
