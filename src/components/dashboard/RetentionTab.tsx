@@ -80,7 +80,12 @@ export function RetentionTab({ campaigns }: Props) {
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching;
 
-  const load = () => queryClient.invalidateQueries({ queryKey });
+  const load = async () => {
+    if (filters.siteId !== "all") {
+      await supabase.functions.invoke("site-auto-onboard", { body: { site_id: filters.siteId, force: true } });
+    }
+    await queryClient.invalidateQueries({ queryKey });
+  };
 
   const campaignName = useMemo(() => {
     const m = new Map<string, string>();
