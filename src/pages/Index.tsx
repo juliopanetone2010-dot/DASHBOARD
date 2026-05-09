@@ -445,7 +445,8 @@ const IndexInner = () => {
                 const linked = siteId === "all"
                   ? []
                   : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
-                void syncDashboardData({ ...filters, siteId, googleAccountIds: linked });
+                // Apenas troca filtro (leitura do banco) — sem sync externo.
+                setFilters({ ...filters, siteId, googleAccountIds: linked });
               }}
             />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
@@ -454,10 +455,10 @@ const IndexInner = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => allSites.syncAll(true)}
-              disabled={!allSites.totalCount}
+              onClick={() => { void allSites.syncAll(true); }}
+              disabled={!allSites.totalCount || allSites.processingCount > 0}
               className="gap-2"
-              title="Roda o onboarding (campanhas + receita + placements) para todos os sites"
+              title="Sincroniza todos os sites em segundo plano (não bloqueia o painel)"
             >
               <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Sincronizar todos os sites
@@ -467,9 +468,9 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={data.loading} className="gap-2">
-              <RefreshCw className={data.loading || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              Atualizar
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={bgSyncing} className="gap-2">
+              <RefreshCw className={bgSyncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {bgSyncing ? "Sincronizando…" : "Atualizar"}
             </Button>
           </div>
         </div>
