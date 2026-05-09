@@ -165,8 +165,8 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
   const opName: string = runJson.name;
 
   let resultName: string | null = null;
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
     const opRes = await gamFetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await opRes.json();
     if (opJson.done) {
