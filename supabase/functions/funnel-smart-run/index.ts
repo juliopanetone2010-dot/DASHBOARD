@@ -33,6 +33,8 @@ const ADV_SCALE_MIN_DELIVERY = 0.9;
 const PROTECT_LOW_DELIVERY = 0.2;
 const PROTECT_BAD_ROI = -30;
 const SCALE_PCT = 20;
+// Gasto mínimo (BRL) acumulado antes de qualquer ação em campanhas novas/learning
+const MIN_SPEND_BEFORE_ACTION = 500;
 const ADV_CPA_REDUCE_PCT = -5;
 const CPA_UP_LOW_ROI_PCT = 10;
 const CPA_UP_LOW_DELIVERY_PCT = 15;
