@@ -33,7 +33,7 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
-import { SyncStatusBar } from "@/components/dashboard/SyncStatusBar";
+
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
@@ -281,19 +281,8 @@ const IndexInner = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine?.alerts.length]);
 
-  // Cache de 30 min: clicar Atualizar mais cedo só mostra toast informativo.
-  const SYNC_CACHE_MS = 30 * 60 * 1000;
-  const [lastManualSyncAt, setLastManualSyncAt] = useState<number>(0);
-  const [bgSyncing, setBgSyncing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  const handleRefresh = async () => {
-    // Botão manual SEMPRE força sync (sem cache de 30min — esse cache é só para syncs automáticos por filtro).
-    setLastManualSyncAt(Date.now());
-    void syncDashboardData(filters); // fire-and-forget
-    void data.refresh();
-  };
-
-  // Sync em background: NÃO bloqueia a UI. Só dispara quando usuário pede explicitamente.
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
     const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
     const defaultRange = (() => {
@@ -313,17 +302,7 @@ const IndexInner = () => {
       include_yesterday_fallback: preset === "today",
     };
 
-    setBgSyncing(true);
-    toast({ title: "Sincronizando em segundo plano", description: "Você pode continuar usando o painel." });
-
-    // Marca início no sync_state (best-effort)
-    if (user?.id) {
-      void supabase.from("sync_state").upsert({
-        user_id: user.id, source: "manual_refresh",
-        last_started_at: new Date().toISOString(), last_status: "running",
-      }, { onConflict: "user_id,source,google_account_id,site_id" });
-    }
-
+    setSyncing(true);
     try {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true);
@@ -334,32 +313,20 @@ const IndexInner = () => {
         ]);
       }
       await data.refresh();
-      if (user?.id) {
-        void supabase.from("sync_state").upsert({
-          user_id: user.id, source: "manual_refresh",
-          last_finished_at: new Date().toISOString(), last_status: "ok",
-        }, { onConflict: "user_id,source,google_account_id,site_id" });
-      }
-      toast({ title: "Dados atualizados" });
     } catch (e: any) {
-      if (user?.id) {
-        void supabase.from("sync_state").upsert({
-          user_id: user.id, source: "manual_refresh",
-          last_finished_at: new Date().toISOString(), last_status: "error", last_error: String(e?.message ?? e),
-        }, { onConflict: "user_id,source,google_account_id,site_id" });
-      }
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
-      setBgSyncing(false);
+      setSyncing(false);
     }
-  }, [allSites, data, user?.id]);
+  }, [allSites, data]);
 
-  // Trocar filtros = leitura do banco. Nunca dispara sync externo.
+  const handleRefresh = async () => {
+    await syncDashboardData(filters);
+  };
+
   const handleFilterChange = (nextFilters: DashboardFilters) => {
     setFilters(nextFilters);
-    if (import.meta.env.DEV) {
-      console.info("[dashboard] filters change (read-only)", nextFilters);
-    }
+    void syncDashboardData(nextFilters);
   };
 
   const handleAcknowledge = async (id: string) => {
@@ -429,7 +396,6 @@ const IndexInner = () => {
                   <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)} • {filtered.campaigns.length} camp · {filtered.placements.length} place</>
                 )}
               </p>
-              <div className="mt-1"><SyncStatusBar /></div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -440,8 +406,7 @@ const IndexInner = () => {
                 const linked = siteId === "all"
                   ? []
                   : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
-                // Apenas troca filtro (leitura do banco) — sem sync externo.
-                setFilters({ ...filters, siteId, googleAccountIds: linked });
+                handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
               }}
             />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
@@ -453,7 +418,7 @@ const IndexInner = () => {
               onClick={() => { void allSites.syncAll(true); }}
               disabled={!allSites.totalCount || allSites.processingCount > 0}
               className="gap-2"
-              title="Sincroniza todos os sites em segundo plano (não bloqueia o painel)"
+              title="Sincroniza todos os sites"
             >
               <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Sincronizar todos os sites
@@ -463,11 +428,12 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={bgSyncing} className="gap-2">
-              <RefreshCw className={bgSyncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {bgSyncing ? "Sincronizando…" : "Atualizar"}
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
+              <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {syncing ? "Sincronizando…" : "Atualizar"}
             </Button>
           </div>
+
         </div>
       </header>
 
