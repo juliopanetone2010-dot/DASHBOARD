@@ -287,16 +287,10 @@ const IndexInner = () => {
   const [bgSyncing, setBgSyncing] = useState(false);
 
   const handleRefresh = async () => {
-    const now = Date.now();
-    const since = now - lastManualSyncAt;
-    if (lastManualSyncAt > 0 && since < SYNC_CACHE_MS) {
-      const mins = Math.max(1, Math.round(since / 60_000));
-      toast({ title: "Dados recentes", description: `Última sincronização há ${mins} min. Tente novamente em alguns minutos.` });
-      await data.refresh();
-      return;
-    }
-    setLastManualSyncAt(now);
+    // Botão manual SEMPRE força sync (sem cache de 30min — esse cache é só para syncs automáticos por filtro).
+    setLastManualSyncAt(Date.now());
     void syncDashboardData(filters); // fire-and-forget
+    void data.refresh();
   };
 
   // Sync em background: NÃO bloqueia a UI. Só dispara quando usuário pede explicitamente.
