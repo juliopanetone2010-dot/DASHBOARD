@@ -609,13 +609,15 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtRevenue(revenueDisplay)}
+                value={fmtRevenue(realGamRevenueDisplay > 0 ? realGamRevenueDisplay : attributedRevenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  totals.revenue === 0
+                  realGamRevenueDisplay === 0 && attributedRevenueDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                    : realGamRevenueDisplay > 0
+                      ? `Atribuído ao Google Ads: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                      : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
               <MetricCard
