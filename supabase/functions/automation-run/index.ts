@@ -831,7 +831,11 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   // Antes o gate usava custo de 1 dia, o que pausava campanhas com pouquíssimo
   // gasto recente. Agora respeita o auto_stoploss_min_cost no acumulado.
   if (days < Math.min(2, windowDays) || cost < stopLossMinCost) {
-    return { lifecycle: "testing", action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo acumulado=${round2(cost)} < min ${stopLossMinCost})`, roi, trend, delivery, avgDailySpend, window_days: windowDays, roi_today: todayRoi } as any;
+    // Mantém o lifecycle anterior em vez de rebaixar pra "testing" só por falta de dados
+    // recentes na janela (ex.: daily_metrics ainda não sincronizado pro dia anterior).
+    // Isso evita que campanhas em "Escalando" caiam pra "Testando" toda manhã.
+    const keep: Lifecycle = (prevLifecycle as Lifecycle) || "testing";
+    return { lifecycle: keep, action: "none", reason: `Dados insuficientes (lifecycle=${prevLifecycle}, janela=${windowDays}d, dias=${days}, custo acumulado=${round2(cost)} < min ${stopLossMinCost}) — mantendo status anterior`, roi, trend, delivery, avgDailySpend, window_days: windowDays, roi_today: todayRoi } as any;
   }
 
   const inCooldown = prev?.cooldown_until && new Date(prev.cooldown_until) > new Date();
