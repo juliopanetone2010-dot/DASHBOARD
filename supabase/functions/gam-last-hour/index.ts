@@ -6,16 +6,35 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// Wrapper de fetch com retry + backoff exponencial para erros 429/503 do GAM (quota/sobrecarga).
-// Tenta até 4x: 2s, 5s, 15s, 30s. Respeita Retry-After se vier no header.
+// Semáforo + backoff: serializa chamadas ao GAM e estende retries para evitar 429.
+let gamQueue: Promise<unknown> = Promise.resolve();
+const GAM_MIN_INTERVAL_MS = 350;
+let lastGamCallAt = 0;
 async function gamFetch(input: string | URL, init?: RequestInit, attempt = 0): Promise<Response> {
+  if (attempt === 0) {
+    const prev = gamQueue;
+    let release: () => void = () => {};
+    gamQueue = new Promise<void>((r) => (release = r));
+    try {
+      await prev;
+      const since = Date.now() - lastGamCallAt;
+      if (since < GAM_MIN_INTERVAL_MS) await new Promise((r) => setTimeout(r, GAM_MIN_INTERVAL_MS - since));
+      lastGamCallAt = Date.now();
+      return await gamFetchRaw(input, init, 0);
+    } finally {
+      release();
+    }
+  }
+  return gamFetchRaw(input, init, attempt);
+}
+async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0): Promise<Response> {
   const res = await fetch(input, init);
-  if ((res.status === 429 || res.status === 503) && attempt < 3) {
+  if ((res.status === 429 || res.status === 503) && attempt < 4) {
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
-    const backoff = retryAfter > 0 ? retryAfter * 1000 : [2000, 5000, 15000, 30000][attempt];
+    const backoff = retryAfter > 0 ? retryAfter * 1000 : [3000, 8000, 20000, 45000][attempt];
     console.warn(`[gam-last-hour] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
     await new Promise((r) => setTimeout(r, backoff));
-    return gamFetch(input, init, attempt + 1);
+    return gamFetchRaw(input, init, attempt + 1);
   }
   return res;
 }
