@@ -381,8 +381,12 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
       dry_run: dryRun, error,
       payload: { params, executed, ...extras },
     });
-    if (statusTo) updates.funnel_status = statusTo;
-    Object.assign(updates, extras);
+    // Só persiste mudança de estado se a mutação foi REALMENTE executada no Google Ads.
+    // Em dry_run não alteramos funnel_status para evitar divergência com o estado real da campanha.
+    if (executed) {
+      if (statusTo) updates.funnel_status = statusTo;
+      Object.assign(updates, extras);
+    }
     return executed || dryRun;
   };
 
