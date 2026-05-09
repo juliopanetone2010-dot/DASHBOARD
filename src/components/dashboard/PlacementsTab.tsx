@@ -126,17 +126,18 @@ async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   return all;
 }
 
-async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string) {
+async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string, siteId?: string) {
   const all: GamRevRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("gam_placement_revenue")
       .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
       .eq("campaign_id", cid)
       .eq("utm_source", "google")
       .gte("date", from)
-      .lte("date", to)
-      .range(start, start + QUERY_PAGE_SIZE - 1);
+      .lte("date", to);
+    if (siteId) q = q.eq("site_id", siteId);
+    const { data, error } = await q.range(start, start + QUERY_PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     const page = (data ?? []) as GamRevRow[];
     all.push(...page);
@@ -223,7 +224,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     setCampaignId(cid);
   };
 
-  const fetchPlacements = async (cid: string) => {
+  const fetchPlacements = async (cid: string, opts?: { sync?: boolean }) => {
     setLoading(true);
     setRows([]);
     setGamRows([]);
@@ -234,30 +235,23 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       if (import.meta.env.DEV) {
         console.info("[placements] fetch", { campaign: cid, from, to, accounts: accountIds, version });
       }
-      const { data: syncData, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; inserted?: number; kept_existing?: boolean }>("google-ads-sync-placements", {
-        body: { campaign_id: cid, from, to },
-      });
-      if (error) {
-        toast({ title: "Erro ao sincronizar", description: error.message, variant: "destructive" });
-        return;
+      if (opts?.sync) {
+        const { data: syncData, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; inserted?: number; kept_existing?: boolean }>("google-ads-sync-placements", {
+          body: { campaign_id: cid, from, to },
+        });
+        if (error) toast({ title: "Erro ao sincronizar placements", description: error.message, variant: "destructive" });
+        else if (syncData?.error) toast({ title: "Erro ao sincronizar placements", description: syncData.error, variant: "destructive" });
+        else if (syncData?.kept_existing) toast({ title: "Google Ads retornou 0 placements", description: "Mantive os dados já salvos para não zerar a tela." });
+        await supabase.functions.invoke("gam-sync-revenue", {
+          body: { from, to, account_ids: accountIds, site_id: globalFilters.siteId !== "all" ? globalFilters.siteId : undefined, revenue_only: true },
+        });
       }
-      if (syncData?.error) {
-        toast({ title: "Erro ao sincronizar", description: syncData.error, variant: "destructive" });
-        return;
-      }
-      if (syncData?.kept_existing) {
-        toast({ title: "Google Ads retornou 0 placements", description: "Mantive os dados já salvos para não zerar a tela." });
-      }
-      // Mantém a receita GAM atualizada no mesmo período antes de recalcular lucro/ROI.
-      await supabase.functions.invoke("gam-sync-revenue", {
-        body: { from, to, account_ids: accountIds, revenue_only: true },
-      });
       const adsData = await fetchAllAdsPlacements(cid, from, to);
       setRows(adsData);
       setLimit(PAGE_SIZE);
 
       // Receita do GAM atribuída via UTM Google (campaign_id + placement).
-      const gamData = await fetchAllGamPlacementRevenue(cid, from, to);
+      const gamData = await fetchAllGamPlacementRevenue(cid, from, to, globalFilters.siteId !== "all" ? globalFilters.siteId : undefined);
       setGamRows(gamData);
 
       // Fallback: quando ainda não existe UTM por placement, usa a receita da campanha
@@ -572,7 +566,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <Button
               variant="outline" size="sm"
               disabled={!campaignId || loading}
-              onClick={() => campaignId && fetchPlacements(campaignId)}
+              onClick={() => campaignId && fetchPlacements(campaignId, { sync: true })}
+              title="Sincronizar e recarregar placements desta campanha"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>

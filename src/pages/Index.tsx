@@ -106,20 +106,27 @@ const IndexInner = () => {
     refetchInterval: 60_000,
   });
 
-  // GAM: hora REAL baseada na última hora com impressão > 0 no relatório do dia.
-  const gamLastHourQuery = useQuery({
-    queryKey: ["gam-last-hour", filters.siteId, filters.toDate],
+  // GAM: usa apenas o banco local para frescor. Evita chamar relatório GAM ao trocar abas/sites,
+  // porque a API externa pode ficar >150s e derrubar a função com 504.
+  const gamFreshnessQuery = useQuery({
+    queryKey: ["gam-freshness", filters.siteId],
     queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const date = filters.toDate || today;
-      const { data, error } = await supabase.functions.invoke("gam-last-hour", {
-        body: { date, site_id: filters.siteId === "all" ? null : filters.siteId },
-      });
+      let q = supabase
+        .from("site_metrics_daily")
+        .select("date, updated_at")
+        .order("date", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
       if (error) throw error;
-      return data as { lastHour: number | null; label: string; isToday: boolean; isYesterday: boolean; date: string };
+      const row = data?.[0] as { date?: string; updated_at?: string } | undefined;
+      return row?.date
+        ? { date: row.date, label: `Ad Manager salvo até: ${row.date}`, updatedAt: row.updated_at ?? null }
+        : { date: null, label: "Ad Manager: sem dados salvos", updatedAt: null };
     },
-    staleTime: 5 * 60_000,
-    refetchInterval: 30 * 60_000,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
   // Viewability + eCPM por site (GAM)
@@ -312,7 +319,6 @@ const IndexInner = () => {
   const lastSyncRef = useRef<{ key: string; at: number } | null>(null);
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters, opts?: { force?: boolean }) => {
-    const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
     const defaultRange = (() => {
       const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const d = new Date();
@@ -328,24 +334,14 @@ const IndexInner = () => {
       void data.refresh();
       return;
     }
-    const body = {
-      from,
-      to,
-      site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
-      account_ids: nextFilters.googleAccountIds,
-      revenue_only: true,
-      include_yesterday_fallback: preset === "today",
-    };
 
     setSyncing(true);
     try {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true);
       } else {
-        await Promise.allSettled([
-          supabase.functions.invoke("google-ads-sync-campaigns", { body }),
-          supabase.functions.invoke("gam-sync-revenue", { body }),
-        ]);
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
+        toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
@@ -362,7 +358,7 @@ const IndexInner = () => {
 
   const handleFilterChange = (nextFilters: DashboardFilters) => {
     setFilters(nextFilters);
-    void syncDashboardData(nextFilters);
+    void data.refresh();
   };
 
   const handleAcknowledge = async (id: string) => {
@@ -561,7 +557,7 @@ const IndexInner = () => {
                   : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
               };
               const adsAt = adsFreshnessQuery.data ?? null;
-              const gamInfo = gamLastHourQuery.data;
+              const gamInfo = gamFreshnessQuery.data;
               return (
                 <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
                   <div className="flex items-center gap-1.5">
@@ -572,7 +568,7 @@ const IndexInner = () => {
                   <div className="flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-success" />
                     <span className="font-mono font-medium">
-                      {gamLastHourQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
+                      {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>

@@ -136,11 +136,17 @@ export function PlacementFunnelTab({ fxUsdBrl }: Props) {
       const all: Row[] = [];
       let s = 0;
       for (;;) {
-        const { data, error } = await supabase
+        let q = supabase
           .from("placement_status")
           .select("id, campaign_id, campaign_name, google_account_id, site_id, site_scope, placement, placement_type, status, phase, reason, priority, manual_override, cost_total, revenue_total, profit_total, roi_pct, clicks_total, impressions_total, conversions_total, first_seen_at, last_evaluated_at, last_status_change_at")
-          .order("cost_total", { ascending: false })
-          .range(s, s + 999);
+          .order("cost_total", { ascending: false });
+        if (siteFilter.size > 0) {
+          const ids = [...siteFilter];
+          if (ids.length === 1) q = q.or(`site_id.eq.${ids[0]},site_scope.eq.${ids[0]},site_scope.eq.__global__`);
+          else q = q.in("site_id", ids);
+        }
+        if (accountFilter.size > 0) q = q.in("google_account_id", [...accountFilter]);
+        const { data, error } = await q.range(s, s + 999);
         if (error) throw error;
         const rows = (data ?? []) as Row[];
         all.push(...rows);

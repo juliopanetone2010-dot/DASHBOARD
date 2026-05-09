@@ -13,8 +13,7 @@ export interface SiteSyncState {
   hasGamLink: boolean;
 }
 
-/** Dispara auto-onboarding quando o site mudar e ainda não tiver sido sincronizado.
- *  Faz polling a cada 5s enquanto status === "processing". */
+/** Lê o estado de sincronização do site e só roda sync quando o usuário pedir. */
 export function useSiteOnboarding(siteId: string) {
   const qc = useQueryClient();
   const [trigger, setTrigger] = useState(0);
@@ -47,17 +46,14 @@ export function useSiteOnboarding(siteId: string) {
     staleTime: 5_000,
   });
 
-  // Auto-disparar onboarding quando site nunca foi sincronizado
+  // Atualiza consultas dependentes quando uma sincronização em background termina.
   useEffect(() => {
     if (siteId === "all" || !query.data) return;
     const s = query.data;
-    if (s.status === "idle" && !s.lastFullSyncAt && s.hasAdsLink) {
-      void runOnboarding(siteId, false).then(() => setTrigger((t) => t + 1));
-    }
-    // refresh queries dependentes quando termina
     if (s.status === "completed") {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["site-metrics-daily"] });
+      qc.invalidateQueries({ queryKey: ["gam-freshness"] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, query.data?.status, query.data?.lastFullSyncAt, query.data?.hasAdsLink]);
