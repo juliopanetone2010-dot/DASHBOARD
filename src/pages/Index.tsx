@@ -280,10 +280,25 @@ const IndexInner = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine?.alerts.length]);
 
+  // Cache de 30 min: clicar Atualizar mais cedo só mostra toast informativo.
+  const SYNC_CACHE_MS = 30 * 60 * 1000;
+  const [lastManualSyncAt, setLastManualSyncAt] = useState<number>(0);
+  const [bgSyncing, setBgSyncing] = useState(false);
+
   const handleRefresh = async () => {
-    await syncDashboardData(filters);
+    const now = Date.now();
+    const since = now - lastManualSyncAt;
+    if (lastManualSyncAt > 0 && since < SYNC_CACHE_MS) {
+      const mins = Math.max(1, Math.round(since / 60_000));
+      toast({ title: "Dados recentes", description: `Última sincronização há ${mins} min. Tente novamente em alguns minutos.` });
+      await data.refresh();
+      return;
+    }
+    setLastManualSyncAt(now);
+    void syncDashboardData(filters); // fire-and-forget
   };
 
+  // Sync em background: NÃO bloqueia a UI. Só dispara quando usuário pede explicitamente.
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters) => {
     const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
     const defaultRange = (() => {
@@ -300,55 +315,56 @@ const IndexInner = () => {
       site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
       account_ids: nextFilters.googleAccountIds,
       revenue_only: true,
-      // Para "Hoje", incluímos ontem como fallback (GAM atrasa horas).
       include_yesterday_fallback: preset === "today",
     };
 
-    toast({ title: "Sincronizando", description: "Filtros atualizados" });
-    if (import.meta.env.DEV) {
-      console.info("[dashboard-sync] request", { filter: nextFilters, appliedDate: { from, to }, queryKeys: { dashboard: ["dashboard", user?.id ?? "guest", from, to], retention: ["retention", from, to] } });
+    setBgSyncing(true);
+    toast({ title: "Sincronizando em segundo plano", description: "Você pode continuar usando o painel." });
+
+    // Marca início no sync_state (best-effort)
+    if (user?.id) {
+      void supabase.from("sync_state").upsert({
+        user_id: user.id, source: "manual_refresh",
+        last_started_at: new Date().toISOString(), last_status: "running",
+      }, { onConflict: "user_id,source,google_account_id,site_id" });
     }
-    if (nextFilters.siteId === "all") {
-      await allSites.syncAll(true);
+
+    try {
+      if (nextFilters.siteId === "all") {
+        await allSites.syncAll(true);
+      } else {
+        await Promise.allSettled([
+          supabase.functions.invoke("google-ads-sync-campaigns", { body }),
+          supabase.functions.invoke("gam-sync-revenue", { body }),
+        ]);
+      }
       await data.refresh();
-      toast({ title: "Sincronização geral iniciada", description: "Os sites serão atualizados em segundo plano." });
-      return;
-    }
-    const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown }>(
-      "google-ads-sync-campaigns",
-      { body },
-    );
-    const gamRes = await supabase.functions.invoke<{ ok?: boolean; error?: string; debug?: unknown; gam_debug?: unknown }>(
-      "gam-sync-revenue",
-      { body },
-    );
-
-    if (import.meta.env.DEV) {
-      console.info("[dashboard-sync] Google Ads", adsRes.data ?? adsRes.error);
-      console.info("[dashboard-sync] GAM", gamRes.data ?? gamRes.error);
-    }
-
-    const adsErr = adsRes.error?.message ?? adsRes.data?.error;
-    const gamErr = gamRes.error?.message ?? gamRes.data?.error;
-    if (adsErr) toast({ title: "Erro Google Ads", description: adsErr, variant: "destructive" });
-    if (gamErr) toast({ title: "Erro GAM", description: gamErr, variant: "destructive" });
-    if (!adsErr && !gamErr) {
+      if (user?.id) {
+        void supabase.from("sync_state").upsert({
+          user_id: user.id, source: "manual_refresh",
+          last_finished_at: new Date().toISOString(), last_status: "ok",
+        }, { onConflict: "user_id,source,google_account_id,site_id" });
+      }
       toast({ title: "Dados atualizados" });
+    } catch (e: any) {
+      if (user?.id) {
+        void supabase.from("sync_state").upsert({
+          user_id: user.id, source: "manual_refresh",
+          last_finished_at: new Date().toISOString(), last_status: "error", last_error: String(e?.message ?? e),
+        }, { onConflict: "user_id,source,google_account_id,site_id" });
+      }
+      toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setBgSyncing(false);
     }
-    await data.refresh();
   }, [allSites, data, user?.id]);
 
+  // Trocar filtros = leitura do banco. Nunca dispara sync externo.
   const handleFilterChange = (nextFilters: DashboardFilters) => {
-    const shouldSync =
-      nextFilters.siteId !== filters.siteId ||
-      nextFilters.fromDate !== filters.fromDate ||
-      nextFilters.toDate !== filters.toDate ||
-      nextFilters.googleAccountIds.join("|") !== filters.googleAccountIds.join("|");
     setFilters(nextFilters);
     if (import.meta.env.DEV) {
-      console.info("[dashboard] filters change", { from: nextFilters.fromDate, to: nextFilters.toDate, accounts: nextFilters.googleAccountIds, site: nextFilters.siteId, shouldSync });
+      console.info("[dashboard] filters change (read-only)", nextFilters);
     }
-    if (shouldSync) void syncDashboardData(nextFilters);
   };
 
   const handleAcknowledge = async (id: string) => {
