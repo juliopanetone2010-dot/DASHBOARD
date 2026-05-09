@@ -566,7 +566,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <Button
               variant="outline" size="sm"
               disabled={!campaignId || loading}
-              onClick={() => campaignId && fetchPlacements(campaignId)}
+              onClick={() => campaignId && fetchPlacements(campaignId, { sync: true })}
+              title="Sincronizar e recarregar placements desta campanha"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
