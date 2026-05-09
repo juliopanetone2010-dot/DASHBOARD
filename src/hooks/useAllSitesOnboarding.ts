@@ -12,9 +12,8 @@ interface SiteRow {
   ads_links: number;
 }
 
-/** Verifica todos os sites do usuário e dispara `site-auto-onboard` em background
- *  para qualquer site que ainda não foi sincronizado (uma vez por sessão).
- *  Também expõe `syncAll(force)` para o botão global. */
+/** Verifica todos os sites do usuário e expõe `syncAll(force)` para o botão global.
+ *  Não dispara sync automático para evitar 429/504 ao trocar de site/aba. */
 export function useAllSitesOnboarding(enabled: boolean) {
   const qc = useQueryClient();
   const triggeredRef = useRef<Set<string>>(new Set());
@@ -48,25 +47,12 @@ export function useAllSitesOnboarding(enabled: boolean) {
     staleTime: 10_000,
   });
 
-  // Auto-disparo em background — uma vez por site por sessão
+  // Apenas invalida dashboards quando algum processo manual termina.
   useEffect(() => {
     if (!enabled || !sites) return;
-    void (async () => {
-      for (const s of sites) {
-        if (triggeredRef.current.has(s.id)) continue;
-        const startedAt = s.sync_started_at ? new Date(s.sync_started_at).getTime() : 0;
-        const ageMin = (Date.now() - startedAt) / 60000;
-        const stuck = s.sync_status === "processing" && ageMin > 10;
-        const needs = s.ads_links > 0 && !s.last_full_sync_at && (s.sync_status === "idle" || stuck);
-        if (!needs) continue;
-        triggeredRef.current.add(s.id);
-        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force: stuck } });
-        await delay(2_000);
-      }
-    })();
-    // invalidate dashboards quando algum termina
     if (sites.some((s) => s.sync_status === "completed")) {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["gam-freshness"] });
     }
   }, [enabled, sites, qc]);
 
