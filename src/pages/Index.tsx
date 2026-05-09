@@ -438,17 +438,10 @@ const IndexInner = () => {
   // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
   // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
   // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
-  const realGamRevenueDisplay = (() => {
-    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
-    let total = 0;
-    for (const [cur, val] of Object.entries(byCur)) {
-      if (cur === "BRL") total += isBrlSite ? val : (val / usdBrl);
-      else if (cur === "USD") total += isBrlSite ? val * usdBrl : val;
-      else total += isBrlSite ? val * usdBrl : val; // fallback: trata como USD
-    }
-    return total;
-  })();
-  const attributedRevenueDisplay = revenueDisplay; // antiga "Receita" (apenas atribuído via UTM)
+  const realGamRevenueDisplay = isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl;
+  // Receita "atribuída" antiga = só Google UTM + push/outras (sem impressões sem tag)
+  const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
+  const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
   const attributionPct = realGamRevenueDisplay > 0
     ? (attributedRevenueDisplay / realGamRevenueDisplay) * 100
     : 0;
