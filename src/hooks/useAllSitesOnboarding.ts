@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -16,7 +16,6 @@ interface SiteRow {
  *  Não dispara sync automático para evitar 429/504 ao trocar de site/aba. */
 export function useAllSitesOnboarding(enabled: boolean) {
   const qc = useQueryClient();
-  const triggeredRef = useRef<Set<string>>(new Set());
 
   const { data: sites, refetch } = useQuery({
     queryKey: ["all-sites-sync-state"],
