@@ -118,8 +118,8 @@ const IndexInner = () => {
       if (error) throw error;
       return data as { lastHour: number | null; label: string; isToday: boolean; isYesterday: boolean; date: string };
     },
-    staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 30 * 60_000,
   });
 
   // Viewability + eCPM por site (GAM)
