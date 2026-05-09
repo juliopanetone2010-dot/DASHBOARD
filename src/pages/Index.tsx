@@ -106,20 +106,27 @@ const IndexInner = () => {
     refetchInterval: 60_000,
   });
 
-  // GAM: hora REAL baseada na última hora com impressão > 0 no relatório do dia.
-  const gamLastHourQuery = useQuery({
-    queryKey: ["gam-last-hour", filters.siteId, filters.toDate],
+  // GAM: usa apenas o banco local para frescor. Evita chamar relatório GAM ao trocar abas/sites,
+  // porque a API externa pode ficar >150s e derrubar a função com 504.
+  const gamFreshnessQuery = useQuery({
+    queryKey: ["gam-freshness", filters.siteId],
     queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const date = filters.toDate || today;
-      const { data, error } = await supabase.functions.invoke("gam-last-hour", {
-        body: { date, site_id: filters.siteId === "all" ? null : filters.siteId },
-      });
+      let q = supabase
+        .from("site_metrics_daily")
+        .select("date, updated_at")
+        .order("date", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
       if (error) throw error;
-      return data as { lastHour: number | null; label: string; isToday: boolean; isYesterday: boolean; date: string };
+      const row = data?.[0] as { date?: string; updated_at?: string } | undefined;
+      return row?.date
+        ? { date: row.date, label: `Ad Manager salvo até: ${row.date}`, updatedAt: row.updated_at ?? null }
+        : { date: null, label: "Ad Manager: sem dados salvos", updatedAt: null };
     },
-    staleTime: 5 * 60_000,
-    refetchInterval: 30 * 60_000,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
   // Viewability + eCPM por site (GAM)
@@ -342,10 +349,8 @@ const IndexInner = () => {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true);
       } else {
-        await Promise.allSettled([
-          supabase.functions.invoke("google-ads-sync-campaigns", { body }),
-          supabase.functions.invoke("gam-sync-revenue", { body }),
-        ]);
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
+        toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
@@ -362,7 +367,7 @@ const IndexInner = () => {
 
   const handleFilterChange = (nextFilters: DashboardFilters) => {
     setFilters(nextFilters);
-    void syncDashboardData(nextFilters);
+    void data.refresh();
   };
 
   const handleAcknowledge = async (id: string) => {
