@@ -600,10 +600,12 @@ async function maybeAdjustCpa(admin: any, row: any, roiPct: number, deliveryRate
     dry_run: dryRun, error,
     payload: { delta_pct: deltaPct, executed },
   });
-  Object.assign(updates, {
-    last_cpa_change_at: now.toISOString(),
-    cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
-  });
+  if (executed) {
+    Object.assign(updates, {
+      last_cpa_change_at: now.toISOString(),
+      cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
+    });
+  }
   return executed || dryRun;
 }
 
