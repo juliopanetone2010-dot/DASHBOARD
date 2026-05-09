@@ -75,7 +75,9 @@ Deno.serve(async (req) => {
     const hourMap = new Map<number, number>();
     const debugRows: any[] = [];
 
-    for (const networkCode of networks) {
+    // Processa redes em PARALELO — gamQueue serializa os HTTP calls,
+    // mas os sleeps de polling não bloqueiam outras redes (evita 150s timeout).
+    await Promise.all(networks.map(async (networkCode) => {
       try {
         const rows = await runHourReport(networkCode, accessToken, date);
         debugRows.push({
@@ -93,7 +95,7 @@ Deno.serve(async (req) => {
         console.error("[gam-last-hour]", networkCode, String(e));
         debugRows.push({ networkCode, error: String(e) });
       }
-    }
+    }));
 
     const hours = [...hourMap.entries()]
       .map(([hour, impressions]) => ({ hour, impressions }))
@@ -163,8 +165,8 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
   const opName: string = runJson.name;
 
   let resultName: string | null = null;
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
     const opRes = await gamFetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await opRes.json();
     if (opJson.done) {
