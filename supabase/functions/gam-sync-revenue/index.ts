@@ -1111,7 +1111,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
-  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+  const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(reportBody),
@@ -1128,7 +1128,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
   const reportName: string = createJson.name;
 
-  const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
+  const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
@@ -1141,7 +1141,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   for (let i = 0; i < 30; i++) {
     ensureBudget(10_000);
     await new Promise((r) => setTimeout(r, 2000));
-    const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const opRes = await gamFetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await parseJsonResponse(opRes, "poll", tag);
     if (opJson.done) {
       if (opJson.error) throw new Error(`[${tag}] op error: ${JSON.stringify(opJson.error)}`);
@@ -1160,7 +1160,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
-    const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const rowsRes = await gamFetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     const rowsJson = await parseJsonResponse(rowsRes, "fetchRows", tag);
     if (!rowsRes.ok) throw new Error(`[${tag}] fetchRows failed: ${JSON.stringify(rowsJson)}`);
 
@@ -1300,7 +1300,7 @@ function json(payload: unknown) {
 // Lê o currencyCode da Network GAM (para auto-detecção de moeda por site)
 async function fetchNetworkCurrency(networkCode: string, accessToken: string, debug: string[]): Promise<string | null> {
   try {
-    const res = await fetch(`${GAM_BASE}/networks/${networkCode}`, {
+    const res = await gamFetch(`${GAM_BASE}/networks/${networkCode}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const text = await res.text();
