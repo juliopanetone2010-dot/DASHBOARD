@@ -164,6 +164,30 @@ const IndexInner = () => {
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
   });
+
+  // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
+  // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
+  const siteRealRevenueQuery = useQuery({
+    queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
+    queryFn: async () => {
+      let q = supabase.from("site_metrics_daily")
+        .select("revenue_native, currency, impressions, site_id")
+        .gte("date", range.from).lte("date", range.to)
+        .limit(5000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      const totals = (data ?? []).reduce((a, r: any) => {
+        const cur = String(r.currency || "USD").toUpperCase();
+        a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
+        a.impressions += Number(r.impressions ?? 0);
+        return a;
+      }, { byCurrency: {} as Record<string, number>, impressions: 0 });
+      return totals;
+    },
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
   // Atribuição por site quando uma conta Ads serve N sites:
   // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
