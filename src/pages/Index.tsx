@@ -396,7 +396,6 @@ const IndexInner = () => {
                   <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)} • {filtered.campaigns.length} camp · {filtered.placements.length} place</>
                 )}
               </p>
-              <div className="mt-1"><SyncStatusBar /></div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -407,8 +406,7 @@ const IndexInner = () => {
                 const linked = siteId === "all"
                   ? []
                   : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
-                // Apenas troca filtro (leitura do banco) — sem sync externo.
-                setFilters({ ...filters, siteId, googleAccountIds: linked });
+                handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
               }}
             />
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
@@ -420,7 +418,7 @@ const IndexInner = () => {
               onClick={() => { void allSites.syncAll(true); }}
               disabled={!allSites.totalCount || allSites.processingCount > 0}
               className="gap-2"
-              title="Sincroniza todos os sites em segundo plano (não bloqueia o painel)"
+              title="Sincroniza todos os sites"
             >
               <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Sincronizar todos os sites
@@ -430,11 +428,12 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={bgSyncing} className="gap-2">
-              <RefreshCw className={bgSyncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {bgSyncing ? "Sincronizando…" : "Atualizar"}
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
+              <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {syncing ? "Sincronizando…" : "Atualizar"}
             </Button>
           </div>
+
         </div>
       </header>
 
