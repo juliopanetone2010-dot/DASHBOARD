@@ -33,6 +33,8 @@ const ADV_SCALE_MIN_DELIVERY = 0.9;
 const PROTECT_LOW_DELIVERY = 0.2;
 const PROTECT_BAD_ROI = -30;
 const SCALE_PCT = 20;
+// Gasto mínimo (BRL) acumulado antes de qualquer ação em campanhas novas/learning
+const MIN_SPEND_BEFORE_ACTION = 500;
 const ADV_CPA_REDUCE_PCT = -5;
 const CPA_UP_LOW_ROI_PCT = 10;
 const CPA_UP_LOW_DELIVERY_PCT = 15;
@@ -387,7 +389,9 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
   let acted = false;
 
   // === PROTEÇÃO (vale para qualquer estado ativo, exceto learning inicial < 3d) ===
-  if (status !== "learning" || daysSinceLearn >= 3) {
+  // Em learning, só ativa proteção depois de R$500 gastos (evita pausar campanha nova com pouco volume)
+  const learningSpendGateOk = status !== "learning" || totalSpend >= MIN_SPEND_BEFORE_ACTION;
+  if ((status !== "learning" || daysSinceLearn >= 3) && learningSpendGateOk) {
     const last3 = days.slice(-3);
     const last3Spend = last3.reduce((s, d) => s + d.spend, 0);
     const last3Net = last3.reduce((s, d) => s + d.netRev, 0);
@@ -409,6 +413,12 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
 
   // === Estado: learning ===
   if (status === "learning") {
+    // Gate de gasto mínimo: campanhas novas/learning precisam ter gastado >= R$500 desde a criação
+    if (totalSpend < MIN_SPEND_BEFORE_ACTION) {
+      updates.next_action_hint = `Aguardando gasto mínimo (R$${totalSpend.toFixed(2)}/R$${MIN_SPEND_BEFORE_ACTION}) — ${daysSinceLearn}d em aprendizado`;
+      await persistFunnel(admin, row.id, updates);
+      return false;
+    }
     if (daysSinceLearn < LEARNING_DAYS) {
       updates.next_action_hint = `Aguardando aprendizado (${daysSinceLearn}/${LEARNING_DAYS}d)`;
       await persistFunnel(admin, row.id, updates);
