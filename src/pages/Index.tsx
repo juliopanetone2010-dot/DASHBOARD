@@ -319,7 +319,6 @@ const IndexInner = () => {
   const lastSyncRef = useRef<{ key: string; at: number } | null>(null);
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters, opts?: { force?: boolean }) => {
-    const preset = presetFromRange(nextFilters.fromDate, nextFilters.toDate);
     const defaultRange = (() => {
       const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const d = new Date();
@@ -335,14 +334,6 @@ const IndexInner = () => {
       void data.refresh();
       return;
     }
-    const body = {
-      from,
-      to,
-      site_id: nextFilters.siteId === "all" ? undefined : nextFilters.siteId,
-      account_ids: nextFilters.googleAccountIds,
-      revenue_only: true,
-      include_yesterday_fallback: preset === "today",
-    };
 
     setSyncing(true);
     try {
