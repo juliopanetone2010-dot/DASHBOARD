@@ -79,7 +79,7 @@ export function useAllSitesOnboarding(enabled: boolean) {
     });
     for (const s of eligibleSites) {
       await supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force } });
-      await delay(2_000);
+      await delay(12_000); // dá tempo do GAM resetar quota antes do próximo site
     }
     await refetch();
   };
