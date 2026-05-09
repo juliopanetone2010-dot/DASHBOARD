@@ -555,7 +555,7 @@ async function fetchUtmKeyIds(
     const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
     url.searchParams.set("pageSize", "1000");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await gamFetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     const text = await res.text();
     let json: any;
     try { json = JSON.parse(text); } catch { throw new Error(`customTargetingKeys retorno não-JSON: ${text.slice(0, 200)}`); }
