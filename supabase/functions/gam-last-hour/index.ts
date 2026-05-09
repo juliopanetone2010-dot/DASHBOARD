@@ -75,7 +75,9 @@ Deno.serve(async (req) => {
     const hourMap = new Map<number, number>();
     const debugRows: any[] = [];
 
-    for (const networkCode of networks) {
+    // Processa redes em PARALELO — gamQueue serializa os HTTP calls,
+    // mas os sleeps de polling não bloqueiam outras redes (evita 150s timeout).
+    await Promise.all(networks.map(async (networkCode) => {
       try {
         const rows = await runHourReport(networkCode, accessToken, date);
         debugRows.push({
@@ -93,7 +95,7 @@ Deno.serve(async (req) => {
         console.error("[gam-last-hour]", networkCode, String(e));
         debugRows.push({ networkCode, error: String(e) });
       }
-    }
+    }));
 
     const hours = [...hourMap.entries()]
       .map(([hour, impressions]) => ({ hour, impressions }))
