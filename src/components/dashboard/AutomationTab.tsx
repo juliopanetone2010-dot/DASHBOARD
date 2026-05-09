@@ -120,7 +120,7 @@ export function AutomationTab() {
     setLogs(l ?? []);
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [siteFilter]);
   // Sincroniza com o seletor global de site (header)
   useEffect(() => {
     setSiteFilter(globalFilters.siteId || "all");
