@@ -60,10 +60,16 @@ export function AutomationTab() {
     const yesterday = new Date(today.getTime() - 86400_000);
     const start15 = new Date(today.getTime() - 15 * 86400_000);
     const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    let statesQuery = supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(2000);
+    let logsQuery = supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(2000);
+    if (siteFilter !== "all") {
+      statesQuery = statesQuery.or(`site_id.eq.${siteFilter},site_id.is.null`);
+      logsQuery = logsQuery.or(`site_id.eq.${siteFilter},site_id.is.null`);
+    }
     const [{ data: c }, { data: s }, { data: l }, { data: camps }, { data: accs }, { data: sts }, { data: lks }, { data: sac }, { data: rangeMetrics }] = await Promise.all([
       supabase.from("rules_config").select("*").maybeSingle(),
-      supabase.from("campaign_automation").select("*").order("last_evaluated_at", { ascending: false }).limit(500),
-      supabase.from("automation_logs").select("*").order("created_at", { ascending: false }).limit(500),
+      statesQuery,
+      logsQuery,
       supabase.from("campaigns").select("campaign_id, name, status, google_account_id, created_at").limit(2000),
       supabase.from("google_accounts").select("id, account_name, descriptive_name, customer_id"),
       supabase.from("sites").select("id, name"),
