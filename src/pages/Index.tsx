@@ -33,6 +33,7 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
+import { SyncStatusBar } from "@/components/dashboard/SyncStatusBar";
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
