@@ -430,12 +430,12 @@ const IndexInner = () => {
             <div>
               <h1 className="text-lg font-bold tracking-tight">Arbitrage Engine</h1>
               <p className="text-xs text-muted-foreground">
-                {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`} •{" "}
-                {data.lastSyncedAt ? `sync ${data.lastSyncedAt.toLocaleTimeString("pt-BR")}` : "—"}
+                {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`}
                 {filters.siteId !== "all" && (
                   <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)} • {filtered.campaigns.length} camp · {filtered.placements.length} place</>
                 )}
               </p>
+              <div className="mt-1"><SyncStatusBar /></div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
