@@ -6,6 +6,20 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
+// Wrapper de fetch com retry + backoff exponencial para erros 429/503 do GAM (quota/sobrecarga).
+// Tenta até 4x: 2s, 5s, 15s, 30s. Respeita Retry-After se vier no header.
+async function gamFetch(input: string | URL, init?: RequestInit, attempt = 0): Promise<Response> {
+  const res = await fetch(input, init);
+  if ((res.status === 429 || res.status === 503) && attempt < 3) {
+    const retryAfter = Number(res.headers.get("retry-after")) || 0;
+    const backoff = retryAfter > 0 ? retryAfter * 1000 : [2000, 5000, 15000, 30000][attempt];
+    console.warn(`[gam-last-hour] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
+    await new Promise((r) => setTimeout(r, backoff));
+    return gamFetch(input, init, attempt + 1);
+  }
+  return res;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
