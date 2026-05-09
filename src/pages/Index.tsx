@@ -416,6 +416,24 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
+  // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
+  // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
+  // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
+  const realGamRevenueDisplay = (() => {
+    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
+    let total = 0;
+    for (const [cur, val] of Object.entries(byCur)) {
+      if (cur === "BRL") total += isBrlSite ? val : (val / usdBrl);
+      else if (cur === "USD") total += isBrlSite ? val * usdBrl : val;
+      else total += isBrlSite ? val * usdBrl : val; // fallback: trata como USD
+    }
+    return total;
+  })();
+  const attributedRevenueDisplay = revenueDisplay; // antiga "Receita" (apenas atribuído via UTM)
+  const attributionPct = realGamRevenueDisplay > 0
+    ? (attributedRevenueDisplay / realGamRevenueDisplay) * 100
+    : 0;
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-10">
