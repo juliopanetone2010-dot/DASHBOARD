@@ -11,7 +11,20 @@ import OAuthCallback from "./pages/OAuthCallback.tsx";
 import Auth from "./pages/Auth.tsx";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 
-const queryClient = new QueryClient();
+// Database-first: cache de 5min, sem refetch automático ao focar/montar.
+// UI mostra dado em cache instantaneamente enquanto valida silenciosamente.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

@@ -2222,6 +2222,51 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_state: {
+        Row: {
+          created_at: string
+          google_account_id: string | null
+          id: string
+          last_error: string | null
+          last_finished_at: string | null
+          last_started_at: string | null
+          last_status: string
+          rows_synced: number | null
+          site_id: string | null
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          google_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_finished_at?: string | null
+          last_started_at?: string | null
+          last_status?: string
+          rows_synced?: number | null
+          site_id?: string | null
+          source: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          google_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_finished_at?: string | null
+          last_started_at?: string | null
+          last_status?: string
+          rows_synced?: number | null
+          site_id?: string | null
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
