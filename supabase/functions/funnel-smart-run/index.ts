@@ -381,8 +381,12 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
       dry_run: dryRun, error,
       payload: { params, executed, ...extras },
     });
-    if (statusTo) updates.funnel_status = statusTo;
-    Object.assign(updates, extras);
+    // Só persiste mudança de estado se a mutação foi REALMENTE executada no Google Ads.
+    // Em dry_run não alteramos funnel_status para evitar divergência com o estado real da campanha.
+    if (executed) {
+      if (statusTo) updates.funnel_status = statusTo;
+      Object.assign(updates, extras);
+    }
     return executed || dryRun;
   };
 
@@ -596,10 +600,12 @@ async function maybeAdjustCpa(admin: any, row: any, roiPct: number, deliveryRate
     dry_run: dryRun, error,
     payload: { delta_pct: deltaPct, executed },
   });
-  Object.assign(updates, {
-    last_cpa_change_at: now.toISOString(),
-    cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
-  });
+  if (executed) {
+    Object.assign(updates, {
+      last_cpa_change_at: now.toISOString(),
+      cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
+    });
+  }
   return executed || dryRun;
 }
 
