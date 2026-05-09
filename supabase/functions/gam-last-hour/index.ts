@@ -125,7 +125,7 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
     // Usa o fuso da rede (mesmo que o usuário vê na UI do GAM)
     timeZoneSource: "PUBLISHER",
   };
-  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+  const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({ visibility: "DRAFT", reportDefinition }),
@@ -134,7 +134,7 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
   if (!createRes.ok) throw new Error(`create failed: ${JSON.stringify(createJson)}`);
   const reportName: string = createJson.name;
 
-  const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
+  const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
@@ -146,7 +146,7 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const opRes = await gamFetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const opJson = await opRes.json();
     if (opJson.done) {
       if (opJson.error) throw new Error(`op error: ${JSON.stringify(opJson.error)}`);
@@ -162,7 +162,7 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     url.searchParams.set("pageSize", "1000");
-    const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const rowsRes = await gamFetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     const rowsJson = await rowsRes.json();
     if (!rowsRes.ok) throw new Error(`fetchRows failed: ${JSON.stringify(rowsJson)}`);
     const rows = (rowsJson.rows ?? []) as Array<{
