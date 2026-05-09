@@ -951,11 +951,15 @@ async function applyGoogleUtmRevenue(
     placementBuckets.set(key, pb);
   }
 
-  const dates = [...new Set([...syncDates, ...[...placementBuckets.values()].map((p) => p.date)])];
-  if (dates.length > 0) {
+  // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
+  // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
+  const arr = [...placementBuckets.values()];
+  if (arr.length === 0) {
+    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (provável rate-limit/quota). Mantendo snapshot anterior.`);
+  } else {
+    const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
     await admin.from("gam_placement_revenue")
       .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-    const arr = [...placementBuckets.values()];
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
