@@ -41,11 +41,22 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Get the owner's email to generate a magic link for
-    const { data: ownerData, error: ownerErr } = await admin.auth.admin.getUserById(ownerUserId);
-    if (ownerErr || !ownerData?.user?.email) {
-      console.error("[guest-login] owner lookup failed", ownerErr);
-      return json({ error: "Owner não encontrado" }, 500);
+    // Resolve owner: accept UUID or email in GUEST_OWNER_USER_ID
+    const raw = ownerUserId.trim().replace(/^["']|["']$/g, "");
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let ownerEmail: string | null = null;
+    if (uuidRe.test(raw)) {
+      const { data: ownerData, error: ownerErr } = await admin.auth.admin.getUserById(raw);
+      if (ownerErr || !ownerData?.user?.email) {
+        console.error("[guest-login] owner lookup by id failed", ownerErr);
+        return json({ error: "Owner não encontrado" }, 500);
+      }
+      ownerEmail = ownerData.user.email;
+    } else if (raw.includes("@")) {
+      ownerEmail = raw;
+    } else {
+      console.error("[guest-login] GUEST_OWNER_USER_ID inválido (não é UUID nem email):", raw);
+      return json({ error: "GUEST_OWNER_USER_ID deve ser UUID ou email" }, 500);
     }
 
     // Generate a magic link for the owner; we'll convert it to a session
