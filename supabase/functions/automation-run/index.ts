@@ -943,11 +943,7 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
     return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0 } as any;
   }
 
-  // Fora da zona de stop-loss: se havia segunda chance ativa e ROI recuperou, sinaliza limpeza.
-  if (clearSecondChance) {
-    // Marcador para a persistência limpar o campo (decision propaga abaixo).
-    (decideSecondChanceClear as any).flag = true;
-  }
+  // Fora da zona de stop-loss: a limpeza da segunda chance ocorre na persistência via `clearSecondChance`.
 
   // HISTERESE do "Escalando": se a campanha já estava Escalando, ela só sai
   // desse status depois de N dias seguidos com ROI abaixo do piso.
