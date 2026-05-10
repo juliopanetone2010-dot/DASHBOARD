@@ -112,6 +112,9 @@ export default function Auth() {
                 <Input id="pw-in" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </div>
               <Button type="submit" className="w-full" disabled={busy}>Entrar</Button>
+              <Button type="button" variant="secondary" className="w-full" onClick={handleGuest} disabled={busy}>
+                Entrar como convidado
+              </Button>
             </form>
           </TabsContent>
           <TabsContent value="signup">
