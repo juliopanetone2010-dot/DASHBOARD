@@ -116,6 +116,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
               <SortHead k="profit" label="Lucro" />
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
+              <SortHead k="ecpm" label="eCPM" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
