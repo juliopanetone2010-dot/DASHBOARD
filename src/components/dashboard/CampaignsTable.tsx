@@ -17,7 +17,7 @@ import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "clicks" | "conversions";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions";
 type SortDir = "desc" | "asc";
 
 interface Props {
@@ -116,6 +116,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
               <SortHead k="profit" label="Lucro" />
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
+              <SortHead k="ecpm" label="eCPM" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
@@ -124,7 +125,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -185,6 +186,9 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {(Number(c.roas) || 0).toFixed(2)}x
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtUSD(Number(c.ecpm) || 0)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
