@@ -586,6 +586,16 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.scaling_since = null;
       newState.sub_threshold_days = 0;
     }
+    // Segunda chance (stop-loss): set/clear/preserve.
+    const scDecision = (decision as any).second_chance_started_at;
+    if (scDecision !== undefined) {
+      newState.second_chance_started_at = scDecision; // string ou null
+      newState.second_chance_reason = scDecision ? decision.reason : null;
+    } else if (prevState?.second_chance_started_at && Number(decision.roi) >= 0) {
+      // ROI recuperou — limpa flag mesmo fora do bloco de stop-loss.
+      newState.second_chance_started_at = null;
+      newState.second_chance_reason = null;
+    }
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
