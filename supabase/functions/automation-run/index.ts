@@ -202,10 +202,17 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   // Campanhas com fluxo de reinício ativo são geridas apenas pelo `campaign-restart`.
   const { data: restartFlows } = await admin
     .from("campaign_restart_flow")
-    .select("campaign_id")
+    .select("campaign_id, stage")
     .eq("user_id", userId)
     .eq("status", "active");
   const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
+  const restartStageByCamp = new Map<string, string>();
+  for (const r of restartFlows ?? []) restartStageByCamp.set(String(r.campaign_id), String(r.stage ?? ""));
+  // Mapeia stage do restart_flow para lifecycle_status para manter UI sincronizada
+  const stageToLifecycle = (stage: string): Lifecycle => {
+    if (stage.includes("phase2") || stage.includes("phase3") || stage.includes("phase4")) return "scaling";
+    return "testing";
+  };
 
   // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
   const { data: funnelRows } = await admin
@@ -233,6 +240,21 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
 
     if (restartActiveSet.has(agg.campaign_id)) {
+      // Espelha o estágio do restart_flow no lifecycle_status para que a UI não fique presa em "paused"
+      const stage = restartStageByCamp.get(agg.campaign_id) ?? "";
+      const desiredLifecycle = stageToLifecycle(stage);
+      const prev = stateByCamp.get(agg.campaign_id);
+      if (!prev || prev.lifecycle_status !== desiredLifecycle) {
+        await admin.from("campaign_automation").upsert({
+          user_id: userId,
+          campaign_id: agg.campaign_id,
+          google_account_id: accountId,
+          site_id: siteId,
+          lifecycle_status: desiredLifecycle,
+          last_evaluated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
+      }
       skippedRestartFlow++;
       continue;
     }
