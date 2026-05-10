@@ -70,6 +70,9 @@ Deno.serve(async (req) => {
             from: targetDate,
             to: targetDate,
             revenue_only: true,
+            sync: true,
+            skip_viewability: true,
+            skip_snapshot_regen: true,
           }),
         });
       } catch (e) {
