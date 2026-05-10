@@ -880,10 +880,73 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
 
   // E) Stop-loss: SÓ pausa se ROI acumulado cruza limite negativo, há dias suficientes,
   // tendência não é de melhora E o ROI de HOJE também não está positivo (proteção:
-  // se hoje virou positivo, não pausa — dá uma chance da campanha se recuperar).
+  // se hoje virou positivo, dá uma "segunda chance" — observa 3 dias antes de pausar).
   const todayProtect = todayRoi != null && todayRoi > 0;
-  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up" && !todayProtect) {
+  const SECOND_CHANCE_DAYS = 3;
+  const prevSecondChance = prev?.second_chance_started_at ? new Date(prev.second_chance_started_at) : null;
+  const daysInSecondChance = prevSecondChance
+    ? Math.floor((Date.now() - prevSecondChance.getTime()) / 86400_000)
+    : 0;
+
+  // Se ROI acumulado já recuperou (>= 0), encerra a segunda chance e segue fluxo normal abaixo.
+  const clearSecondChance = prevSecondChance && roi >= 0;
+
+  if (roi <= stopLossRoi && days >= stopLossDays && trend !== "up") {
+    // Já está em segunda chance: observa por 3 dias, depois decide.
+    if (prevSecondChance) {
+      if (daysInSecondChance < SECOND_CHANCE_DAYS) {
+        return {
+          lifecycle: "learning",
+          action: "none",
+          reason: `Segunda chance (${daysInSecondChance + 1}/${SECOND_CHANCE_DAYS}d): ROI ${round2(roi)}% (5d) · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · observando antes de pausar`,
+          roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0,
+          second_chance_started_at: prevSecondChance.toISOString(),
+        } as any;
+      }
+      // Passou os 3 dias: avalia últimos 3 dias.
+      const last3 = sliced.slice(-3);
+      const cost3 = last3.reduce((s: number, d: any) => s + (Number(d.spend) || 0), 0);
+      const grossRev3 = last3.reduce((s: number, d: any) => s + ((Number(d.spend) || 0) + (Number(d.profit) || 0)), 0);
+      const net3 = grossRev3 * NET_FACTOR;
+      const roi3 = cost3 > 0 ? ((net3 - cost3) / cost3) * 100 : 0;
+      if (roi3 >= 0 || todayProtect) {
+        // Recuperou — encerra segunda chance e mantém em learning, sem pausar.
+        return {
+          lifecycle: "learning",
+          action: "none",
+          reason: `Segunda chance bem-sucedida: ROI3d=${round2(roi3)}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} → mantendo (sai do stop-loss)`,
+          roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0,
+          second_chance_started_at: null,
+        } as any;
+      }
+      // Não recuperou: pausa.
+      return {
+        lifecycle: "bad", action: "pause",
+        reason: `Segunda chance falhou (${daysInSecondChance}d): ROI3d=${round2(roi3)}% · ROI5d=${round2(roi)}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} → pausar`,
+        roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0,
+        second_chance_started_at: null,
+      } as any;
+    }
+
+    // Sem segunda chance ainda: se hoje virou positivo, abre a janela de 3d.
+    if (todayProtect) {
+      return {
+        lifecycle: "learning",
+        action: "none",
+        reason: `Segunda chance iniciada: ROI ${round2(roi)}% (5d) negativo, mas hoje +${round2(todayRoi!)}% → observando 3d`,
+        roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0,
+        second_chance_started_at: new Date().toISOString(),
+      } as any;
+    }
+
+    // Sem segunda chance e hoje também ruim → pausa direto.
     return { lifecycle: "bad", action: "pause", reason: `ROI ${round2(roi)}% (${days}d) <= ${stopLossRoi}% · hoje ${todayRoi == null ? "?" : round2(todayRoi) + "%"} · trend ${trend} · delivery ${deliveryPct} → pausar`, roi, trend, delivery, avgDailySpend, roi_today: todayRoi, sub_threshold_days: 0 } as any;
+  }
+
+  // Fora da zona de stop-loss: se havia segunda chance ativa e ROI recuperou, sinaliza limpeza.
+  if (clearSecondChance) {
+    // Marcador para a persistência limpar o campo (decision propaga abaixo).
+    (decideSecondChanceClear as any).flag = true;
   }
 
   // HISTERESE do "Escalando": se a campanha já estava Escalando, ela só sai
