@@ -253,7 +253,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
           lifecycle_status: desiredLifecycle,
           last_evaluated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,campaign_id" });
+        }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
       }
       skippedRestartFlow++;
       continue;
