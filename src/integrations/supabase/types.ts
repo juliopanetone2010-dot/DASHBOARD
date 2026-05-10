@@ -272,6 +272,8 @@ export type Database = {
           roi_today: number | null
           roi_trend: string | null
           scaling_since: string | null
+          second_chance_reason: string | null
+          second_chance_started_at: string | null
           site_id: string | null
           sub_threshold_days: number
           updated_at: string
@@ -302,6 +304,8 @@ export type Database = {
           roi_today?: number | null
           roi_trend?: string | null
           scaling_since?: string | null
+          second_chance_reason?: string | null
+          second_chance_started_at?: string | null
           site_id?: string | null
           sub_threshold_days?: number
           updated_at?: string
@@ -332,6 +336,8 @@ export type Database = {
           roi_today?: number | null
           roi_trend?: string | null
           scaling_since?: string | null
+          second_chance_reason?: string | null
+          second_chance_started_at?: string | null
           site_id?: string | null
           sub_threshold_days?: number
           updated_at?: string
