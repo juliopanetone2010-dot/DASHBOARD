@@ -125,7 +125,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
