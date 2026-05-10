@@ -213,6 +213,13 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     if (stage.includes("phase2") || stage.includes("phase3") || stage.includes("phase4")) return "scaling";
     return "testing";
   };
+  const stageToLastAction = (stage: string): string => {
+    if (stage.includes("phase1")) return "restart_phase1_testing";
+    if (stage.includes("phase2")) return "restart_phase2_scale";
+    if (stage.includes("phase3")) return "restart_phase3_scale";
+    if (stage.includes("phase4")) return "restart_phase4_full";
+    return "restart_in_progress";
+  };
 
   // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
   const { data: funnelRows } = await admin
@@ -243,14 +250,17 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       // Espelha o estágio do restart_flow no lifecycle_status para que a UI não fique presa em "paused"
       const stage = restartStageByCamp.get(agg.campaign_id) ?? "";
       const desiredLifecycle = stageToLifecycle(stage);
+      const desiredLastAction = stageToLastAction(stage);
       const prev = stateByCamp.get(agg.campaign_id);
-      if (!prev || prev.lifecycle_status !== desiredLifecycle) {
+      const isStuckOnRestart = prev?.last_action === "removed_for_restart";
+      if (!prev || prev.lifecycle_status !== desiredLifecycle || isStuckOnRestart) {
         await admin.from("campaign_automation").upsert({
           user_id: userId,
           campaign_id: agg.campaign_id,
           google_account_id: accountId,
           site_id: siteId,
           lifecycle_status: desiredLifecycle,
+          last_action: desiredLastAction,
           last_evaluated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
