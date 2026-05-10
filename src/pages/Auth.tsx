@@ -60,7 +60,7 @@ export default function Auth() {
   const handleGuest = async () => {
     setBusy(true);
     const { data, error } = await supabase.functions.invoke("guest-login", {
-      body: { email, password },
+      body: {},
     });
     if (error || !data?.access_token) {
       setBusy(false);
