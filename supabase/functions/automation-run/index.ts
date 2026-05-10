@@ -213,6 +213,13 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     if (stage.includes("phase2") || stage.includes("phase3") || stage.includes("phase4")) return "scaling";
     return "testing";
   };
+  const stageToLastAction = (stage: string): string => {
+    if (stage.includes("phase1")) return "restart_phase1_testing";
+    if (stage.includes("phase2")) return "restart_phase2_scale";
+    if (stage.includes("phase3")) return "restart_phase3_scale";
+    if (stage.includes("phase4")) return "restart_phase4_full";
+    return "restart_in_progress";
+  };
 
   // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
   const { data: funnelRows } = await admin
