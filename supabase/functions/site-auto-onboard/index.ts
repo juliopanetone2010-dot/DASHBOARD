@@ -38,7 +38,11 @@ async function callFn(name: string, body: unknown, authHeader: string) {
       const text = await r.text();
       let parsed: unknown = text;
       try { parsed = JSON.parse(text); } catch { /* ignore */ }
-      if (r.status !== 429 || attempt === 2) return { ok: r.ok, status: r.status, body: parsed };
+      const parsedObj = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+      const summaryHasError = Array.isArray(parsedObj?.summary)
+        && parsedObj.summary.some((s) => s && typeof s === "object" && "error" in (s as Record<string, unknown>));
+      const bodyHasError = !!parsedObj?.error || summaryHasError;
+      if (r.status !== 429 || attempt === 2) return { ok: r.ok && !bodyHasError, status: r.status, body: parsed };
       await delay(15_000 * (attempt + 1));
     } catch (e) {
       const retryAfterMs = Number((e as { retryAfterMs?: number })?.retryAfterMs ?? 0);
@@ -112,8 +116,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
     if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
 
-    // 2. receita GAM em chunks de 14 dias para não estourar o timeout (150s)
-    const chunkDays = 7;
+    // 2. receita GAM em chunks pequenos e aguardando concluir.
+    // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
+    // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
+    const chunkDays = 3;
     const fromDate = new Date(from + "T00:00:00Z");
     const toDate = new Date(to + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
@@ -129,7 +135,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     for (const c of chunks) {
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
@@ -160,12 +166,13 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
     console.log("[auto-onboard] sync log", syncLog);
 
+    const hasErrors = syncLog.errors.length > 0;
     await admin
       .from("sites")
       .update({
-        sync_status: "completed",
-        sync_error: null,
-        last_full_sync_at: new Date().toISOString(),
+        sync_status: hasErrors ? "failed" : "completed",
+        sync_error: hasErrors ? syncLog.errors.join("\n").slice(0, 1500) : null,
+        last_full_sync_at: hasErrors ? undefined : new Date().toISOString(),
       })
       .eq("id", siteId)
       .eq("user_id", userId);
