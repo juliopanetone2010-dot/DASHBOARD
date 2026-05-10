@@ -13,7 +13,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { email, password } = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({}));
+    const email = typeof body?.email === "string" ? body.email : "";
+    const password = typeof body?.password === "string" ? body.password : "";
     const guestEmail = Deno.env.get("GUEST_LOGIN_EMAIL");
     const guestPassword = Deno.env.get("GUEST_LOGIN_PASSWORD");
     const ownerUserId = Deno.env.get("GUEST_OWNER_USER_ID");
@@ -22,12 +24,15 @@ Deno.serve(async (req) => {
       return json({ error: "Guest login não configurado" }, 500);
     }
 
-    if (
-      typeof email !== "string" ||
-      typeof password !== "string" ||
-      email.trim().toLowerCase() !== guestEmail.trim().toLowerCase() ||
-      password !== guestPassword
-    ) {
+    // Allow two modes:
+    // 1) Empty body => button "Entrar como convidado" uses fixed server-side creds
+    // 2) Body with email/password => must match the guest creds exactly
+    const useFixed = !email && !password;
+    const matches =
+      email.trim().toLowerCase() === guestEmail.trim().toLowerCase() &&
+      password === guestPassword;
+
+    if (!useFixed && !matches) {
       return json({ error: "Credenciais inválidas" }, 401);
     }
 
