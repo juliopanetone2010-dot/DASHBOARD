@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     // Generate a magic link for the owner; we'll convert it to a session
     const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
       type: "magiclink",
-      email: ownerData.user.email,
+      email: ownerEmail!,
     });
     if (linkErr || !linkData?.properties?.hashed_token) {
       console.error("[guest-login] generateLink failed", linkErr);
