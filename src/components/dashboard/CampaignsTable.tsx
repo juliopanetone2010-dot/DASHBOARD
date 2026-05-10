@@ -188,6 +188,9 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                     {(Number(c.roas) || 0).toFixed(2)}x
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtUSD(Number(c.ecpm) || 0)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
