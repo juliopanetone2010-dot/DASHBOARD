@@ -240,6 +240,21 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
 
     if (restartActiveSet.has(agg.campaign_id)) {
+      // Espelha o estágio do restart_flow no lifecycle_status para que a UI não fique presa em "paused"
+      const stage = restartStageByCamp.get(agg.campaign_id) ?? "";
+      const desiredLifecycle = stageToLifecycle(stage);
+      const prev = stateByCamp.get(agg.campaign_id);
+      if (!prev || prev.lifecycle_status !== desiredLifecycle) {
+        await admin.from("campaign_automation").upsert({
+          user_id: userId,
+          campaign_id: agg.campaign_id,
+          google_account_id: accountId,
+          site_id: siteId,
+          lifecycle_status: desiredLifecycle,
+          last_evaluated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,campaign_id" });
+      }
       skippedRestartFlow++;
       continue;
     }
