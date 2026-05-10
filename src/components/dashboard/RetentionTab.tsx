@@ -320,3 +320,18 @@ export function RetentionTab({ campaigns }: Props) {
     </div>
   );
 }
+
+function chunkDates(from: string, to: string, chunkDays: number) {
+  const chunks: Array<{ from: string; to: string }> = [];
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return chunks;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + chunkDays)) {
+    const cFrom = d.toISOString().slice(0, 10);
+    const cEnd = new Date(d);
+    cEnd.setUTCDate(cEnd.getUTCDate() + chunkDays - 1);
+    if (cEnd > end) cEnd.setTime(end.getTime());
+    chunks.push({ from: cFrom, to: cEnd.toISOString().slice(0, 10) });
+  }
+  return chunks;
+}
