@@ -52,6 +52,8 @@ export function useAllSitesOnboarding(enabled: boolean) {
     if (sites.some((s) => s.sync_status === "completed")) {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["gam-freshness"] });
+      qc.invalidateQueries({ queryKey: ["retention"] });
+      qc.invalidateQueries({ queryKey: ["extra-revenue"] });
     }
   }, [enabled, sites, qc]);
 

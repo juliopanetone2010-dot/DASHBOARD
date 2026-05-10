@@ -33,6 +33,7 @@ interface Props {
 export function RetentionTab({ campaigns }: Props) {
   const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
+  const [syncing, setSyncing] = useState(false);
 
   // Override local de período (independente do dashboard)
   const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
@@ -78,13 +79,31 @@ export function RetentionTab({ campaigns }: Props) {
 
   const rows = rowsQuery.data ?? [];
   const usdBrl = fxQuery.data ?? 5;
-  const loading = rowsQuery.isFetching;
+  const loading = rowsQuery.isFetching || syncing;
 
   const load = async () => {
-    if (filters.siteId !== "all") {
-      await supabase.functions.invoke("site-auto-onboard", { body: { site_id: filters.siteId, force: true } });
+    setSyncing(true);
+    try {
+      const chunks = chunkDates(range.from, range.to, 1);
+      for (const c of chunks) {
+        await supabase.functions.invoke("gam-sync-revenue", {
+          body: {
+            from: c.from,
+            to: c.to,
+            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
+            account_ids: filters.googleAccountIds,
+            revenue_only: true,
+            sync: true,
+            skip_viewability: true,
+            skip_snapshot_regen: true,
+          },
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
+    } finally {
+      setSyncing(false);
     }
-    await queryClient.invalidateQueries({ queryKey });
   };
 
   const campaignName = useMemo(() => {
@@ -300,4 +319,19 @@ export function RetentionTab({ campaigns }: Props) {
       </p>
     </div>
   );
+}
+
+function chunkDates(from: string, to: string, chunkDays: number) {
+  const chunks: Array<{ from: string; to: string }> = [];
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return chunks;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + chunkDays)) {
+    const cFrom = d.toISOString().slice(0, 10);
+    const cEnd = new Date(d);
+    cEnd.setUTCDate(cEnd.getUTCDate() + chunkDays - 1);
+    if (cEnd > end) cEnd.setTime(end.getTime());
+    chunks.push({ from: cFrom, to: cEnd.toISOString().slice(0, 10) });
+  }
+  return chunks;
 }

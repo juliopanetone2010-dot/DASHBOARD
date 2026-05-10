@@ -83,6 +83,7 @@ async function runSync(req: Request): Promise<Response> {
     let revenueOnly = true;
     let skipLegacyReports = true;
     let skipViewability = true;
+    let skipSnapshotRegen = false;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -105,6 +106,7 @@ async function runSync(req: Request): Promise<Response> {
       // Viewability/eCPM diário (site_metrics_daily) é leve (só dimensão DATE) e crítico para o dashboard.
       // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
       skipViewability = Boolean((body as any)?.skip_viewability);
+      skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -357,6 +359,9 @@ async function runSync(req: Request): Promise<Response> {
     // Re-gera os snapshots financeiros dos dias sincronizados, para que o calendário
     // sempre reflita a receita GAM mais recente (evita defasagem como 06/05 ficar com R$ 39 quando o GAM já tinha R$ 76).
     try {
+      if (skipSnapshotRegen) {
+        debug.push("[snapshot] regen skipped by caller");
+      } else {
       const allDates = Array.from(new Set(
         summary.flatMap((s) => Array.isArray(s.date_range)
           ? (s.date_range as string[]).flatMap((label) => label.split("..").filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))
@@ -388,6 +393,7 @@ async function runSync(req: Request): Promise<Response> {
         }).catch(() => {});
       }
       debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
+      }
     } catch (e) {
       debug.push(`[snapshot] regen failed: ${String(e)}`);
     }
