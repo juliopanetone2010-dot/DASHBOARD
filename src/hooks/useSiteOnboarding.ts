@@ -54,6 +54,8 @@ export function useSiteOnboarding(siteId: string) {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["site-metrics-daily"] });
       qc.invalidateQueries({ queryKey: ["gam-freshness"] });
+      qc.invalidateQueries({ queryKey: ["retention"] });
+      qc.invalidateQueries({ queryKey: ["extra-revenue"] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, query.data?.status, query.data?.lastFullSyncAt, query.data?.hasAdsLink]);
