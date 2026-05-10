@@ -2,3 +2,6 @@ project_id = "pxlgkpuaaptbubsnvfkz"
 
 [functions.site-summary]
 verify_jwt = false
+
+[functions.guest-login]
+verify_jwt = false
