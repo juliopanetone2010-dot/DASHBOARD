@@ -202,10 +202,17 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   // Campanhas com fluxo de reinício ativo são geridas apenas pelo `campaign-restart`.
   const { data: restartFlows } = await admin
     .from("campaign_restart_flow")
-    .select("campaign_id")
+    .select("campaign_id, stage")
     .eq("user_id", userId)
     .eq("status", "active");
   const restartActiveSet = new Set<string>((restartFlows ?? []).map((r: any) => String(r.campaign_id)));
+  const restartStageByCamp = new Map<string, string>();
+  for (const r of restartFlows ?? []) restartStageByCamp.set(String(r.campaign_id), String(r.stage ?? ""));
+  // Mapeia stage do restart_flow para lifecycle_status para manter UI sincronizada
+  const stageToLifecycle = (stage: string): Lifecycle => {
+    if (stage.includes("phase2") || stage.includes("phase3") || stage.includes("phase4")) return "scaling";
+    return "testing";
+  };
 
   // Campanhas no Funil Inteligente são isoladas: automation-run não toca.
   const { data: funnelRows } = await admin
