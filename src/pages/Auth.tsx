@@ -57,6 +57,24 @@ export default function Auth() {
     toast.success("Conta criada! Verifique seu email para confirmar.");
   };
 
+  const handleGuest = async () => {
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke("guest-login", {
+      body: { email, password },
+    });
+    if (error || !data?.access_token) {
+      setBusy(false);
+      return toast.error(data?.error ?? error?.message ?? "Credenciais inválidas");
+    }
+    const { error: setErr } = await supabase.auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    setBusy(false);
+    if (setErr) return toast.error(setErr.message);
+    navigate("/", { replace: true });
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 shadow-elegant">
