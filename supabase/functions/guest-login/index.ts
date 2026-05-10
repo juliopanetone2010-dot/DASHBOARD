@@ -2,6 +2,8 @@
 // for the OWNER user, so the guest sees the owner's data via RLS.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 
+const DEFAULT_OWNER_USER_ID = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -42,8 +44,14 @@ Deno.serve(async (req) => {
     );
 
     // Resolve owner: accept UUID or email in GUEST_OWNER_USER_ID
-    const raw = ownerUserId.trim().replace(/^["']|["']$/g, "");
+    const configuredOwner = ownerUserId.trim().replace(/^["']|["']$/g, "");
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const raw = uuidRe.test(configuredOwner) || configuredOwner.includes("@")
+      ? configuredOwner
+      : DEFAULT_OWNER_USER_ID;
+    if (raw !== configuredOwner) {
+      console.warn("[guest-login] GUEST_OWNER_USER_ID inválido; usando owner padrão configurado no código");
+    }
     let ownerEmail: string | null = null;
     if (uuidRe.test(raw)) {
       const { data: ownerData, error: ownerErr } = await admin.auth.admin.getUserById(raw);
