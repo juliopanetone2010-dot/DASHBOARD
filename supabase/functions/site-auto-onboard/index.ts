@@ -135,7 +135,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     for (const c of chunks) {
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: true, skip_snapshot_regen: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_snapshot_regen: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
