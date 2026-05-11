@@ -82,7 +82,7 @@ async function runSync(req: Request): Promise<Response> {
     let testMode = false;
     let revenueOnly = true;
     let skipLegacyReports = true;
-    let skipViewability = true;
+    let skipViewability = false;
     let skipSnapshotRegen = false;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
