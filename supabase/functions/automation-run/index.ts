@@ -41,6 +41,45 @@ type SiteAutomationConfig = {
   automation_dry_run: boolean;
 };
 
+// =============================================================================
+// Circuit breaker — caps the number of pause mutations a single automation run
+// can apply. If the engine decides to pause more than DEFAULT_MAX_PAUSES_PER_RUN
+// campaigns, that almost always means upstream data is bad (GAM not synced,
+// schema regression, etc.) and the run would do more damage than good. We let
+// the first N pauses through, then trip; subsequent pause attempts throw and
+// are logged as failed_circuit_breaker. Non-pause actions (scale, cpa_up,
+// cpa_down) remain unaffected — those are reversible and low-stakes.
+const DEFAULT_MAX_PAUSES_PER_RUN = 3;
+
+interface RunBreaker {
+  pausesApplied: number;
+  maxPauses: number;
+  tripped: boolean;
+  trippedAt: string | null;
+}
+
+function makeRunBreaker(maxPauses: number): RunBreaker {
+  return {
+    pausesApplied: 0,
+    maxPauses: Math.max(1, Math.floor(maxPauses)),
+    tripped: false,
+    trippedAt: null,
+  };
+}
+
+class CircuitBreakerTrippedError extends Error {
+  constructor(public readonly breaker: RunBreaker) {
+    super(`circuit_breaker_tripped: pauses_applied=${breaker.pausesApplied} max=${breaker.maxPauses}`);
+    this.name = "CircuitBreakerTrippedError";
+  }
+}
+
+function resolveMaxPauses(cfg: any): number {
+  const v = Number(cfg?.auto_max_pauses_per_run);
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_MAX_PAUSES_PER_RUN;
+  return Math.max(1, Math.min(50, Math.round(v)));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -120,6 +159,10 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
   const dryRun: boolean = cfg.automation_dry_run !== false;
+  // Per-run circuit breaker. Caps live pause mutations; in dry-run mode the
+  // breaker still tracks intent so the post-run summary can warn the operator
+  // that the threshold *would* have been hit.
+  const breaker = makeRunBreaker(resolveMaxPauses(cfg));
   // Busca histórico suficiente para regras de segurança, mas o ROI exibido e
   // usado na classificação principal é o do dia atual.
   const days: number = resolveAnalysisDays(cfg);
@@ -596,15 +639,35 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.second_chance_started_at = null;
       newState.second_chance_reason = null;
     }
-    let execStatus: "executed" | "dry_run" | "skipped" | "failed" = "dry_run";
+    let execStatus: "executed" | "dry_run" | "skipped" | "failed" | "failed_circuit_breaker" = "dry_run";
     let execError: string | null = null;
     if (decision.action !== "none") {
-      if (dryRun) execStatus = "dry_run";
-      else {
+      if (dryRun) {
+        // In dry-run we still track pause intent against the breaker so the
+        // post-run summary can warn the operator about how the live run would
+        // have behaved without ever issuing a real mutation.
+        if (decision.action === "pause") {
+          if (breaker.tripped || breaker.pausesApplied >= breaker.maxPauses) {
+            breaker.tripped = true;
+            breaker.trippedAt = breaker.trippedAt ?? new Date().toISOString();
+          } else {
+            breaker.pausesApplied++;
+          }
+        }
+        execStatus = "dry_run";
+      } else {
         try {
-          await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, decision, cfg);
+          await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, decision, cfg, breaker);
           execStatus = "executed"; executed++;
-        } catch (e) { execStatus = "failed"; execError = String(e instanceof Error ? e.message : e); }
+        } catch (e) {
+          if (e instanceof CircuitBreakerTrippedError) {
+            execStatus = "failed_circuit_breaker";
+            execError = e.message;
+          } else {
+            execStatus = "failed";
+            execError = String(e instanceof Error ? e.message : e);
+          }
+        }
       }
     } else {
       execStatus = "skipped";
@@ -708,7 +771,50 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   }
 
   const totalSkippedUnsynced = [...byCamp.values()].reduce((s, a) => s + (a.skippedUnsyncedDays || 0), 0);
-  return { window: { from: fromIso, to: toIso }, dry_run: dryRun, campaigns: byCamp.size, decisions, executed, skipped_inactive: skippedInactive, skipped_site_mismatch: skippedSiteMismatch, skipped_ambiguous_site: skippedAmbiguousSite, skipped_restart_flow: skippedRestartFlow, budget_sync: budgetSync, revenue_sync: revenueSync, skipped_unsynced_days: totalSkippedUnsynced };
+
+  // Circuit breaker summary — surface as a top-level log row when the breaker
+  // either tripped or applied any pauses, so the operator has a single audit
+  // entry per run instead of having to scan per-campaign rows for the pattern.
+  if (breaker.tripped || breaker.pausesApplied > 0) {
+    await admin.from("automation_logs").insert({
+      user_id: userId,
+      site_id: siteId,
+      google_account_id: accountId,
+      campaign_id: null,
+      action: "circuit_breaker",
+      reason: breaker.tripped
+        ? `Disjuntor disparado: ${breaker.pausesApplied}/${breaker.maxPauses} pausas aplicadas, demais bloqueadas.`
+        : `Run encerrou com ${breaker.pausesApplied}/${breaker.maxPauses} pausas aplicadas (sem disparo).`,
+      decision: breaker.tripped ? "tripped" : "ok",
+      payload: {
+        max_pauses_per_run: breaker.maxPauses,
+        pauses_applied: breaker.pausesApplied,
+        tripped: breaker.tripped,
+        tripped_at: breaker.trippedAt,
+        dry_run: dryRun,
+      },
+    });
+  }
+
+  return {
+    window: { from: fromIso, to: toIso },
+    dry_run: dryRun,
+    campaigns: byCamp.size,
+    decisions, executed,
+    skipped_inactive: skippedInactive,
+    skipped_site_mismatch: skippedSiteMismatch,
+    skipped_ambiguous_site: skippedAmbiguousSite,
+    skipped_restart_flow: skippedRestartFlow,
+    budget_sync: budgetSync,
+    revenue_sync: revenueSync,
+    skipped_unsynced_days: totalSkippedUnsynced,
+    circuit_breaker: {
+      max_pauses: breaker.maxPauses,
+      pauses_applied: breaker.pausesApplied,
+      tripped: breaker.tripped,
+      tripped_at: breaker.trippedAt,
+    },
+  };
 }
 
 // Sincroniza budget_micros e target_cpa_micros das campanhas direto do Google Ads,
@@ -1075,7 +1181,18 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando`, roi, trend, delivery, avgDailySpend };
 }
 
-async function applyMutation(userJwt: string | null, userId: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any) {
+async function applyMutation(userJwt: string | null, userId: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any, breaker: RunBreaker) {
+  // Circuit breaker: gate pause mutations BEFORE we issue the fetch. If we've
+  // already paused breaker.maxPauses campaigns in this run, or the breaker
+  // tripped earlier, throw a typed error so the caller can log it cleanly.
+  if (decision.action === "pause") {
+    if (breaker.tripped || breaker.pausesApplied >= breaker.maxPauses) {
+      breaker.tripped = true;
+      breaker.trippedAt = breaker.trippedAt ?? new Date().toISOString();
+      throw new CircuitBreakerTrippedError(breaker);
+    }
+  }
+
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
   const body: any = { campaign_id: campaignId, google_account_id: accountId, site_id: siteId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
@@ -1097,6 +1214,10 @@ async function applyMutation(userJwt: string | null, userId: string, campaignId:
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j?.error) throw new Error(j?.error || `mutate failed: ${res.status}`);
+
+  // Successful pause — count it against the breaker only after the API
+  // confirmed the change. Failed mutations don't consume the budget.
+  if (decision.action === "pause") breaker.pausesApplied++;
 }
 
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
