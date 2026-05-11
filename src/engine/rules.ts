@@ -12,12 +12,26 @@ import type {
   RulesConfig,
 } from "@/types/domain";
 
+export interface DataReadiness {
+  isReady: boolean;
+  // "gam_stale" — GAM revenue source hasn't completed a recent sync
+  // "gam_failed" — last GAM sync errored
+  // "google_ads_stale" — Google Ads spend source hasn't completed a recent sync
+  // "no_sync_state" — sync_state has no row yet (first run / fresh user)
+  reason?: "gam_stale" | "gam_failed" | "google_ads_stale" | "no_sync_state";
+  // minutes since the GAM source last reported success (null if never)
+  gamMinutesSinceSuccess: number | null;
+}
+
 export interface EngineInput {
   campaigns: Campaign[];
   metrics: DailyMetric[];
   placements: Placement[];
   rules: RulesConfig;
   windowDays?: number;
+  // When provided and isReady=false, suppress ROI-driven alerts (false -100% guards).
+  // Placement and opportunity alerts continue, since they don't depend on GAM revenue.
+  dataReadiness?: DataReadiness;
 }
 
 export interface EngineSuggestion {
@@ -171,12 +185,19 @@ export function aggregateByPlacement(placements: Placement[]): PlacementAggregat
  * - auto_boost_enabled = false → aumento de orçamento sempre `auto: false`
  */
 export function evaluate(input: EngineInput): EngineOutput {
-  const { campaigns, metrics, placements, rules } = input;
+  const { campaigns, metrics, placements, rules, dataReadiness } = input;
   const aggregates = aggregateByCampaign(campaigns, metrics);
   const placementAggregates = aggregateByPlacement(placements);
 
   const suggestions: EngineSuggestion[] = [];
   const alerts: EngineAlertDraft[] = [];
+
+  // Data-readiness gate: when GAM revenue isn't fresh, agg.revenue can be 0 while
+  // spend is real → ROI computes to -100% and used to fire false "kill this campaign"
+  // alerts. We suppress ROI-driven alerts in that window and surface a single
+  // informational notice so the user knows why the dashboard looks quiet.
+  const roiAlertsGated = dataReadiness ? dataReadiness.isReady === false : false;
+  let suppressedRoiAlertCount = 0;
 
   for (const agg of aggregates) {
     // Só avalia se gastou o mínimo configurado
@@ -184,6 +205,11 @@ export function evaluate(input: EngineInput): EngineOutput {
 
     // Regra 1 — ROI severamente negativo
     if (agg.roi <= rules.max_loss_roi_pct && agg.days >= rules.analysis_days) {
+      // Gate: if GAM revenue isn't ready, this is the false -100% case. Skip.
+      if (roiAlertsGated && agg.revenue === 0) {
+        suppressedRoiAlertCount++;
+        continue;
+      }
       suggestions.push({
         campaign_id: agg.campaign_id,
         action_type: "pause",
@@ -227,6 +253,10 @@ export function evaluate(input: EngineInput): EngineOutput {
 
     // Regra 3 — risco: gasto alto vs receita baixa (mas não no patamar de pausa)
     if (agg.roi < rules.min_roi_pct && agg.spend > rules.min_spend_threshold * 3) {
+      if (roiAlertsGated && agg.revenue === 0) {
+        suppressedRoiAlertCount++;
+        continue;
+      }
       alerts.push({
         severity: "warning",
         category: "risk",
@@ -236,6 +266,35 @@ export function evaluate(input: EngineInput): EngineOutput {
         message: `Risco: ROI ${agg.roi.toFixed(1)}% com gasto elevado (${agg.spend.toFixed(2)})`,
       });
     }
+  }
+
+  // If we gated any ROI alerts because GAM revenue wasn't fresh, surface one
+  // informational notice so the user understands the dashboard is waiting on
+  // upstream data rather than reporting a healthy state.
+  if (roiAlertsGated && suppressedRoiAlertCount > 0) {
+    const minutes = dataReadiness?.gamMinutesSinceSuccess;
+    const minutesText = minutes == null
+      ? "ainda não sincronizado"
+      : minutes > 60
+        ? `${Math.round(minutes / 60)}h atrás`
+        : `${minutes}min atrás`;
+    alerts.push({
+      severity: "info",
+      category: "risk",
+      campaign_id: null,
+      placement_key: null,
+      title: "⏳ Aguardando dados do Ad Manager",
+      message:
+        `${suppressedRoiAlertCount} alerta(s) de ROI foram suprimidos porque a receita do GAM ` +
+        `ainda não foi sincronizada (última sincronização: ${minutesText}). ` +
+        `O GAM pode levar até 6h para consolidar dados do dia. ` +
+        `Os alertas voltam quando a sincronização concluir.`,
+      metric_snapshot: {
+        suppressed_count: suppressedRoiAlertCount,
+        gam_minutes_since_success: minutes,
+        reason: dataReadiness?.reason ?? null,
+      },
+    });
   }
 
   // Placements ruins: receita zerada ou eCPM muito baixo com impressões altas

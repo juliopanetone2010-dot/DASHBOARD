@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
-import type { EngineAlertDraft } from "@/engine/rules";
+import type { DataReadiness, EngineAlertDraft } from "@/engine/rules";
 import type {
   AccountSiteLink,
   Alert as DomainAlert,
@@ -30,6 +30,9 @@ export interface DashboardData {
   loading: boolean;
   refresh: () => Promise<void>;
   lastSyncedAt: Date | null;
+  // Readiness signal derived from sync_state. Used by the rules engine to suppress
+  // false -100% ROI alerts while GAM revenue is still consolidating.
+  dataReadiness: DataReadiness;
   isGuest: boolean;
   saveRules: (rules: RulesConfig) => Promise<void>;
   acknowledgeAlert: (id: string) => Promise<void>;
@@ -235,8 +238,61 @@ interface DashboardSnapshot {
   gamAccounts: GamAccount[];
   sites: Site[];
   links: AccountSiteLink[];
+  dataReadiness: DataReadiness;
   fetchedAt: number;
 }
+
+// Guests have no sync_state — they're using local sample data.
+const GUEST_READINESS: DataReadiness = { isReady: true, gamMinutesSinceSuccess: null };
+
+// Threshold for considering the GAM sync stale. GAM data typically takes 1–6h
+// to consolidate; we treat anything older than 6h as stale → suppress false
+// -100% ROI alerts. Tunable here; could later move to rules_config.
+const GAM_FRESHNESS_MINUTES = 360;
+
+interface SyncStateRow {
+  source: string;
+  last_status: string;
+  last_finished_at: string | null;
+  last_error: string | null;
+}
+
+const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
+  // Pick the most recent GAM sync row (sources include "gam-sync-revenue",
+  // "gam-sync-historical", etc.). We use whichever finished most recently.
+  const gamRows = rows
+    .filter((r) => r.source?.toLowerCase().includes("gam"))
+    .sort((a, b) => {
+      const ta = a.last_finished_at ? new Date(a.last_finished_at).getTime() : 0;
+      const tb = b.last_finished_at ? new Date(b.last_finished_at).getTime() : 0;
+      return tb - ta;
+    });
+  const gam = gamRows[0];
+
+  if (!gam) {
+    // No sync state at all — fresh user or demo. Don't suppress; let alerts through.
+    return { isReady: true, reason: "no_sync_state", gamMinutesSinceSuccess: null };
+  }
+
+  const status = (gam.last_status ?? "").toLowerCase();
+  if (status === "error" || status === "failed") {
+    return { isReady: false, reason: "gam_failed", gamMinutesSinceSuccess: null };
+  }
+
+  if (!gam.last_finished_at) {
+    return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: null };
+  }
+
+  const minutesSince = Math.round(
+    (Date.now() - new Date(gam.last_finished_at).getTime()) / 60_000,
+  );
+
+  if (minutesSince > GAM_FRESHNESS_MINUTES) {
+    return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: minutesSince };
+  }
+
+  return { isReady: true, gamMinutesSinceSuccess: minutesSince };
+};
 
 const emptySnapshot = (): DashboardSnapshot => ({
   campaigns: [],
@@ -248,6 +304,7 @@ const emptySnapshot = (): DashboardSnapshot => ({
   gamAccounts: [],
   sites: [],
   links: [],
+  dataReadiness: GUEST_READINESS,
   fetchedAt: 0,
 });
 
@@ -267,7 +324,7 @@ export function useDashboardData(): DashboardData {
 
     if (!user) {
       const store = loadGuestStore();
-      return { ...store, fetchedAt: Date.now() };
+      return { ...store, dataReadiness: GUEST_READINESS, fetchedAt: Date.now() };
     }
 
     // ISOLAMENTO POR SITE: quando há site selecionado, derivamos as contas Ads
@@ -326,7 +383,7 @@ export function useDashboardData(): DashboardData {
       placementsQuery = placementsQuery.eq("site_id", filters.siteId);
     }
 
-    const [c, m, p, r, a, ga, gam, s, l] = await Promise.all([
+    const [c, m, p, r, a, ga, gam, s, l, syncSt] = await Promise.all([
       campaignsQuery,
       metricsQuery.order("date", { ascending: false }).limit(5000),
       placementsQuery,
@@ -336,6 +393,10 @@ export function useDashboardData(): DashboardData {
       supabase.from("gam_accounts").select("*").order("account_name"),
       supabase.from("sites").select("*").order("name"),
       supabase.from("account_site_links").select("*"),
+      supabase
+        .from("sync_state")
+        .select("source, last_status, last_finished_at, last_error")
+        .order("last_finished_at", { ascending: false }),
     ]);
 
     return {
@@ -348,6 +409,7 @@ export function useDashboardData(): DashboardData {
       gamAccounts: (gam.data ?? []) as GamAccount[],
       sites: (s.data ?? []) as Site[],
       links: (l.data ?? []) as AccountSiteLink[],
+      dataReadiness: computeReadiness((syncSt.data ?? []) as SyncStateRow[]),
       fetchedAt: Date.now(),
     };
   }, [user, queryKey, range.from, range.to, filters.googleAccountIds, filters.siteId]);
@@ -620,6 +682,7 @@ export function useDashboardData(): DashboardData {
     loading: query.isLoading || query.isFetching,
     refresh,
     lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
+    dataReadiness: snap.dataReadiness,
     isGuest,
     saveRules,
     acknowledgeAlert,

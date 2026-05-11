@@ -297,8 +297,9 @@ const IndexInner = () => {
       metrics: filtered.metrics,
       placements: filtered.placements,
       rules: data.rules,
+      dataReadiness: data.dataReadiness,
     });
-  }, [filtered, data.rules]);
+  }, [filtered, data.rules, data.dataReadiness]);
 
   // Persiste alertas gerados pela engine (só os novos, sem duplicar por título)
   useEffect(() => {
