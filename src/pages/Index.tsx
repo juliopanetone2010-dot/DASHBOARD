@@ -405,7 +405,7 @@ const IndexInner = () => {
     ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
     : baseTotals.profit + extraNetBrl;
   const totalRevenueUsd = hasRealGam
-    ? realGamRevenueBrl / usdBrl
+    ? (realGamRevenueBrl * NET_FACTOR) / usdBrl
     : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
   const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
