@@ -250,6 +250,30 @@ const GUEST_READINESS: DataReadiness = { isReady: true, gamMinutesSinceSuccess: 
 // -100% ROI alerts. Tunable here; could later move to rules_config.
 const GAM_FRESHNESS_MINUTES = 360;
 
+// Fetch window: we deliberately fetch a fixed broad window (last N days) on
+// every dashboard load, regardless of the user's current date filter. Date
+// range NARROWING happens client-side in the Index.tsx `filtered` useMemo,
+// so switching between Hoje / Ontem / Últimos 7 / 15 / 30 dias is INSTANT —
+// no server round-trip, no React Query refetch.
+// 60 covers every UI preset comfortably. If the user picks a custom range
+// earlier than today-60d, the client filter returns empty; the manual
+// "Atualizar" button forces a fresh fetch.
+const FETCH_WINDOW_DAYS = 60;
+
+const isoDate = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const makeFetchRange = (): { from: string; to: string } => {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - FETCH_WINDOW_DAYS);
+  return { from: isoDate(from), to: isoDate(to) };
+};
+
 interface SyncStateRow {
   source: string;
   last_status: string;
@@ -310,17 +334,24 @@ const emptySnapshot = (): DashboardSnapshot => ({
 
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
-  const { range, filters } = useDashboardFilters();
+  // `range` (date filter) is not destructured here anymore: it now affects
+  // only the client-side narrowing in Index.tsx, not the server fetch.
+  const { filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
 
+  // queryKey deliberately does NOT include the user's date filter (range.*).
+  // We always fetch the broad FETCH_WINDOW_DAYS window so that date-preset
+  // switches are served from cache. Account/site filters do change the result
+  // set materially, so they stay in the key.
   const queryKey = useMemo(
-    () => [...DASHBOARD_QK, user?.id ?? "guest", range.from, range.to, filters.googleAccountIds.join("|"), filters.siteId],
-    [user?.id, range.from, range.to, filters.googleAccountIds, filters.siteId],
+    () => [...DASHBOARD_QK, user?.id ?? "guest", filters.googleAccountIds.join("|"), filters.siteId],
+    [user?.id, filters.googleAccountIds, filters.siteId],
   );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
-    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: range.from, to: range.to });
+    const fetchRange = makeFetchRange();
+    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: fetchRange.from, to: fetchRange.to, windowDays: FETCH_WINDOW_DAYS });
 
     if (!user) {
       const store = loadGuestStore();
@@ -361,8 +392,8 @@ export function useDashboardData(): DashboardData {
     let metricsQuery = supabase
       .from("daily_metrics")
       .select("*")
-      .gte("date", range.from)
-      .lte("date", range.to);
+      .gte("date", fetchRange.from)
+      .lte("date", fetchRange.to);
     let campaignsQuery = supabase.from("campaigns").select("*").order("name");
 
     if (effectiveAccountIds) {
@@ -377,7 +408,7 @@ export function useDashboardData(): DashboardData {
     }
 
     let placementsQuery = supabase.from("placements").select("*")
-      .gte("date", range.from).lte("date", range.to)
+      .gte("date", fetchRange.from).lte("date", fetchRange.to)
       .order("date", { ascending: false }).limit(5000);
     if (siteFilterActive) {
       placementsQuery = placementsQuery.eq("site_id", filters.siteId);
@@ -412,7 +443,7 @@ export function useDashboardData(): DashboardData {
       dataReadiness: computeReadiness((syncSt.data ?? []) as SyncStateRow[]),
       fetchedAt: Date.now(),
     };
-  }, [user, queryKey, range.from, range.to, filters.googleAccountIds, filters.siteId]);
+  }, [user, queryKey, filters.googleAccountIds, filters.siteId]);
 
   const query = useQuery<DashboardSnapshot>({
     queryKey,
