@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { evaluate } from "@/engine/rules";
 import { fmtCurrency, fmtUSD, fmtPercent } from "@/lib/format";
+import { DashboardErrorBoundary } from "@/components/dashboard/DashboardErrorBoundary";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { CampaignsRanking, PlacementsRanking } from "@/components/dashboard/Rankings";
@@ -539,6 +540,7 @@ const IndexInner = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
+            <DashboardErrorBoundary tabName="Dashboard">
             <FilterBar
               filters={filters}
               onChange={handleFilterChange}
@@ -729,66 +731,87 @@ const IndexInner = () => {
                 onRefresh={data.refresh}
               />
             </section>
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="calendar" className="mt-6">
-            <FinancialCalendarTab />
+            <DashboardErrorBoundary tabName="Calendário">
+              <FinancialCalendarTab />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="integrations" className="mt-6">
-            <IntegrationsPanel
-              googleAccounts={data.googleAccounts}
-              gamAccounts={data.gamAccounts}
-              sites={data.sites}
-              links={data.links}
-              isGuest={data.isGuest}
-              onAddGoogleAccount={data.addGoogleAccount}
-              onRemoveGoogleAccount={data.removeGoogleAccount}
-              onAddGamAccount={data.addGamAccount}
-              onRemoveGamAccount={data.removeGamAccount}
-              onAddSite={data.addSite}
-              onRemoveSite={data.removeSite}
-              onAddLink={data.addLink}
-              onRemoveLink={data.removeLink}
-              onRefresh={data.refresh}
-            />
+            <DashboardErrorBoundary tabName="Integrações">
+              <IntegrationsPanel
+                googleAccounts={data.googleAccounts}
+                gamAccounts={data.gamAccounts}
+                sites={data.sites}
+                links={data.links}
+                isGuest={data.isGuest}
+                onAddGoogleAccount={data.addGoogleAccount}
+                onRemoveGoogleAccount={data.removeGoogleAccount}
+                onAddGamAccount={data.addGamAccount}
+                onRemoveGamAccount={data.removeGamAccount}
+                onAddSite={data.addSite}
+                onRemoveSite={data.removeSite}
+                onAddLink={data.addLink}
+                onRemoveLink={data.removeLink}
+                onRefresh={data.refresh}
+              />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="placements" className="mt-6">
-            <PlacementsTab
-              campaigns={data.campaigns}
-              googleAccounts={data.googleAccounts}
-              fxUsdBrl={usdBrl}
-            />
+            <DashboardErrorBoundary tabName="Placements">
+              <PlacementsTab
+                campaigns={data.campaigns}
+                googleAccounts={data.googleAccounts}
+                fxUsdBrl={usdBrl}
+              />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="funnel" className="mt-6 space-y-6">
-            <SmartFunnelPanel />
-            <PlacementFunnelTab fxUsdBrl={usdBrl} />
+            <DashboardErrorBoundary tabName="Funil">
+              <SmartFunnelPanel />
+              <PlacementFunnelTab fxUsdBrl={usdBrl} />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="countries" className="mt-6">
-            <CountriesTab fxUsdBrl={usdBrl} />
+            <DashboardErrorBoundary tabName="Países">
+              <CountriesTab fxUsdBrl={usdBrl} />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="creatives" className="mt-6">
-            <CreativesTab fxUsdBrl={usdBrl} />
+            <DashboardErrorBoundary tabName="Criativos">
+              <CreativesTab fxUsdBrl={usdBrl} />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="retention" className="mt-6">
-            <RetentionTab campaigns={data.campaigns} />
+            <DashboardErrorBoundary tabName="Retenção / Push">
+              <RetentionTab campaigns={data.campaigns} />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="automation" className="mt-6">
-            <AutomationTab />
+            <DashboardErrorBoundary tabName="Automação">
+              <AutomationTab />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="migration" className="mt-6">
-            <MigrationTab />
+            <DashboardErrorBoundary tabName="Migração">
+              <MigrationTab />
+            </DashboardErrorBoundary>
           </TabsContent>
 
           <TabsContent value="rules" className="mt-6">
-            <RulesPanel rules={data.rules} onSave={data.saveRules} />
+            <DashboardErrorBoundary tabName="Regras">
+              <RulesPanel rules={data.rules} onSave={data.saveRules} />
+            </DashboardErrorBoundary>
           </TabsContent>
         </Tabs>
       </main>
