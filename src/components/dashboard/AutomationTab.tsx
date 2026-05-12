@@ -150,7 +150,15 @@ export function AutomationTab() {
   };
 
   const filteredStates = useMemo(() => {
-    const base = states.filter(matchAutomationRow);
+    // Oculta pausadas/ruins que nunca gastaram (>= R$1) — evita poluir a tela com campanhas sem volume
+    const meaningful = states.filter((s) => {
+      const lc = String(s.lifecycle_status ?? "");
+      const isPausedLike = lc.includes("paused") || lc === "bad";
+      if (!isPausedLike) return true;
+      const sp = spendByCampaign[String(s.campaign_id)] ?? 0;
+      return sp > 1;
+    });
+    const base = meaningful.filter(matchAutomationRow);
     if (!showNew) return base;
     const have = new Set(base.map((s) => String(s.campaign_id)));
     const threeDaysMs = 3 * 86400_000;
