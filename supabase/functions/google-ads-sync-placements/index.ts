@@ -104,12 +104,13 @@ Deno.serve(async (req) => {
     } while (pageToken);
     console.log("[sync-placements] results", results.length, "pages", page, "campaign", campaignId);
 
-    const rows = results.map((r) => {
+    const rowsByKey = new Map<string, Record<string, unknown>>();
+    for (const r of results) {
       const cost = Number(r.metrics?.costMicros ?? 0) / 1_000_000;
       const placement = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
       const targetUrl = r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null;
       const placementClean = cleanPlacement(placement, targetUrl);
-      return {
+      const row = {
         user_id: userId,
         google_account_id: account.id,
         campaign_id: String(r.campaign?.id ?? campaignId),
@@ -129,7 +130,18 @@ Deno.serve(async (req) => {
         ctr: Number(r.metrics?.ctr ?? 0),
         avg_cpc: Number(r.metrics?.averageCpc ?? 0) / 1_000_000,
       };
-    });
+      const key = `${row.user_id}|${row.google_account_id}|${row.campaign_id}|${row.ad_group_id ?? ""}|${row.placement}|${row.date}`;
+      const existing = rowsByKey.get(key) as typeof row | undefined;
+      if (existing) {
+        existing.impressions = Number(existing.impressions ?? 0) + row.impressions;
+        existing.clicks = Number(existing.clicks ?? 0) + row.clicks;
+        existing.cost = Number(existing.cost ?? 0) + row.cost;
+        existing.conversions = Number(existing.conversions ?? 0) + row.conversions;
+      } else {
+        rowsByKey.set(key, row);
+      }
+    }
+    const rows = [...rowsByKey.values()];
 
     // Segurança: o Google Ads às vezes retorna 0 temporariamente para detail_placement_view.
     // Não apagamos o snapshot local nesse caso, para a tela não "sumir" com os placements.
