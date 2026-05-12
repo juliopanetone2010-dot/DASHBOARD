@@ -59,7 +59,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runBackground(siteId: string, userId: string, authHeader: string) {
+async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
@@ -87,9 +87,12 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // (UTM source) a alguma campanha Ads deste site. Se não houver, faz primeiro
     // um sync de receita para descobrir, e depois recalcula. Limite máx 90 dias
     // (limite prático do Google Ads detail_placement_view).
+    // Janela máx de 30 dias no primeiro onboard. Depois disso, refresh manual/cron
+    // atualiza só a janela recente para não gastar todo o runtime reprocessando histórico
+    // e deixar o dashboard/placements sem atualização.
     // Janela máx de 30 dias, mas só recua até onde as campanhas Ads do site
     // já estavam com UTM correto (ou seja, há receita GAM atribuída ao site_id).
-    const cap = isoDaysAgo(30);
+    const cap = isoDaysAgo(incremental ? 7 : 30);
 
     async function detectFromDate(): Promise<string> {
       const { data: rev } = await admin
@@ -122,7 +125,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // 2. receita GAM em chunks pequenos e aguardando concluir.
     // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
-    const chunkDays = 7;
+    const chunkDays = incremental ? 3 : 7;
     const fromDate = new Date(from + "T00:00:00Z");
     const toDate = new Date(to + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
@@ -136,14 +139,17 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     }
     // Chunks em série e do mais recente para o mais antigo: o dashboard atualiza primeiro
     // os últimos dias, mesmo se o runtime cortar o trabalho longo antes de completar 30 dias.
-    for (const c of chunks.reverse()) {
-      if (!hasBudget(25_000)) {
+    const orderedChunks = chunks.reverse();
+    for (let idx = 0; idx < orderedChunks.length; idx += 1) {
+      const c = orderedChunks[idx];
+      const isFreshestChunk = idx === 0;
+      if (!hasBudget(isFreshestChunk ? 35_000 : 25_000)) {
         console.warn("[auto-onboard] stopping GAM chunks due deadline", { siteId, next: c });
         break;
       }
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: true, skip_snapshot_regen: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
