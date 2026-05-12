@@ -629,6 +629,54 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
     await admin.from("campaign_automation").upsert(newState, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
 
+    // Auto-enroll no Funil Inteligente quando a automação fez scale com ROI saudável.
+    // Após inscrita, o funnel_isolation impede que a automação principal toque na campanha
+    // até que ela vire "graduated" ou "failed-learning".
+    if (execStatus === "executed" && decision.action === "scale" && Number(decision.roi) >= 20) {
+      try {
+        const { data: existingFunnel } = await admin
+          .from("campaign_funnel")
+          .select("id, funnel_status")
+          .eq("user_id", userId)
+          .eq("campaign_id", agg.campaign_id)
+          .maybeSingle();
+        if (!existingFunnel || ["graduated", "failed-learning"].includes(String(existingFunnel.funnel_status))) {
+          const targetCpaFromMeta = meta?.target_cpa_micros ? Number(meta.target_cpa_micros) / 1_000_000 : null;
+          await admin.from("campaign_funnel").upsert({
+            user_id: userId,
+            site_id: siteId,
+            google_account_id: accountId,
+            campaign_id: agg.campaign_id,
+            campaign_name: meta?.name ?? null,
+            funnel_status: "scaling",
+            entry_source: "automation_scale_handoff",
+            applied_target_cpa: targetCpaFromMeta,
+            current_budget: dailyBudget,
+            last_roi_pct: round2(decision.roi),
+            last_evaluated_at: new Date().toISOString(),
+          }, { onConflict: "user_id,campaign_id" });
+          await admin.from("automation_logs").insert({
+            user_id: userId, site_id: siteId, google_account_id: accountId,
+            campaign_id: agg.campaign_id,
+            action: "enroll_funnel",
+            reason: `Scale executado com ROI ${round2(decision.roi)}% ≥ 20% → handoff para o Funil Inteligente.`,
+            decision: "executed",
+            roi: round2(decision.roi),
+            payload: { name: meta?.name ?? null, target_cpa: targetCpaFromMeta, budget: dailyBudget },
+          });
+        }
+      } catch (e) {
+        await admin.from("automation_logs").insert({
+          user_id: userId, site_id: siteId, google_account_id: accountId,
+          campaign_id: agg.campaign_id,
+          action: "enroll_funnel",
+          reason: `Falha ao inscrever no Funil Inteligente após scale`,
+          decision: "failed",
+          error: String(e),
+        });
+      }
+    }
+
     await admin.from("automation_logs").insert({
       user_id: userId,
       site_id: siteId,
