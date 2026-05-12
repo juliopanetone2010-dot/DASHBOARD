@@ -91,6 +91,7 @@ export function SmartFunnelPanel() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [openLogs, setOpenLogs] = useState(false);
+  const [spendByCampaign, setSpendByCampaign] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.from("sites").select("id,name,domain").order("name").then(({ data }) => {
