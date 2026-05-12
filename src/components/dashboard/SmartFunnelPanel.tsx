@@ -107,7 +107,25 @@ export function SmartFunnelPanel() {
       if (selectedAccountIds.length > 0) q = q.in("google_account_id", selectedAccountIds);
       const { data, error } = await q;
       if (error) throw error;
-      setRows((data ?? []) as any);
+      const allRows = (data ?? []) as FunnelRow[];
+
+      // Busca gasto acumulado (15d) das campanhas no funil para filtrar pausadas/falhadas sem volume
+      const ids = allRows.map((r) => r.campaign_id);
+      const spendMap: Record<string, number> = {};
+      if (ids.length > 0) {
+        const since = new Date(Date.now() - 15 * 86400_000).toISOString().slice(0, 10);
+        const { data: dm } = await supabase
+          .from("daily_metrics")
+          .select("campaign_id, spend")
+          .in("campaign_id", ids)
+          .gte("date", since);
+        for (const r of dm ?? []) {
+          const cid = String((r as any).campaign_id);
+          spendMap[cid] = (spendMap[cid] ?? 0) + Number((r as any).spend ?? 0);
+        }
+      }
+      setSpendByCampaign(spendMap);
+      setRows(allRows);
 
       // Config do site selecionado
       if (selectedSiteId && selectedSiteId !== "all" && selectedAccountIds.length === 1) {
