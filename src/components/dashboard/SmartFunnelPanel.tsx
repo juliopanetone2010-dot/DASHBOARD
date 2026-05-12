@@ -283,7 +283,7 @@ export function SmartFunnelPanel() {
       </CardHeader>
 
       <CardContent className="pt-0">
-        {rows.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="text-sm text-muted-foreground text-center py-8">
             Nenhuma campanha no Funil Inteligente. Campanhas novas (criadas, winners de geo-expansion ou reiniciadas) entram automaticamente quando a esteira estiver ativa para o site.
           </div>
