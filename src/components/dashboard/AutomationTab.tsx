@@ -46,6 +46,7 @@ export function AutomationTab() {
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
   const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
   const [todayRoiByCampaign, setTodayRoiByCampaign] = useState<Record<string, number | null>>({});
+  const [spendByCampaign, setSpendByCampaign] = useState<Record<string, number>>({});
   const [siteFilter, setSiteFilter] = useState<string>(globalFilters.siteId || "all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
@@ -115,6 +116,9 @@ export function AutomationTab() {
     setLinks((lks ?? []) as any);
     setSiteAutomation((sac ?? []) as any[]);
     setTodayRoiByCampaign(todayMap);
+    const spendMap: Record<string, number> = {};
+    for (const cid of Object.keys(aggBy)) spendMap[cid] = aggBy[cid].spend15;
+    setSpendByCampaign(spendMap);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
@@ -146,7 +150,15 @@ export function AutomationTab() {
   };
 
   const filteredStates = useMemo(() => {
-    const base = states.filter(matchAutomationRow);
+    // Oculta pausadas/ruins que nunca gastaram (>= R$1) — evita poluir a tela com campanhas sem volume
+    const meaningful = states.filter((s) => {
+      const lc = String(s.lifecycle_status ?? "");
+      const isPausedLike = lc.includes("paused") || lc === "bad";
+      if (!isPausedLike) return true;
+      const sp = spendByCampaign[String(s.campaign_id)] ?? 0;
+      return sp > 1;
+    });
+    const base = meaningful.filter(matchAutomationRow);
     if (!showNew) return base;
     const have = new Set(base.map((s) => String(s.campaign_id)));
     const threeDaysMs = 3 * 86400_000;
@@ -176,7 +188,7 @@ export function AutomationTab() {
       });
     }
     return [...synthetic, ...base];
-  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew]);
+  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew, spendByCampaign]);
   const filteredLogs = useMemo(() => logs.filter(matchAutomationRow), [logs, campMeta, accountFilter, allowedAccountIds, siteFilter]);
 
   type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";

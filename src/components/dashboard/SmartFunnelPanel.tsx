@@ -91,6 +91,7 @@ export function SmartFunnelPanel() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [openLogs, setOpenLogs] = useState(false);
+  const [spendByCampaign, setSpendByCampaign] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.from("sites").select("id,name,domain").order("name").then(({ data }) => {
@@ -106,7 +107,25 @@ export function SmartFunnelPanel() {
       if (selectedAccountIds.length > 0) q = q.in("google_account_id", selectedAccountIds);
       const { data, error } = await q;
       if (error) throw error;
-      setRows((data ?? []) as any);
+      const allRows = ((data ?? []) as unknown) as FunnelRow[];
+
+      // Busca gasto acumulado (15d) das campanhas no funil para filtrar pausadas/falhadas sem volume
+      const ids = allRows.map((r) => r.campaign_id);
+      const spendMap: Record<string, number> = {};
+      if (ids.length > 0) {
+        const since = new Date(Date.now() - 15 * 86400_000).toISOString().slice(0, 10);
+        const { data: dm } = await supabase
+          .from("daily_metrics")
+          .select("campaign_id, spend")
+          .in("campaign_id", ids)
+          .gte("date", since);
+        for (const r of dm ?? []) {
+          const cid = String((r as any).campaign_id);
+          spendMap[cid] = (spendMap[cid] ?? 0) + Number((r as any).spend ?? 0);
+        }
+      }
+      setSpendByCampaign(spendMap);
+      setRows(allRows);
 
       // Config do site selecionado
       if (selectedSiteId && selectedSiteId !== "all" && selectedAccountIds.length === 1) {
@@ -186,11 +205,20 @@ export function SmartFunnelPanel() {
     await load();
   };
 
+  const visibleRows = useMemo(() => {
+    // Oculta pausadas/falhadas/graduadas que nunca gastaram (>= R$1) — limpa a tela de campanhas sem volume
+    return rows.filter((r) => {
+      const isHideable = r.funnel_status === "paused" || r.funnel_status === "failed-learning" || r.funnel_status === "graduated";
+      if (!isHideable) return true;
+      return (spendByCampaign[String(r.campaign_id)] ?? 0) > 1;
+    });
+  }, [rows, spendByCampaign]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const r of rows) c[r.funnel_status] = (c[r.funnel_status] ?? 0) + 1;
+    for (const r of visibleRows) c[r.funnel_status] = (c[r.funnel_status] ?? 0) + 1;
     return c;
-  }, [rows]);
+  }, [visibleRows]);
 
   return (
     <Card className="border-primary/30">
@@ -255,7 +283,7 @@ export function SmartFunnelPanel() {
       </CardHeader>
 
       <CardContent className="pt-0">
-        {rows.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="text-sm text-muted-foreground text-center py-8">
             Nenhuma campanha no Funil Inteligente. Campanhas novas (criadas, winners de geo-expansion ou reiniciadas) entram automaticamente quando a esteira estiver ativa para o site.
           </div>
@@ -275,7 +303,7 @@ export function SmartFunnelPanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => {
+                {visibleRows.map((r) => {
                   const meta = STATUS_META[r.funnel_status] ?? STATUS_META.learning;
                   const cd = r.cooldown_scale_until && new Date(r.cooldown_scale_until) > new Date()
                     ? `escala até ${new Date(r.cooldown_scale_until).toLocaleDateString("pt-BR")}`
