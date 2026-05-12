@@ -303,7 +303,7 @@ export function SmartFunnelPanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => {
+                {visibleRows.map((r) => {
                   const meta = STATUS_META[r.funnel_status] ?? STATUS_META.learning;
                   const cd = r.cooldown_scale_until && new Date(r.cooldown_scale_until) > new Date()
                     ? `escala até ${new Date(r.cooldown_scale_until).toLocaleDateString("pt-BR")}`
