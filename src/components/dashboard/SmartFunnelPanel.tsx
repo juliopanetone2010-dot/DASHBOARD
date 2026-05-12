@@ -107,7 +107,7 @@ export function SmartFunnelPanel() {
       if (selectedAccountIds.length > 0) q = q.in("google_account_id", selectedAccountIds);
       const { data, error } = await q;
       if (error) throw error;
-      const allRows = (data ?? []) as FunnelRow[];
+      const allRows = ((data ?? []) as unknown) as FunnelRow[];
 
       // Busca gasto acumulado (15d) das campanhas no funil para filtrar pausadas/falhadas sem volume
       const ids = allRows.map((r) => r.campaign_id);
