@@ -205,11 +205,20 @@ export function SmartFunnelPanel() {
     await load();
   };
 
+  const visibleRows = useMemo(() => {
+    // Oculta pausadas/falhadas/graduadas que nunca gastaram (>= R$1) — limpa a tela de campanhas sem volume
+    return rows.filter((r) => {
+      const isHideable = r.funnel_status === "paused" || r.funnel_status === "failed-learning" || r.funnel_status === "graduated";
+      if (!isHideable) return true;
+      return (spendByCampaign[String(r.campaign_id)] ?? 0) > 1;
+    });
+  }, [rows, spendByCampaign]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const r of rows) c[r.funnel_status] = (c[r.funnel_status] ?? 0) + 1;
+    for (const r of visibleRows) c[r.funnel_status] = (c[r.funnel_status] ?? 0) + 1;
     return c;
-  }, [rows]);
+  }, [visibleRows]);
 
   return (
     <Card className="border-primary/30">
