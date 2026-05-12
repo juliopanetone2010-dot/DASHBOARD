@@ -116,6 +116,9 @@ export function AutomationTab() {
     setLinks((lks ?? []) as any);
     setSiteAutomation((sac ?? []) as any[]);
     setTodayRoiByCampaign(todayMap);
+    const spendMap: Record<string, number> = {};
+    for (const cid of Object.keys(aggBy)) spendMap[cid] = aggBy[cid].spend15;
+    setSpendByCampaign(spendMap);
     setCfg(c ?? null);
     setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
