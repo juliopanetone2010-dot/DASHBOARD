@@ -39,7 +39,46 @@ type SiteAutomationConfig = {
   google_account_id: string;
   automation_enabled: boolean;
   automation_dry_run: boolean;
+  // Set automatically by trg_set_site_automation_enabled_at when automation_enabled
+  // first becomes true; cleared when automation is disabled. Used by the trust
+  // period gate below to keep newly enabled automation in dry-run for N days.
+  automation_enabled_at: string | null;
 };
+
+// Trust period: when automation is freshly enabled for a (site, account) pair,
+// the system keeps it in dry-run mode for this many days no matter what the
+// user's automation_dry_run flag says. Gives the operator and the engine time
+// to observe real behaviour under live data before any mutations are issued.
+// 14 days picked because it covers two full weekly campaign cycles + GAM's
+// historical-amend window. Tunable here without a migration.
+const TRUST_PERIOD_DAYS = 14;
+
+interface TrustPeriodState {
+  inPeriod: boolean;
+  enabledAt: string | null;
+  daysRemaining: number;
+  reason: "trust_period" | null;
+}
+
+function evaluateTrustPeriod(enabledAt: string | null): TrustPeriodState {
+  if (!enabledAt) {
+    // Defensive: shouldn't happen for an enabled row given the DB trigger, but
+    // if it does we treat it as "still in trust period" — fail safe.
+    return { inPeriod: true, enabledAt: null, daysRemaining: TRUST_PERIOD_DAYS, reason: "trust_period" };
+  }
+  const enabledMs = new Date(enabledAt).getTime();
+  if (!Number.isFinite(enabledMs)) {
+    return { inPeriod: true, enabledAt, daysRemaining: TRUST_PERIOD_DAYS, reason: "trust_period" };
+  }
+  const ageDays = (Date.now() - enabledMs) / 86_400_000;
+  const inPeriod = ageDays < TRUST_PERIOD_DAYS;
+  return {
+    inPeriod,
+    enabledAt,
+    daysRemaining: inPeriod ? Math.max(0, Math.ceil(TRUST_PERIOD_DAYS - ageDays)) : 0,
+    reason: inPeriod ? "trust_period" : null,
+  };
+}
 
 // =============================================================================
 // Circuit breaker — caps the number of pause mutations a single automation run
@@ -158,11 +197,41 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   const userId = siteCfg.user_id;
   const siteId = siteCfg.site_id;
   const accountId = siteCfg.google_account_id;
-  const dryRun: boolean = cfg.automation_dry_run !== false;
+  const userDryRun: boolean = cfg.automation_dry_run !== false;
+  // Trust period: if automation was first enabled for this (site, account)
+  // pair less than TRUST_PERIOD_DAYS ago, force dry-run regardless of the
+  // user's setting. This is non-overridable from the UI; the user must wait
+  // out the period OR (if needed) lower TRUST_PERIOD_DAYS in code.
+  const trust = evaluateTrustPeriod(siteCfg.automation_enabled_at);
+  const dryRun: boolean = userDryRun || trust.inPeriod;
+  const dryRunReason: "user_config" | "trust_period" | null = userDryRun
+    ? "user_config"
+    : (trust.inPeriod ? "trust_period" : null);
   // Per-run circuit breaker. Caps live pause mutations; in dry-run mode the
   // breaker still tracks intent so the post-run summary can warn the operator
   // that the threshold *would* have been hit.
   const breaker = makeRunBreaker(resolveMaxPauses(cfg));
+
+  // One-time log per run: surface the trust-period status so the operator can
+  // see "we're still in the observation window, next live run in N days" at a
+  // glance from the audit log without having to parse per-campaign rows.
+  if (trust.inPeriod) {
+    await admin.from("automation_logs").insert({
+      user_id: userId,
+      site_id: siteId,
+      google_account_id: accountId,
+      campaign_id: null,
+      action: "trust_period",
+      reason: `Período de observação ativo: faltam ${trust.daysRemaining} dia(s) para a automação operar em modo live (forçando dry-run).`,
+      decision: "dry_run_forced",
+      payload: {
+        trust_period_days: TRUST_PERIOD_DAYS,
+        automation_enabled_at: trust.enabledAt,
+        days_remaining: trust.daysRemaining,
+        user_dry_run_setting: userDryRun,
+      },
+    });
+  }
   // Busca histórico suficiente para regras de segurança, mas o ROI exibido e
   // usado na classificação principal é o do dia atual.
   const days: number = resolveAnalysisDays(cfg);
@@ -179,7 +248,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     .eq("site_id", siteId)
     .eq("google_account_id", accountId)
     .maybeSingle();
-  if (!link) return { window: { from: fromIso, to: toIso }, dry_run: dryRun, skipped: "site_account_not_linked" };
+  if (!link) return { window: { from: fromIso, to: toIso }, dry_run: dryRun, dry_run_reason: dryRunReason, trust_period: { in_period: trust.inPeriod, days_remaining: trust.daysRemaining }, skipped: "site_account_not_linked" };
 
   // Garante que budget_micros e target_cpa_micros estão atualizados antes de decidir.
   // Sem isso, delivery_ratio fica null e a automação não consegue tomar ações de CPA/scale.
@@ -799,6 +868,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
   return {
     window: { from: fromIso, to: toIso },
     dry_run: dryRun,
+    dry_run_reason: dryRunReason,
     campaigns: byCamp.size,
     decisions, executed,
     skipped_inactive: skippedInactive,
@@ -808,6 +878,12 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     budget_sync: budgetSync,
     revenue_sync: revenueSync,
     skipped_unsynced_days: totalSkippedUnsynced,
+    trust_period: {
+      in_period: trust.inPeriod,
+      days_remaining: trust.daysRemaining,
+      enabled_at: trust.enabledAt,
+      total_days: TRUST_PERIOD_DAYS,
+    },
     circuit_breaker: {
       max_pauses: breaker.maxPauses,
       pauses_applied: breaker.pausesApplied,
