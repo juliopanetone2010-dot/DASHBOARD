@@ -61,6 +61,9 @@ function delay(ms: number) {
 
 async function runBackground(siteId: string, userId: string, authHeader: string) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + 110_000;
+  const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
   const to = isoDaysAgo(0);
   const syncLog = {
     siteId,
@@ -119,7 +122,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     // 2. receita GAM em chunks pequenos e aguardando concluir.
     // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
-    const chunkDays = 3;
+    const chunkDays = 7;
     const fromDate = new Date(from + "T00:00:00Z");
     const toDate = new Date(to + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
@@ -131,11 +134,16 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
       const cTo = cEndDate.toISOString().slice(0, 10);
       chunks.push({ from: cFrom, to: cTo });
     }
-    // Chunks em série: evita rate limit de invocação entre funções.
-    for (const c of chunks) {
+    // Chunks em série e do mais recente para o mais antigo: o dashboard atualiza primeiro
+    // os últimos dias, mesmo se o runtime cortar o trabalho longo antes de completar 30 dias.
+    for (const c of chunks.reverse()) {
+      if (!hasBudget(25_000)) {
+        console.warn("[auto-onboard] stopping GAM chunks due deadline", { siteId, next: c });
+        break;
+      }
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_snapshot_regen: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: true, skip_snapshot_regen: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
@@ -156,6 +164,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string)
     let placementsOk = 0;
     const camps = campaigns ?? [];
     for (const c of camps) {
+      if (!hasBudget(12_000)) {
+        console.warn("[auto-onboard] stopping placements due deadline", { siteId });
+        break;
+      }
       const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
