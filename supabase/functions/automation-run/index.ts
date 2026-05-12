@@ -53,6 +53,15 @@ type SiteAutomationConfig = {
 // historical-amend window. Tunable here without a migration.
 const TRUST_PERIOD_DAYS = 14;
 
+// Soft pause: when the engine pauses a campaign, we don't treat it as a
+// permanent action. The campaign is marked pending_review for this many hours,
+// after which one automatic resume is attempted ("second chance after pause").
+// If the campaign gets paused again, state moves to 'exhausted_auto' and the
+// engine stops trying — a human has to step in. 48h matches GAM's typical
+// consolidation lag plus a full business day to see fresh revenue patterns.
+const AUTO_PAUSE_REVIEW_HOURS = 48;
+const AUTO_PAUSE_MAX_RESUMES = 1;
+
 interface TrustPeriodState {
   inPeriod: boolean;
   enabledAt: string | null;
@@ -232,6 +241,18 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       },
     });
   }
+
+  // Soft-pause auto-revert phase: BEFORE the main decision loop. Walks the
+  // queue of campaigns that the engine paused 48h+ ago and either resumes
+  // them (one-shot) or marks them exhausted_auto for human review. Reasons:
+  //   - placing this BEFORE main loop means a resumed campaign re-enters the
+  //     normal evaluation as ENABLED, ready to participate in scaling/CPA
+  //     decisions if its data has improved;
+  //   - paused campaigns have no recent spend and would be skipped by the
+  //     main loop anyway, so without this phase they'd be stuck forever.
+  const reviewResult = await processPendingReviews({
+    admin, userId, siteId, accountId, dryRun, userJwt,
+  });
   // Busca histórico suficiente para regras de segurança, mas o ROI exibido e
   // usado na classificação principal é o do dia atual.
   const days: number = resolveAnalysisDays(cfg);
@@ -751,6 +772,26 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
         newState.last_cpa_action = decision.action;
         newState.last_cpa_action_date = nowIso;
       }
+      // Soft-pause bookkeeping. When the engine actually pauses a campaign,
+      // record everything the auto-revert phase will need to evaluate it 48h
+      // later. We DO NOT set these fields in dry-run (the campaign wasn't
+      // really paused) or on circuit-breaker-blocked attempts.
+      if (decision.action === "pause") {
+        newState.auto_paused_at = nowIso;
+        newState.auto_paused_reason = decision.reason ?? null;
+        newState.auto_pause_review_at = new Date(Date.now() + AUTO_PAUSE_REVIEW_HOURS * 3600_000).toISOString();
+        newState.auto_pause_state = "pending_review";
+        newState.auto_pause_snapshot = {
+          roi: Number.isFinite(decision.roi) ? round2(decision.roi) : null,
+          roi_today: (decision as any).roi_today == null ? null : round2((decision as any).roi_today),
+          trend: decision.trend ?? null,
+          delivery: decision.delivery == null ? null : round2(decision.delivery),
+          spend: round2(agg.spend),
+          days_evaluated: agg.days.size,
+          daily_budget: round2(dailyBudget),
+          at: nowIso,
+        };
+      }
       newState.last_action = decision.action;
       newState.last_action_date = nowIso;
       if (decision.delivery_driven) {
@@ -889,6 +930,11 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       pauses_applied: breaker.pausesApplied,
       tripped: breaker.tripped,
       tripped_at: breaker.trippedAt,
+    },
+    auto_revert: {
+      review_hours: AUTO_PAUSE_REVIEW_HOURS,
+      max_resumes_per_campaign: AUTO_PAUSE_MAX_RESUMES,
+      ...reviewResult,
     },
   };
 }
@@ -1257,6 +1303,141 @@ function classify(agg: any, cfg: any, prev: any, dailyBudget: number): {
   return { lifecycle: "learning", action: "none", reason: `ROI ${round2(roi)}% delivery ${deliveryPct} — observando`, roi, trend, delivery, avgDailySpend };
 }
 
+// Auto-revert phase: walks every campaign on this (user, site, account) that
+// was paused by the engine and is due for review (auto_pause_review_at <= now,
+// state = pending_review). The first time a campaign comes due we attempt one
+// resume; subsequent reviews after a re-pause skip the resume and mark the
+// state 'exhausted_auto' so a human has to intervene. All outcomes write to
+// automation_logs for the audit trail.
+async function processPendingReviews(args: {
+  admin: any;
+  userId: string;
+  siteId: string;
+  accountId: string;
+  dryRun: boolean;
+  userJwt: string | null;
+}): Promise<{ resumed: number; exhausted: number; failed: number; total: number }> {
+  const { admin, userId, siteId, accountId, dryRun, userJwt } = args;
+
+  const { data: pending } = await admin
+    .from("campaign_automation")
+    .select("id, campaign_id, auto_paused_at, auto_paused_reason, auto_pause_snapshot, auto_pause_resume_count")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .eq("google_account_id", accountId)
+    .eq("auto_pause_state", "pending_review")
+    .lte("auto_pause_review_at", new Date().toISOString());
+
+  let resumed = 0, exhausted = 0, failed = 0;
+  const total = pending?.length ?? 0;
+
+  for (const row of (pending ?? []) as any[]) {
+    const nowIso = new Date().toISOString();
+    const resumeCount = Number(row.auto_pause_resume_count ?? 0);
+
+    // Cap reached: don't auto-resume a second time. The campaign keeps the
+    // paused state, but the auto-revert phase will stop touching it.
+    if (resumeCount >= AUTO_PAUSE_MAX_RESUMES) {
+      await admin.from("campaign_automation")
+        .update({ auto_pause_state: "exhausted_auto" })
+        .eq("id", row.id);
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: row.campaign_id,
+        action: "auto_pause_exhausted",
+        reason: `Campanha já foi auto-retomada ${resumeCount}x e voltou a ser pausada. Limite de retomadas atingido — necessária intervenção humana.`,
+        decision: "skipped",
+        payload: { resume_count: resumeCount, paused_at: row.auto_paused_at, paused_reason: row.auto_paused_reason },
+      });
+      exhausted++;
+      continue;
+    }
+
+    // Dry-run: log the intent but don't touch Google Ads.
+    if (dryRun) {
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: row.campaign_id,
+        action: "auto_resume",
+        reason: `Após ${AUTO_PAUSE_REVIEW_HOURS}h de pausa, retomaria a campanha pra uma nova avaliação.`,
+        decision: "dry_run",
+        payload: { paused_at: row.auto_paused_at, paused_reason: row.auto_paused_reason, snapshot: row.auto_pause_snapshot },
+      });
+      continue;
+    }
+
+    // Live: call google-ads-mutate to set the campaign back to ENABLED.
+    try {
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (userJwt) {
+        headers.Authorization = `Bearer ${userJwt}`;
+      } else {
+        headers.Authorization = `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+        headers["x-system-user-id"] = userId;
+      }
+      const res = await fetch(url, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          action: "set_status",
+          status: "ENABLED",
+          campaign_id: row.campaign_id,
+          google_account_id: accountId,
+          site_id: siteId,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.error) {
+        await admin.from("automation_logs").insert({
+          user_id: userId, site_id: siteId, google_account_id: accountId,
+          campaign_id: row.campaign_id,
+          action: "auto_resume",
+          reason: `Falha ao auto-retomar a campanha: ${j?.error || res.statusText}`,
+          decision: "failed",
+          error: j?.error || `mutate failed: ${res.status}`,
+        });
+        failed++;
+        continue;
+      }
+
+      await admin.from("campaign_automation")
+        .update({
+          auto_pause_state: "auto_resumed",
+          auto_pause_resumed_at: nowIso,
+          auto_pause_resume_count: resumeCount + 1,
+        })
+        .eq("id", row.id);
+
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: row.campaign_id,
+        action: "auto_resume",
+        reason: `Após ${AUTO_PAUSE_REVIEW_HOURS}h, campanha retomada automaticamente pra nova avaliação.`,
+        decision: "executed",
+        payload: {
+          paused_at: row.auto_paused_at,
+          paused_reason: row.auto_paused_reason,
+          snapshot: row.auto_pause_snapshot,
+          resume_count: resumeCount + 1,
+        },
+      });
+      resumed++;
+    } catch (e) {
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: row.campaign_id,
+        action: "auto_resume",
+        reason: `Erro ao tentar auto-retomar: ${String(e instanceof Error ? e.message : e)}`,
+        decision: "failed",
+        error: String(e instanceof Error ? e.message : e),
+      });
+      failed++;
+    }
+  }
+
+  return { resumed, exhausted, failed, total };
+}
+
 async function applyMutation(userJwt: string | null, userId: string, campaignId: string, accountId: string, siteId: string, decision: any, cfg: any, breaker: RunBreaker) {
   // Circuit breaker: gate pause mutations BEFORE we issue the fetch. If we've
   // already paused breaker.maxPauses campaigns in this run, or the breaker
@@ -1272,6 +1453,8 @@ async function applyMutation(userJwt: string | null, userId: string, campaignId:
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/google-ads-mutate`;
   const body: any = { campaign_id: campaignId, google_account_id: accountId, site_id: siteId };
   if (decision.action === "pause") { body.action = "set_status"; body.status = "PAUSED"; }
+  // resume is the safe reverse of pause; never gated by the circuit breaker.
+  else if (decision.action === "resume") { body.action = "set_status"; body.status = "ENABLED"; }
   else if (decision.action === "scale") { body.action = "adjust_budget"; body.delta_pct = Number(decision._lightScalePct) || Number(cfg.auto_scale_budget_pct) || 20; }
   else if (decision.action === "cpa_up") { body.action = "adjust_cpa"; body.delta_pct = Number(decision._lightCpaPct) || Number(cfg.auto_cpa_up_pct) || 10; }
   else if (decision.action === "cpa_down") { body.action = "adjust_cpa"; body.delta_pct = -(Number(cfg.auto_cpa_down_pct) || 10); }
