@@ -261,6 +261,8 @@ Deno.serve(async (req) => {
       });
     }
 
+    const isIncrementalRefresh = !!site.last_full_sync_at;
+
     await admin
       .from("sites")
       .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
@@ -268,7 +270,7 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id);
 
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader));
+    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader, isIncrementalRefresh));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,
