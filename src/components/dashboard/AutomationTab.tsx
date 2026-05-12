@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
 import { SitesAutomationPanel } from "./SitesAutomationPanel";
+import { AutomationRollbackPanel } from "./AutomationRollbackPanel";
 import { NET_FACTOR } from "@/engine/rules";
 
 type Cfg = Record<string, any>;
@@ -304,6 +305,11 @@ export function AutomationTab() {
           </Button>
         </div>
       </div>
+
+      {/* Pausas em revisão / rollback. Mostrado antes dos filtros porque é o
+          local onde o operador costuma agir quando entra com a desconfiança
+          "a automação pausou alguma campanha boa?". */}
+      <AutomationRollbackPanel siteId={siteFilter} />
 
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 flex flex-wrap items-end gap-4">
