@@ -188,7 +188,7 @@ export function AutomationTab() {
       });
     }
     return [...synthetic, ...base];
-  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew]);
+  }, [states, campMeta, accountFilter, allowedAccountIds, siteFilter, showNew, spendByCampaign]);
   const filteredLogs = useMemo(() => logs.filter(matchAutomationRow), [logs, campMeta, accountFilter, allowedAccountIds, siteFilter]);
 
   type SortKey = "name" | "lifecycle_status" | "last_roi" | "roi_trend" | "days_in_standby" | "last_action_date" | "cooldown_until";
