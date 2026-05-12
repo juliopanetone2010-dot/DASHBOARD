@@ -46,6 +46,7 @@ export function AutomationTab() {
   const [links, setLinks] = useState<{ google_account_id: string; site_id: string }[]>([]);
   const [siteAutomation, setSiteAutomation] = useState<any[]>([]);
   const [todayRoiByCampaign, setTodayRoiByCampaign] = useState<Record<string, number | null>>({});
+  const [spendByCampaign, setSpendByCampaign] = useState<Record<string, number>>({});
   const [siteFilter, setSiteFilter] = useState<string>(globalFilters.siteId || "all");
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [accountPopOpen, setAccountPopOpen] = useState(false);
