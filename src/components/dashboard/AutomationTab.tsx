@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { cn } from "@/lib/utils";
 import { SitesAutomationPanel } from "./SitesAutomationPanel";
+import { SitesPlacementCleanupPanel } from "./SitesPlacementCleanupPanel";
 import { AutomationRollbackPanel } from "./AutomationRollbackPanel";
 import { NET_FACTOR } from "@/engine/rules";
 
@@ -373,6 +374,8 @@ export function AutomationTab() {
       </div>
 
       <SitesAutomationPanel userId={cfg?.user_id ?? null} />
+
+      <SitesPlacementCleanupPanel userId={cfg?.user_id ?? null} />
 
       <div className="rounded-xl border border-border bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
