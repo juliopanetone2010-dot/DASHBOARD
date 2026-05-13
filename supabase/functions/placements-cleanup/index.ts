@@ -488,12 +488,10 @@ Deno.serve(async (req) => {
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
-      for (const it of selected) {
-        const checks: { campaign_id: string; cost_brl: number; revenue_usd: number; roi_pct: number; ok: boolean }[] = [];
-        for (const c of it.campaigns) {
+      // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
+      const safetyResults = await Promise.all(selected.map(async (it) => {
+        const checks = await Promise.all(it.campaigns.map(async (c) => {
           const root = rootDomain(it.placement);
-          const variants = [it.placement, root, `www.${root}`].filter(Boolean);
-          // custo real (BRL) — soma de todas variantes/subdomínios
           const { data: costRows } = await admin
             .from("ads_placements")
             .select("cost, placement, placement_clean")
@@ -504,7 +502,6 @@ Deno.serve(async (req) => {
             .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
             .limit(5000);
           const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
-          // receita real (USD) — match por root + variantes
           let gamQ = admin
             .from("gam_placement_revenue")
             .select("revenue_usd, placement")
@@ -519,14 +516,14 @@ Deno.serve(async (req) => {
           const revBrl = revUsd * NET_FACTOR * fxUsdBrl;
           const profit = revBrl - costBrl;
           const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
-          // Aceita bloqueio só se ROI real ≤ maxRoiPct E custo significativo
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
-          checks.push({ campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok });
-        }
-        const allOk = checks.every((x) => x.ok);
-        if (allOk) {
-          safetyApproved.push(it);
-        } else {
+          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
+        }));
+        return { it, checks, allOk: checks.every((x) => x.ok) };
+      }));
+      for (const { it, checks, allOk } of safetyResults) {
+        if (allOk) safetyApproved.push(it);
+        else {
           safetyRejected.push({ placement: it.placement, reason: "safety_recheck_failed", checks });
           console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
         }
@@ -589,45 +586,34 @@ Deno.serve(async (req) => {
         console.error("[placements-cleanup] log impact error", e);
       }
 
-      // Sincroniza esteira inteligente: re-avalia o funil em TODOS os sites
-      // do usuário, garantindo que placements recém-bloqueados (via
-      // placement_actions.blacklist) apareçam como 'blocked' na esteira.
-      const evalResults: Array<{ site_id: string | null; ok: boolean; error?: string }> = [];
-      try {
-        const { data: userSites } = await admin
-          .from("sites").select("id").eq("user_id", userId);
-        const siteIds: (string | null)[] = (userSites ?? []).map((s: any) => s.id);
-        if (siteIds.length === 0) siteIds.push(null); // fallback global
-        const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-        const SR = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        for (const sid of siteIds) {
-          try {
-            const r = await fetch(`${SUPABASE_URL}/functions/v1/placements-evaluate`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${SR}`,
-              },
-              body: JSON.stringify({
-                mode: "preview",
-                user_id: userId,
-                site_id: sid,
-                lookback_days: 30,
-                fx_usd_brl: fxUsdBrl,
-              }),
-            });
-            const ok = r.ok;
-            const txt = ok ? null : await r.text().catch(() => null);
-            evalResults.push({ site_id: sid, ok, error: txt ?? undefined });
-          } catch (e) {
-            evalResults.push({ site_id: sid, ok: false, error: String(e instanceof Error ? e.message : e) });
-          }
+      // Sincroniza esteira inteligente em background (não bloqueia a resposta).
+      // Antes era serial por site e cada placements-evaluate consome ~80s — estourava 150s.
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+      const SR = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const resyncTask = (async () => {
+        try {
+          const { data: userSites } = await admin.from("sites").select("id").eq("user_id", userId);
+          const siteIds: (string | null)[] = (userSites ?? []).map((s: any) => s.id);
+          if (siteIds.length === 0) siteIds.push(null);
+          await Promise.all(siteIds.map(async (sid) => {
+            try {
+              await fetch(`${SUPABASE_URL}/functions/v1/placements-evaluate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SR}` },
+                body: JSON.stringify({ mode: "preview", user_id: userId, site_id: sid, lookback_days: 30, fx_usd_brl: fxUsdBrl }),
+              });
+            } catch (e) {
+              console.error("[placements-cleanup] resync site", sid, e);
+            }
+          }));
+        } catch (e) {
+          console.error("[placements-cleanup] funnel resync error", e);
         }
-      } catch (e) {
-        console.error("[placements-cleanup] funnel resync error", e);
-      }
+      })();
+      // @ts-ignore EdgeRuntime is provided by Supabase Edge Runtime
+      try { EdgeRuntime.waitUntil(resyncTask); } catch { /* fallback: não aguarda */ }
 
-      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, safety_rejected: (result as any).safety_rejected ?? [], stats, funnel_resync: evalResults });
+      return json({ ok: true, applied: result.applied, failed: result.failed, details: result.details, safety_rejected: (result as any).safety_rejected ?? [], stats, funnel_resync: "scheduled" });
     }
 
     return json({ error: "mode inválido" });
