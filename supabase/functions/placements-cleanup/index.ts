@@ -488,12 +488,10 @@ Deno.serve(async (req) => {
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
-      for (const it of selected) {
-        const checks: { campaign_id: string; cost_brl: number; revenue_usd: number; roi_pct: number; ok: boolean }[] = [];
-        for (const c of it.campaigns) {
+      // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
+      const safetyResults = await Promise.all(selected.map(async (it) => {
+        const checks = await Promise.all(it.campaigns.map(async (c) => {
           const root = rootDomain(it.placement);
-          const variants = [it.placement, root, `www.${root}`].filter(Boolean);
-          // custo real (BRL) — soma de todas variantes/subdomínios
           const { data: costRows } = await admin
             .from("ads_placements")
             .select("cost, placement, placement_clean")
@@ -504,7 +502,6 @@ Deno.serve(async (req) => {
             .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
             .limit(5000);
           const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
-          // receita real (USD) — match por root + variantes
           let gamQ = admin
             .from("gam_placement_revenue")
             .select("revenue_usd, placement")
@@ -519,14 +516,14 @@ Deno.serve(async (req) => {
           const revBrl = revUsd * NET_FACTOR * fxUsdBrl;
           const profit = revBrl - costBrl;
           const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
-          // Aceita bloqueio só se ROI real ≤ maxRoiPct E custo significativo
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
-          checks.push({ campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok });
-        }
-        const allOk = checks.every((x) => x.ok);
-        if (allOk) {
-          safetyApproved.push(it);
-        } else {
+          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
+        }));
+        return { it, checks, allOk: checks.every((x) => x.ok) };
+      }));
+      for (const { it, checks, allOk } of safetyResults) {
+        if (allOk) safetyApproved.push(it);
+        else {
           safetyRejected.push({ placement: it.placement, reason: "safety_recheck_failed", checks });
           console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
         }
