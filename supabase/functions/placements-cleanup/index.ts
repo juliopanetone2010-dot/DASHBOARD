@@ -667,9 +667,11 @@ async function fetchLiveAdsPlacements(
   const tokenCache = new Map<string, string>();
   const out: LiveAdsRow[] = [];
 
-  for (const [accountId, campaignIds] of byAccount) {
+  // Paraleliza por conta E por chunk de campanhas (cada chunk = 1 GAQL call).
+  // Antes era 100% serial — em sites com muitas campanhas/contas estourava o timeout de 150s.
+  await Promise.all([...byAccount.entries()].map(async ([accountId, campaignIds]) => {
     const acc = accMap.get(accountId);
-    if (!acc?.refresh_token || !acc?.customer_id) continue;
+    if (!acc?.refresh_token || !acc?.customer_id) return;
     const token = await getGoogleToken(acc.refresh_token, tokenCache);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
@@ -678,9 +680,10 @@ async function fetchLiveAdsPlacements(
     };
     if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
 
-    for (const chunk of chunkArr(campaignIds, 50)) {
+    const chunks = chunkArr(campaignIds, 50);
+    await Promise.all(chunks.map(async (chunk) => {
       const idList = chunk.map((id) => String(id).replace(/\D/g, "")).filter(Boolean).join(",");
-      if (!idList) continue;
+      if (!idList) return;
       const query = `
         SELECT
           detail_placement_view.placement,
@@ -728,8 +731,8 @@ async function fetchLiveAdsPlacements(
         }
         pageToken = data.nextPageToken || undefined;
       } while (pageToken);
-    }
-  }
+    }));
+  }));
 
   return out;
 }
