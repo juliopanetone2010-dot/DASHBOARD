@@ -417,6 +417,36 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
 
   // === Estado: learning ===
   if (status === "learning") {
+    // === ANTECIPAÇÃO POR ROI EXTREMO (gate menor: R$200) ===
+    // Acima de R$200 gastos:
+    //   - ROI < -60%   → pausa imediata (sangramento severo)
+    //   - ROI < -30%   → tenta recuperar com Target CPA = média de CPA dos dias rodados
+    const EARLY_GATE = 200;
+    const PANIC_ROI = -60;
+    const RECOVER_ROI = -30;
+    if (totalSpend >= EARLY_GATE && !row.last_cpa_change_at) {
+      if (roiPct < PANIC_ROI) {
+        acted = await apply("set_status", { status: "PAUSED" },
+          `Pânico learning: ROI ${roiPct.toFixed(1)}% < ${PANIC_ROI}% com R$${totalSpend.toFixed(2)} gastos`,
+          "paused", { paused_at: now.toISOString() });
+        await persistFunnel(admin, row.id, updates);
+        return acted;
+      }
+      if (roiPct < RECOVER_ROI && avgCpa > 0) {
+        acted = await apply("set_target_cpa", { target_cpa: Number(avgCpa.toFixed(2)) },
+          `Recuperação learning: ROI ${roiPct.toFixed(1)}% — aplicando Target CPA = R$${avgCpa.toFixed(2)} (média ${days.length}d)`,
+          "cpa-learning", {
+            cpa_learning_started_at: now.toISOString(),
+            applied_target_cpa: avgCpa,
+            avg_cpa_5d: avgCpa,
+            last_cpa_change_at: now.toISOString(),
+            cooldown_cpa_until: addDays(now, CPA_COOLDOWN_DAYS).toISOString(),
+          });
+        await persistFunnel(admin, row.id, updates);
+        return acted;
+      }
+    }
+
     // Gate de gasto mínimo: campanhas novas/learning precisam ter gastado >= R$500 desde a criação
     if (totalSpend < MIN_SPEND_BEFORE_ACTION) {
       updates.next_action_hint = `Aguardando gasto mínimo (R$${totalSpend.toFixed(2)}/R$${MIN_SPEND_BEFORE_ACTION}) — ${daysSinceLearn}d em aprendizado`;
