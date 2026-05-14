@@ -250,6 +250,13 @@ export type Database = {
       }
       campaign_automation: {
         Row: {
+          auto_pause_resume_count: number
+          auto_pause_resumed_at: string | null
+          auto_pause_review_at: string | null
+          auto_pause_snapshot: Json | null
+          auto_pause_state: string | null
+          auto_paused_at: string | null
+          auto_paused_reason: string | null
           campaign_id: string
           cooldown_until: string | null
           created_at: string
@@ -282,6 +289,13 @@ export type Database = {
           winner_started_at: string | null
         }
         Insert: {
+          auto_pause_resume_count?: number
+          auto_pause_resumed_at?: string | null
+          auto_pause_review_at?: string | null
+          auto_pause_snapshot?: Json | null
+          auto_pause_state?: string | null
+          auto_paused_at?: string | null
+          auto_paused_reason?: string | null
           campaign_id: string
           cooldown_until?: string | null
           created_at?: string
@@ -314,6 +328,13 @@ export type Database = {
           winner_started_at?: string | null
         }
         Update: {
+          auto_pause_resume_count?: number
+          auto_pause_resumed_at?: string | null
+          auto_pause_review_at?: string | null
+          auto_pause_snapshot?: Json | null
+          auto_pause_state?: string | null
+          auto_paused_at?: string | null
+          auto_paused_reason?: string | null
           campaign_id?: string
           cooldown_until?: string | null
           created_at?: string
