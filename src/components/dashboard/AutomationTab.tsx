@@ -81,12 +81,12 @@ export function AutomationTab() {
       supabase.from("daily_metrics").select("campaign_id, google_account_id, spend, profit, date").gte("date", ymd(start15)).limit(20000),
     ]);
     const meta: Record<string, { name: string; google_account_id: string | null; created_at: string | null }> = {};
-    const activeIds = new Set<string>();
+    const visibleIds = new Set<string>();
     for (const c of camps ?? []) {
       const cid = String((c as any).campaign_id);
       meta[cid] = { name: String((c as any).name ?? ""), google_account_id: (c as any).google_account_id ?? null, created_at: (c as any).created_at ?? null };
       const st = String((c as any).status ?? "").toLowerCase();
-      if (st === "enabled" || st === "active") activeIds.add(cid);
+      if (st === "enabled" || st === "active" || st === "paused") visibleIds.add(cid);
     }
     // Determina quais (account_id) têm automação ativa em algum site → usa "ROI ontem"
     const automationActiveAccounts = new Set<string>(
@@ -122,7 +122,7 @@ export function AutomationTab() {
     for (const cid of Object.keys(aggBy)) spendMap[cid] = aggBy[cid].spend15;
     setSpendByCampaign(spendMap);
     setCfg(c ?? null);
-    setStates((s ?? []).filter((row: any) => activeIds.has(String(row.campaign_id))));
+    setStates((s ?? []).filter((row: any) => visibleIds.has(String(row.campaign_id))));
     setLogs(l ?? []);
     setLoading(false);
   };
