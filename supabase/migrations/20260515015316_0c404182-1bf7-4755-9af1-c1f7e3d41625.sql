@@ -1,0 +1,1 @@
+ALTER TABLE public.scale_unlock_state ADD COLUMN IF NOT EXISTS campaign_name TEXT;

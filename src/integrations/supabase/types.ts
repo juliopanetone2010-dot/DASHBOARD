@@ -2162,6 +2162,7 @@ export type Database = {
           base_budget: number | null
           base_cpa: number | null
           campaign_id: string
+          campaign_name: string | null
           cooldown_until: string | null
           created_at: string
           current_budget: number | null
@@ -2191,6 +2192,7 @@ export type Database = {
           base_budget?: number | null
           base_cpa?: number | null
           campaign_id: string
+          campaign_name?: string | null
           cooldown_until?: string | null
           created_at?: string
           current_budget?: number | null
@@ -2220,6 +2222,7 @@ export type Database = {
           base_budget?: number | null
           base_cpa?: number | null
           campaign_id?: string
+          campaign_name?: string | null
           cooldown_until?: string | null
           created_at?: string
           current_budget?: number | null
