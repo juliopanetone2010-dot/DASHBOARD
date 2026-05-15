@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({} as Json));
     const dryRunOverride = (body as any)?.dry_run as boolean | undefined;
     const targetUserId = (body as any)?.user_id as string | undefined;
+    const siteIds = Array.isArray((body as any)?.site_ids) ? ((body as any).site_ids as string[]).map(String) : null;
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
@@ -87,7 +88,7 @@ Deno.serve(async (req) => {
     }
     const dryRun = dryRunOverride ?? cfg.dry_run;
 
-    const result = await runForUser(admin, userId, cfg, dryRun, token);
+    const result = await runForUser(admin, userId, cfg, dryRun, token, siteIds);
 
     await admin
       .from("scale_unlock_config")
@@ -114,17 +115,34 @@ async function runForUser(
   cfg: SUConfig,
   dryRun: boolean,
   jwt: string,
+  siteIds: string[] | null,
 ) {
   const lookback = Math.max(2, Math.min(14, cfg.lookback_days));
   const sinceISO = new Date(Date.now() - lookback * 86400_000).toISOString().slice(0, 10);
 
+  // Se filtrou por sites, buscar contas Google Ads vinculadas
+  let allowedAccountIds: Set<string> | null = null;
+  if (siteIds && siteIds.length > 0) {
+    const { data: linksFilter } = await admin
+      .from("account_site_links")
+      .select("google_account_id, site_id")
+      .eq("user_id", userId)
+      .in("site_id", siteIds);
+    allowedAccountIds = new Set((linksFilter ?? []).map((l: any) => String(l.google_account_id)));
+    if (allowedAccountIds.size === 0) {
+      return { campaigns_evaluated: 0, actions: 0, sites: siteIds.length, accounts: 0 };
+    }
+  }
+
   // Campanhas Google Ads ativas com budget
-  const { data: campaigns } = await admin
+  let campQuery = admin
     .from("campaigns")
     .select("campaign_id, name, status, google_account_id, budget_micros, target_cpa_micros")
     .eq("user_id", userId)
     .in("status", ["enabled", "active"])
     .not("budget_micros", "is", null);
+  if (allowedAccountIds) campQuery = campQuery.in("google_account_id", Array.from(allowedAccountIds));
+  const { data: campaigns } = await campQuery;
 
   if (!campaigns || campaigns.length === 0) {
     return { campaigns_evaluated: 0, actions: 0 };

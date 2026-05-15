@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, RefreshCw, Rocket, Zap } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Zap, Globe } from "lucide-react";
 
 type Cfg = {
   enabled: boolean; dry_run: boolean;
@@ -62,17 +63,22 @@ export const ScaleUnlockTab = () => {
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
 
+  const [sites, setSites] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedSites, setSelectedSites] = useState<Set<string>>(new Set());
+
   const load = async () => {
     if (!user) return;
     setLoading(true);
-    const [{ data: c }, { data: s }, { data: l }] = await Promise.all([
+    const [{ data: c }, { data: s }, { data: l }, { data: si }] = await Promise.all([
       supabase.from("scale_unlock_config").select("*").eq("user_id", user.id).maybeSingle(),
       supabase.from("scale_unlock_state").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(200),
       supabase.from("scale_unlock_logs").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("sites").select("id, name").eq("user_id", user.id).order("name"),
     ]);
     if (c) setCfg({ ...DEFAULT_CFG, ...(c as any) });
     setStates(s ?? []);
     setLogs(l ?? []);
+    setSites((si ?? []) as any);
     setLoading(false);
   };
   useEffect(() => { void load(); }, [user?.id]);
@@ -89,10 +95,15 @@ export const ScaleUnlockTab = () => {
     else toast({ title: "Configurações salvas" });
   };
 
-  const runNow = async (forceDry?: boolean) => {
+  const runNow = async (opts?: { forceDry?: boolean; allSites?: boolean }) => {
+    const forceDry = opts?.forceDry;
+    const allSites = opts?.allSites ?? false;
     setRunning(true);
+    const site_ids = allSites
+      ? null
+      : (selectedSites.size > 0 ? Array.from(selectedSites) : null);
     const { data, error } = await supabase.functions.invoke("scale-unlock-run", {
-      body: { dry_run: forceDry ?? cfg.dry_run },
+      body: { dry_run: forceDry ?? cfg.dry_run, ...(site_ids ? { site_ids } : {}) },
     });
     setRunning(false);
     if (error) {
@@ -102,10 +113,19 @@ export const ScaleUnlockTab = () => {
     const r = data as any;
     toast({
       title: forceDry ?? cfg.dry_run ? "Simulação concluída" : "Engine executada",
-      description: `${r?.campaigns_evaluated ?? 0} avaliadas · ${r?.actions ?? 0} ações`,
+      description: `${r?.campaigns_evaluated ?? 0} avaliadas · ${r?.actions ?? 0} ações${allSites ? " (todos sites)" : site_ids ? ` (${site_ids.length} sites)` : ""}`,
     });
     void load();
   };
+
+  const toggleSite = (id: string) => {
+    setSelectedSites((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
 
   const dashCounts = {
     candidates: states.filter((s) => ["candidate", "budget_reduced", "cpa_relaxed", "unlocking"].includes(s.status)).length,
@@ -128,17 +148,25 @@ export const ScaleUnlockTab = () => {
             Não interfere em automação principal, funil, geo, placements ou winners.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
           </Button>
-          <Button variant="secondary" onClick={() => runNow(true)} disabled={running || !user}>
+          <Button variant="secondary" onClick={() => runNow({ forceDry: true })} disabled={running || !user}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Zap className="h-4 w-4 mr-1.5" />}
             Simular
           </Button>
-          <Button onClick={() => runNow(false)} disabled={running || !user || !cfg.enabled}>
+          <Button onClick={() => runNow({ forceDry: false })} disabled={running || !user || !cfg.enabled}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Rocket className="h-4 w-4 mr-1.5" />}
-            Rodar agora
+            Rodar selecionados
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => runNow({ forceDry: false, allSites: true })}
+            disabled={running || !user || !cfg.enabled}
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Globe className="h-4 w-4 mr-1.5" />}
+            Rodar TODOS sites (real)
           </Button>
         </div>
       </div>
@@ -160,6 +188,40 @@ export const ScaleUnlockTab = () => {
           </Card>
         ))}
       </div>
+
+      {/* Sites picker */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-4 w-4" /> Sites alvo
+            <span className="text-xs font-normal text-muted-foreground">
+              ({selectedSites.size === 0 ? "nenhum selecionado · use 'Rodar TODOS sites'" : `${selectedSites.size} selecionado(s)`})
+            </span>
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedSites(new Set(sites.map((s) => s.id)))}>
+              Selecionar todos
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedSites(new Set())}>
+              Limpar
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {sites.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Nenhum site cadastrado.</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {sites.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer hover:bg-accent">
+                  <Checkbox checked={selectedSites.has(s.id)} onCheckedChange={() => toggleSite(s.id)} />
+                  <span className="text-sm truncate">{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Configuração */}
       <Card>
