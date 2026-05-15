@@ -58,6 +58,31 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const systemMode = token === SERVICE_KEY;
 
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+    // Modo sistema sem user_id → loop em TODOS usuários com engine habilitada (cron)
+    if (systemMode && !targetUserId) {
+      const { data: enabledCfgs } = await admin
+        .from("scale_unlock_config")
+        .select("*")
+        .eq("enabled", true);
+      const results: any[] = [];
+      for (const cfgRow of enabledCfgs ?? []) {
+        const cfg = cfgRow as unknown as SUConfig;
+        const dryRun = dryRunOverride ?? cfg.dry_run;
+        try {
+          const r = await runForUser(admin, cfg.user_id, cfg, dryRun, SERVICE_KEY, siteIds);
+          await admin.from("scale_unlock_config")
+            .update({ last_run_at: new Date().toISOString() })
+            .eq("user_id", cfg.user_id);
+          results.push({ user_id: cfg.user_id, ...r });
+        } catch (err) {
+          results.push({ user_id: cfg.user_id, error: String((err as Error)?.message ?? err) });
+        }
+      }
+      return json({ ok: true, mode: "cron_all_users", users: results.length, results });
+    }
+
     let userId = targetUserId ?? "";
     if (!systemMode) {
       const userClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!);
@@ -65,8 +90,6 @@ Deno.serve(async (req) => {
       userId = String(claims?.claims?.sub ?? "");
       if (!userId) return json({ error: "Token inválido" }, 401);
     }
-
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
     // Carrega ou cria config
     let { data: cfgRow } = await admin
