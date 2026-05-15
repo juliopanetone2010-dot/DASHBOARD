@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
     // Modo sistema sem user_id → loop em TODOS usuários com engine habilitada (cron)
-    if (systemMode && !targetUserId) {
+    if ((systemMode && !targetUserId) || cronRunAll) {
       const { data: enabledCfgs } = await admin
         .from("scale_unlock_config")
         .select("*")
