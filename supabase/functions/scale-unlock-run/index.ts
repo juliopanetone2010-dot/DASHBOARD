@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({} as Json));
     const dryRunOverride = (body as any)?.dry_run as boolean | undefined;
     const targetUserId = (body as any)?.user_id as string | undefined;
+    const siteIds = Array.isArray((body as any)?.site_ids) ? ((body as any).site_ids as string[]).map(String) : null;
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
