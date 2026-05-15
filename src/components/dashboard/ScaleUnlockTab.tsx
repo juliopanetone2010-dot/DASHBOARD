@@ -148,17 +148,25 @@ export const ScaleUnlockTab = () => {
             Não interfere em automação principal, funil, geo, placements ou winners.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
           </Button>
-          <Button variant="secondary" onClick={() => runNow(true)} disabled={running || !user}>
+          <Button variant="secondary" onClick={() => runNow({ forceDry: true })} disabled={running || !user}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Zap className="h-4 w-4 mr-1.5" />}
             Simular
           </Button>
-          <Button onClick={() => runNow(false)} disabled={running || !user || !cfg.enabled}>
+          <Button onClick={() => runNow({ forceDry: false })} disabled={running || !user || !cfg.enabled}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Rocket className="h-4 w-4 mr-1.5" />}
-            Rodar agora
+            Rodar selecionados
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => runNow({ forceDry: false, allSites: true })}
+            disabled={running || !user || !cfg.enabled}
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Globe className="h-4 w-4 mr-1.5" />}
+            Rodar TODOS sites (real)
           </Button>
         </div>
       </div>
