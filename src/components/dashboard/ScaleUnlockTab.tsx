@@ -63,17 +63,22 @@ export const ScaleUnlockTab = () => {
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
 
+  const [sites, setSites] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedSites, setSelectedSites] = useState<Set<string>>(new Set());
+
   const load = async () => {
     if (!user) return;
     setLoading(true);
-    const [{ data: c }, { data: s }, { data: l }] = await Promise.all([
+    const [{ data: c }, { data: s }, { data: l }, { data: si }] = await Promise.all([
       supabase.from("scale_unlock_config").select("*").eq("user_id", user.id).maybeSingle(),
       supabase.from("scale_unlock_state").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(200),
       supabase.from("scale_unlock_logs").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("sites").select("id, name").eq("user_id", user.id).order("name"),
     ]);
     if (c) setCfg({ ...DEFAULT_CFG, ...(c as any) });
     setStates(s ?? []);
     setLogs(l ?? []);
+    setSites((si ?? []) as any);
     setLoading(false);
   };
   useEffect(() => { void load(); }, [user?.id]);
@@ -90,10 +95,15 @@ export const ScaleUnlockTab = () => {
     else toast({ title: "Configurações salvas" });
   };
 
-  const runNow = async (forceDry?: boolean) => {
+  const runNow = async (opts?: { forceDry?: boolean; allSites?: boolean }) => {
+    const forceDry = opts?.forceDry;
+    const allSites = opts?.allSites ?? false;
     setRunning(true);
+    const site_ids = allSites
+      ? null
+      : (selectedSites.size > 0 ? Array.from(selectedSites) : null);
     const { data, error } = await supabase.functions.invoke("scale-unlock-run", {
-      body: { dry_run: forceDry ?? cfg.dry_run },
+      body: { dry_run: forceDry ?? cfg.dry_run, ...(site_ids ? { site_ids } : {}) },
     });
     setRunning(false);
     if (error) {
@@ -103,10 +113,19 @@ export const ScaleUnlockTab = () => {
     const r = data as any;
     toast({
       title: forceDry ?? cfg.dry_run ? "Simulação concluída" : "Engine executada",
-      description: `${r?.campaigns_evaluated ?? 0} avaliadas · ${r?.actions ?? 0} ações`,
+      description: `${r?.campaigns_evaluated ?? 0} avaliadas · ${r?.actions ?? 0} ações${allSites ? " (todos sites)" : site_ids ? ` (${site_ids.length} sites)` : ""}`,
     });
     void load();
   };
+
+  const toggleSite = (id: string) => {
+    setSelectedSites((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
 
   const dashCounts = {
     candidates: states.filter((s) => ["candidate", "budget_reduced", "cpa_relaxed", "unlocking"].includes(s.status)).length,
