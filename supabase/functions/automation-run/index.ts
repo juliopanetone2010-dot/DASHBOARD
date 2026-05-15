@@ -407,6 +407,13 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       continue;
     }
 
+    // Lock da engine "Destravar Escala" — não tocar enquanto observação dela estiver ativa
+    const _suLock = stateByCamp.get(agg.campaign_id)?.scale_unlock_locked_until;
+    if (_suLock && new Date(_suLock).getTime() > Date.now()) {
+      skippedFunnel++;
+      continue;
+    }
+
     const resolvedSiteId = await resolveCampaignSiteId(admin, userId, agg.campaign_id, accountId);
     if (!resolvedSiteId) {
       skippedAmbiguousSite++;

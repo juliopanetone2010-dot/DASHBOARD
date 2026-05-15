@@ -131,6 +131,9 @@ async function runForSite(admin: any, cfg: SiteFunnelConfig, userJwt: string | n
   let evaluated = 0, actions = 0, errors = 0;
 
   for (const row of funnelRows ?? []) {
+    // Lock da engine "Destravar Escala" — pula campanha em janela de observação
+    const _suLock = (row as any)?.scale_unlock_locked_until;
+    if (_suLock && new Date(_suLock).getTime() > Date.now()) continue;
     try {
       const acted = await evaluateFunnelRow(admin, row, dryRun, userJwt, initial_budget);
       evaluated++;

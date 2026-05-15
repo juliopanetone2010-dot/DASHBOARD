@@ -278,6 +278,7 @@ export type Database = {
           lifecycle_status: string
           roi_today: number | null
           roi_trend: string | null
+          scale_unlock_locked_until: string | null
           scaling_since: string | null
           second_chance_reason: string | null
           second_chance_started_at: string | null
@@ -317,6 +318,7 @@ export type Database = {
           lifecycle_status?: string
           roi_today?: number | null
           roi_trend?: string | null
+          scale_unlock_locked_until?: string | null
           scaling_since?: string | null
           second_chance_reason?: string | null
           second_chance_started_at?: string | null
@@ -356,6 +358,7 @@ export type Database = {
           lifecycle_status?: string
           roi_today?: number | null
           roi_trend?: string | null
+          scale_unlock_locked_until?: string | null
           scaling_since?: string | null
           second_chance_reason?: string | null
           second_chance_started_at?: string | null
@@ -525,6 +528,7 @@ export type Database = {
           learning_started_at: string
           next_action_hint: string | null
           paused_at: string | null
+          scale_unlock_locked_until: string | null
           scaling_started_at: string | null
           site_id: string | null
           stable_started_at: string | null
@@ -561,6 +565,7 @@ export type Database = {
           learning_started_at?: string
           next_action_hint?: string | null
           paused_at?: string | null
+          scale_unlock_locked_until?: string | null
           scaling_started_at?: string | null
           site_id?: string | null
           stable_started_at?: string | null
@@ -597,6 +602,7 @@ export type Database = {
           learning_started_at?: string
           next_action_hint?: string | null
           paused_at?: string | null
+          scale_unlock_locked_until?: string | null
           scaling_started_at?: string | null
           site_id?: string | null
           stable_started_at?: string | null
@@ -1992,6 +1998,249 @@ export type Database = {
           placement_cleanup_min_cost_brl?: number
           placement_cleanup_min_days?: number
           revenue_share_pct?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      scale_unlock_config: {
+        Row: {
+          cooldown_hours: number
+          created_at: string
+          dry_run: boolean
+          enabled: boolean
+          fail_after_days: number
+          fail_max_roi: number
+          id: string
+          last_run_at: string | null
+          lookback_days: number
+          max_delivery_rate: number
+          min_conversions: number
+          min_ctr_pct: number
+          min_roi_pct: number
+          min_spend_brl: number
+          observation_hours: number
+          reduce_budget_pct: number
+          relax_cpa_pct: number
+          scale_interval_hours: number
+          scale_min_delivery: number
+          scale_min_roi_pct: number
+          scale_pct: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cooldown_hours?: number
+          created_at?: string
+          dry_run?: boolean
+          enabled?: boolean
+          fail_after_days?: number
+          fail_max_roi?: number
+          id?: string
+          last_run_at?: string | null
+          lookback_days?: number
+          max_delivery_rate?: number
+          min_conversions?: number
+          min_ctr_pct?: number
+          min_roi_pct?: number
+          min_spend_brl?: number
+          observation_hours?: number
+          reduce_budget_pct?: number
+          relax_cpa_pct?: number
+          scale_interval_hours?: number
+          scale_min_delivery?: number
+          scale_min_roi_pct?: number
+          scale_pct?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cooldown_hours?: number
+          created_at?: string
+          dry_run?: boolean
+          enabled?: boolean
+          fail_after_days?: number
+          fail_max_roi?: number
+          id?: string
+          last_run_at?: string | null
+          lookback_days?: number
+          max_delivery_rate?: number
+          min_conversions?: number
+          min_ctr_pct?: number
+          min_roi_pct?: number
+          min_spend_brl?: number
+          observation_hours?: number
+          reduce_budget_pct?: number
+          relax_cpa_pct?: number
+          scale_interval_hours?: number
+          scale_min_delivery?: number
+          scale_min_roi_pct?: number
+          scale_pct?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      scale_unlock_logs: {
+        Row: {
+          action: string
+          campaign_id: string
+          campaign_name: string | null
+          created_at: string
+          delivery_after: number | null
+          delivery_before: number | null
+          error: string | null
+          google_account_id: string | null
+          id: string
+          new_budget: number | null
+          new_cpa: number | null
+          old_budget: number | null
+          old_cpa: number | null
+          payload: Json | null
+          reason: string | null
+          roi_after: number | null
+          roi_before: number | null
+          site_id: string | null
+          status: string
+          unlock_confidence: number | null
+          unlock_score: number | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          campaign_id: string
+          campaign_name?: string | null
+          created_at?: string
+          delivery_after?: number | null
+          delivery_before?: number | null
+          error?: string | null
+          google_account_id?: string | null
+          id?: string
+          new_budget?: number | null
+          new_cpa?: number | null
+          old_budget?: number | null
+          old_cpa?: number | null
+          payload?: Json | null
+          reason?: string | null
+          roi_after?: number | null
+          roi_before?: number | null
+          site_id?: string | null
+          status?: string
+          unlock_confidence?: number | null
+          unlock_score?: number | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          campaign_id?: string
+          campaign_name?: string | null
+          created_at?: string
+          delivery_after?: number | null
+          delivery_before?: number | null
+          error?: string | null
+          google_account_id?: string | null
+          id?: string
+          new_budget?: number | null
+          new_cpa?: number | null
+          old_budget?: number | null
+          old_cpa?: number | null
+          payload?: Json | null
+          reason?: string | null
+          roi_after?: number | null
+          roi_before?: number | null
+          site_id?: string | null
+          status?: string
+          unlock_confidence?: number | null
+          unlock_score?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      scale_unlock_state: {
+        Row: {
+          attempts: number
+          base_budget: number | null
+          base_cpa: number | null
+          campaign_id: string
+          cooldown_until: string | null
+          created_at: string
+          current_budget: number | null
+          current_cpa: number | null
+          failed_at: string | null
+          failed_reason: string | null
+          google_account_id: string | null
+          id: string
+          last_action: string | null
+          last_action_at: string | null
+          last_ctr_pct: number | null
+          last_delivery_rate: number | null
+          last_roi_pct: number | null
+          observe_until: string | null
+          site_id: string | null
+          snapshot: Json | null
+          started_at: string
+          status: string
+          succeeded_at: string | null
+          unlock_confidence: number
+          unlock_score: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          base_budget?: number | null
+          base_cpa?: number | null
+          campaign_id: string
+          cooldown_until?: string | null
+          created_at?: string
+          current_budget?: number | null
+          current_cpa?: number | null
+          failed_at?: string | null
+          failed_reason?: string | null
+          google_account_id?: string | null
+          id?: string
+          last_action?: string | null
+          last_action_at?: string | null
+          last_ctr_pct?: number | null
+          last_delivery_rate?: number | null
+          last_roi_pct?: number | null
+          observe_until?: string | null
+          site_id?: string | null
+          snapshot?: Json | null
+          started_at?: string
+          status?: string
+          succeeded_at?: string | null
+          unlock_confidence?: number
+          unlock_score?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          base_budget?: number | null
+          base_cpa?: number | null
+          campaign_id?: string
+          cooldown_until?: string | null
+          created_at?: string
+          current_budget?: number | null
+          current_cpa?: number | null
+          failed_at?: string | null
+          failed_reason?: string | null
+          google_account_id?: string | null
+          id?: string
+          last_action?: string | null
+          last_action_at?: string | null
+          last_ctr_pct?: number | null
+          last_delivery_rate?: number | null
+          last_roi_pct?: number | null
+          observe_until?: string | null
+          site_id?: string | null
+          snapshot?: Json | null
+          started_at?: string
+          status?: string
+          succeeded_at?: string | null
+          unlock_confidence?: number
+          unlock_score?: number
           updated_at?: string
           user_id?: string
         }
