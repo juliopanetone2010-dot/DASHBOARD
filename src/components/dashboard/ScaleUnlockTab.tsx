@@ -281,12 +281,20 @@ export const ScaleUnlockTab = () => {
 
       {/* Estado das campanhas */}
       <Card>
-        <CardHeader><CardTitle>Campanhas monitoradas</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <CardTitle>Campanhas monitoradas</CardTitle>
+          <div className="text-xs text-muted-foreground">
+            {selectedSites.size > 0
+              ? `Filtrando ${selectedSites.size} site(s) selecionado(s)`
+              : `Mostrando todos os sites`}
+          </div>
+        </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Campanha</TableHead>
+                <TableHead>Site</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Score</TableHead>
                 <TableHead className="text-right">Confiança</TableHead>
@@ -300,41 +308,59 @@ export const ScaleUnlockTab = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {states.length === 0 && (
-                <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">
-                  Nenhuma campanha avaliada ainda. Clique em <b>Simular</b> ou <b>Rodar agora</b>.
-                </TableCell></TableRow>
-              )}
-              {states.map((s) => {
-                const observing = s.observe_until && new Date(s.observe_until).getTime() > Date.now();
-                return (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-mono text-xs max-w-[180px] truncate">{s.campaign_id}</TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_COLORS[s.status] ?? STATUS_COLORS.idle}>
-                        {STATUS_LABEL[s.status] ?? s.status}
-                      </Badge>
-                      {observing && <Badge variant="outline" className="ml-1 text-xs">obs</Badge>}
-                    </TableCell>
-                    <TableCell className="text-right">{Math.round(Number(s.unlock_score) || 0)}</TableCell>
-                    <TableCell className="text-right">{Math.round(Number(s.unlock_confidence) || 0)}</TableCell>
-                    <TableCell className="text-right">{s.last_roi_pct != null ? `${Number(s.last_roi_pct).toFixed(1)}%` : "—"}</TableCell>
-                    <TableCell className="text-right">{s.last_delivery_rate != null ? `${(Number(s.last_delivery_rate) * 100).toFixed(0)}%` : "—"}</TableCell>
-                    <TableCell className="text-right">{s.last_ctr_pct != null ? `${Number(s.last_ctr_pct).toFixed(2)}%` : "—"}</TableCell>
-                    <TableCell className="text-right">
-                      {s.current_budget != null ? `R$ ${Number(s.current_budget).toFixed(0)}` : "—"}
-                      {s.base_budget != null && Number(s.base_budget) !== Number(s.current_budget) && (
-                        <span className="text-xs text-muted-foreground ml-1">(base R$ {Number(s.base_budget).toFixed(0)})</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{s.current_cpa != null ? `R$ ${Number(s.current_cpa).toFixed(2)}` : "—"}</TableCell>
-                    <TableCell className="text-xs">{s.last_action ?? "—"}</TableCell>
-                    <TableCell className="text-xs">
-                      {observing ? new Date(s.observe_until).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {(() => {
+                const siteName = new Map(sites.map((s) => [s.id, s.name]));
+                const filtered = selectedSites.size === 0
+                  ? states
+                  : states.filter((s) => s.site_id && selectedSites.has(s.site_id));
+                if (filtered.length === 0) {
+                  return (
+                    <TableRow><TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                      {states.length === 0
+                        ? <>Nenhuma campanha avaliada ainda. Clique em <b>Simular</b> ou <b>Rodar agora</b>.</>
+                        : "Nenhuma campanha para os sites filtrados."}
+                    </TableCell></TableRow>
+                  );
+                }
+                return filtered.map((s) => {
+                  const observing = s.observe_until && new Date(s.observe_until).getTime() > Date.now();
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell className="max-w-[260px]">
+                        <div className="font-medium text-sm truncate" title={s.campaign_name ?? s.campaign_id}>
+                          {s.campaign_name ?? "—"}
+                        </div>
+                        <div className="font-mono text-[10px] text-muted-foreground truncate">{s.campaign_id}</div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {s.site_id ? (siteName.get(s.site_id) ?? s.site_id) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={STATUS_COLORS[s.status] ?? STATUS_COLORS.idle}>
+                          {STATUS_LABEL[s.status] ?? s.status}
+                        </Badge>
+                        {observing && <Badge variant="outline" className="ml-1 text-xs">obs</Badge>}
+                      </TableCell>
+                      <TableCell className="text-right">{Math.round(Number(s.unlock_score) || 0)}</TableCell>
+                      <TableCell className="text-right">{Math.round(Number(s.unlock_confidence) || 0)}</TableCell>
+                      <TableCell className="text-right">{s.last_roi_pct != null ? `${Number(s.last_roi_pct).toFixed(1)}%` : "—"}</TableCell>
+                      <TableCell className="text-right">{s.last_delivery_rate != null ? `${(Number(s.last_delivery_rate) * 100).toFixed(0)}%` : "—"}</TableCell>
+                      <TableCell className="text-right">{s.last_ctr_pct != null ? `${Number(s.last_ctr_pct).toFixed(2)}%` : "—"}</TableCell>
+                      <TableCell className="text-right">
+                        {s.current_budget != null ? `R$ ${Number(s.current_budget).toFixed(0)}` : "—"}
+                        {s.base_budget != null && Number(s.base_budget) !== Number(s.current_budget) && (
+                          <span className="text-xs text-muted-foreground ml-1">(base R$ {Number(s.base_budget).toFixed(0)})</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{s.current_cpa != null ? `R$ ${Number(s.current_cpa).toFixed(2)}` : "—"}</TableCell>
+                      <TableCell className="text-xs">{s.last_action ?? "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        {observing ? new Date(s.observe_until).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                });
+              })()}
             </TableBody>
           </Table>
         </CardContent>
