@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
     }
     const dryRun = dryRunOverride ?? cfg.dry_run;
 
-    const result = await runForUser(admin, userId, cfg, dryRun, token);
+    const result = await runForUser(admin, userId, cfg, dryRun, token, siteIds);
 
     await admin
       .from("scale_unlock_config")
