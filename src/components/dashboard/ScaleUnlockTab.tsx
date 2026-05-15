@@ -189,6 +189,40 @@ export const ScaleUnlockTab = () => {
         ))}
       </div>
 
+      {/* Sites picker */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-4 w-4" /> Sites alvo
+            <span className="text-xs font-normal text-muted-foreground">
+              ({selectedSites.size === 0 ? "nenhum selecionado · use 'Rodar TODOS sites'" : `${selectedSites.size} selecionado(s)`})
+            </span>
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedSites(new Set(sites.map((s) => s.id)))}>
+              Selecionar todos
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedSites(new Set())}>
+              Limpar
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {sites.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Nenhum site cadastrado.</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {sites.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer hover:bg-accent">
+                  <Checkbox checked={selectedSites.has(s.id)} onCheckedChange={() => toggleSite(s.id)} />
+                  <span className="text-sm truncate">{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Configuração */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
