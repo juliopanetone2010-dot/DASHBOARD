@@ -53,10 +53,11 @@ Deno.serve(async (req) => {
     const dryRunOverride = (body as any)?.dry_run as boolean | undefined;
     const targetUserId = (body as any)?.user_id as string | undefined;
     const siteIds = Array.isArray((body as any)?.site_ids) ? ((body as any).site_ids as string[]).map(String) : null;
+    const cronRunAll = Boolean((body as any)?.cron_run_all);
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
-    const systemMode = token === SERVICE_KEY;
+    const systemMode = token === SERVICE_KEY || cronRunAll;
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
