@@ -261,6 +261,7 @@ async function runForUser(
     const baseStateUpdate: Json = {
       user_id: userId,
       campaign_id: cid,
+      campaign_name: (camp as any).name ?? null,
       google_account_id: accountId,
       site_id: siteId,
       unlock_score: score,
