@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +31,7 @@ import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { CreativesTab } from "@/components/dashboard/CreativesTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
+import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
@@ -531,6 +532,9 @@ const IndexInner = () => {
             <TabsTrigger value="automation" className="gap-1.5">
               <Bot className="h-3.5 w-3.5" /> Automação
             </TabsTrigger>
+            <TabsTrigger value="scale-unlock" className="gap-1.5">
+              <Rocket className="h-3.5 w-3.5" /> Destravar Escala
+            </TabsTrigger>
             <TabsTrigger value="migration" className="gap-1.5">
               <Repeat className="h-3.5 w-3.5" /> Migração
             </TabsTrigger>
@@ -799,6 +803,12 @@ const IndexInner = () => {
           <TabsContent value="automation" className="mt-6">
             <DashboardErrorBoundary tabName="Automação">
               <AutomationTab />
+            </DashboardErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="scale-unlock" className="mt-6">
+            <DashboardErrorBoundary tabName="Destravar Escala">
+              <ScaleUnlockTab />
             </DashboardErrorBoundary>
           </TabsContent>
 
