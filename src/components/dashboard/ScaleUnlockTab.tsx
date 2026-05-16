@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, RefreshCw, Rocket, Zap, Globe } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Zap, Globe, DownloadCloud } from "lucide-react";
 
 type Cfg = {
   enabled: boolean; dry_run: boolean;
