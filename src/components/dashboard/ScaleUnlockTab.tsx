@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, RefreshCw, Rocket, Zap, Globe } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Zap, Globe, DownloadCloud } from "lucide-react";
 
 type Cfg = {
   enabled: boolean; dry_run: boolean;
@@ -60,6 +60,7 @@ export const ScaleUnlockTab = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [states, setStates] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
 
@@ -126,6 +127,25 @@ export const ScaleUnlockTab = () => {
     });
   };
 
+  const syncCampaigns = async () => {
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke("google-ads-sync-campaigns", {
+      body: { date_preset: "LAST_7_DAYS" },
+    });
+    if (error) {
+      setSyncing(false);
+      toast({ title: "Falha ao sincronizar", description: String(error.message), variant: "destructive" });
+      return;
+    }
+    toast({
+      title: "Campanhas sincronizadas",
+      description: `${(data as any)?.campaigns_upserted ?? (data as any)?.upserted ?? "OK"} atualizadas. Rodando engine...`,
+    });
+    // Re-roda a engine para detectar as novas campanhas
+    await runNow({ forceDry: true, allSites: true });
+    setSyncing(false);
+  };
+
 
   const dashCounts = {
     candidates: states.filter((s) => ["candidate", "budget_reduced", "cpa_relaxed", "unlocking"].includes(s.status)).length,
@@ -151,6 +171,10 @@ export const ScaleUnlockTab = () => {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
+          </Button>
+          <Button variant="outline" onClick={syncCampaigns} disabled={syncing || running}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <DownloadCloud className="h-4 w-4 mr-1.5" />}
+            Sincronizar campanhas
           </Button>
           <Button variant="secondary" onClick={() => runNow({ forceDry: true })} disabled={running || !user}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Zap className="h-4 w-4 mr-1.5" />}
