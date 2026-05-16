@@ -511,6 +511,10 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
+            <Button variant="outline" size="sm" onClick={syncCampaignsNow} disabled={syncingCampaigns} className="gap-2" title="Busca campanhas novas no Google Ads e atualiza a lista">
+              <RefreshCw className={syncingCampaigns ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {syncingCampaigns ? "Sincronizando campanhas…" : "Sincronizar campanhas"}
+            </Button>
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
               <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               {syncing ? "Sincronizando…" : "Atualizar"}
