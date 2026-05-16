@@ -127,6 +127,25 @@ export const ScaleUnlockTab = () => {
     });
   };
 
+  const syncCampaigns = async () => {
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke("google-ads-sync-campaigns", {
+      body: { date_preset: "LAST_7_DAYS" },
+    });
+    if (error) {
+      setSyncing(false);
+      toast({ title: "Falha ao sincronizar", description: String(error.message), variant: "destructive" });
+      return;
+    }
+    toast({
+      title: "Campanhas sincronizadas",
+      description: `${(data as any)?.campaigns_upserted ?? (data as any)?.upserted ?? "OK"} atualizadas. Rodando engine...`,
+    });
+    // Re-roda a engine para detectar as novas campanhas
+    await runNow({ forceDry: true, allSites: true });
+    setSyncing(false);
+  };
+
 
   const dashCounts = {
     candidates: states.filter((s) => ["candidate", "budget_reduced", "cpa_relaxed", "unlocking"].includes(s.status)).length,
