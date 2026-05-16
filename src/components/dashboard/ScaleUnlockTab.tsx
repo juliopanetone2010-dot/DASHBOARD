@@ -172,6 +172,10 @@ export const ScaleUnlockTab = () => {
           <Button variant="outline" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
           </Button>
+          <Button variant="outline" onClick={syncCampaigns} disabled={syncing || running}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <DownloadCloud className="h-4 w-4 mr-1.5" />}
+            Sincronizar campanhas
+          </Button>
           <Button variant="secondary" onClick={() => runNow({ forceDry: true })} disabled={running || !user}>
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Zap className="h-4 w-4 mr-1.5" />}
             Simular
