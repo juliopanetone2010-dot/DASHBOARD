@@ -156,13 +156,15 @@ const IndexInner = () => {
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     enabled: filters.siteId !== "all",
     queryFn: async () => {
+      // Use the user-selected window exactly. The previous version forced a
+      // 7-day minimum lookback "as a fallback when GAM had no recent data",
+      // but that meant Hoje / Ontem / 3-dias all showed the SAME numbers (the
+      // last 7 days), making the period selector useless for viewability /
+      // eCPM. Julio reported this on 2026-05-16. The right behavior is
+      // honour-the-period; if there's no data the card just shows 0/—.
       const todayISO = new Date().toISOString().slice(0, 10);
       const toIncl = range.to >= todayISO ? range.to : todayISO;
-      // GAM tem atraso típico de 1-3 dias; se o range for muito curto e ainda não houve sync recente,
-      // ampliamos retroativamente até 7 dias para sempre mostrar a última métrica disponível.
-      const fromDate = new Date(range.from + "T00:00:00Z");
-      const minLookback = new Date(Date.now() - 7 * 86400_000);
-      const fromIncl = (fromDate < minLookback ? range.from : minLookback.toISOString().slice(0, 10));
+      const fromIncl = range.from;
       const { data, error } = await supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
