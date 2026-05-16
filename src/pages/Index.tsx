@@ -56,6 +56,24 @@ const IndexInner = () => {
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
+  const [syncingCampaigns, setSyncingCampaigns] = useState(false);
+
+  const syncCampaignsNow = async () => {
+    setSyncingCampaigns(true);
+    try {
+      const { data: r, error } = await supabase.functions.invoke("google-ads-sync-campaigns", {
+        body: { date_preset: "LAST_7_DAYS" },
+      });
+      if (error) throw error;
+      const total = (r as any)?.campaigns_upserted ?? (r as any)?.upserted ?? (r as any)?.rows ?? 0;
+      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s).` });
+      await data.refresh();
+    } catch (e: any) {
+      toast({ title: "Falha ao sincronizar campanhas", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setSyncingCampaigns(false);
+    }
+  };
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
   const extraRevQuery = useQuery({
