@@ -304,6 +304,14 @@ async function runSync(req: Request): Promise<Response> {
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+          try {
+            await persistGamUrlRevenue({
+              admin, userId, siteId: networkSites[0]?.id,
+              networkCode, accessToken, ranges, debug, ingestionDivisor,
+            });
+          } catch (e) {
+            debug.push(`[${networkCode}] persistGamUrlRevenue erro: ${String(e).slice(0, 300)}`);
+          }
         }
 
         const vTot = viewabilityRows.reduce((a, r) => ({
