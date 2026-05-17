@@ -77,25 +77,56 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  // Push/retention placements (URLs) — agrega receita+impressões por placement filtrando por palavras-chave de push/retenção
+  // Push/retention placements (URLs) — busca por placement OU por raw_utm/utm_source com keywords de push/retenção
+  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "direct", "organic", "wppes"];
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
-    queryKey: ["push-placements", range.from, range.to, filters.siteId],
+    queryKey: ["push-placements-v2", range.from, range.to, filters.siteId],
     queryFn: async () => {
       let q = supabase
         .from("gam_placement_revenue")
         .select("placement, raw_utm, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
-        .lte("date", range.to)
-        .or("placement.ilike.%push%,placement.ilike.%welcome%,placement.ilike.%reten%,placement.ilike.%izooto%,placement.ilike.%pushly%,raw_utm.ilike.%push%,raw_utm.ilike.%welcome%,raw_utm.ilike.%reten%,raw_utm.ilike.%izooto%");
+        .lte("date", range.to);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data } = await q.limit(5000);
+      const { data } = await q.limit(20000);
+      const filtered = ((data ?? []) as any[]).filter((r) => {
+        const utm = String(r.utm_source ?? "").toLowerCase();
+        if (utm && utm !== "google") return true; // qualquer utm não-google é retenção/outras
+        const blob = `${r.placement ?? ""} ${r.raw_utm ?? ""}`.toLowerCase();
+        return PUSH_KEYWORDS.some((k) => blob.includes(k));
+      });
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
-      for (const r of (data ?? []) as any[]) {
-        const key = `${r.placement}||${r.utm_source ?? ""}||${r.raw_utm ?? ""}`;
+      for (const r of filtered) {
+        const key = `${r.placement}||${r.utm_source ?? ""}`;
         const cur = map.get(key) ?? { placement: r.placement, raw_utm: r.raw_utm, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
         map.set(key, cur);
+      }
+      return [...map.values()].sort((a, b) => b.rev - a.rev);
+    },
+    staleTime: 30_000,
+  });
+
+  // UTMs de retenção — fonte autoritativa de receita por UTM (push, izooto, etc) vem de gam_campaign_source_revenue
+  const pushUtmsQuery = useQuery<Array<{ utm: string; rev: number; impr: number }>>({
+    queryKey: ["push-utms", range.from, range.to, filters.siteId],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("utm_source, revenue_usd, impressions, site_id")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .neq("utm_source", "google");
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data } = await q.limit(20000);
+      const map = new Map<string, { utm: string; rev: number; impr: number }>();
+      for (const r of (data ?? []) as any[]) {
+        const utm = String(r.utm_source ?? "(sem utm)");
+        const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
+        cur.rev += Number(r.revenue_usd) || 0;
+        cur.impr += Number(r.impressions) || 0;
+        map.set(utm, cur);
       }
       return [...map.values()].sort((a, b) => b.rev - a.rev);
     },
@@ -283,76 +314,18 @@ export function RetentionTab({ campaigns }: Props) {
         />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>LTV por campanha ({range.from} → {range.to})</span>
-            <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {byCampaign.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Sem receita atribuída por UTM ainda. Aplique as UTMs nas campanhas e aguarde o tráfego retornar.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Campanha</TableHead>
-                    <TableHead className="text-right">Google (USD)</TableHead>
-                    <TableHead className="text-right">Push (USD)</TableHead>
-                    <TableHead className="text-right">Outras</TableHead>
-                    <TableHead className="text-right">LTV total</TableHead>
-                    <TableHead className="text-right">% Retenção</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {byCampaign.map((c) => {
-                    const pctPush = c.total > 0 ? (c.push / c.total) * 100 : 0;
-                    return (
-                      <TableRow key={c.campaign_id}>
-                        <TableCell>
-                          <div className="font-medium text-sm">
-                            {campaignName.get(c.campaign_id) ?? `#${c.campaign_id}`}
-                          </div>
-                          <div className="text-xs text-muted-foreground font-mono">{c.campaign_id}</div>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtUSD(c.google)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-primary">{fmtUSD(c.push)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(c.other)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(c.total)}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={pctPush > 30 ? "default" : "outline"}>
-                            {pctPush.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
-        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
-        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const utms = pushUtmsQuery.data ?? [];
+        // eCPM/receita usam fonte de UTMs (mais confiável p/ push) + soma do que veio de placements
+        const utmRev = utms.reduce((a, u) => a + u.rev, 0);
+        const utmImpr = utms.reduce((a, u) => a + u.impr, 0);
+        const plcRev = pushRows.reduce((a, r) => a + r.rev, 0);
+        const plcImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const totalRev = Math.max(utmRev, plcRev);
+        const totalImpr = Math.max(utmImpr, plcImpr);
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
-        const byUtm = new Map<string, { utm: string; rev: number; impr: number }>();
-        for (const r of pushRows) {
-          const key = r.utm_source || "(sem utm)";
-          const cur = byUtm.get(key) ?? { utm: key, rev: 0, impr: 0 };
-          cur.rev += r.rev;
-          cur.impr += r.impr;
-          byUtm.set(key, cur);
-        }
-        const utms = [...byUtm.values()].sort((a, b) => b.rev - a.rev);
 
         return (
           <>
