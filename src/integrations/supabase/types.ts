@@ -1245,6 +1245,42 @@ export type Database = {
         }
         Relationships: []
       }
+      gam_url_revenue: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          impressions: number
+          revenue_usd: number
+          site_id: string | null
+          url: string
+          user_id: string
+          utm_source: string | null
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          url: string
+          user_id: string
+          utm_source?: string | null
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          url?: string
+          user_id?: string
+          utm_source?: string | null
+        }
+        Relationships: []
+      }
       geo_cleanup_logs: {
         Row: {
           action: string
