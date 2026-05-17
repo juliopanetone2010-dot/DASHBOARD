@@ -855,9 +855,24 @@ async function persistGamUrlRevenue(args: {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const reportRows = (await Promise.all(ranges.map((range) =>
-    runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
-  ))).flat();
+  let reportRows: ReportRow[] = [];
+  try {
+    reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL"], debug })
+    ))).flat();
+    console.log(`[${networkCode}] URL report rows=${reportRows.length}`);
+  } catch (e1) {
+    console.log(`[${networkCode}] URL dim falhou (${String(e1).slice(0, 200)}), tentando URL_NAME`);
+    try {
+      reportRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+      ))).flat();
+      console.log(`[${networkCode}] URL_NAME report rows=${reportRows.length}`);
+    } catch (e2) {
+      console.error(`[${networkCode}] URL_NAME tb falhou: ${String(e2).slice(0, 300)}`);
+      return;
+    }
+  }
 
   const buckets = new Map<string, {
     user_id: string; site_id: string; url: string; utm_source: string | null;
@@ -866,7 +881,6 @@ async function persistGamUrlRevenue(args: {
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
     if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-    // separa utm da url p/ guardar (a URL "limpa" continua com qs — útil p/ identificar artigo)
     let utmSource: string | null = null;
     try {
       const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
@@ -883,13 +897,13 @@ async function persistGamUrlRevenue(args: {
     buckets.set(key, cur);
   }
   const payload = [...buckets.values()];
-  debug.push(`[${networkCode}] gam_url_revenue rows=${payload.length}`);
+  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}`);
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
     const { error } = await admin
       .from("gam_url_revenue")
       .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
-    if (error) debug.push(`[${networkCode}] gam_url_revenue upsert erro: ${error.message}`);
+    if (error) console.error(`[${networkCode}] gam_url_revenue upsert: ${error.message}`);
   }
 }
 
