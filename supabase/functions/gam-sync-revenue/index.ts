@@ -856,20 +856,31 @@ async function persistGamUrlRevenue(args: {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
   let reportRows: ReportRow[] = [];
+  const metricGroups = [
+    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+  ];
   try {
-    reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL"], debug })
-    ))).flat();
-    console.log(`[${networkCode}] URL report rows=${reportRows.length}`);
-  } catch (e1) {
-    console.log(`[${networkCode}] URL dim falhou (${String(e1).slice(0, 200)}), tentando URL_NAME`);
-    try {
-      reportRows = (await Promise.all(ranges.map((range) =>
-        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+    for (const group of metricGroups) {
+      const groupRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
       ))).flat();
-      console.log(`[${networkCode}] URL_NAME report rows=${reportRows.length}`);
+      reportRows.push(...groupRows);
+      console.log(`[${networkCode}] URL+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
+    }
+  } catch (e1) {
+    console.log(`[${networkCode}] URL+KEY_VALUES_NAME falhou (${String(e1).slice(0, 200)}), tentando URL_NAME+KEY_VALUES_NAME`);
+    try {
+      for (const group of metricGroups) {
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
+        ))).flat();
+        reportRows.push(...groupRows);
+        console.log(`[${networkCode}] URL_NAME+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
+      }
     } catch (e2) {
-      console.error(`[${networkCode}] URL_NAME tb falhou: ${String(e2).slice(0, 300)}`);
+      console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
       return;
     }
   }
@@ -878,26 +889,47 @@ async function persistGamUrlRevenue(args: {
     user_id: string; site_id: string; url: string; utm_source: string | null;
     date: string; revenue_usd: number; impressions: number;
   }>();
+  const mediumFallback = new Map<string, {
+    user_id: string; site_id: string; url: string; utm_source: string | null;
+    date: string; revenue_usd: number; impressions: number;
+  }>();
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
     if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-    let utmSource: string | null = null;
-    try {
-      const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
-      utmSource = (u.searchParams.get("utm_source") || "").toLowerCase().trim() || null;
-    } catch { /* ignore */ }
+    const kv = parseKeyValueDimension(r.dims[2] ?? "");
+    const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
+    const medium = safeDecode(kv.utm_medium ?? "").toLowerCase().trim();
     const date = r.date ?? today;
-    const key = `${date}|${rawUrl}`;
-    const cur = buckets.get(key) ?? {
-      user_id: userId, site_id: siteId, url: rawUrl, utm_source: utmSource,
-      date, revenue_usd: 0, impressions: 0,
-    };
-    cur.revenue_usd += (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-    cur.impressions += Number(r.impressions) || 0;
-    buckets.set(key, cur);
+    const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+    const impressions = Number(r.impressions) || 0;
+
+    if (source && source !== "google") {
+      const key = `${date}|${rawUrl}`;
+      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
+      if (cur.utm_source && cur.utm_source !== source) cur.utm_source = `${cur.utm_source},${source}`;
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      buckets.set(key, cur);
+      continue;
+    }
+
+    if (!source && ["notification", "push", "webpush"].includes(medium)) {
+      const key = `${date}|${rawUrl}`;
+      const cur = mediumFallback.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: `medium:${medium}`, date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      mediumFallback.set(key, cur);
+    }
   }
-  const payload = [...buckets.values()];
-  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}`);
+  for (const [key, value] of mediumFallback) {
+    if (!buckets.has(key)) buckets.set(key, value);
+  }
+  const dates = [...new Set([...expandFixedDates(ranges), ...[...buckets.values()].map((b) => b.date)])];
+  if (dates.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  }
+  const payload = [...buckets.values()].map((row) => ({ ...row, utm_source: row.utm_source ?? "" }));
+  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}; dates=${dates.join(",")}`);
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
     const { error } = await admin
