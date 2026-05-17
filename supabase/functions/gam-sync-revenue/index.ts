@@ -856,20 +856,31 @@ async function persistGamUrlRevenue(args: {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
   let reportRows: ReportRow[] = [];
+  const metricGroups = [
+    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+  ];
   try {
-    reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL"], debug })
-    ))).flat();
-    console.log(`[${networkCode}] URL report rows=${reportRows.length}`);
-  } catch (e1) {
-    console.log(`[${networkCode}] URL dim falhou (${String(e1).slice(0, 200)}), tentando URL_NAME`);
-    try {
-      reportRows = (await Promise.all(ranges.map((range) =>
-        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+    for (const group of metricGroups) {
+      const groupRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
       ))).flat();
-      console.log(`[${networkCode}] URL_NAME report rows=${reportRows.length}`);
+      reportRows.push(...groupRows);
+      console.log(`[${networkCode}] URL+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
+    }
+  } catch (e1) {
+    console.log(`[${networkCode}] URL+KEY_VALUES_NAME falhou (${String(e1).slice(0, 200)}), tentando URL_NAME+KEY_VALUES_NAME`);
+    try {
+      for (const group of metricGroups) {
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
+        ))).flat();
+        reportRows.push(...groupRows);
+        console.log(`[${networkCode}] URL_NAME+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
+      }
     } catch (e2) {
-      console.error(`[${networkCode}] URL_NAME tb falhou: ${String(e2).slice(0, 300)}`);
+      console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
       return;
     }
   }
