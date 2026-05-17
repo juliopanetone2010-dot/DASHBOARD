@@ -79,6 +79,10 @@ export function RetentionTab({ campaigns }: Props) {
 
   // URLs reais do GAM (dimensão URL_NAME) — receita por artigo/página
   const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "notification", "notif"];
+  const isPushSource = (value: unknown) => {
+    const source = String(value ?? "").toLowerCase();
+    return PUSH_KEYWORDS.some((k) => source.includes(k));
+  };
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["gam-url-revenue", range.from, range.to, filters.siteId],
     queryFn: async () => {
@@ -91,7 +95,7 @@ export function RetentionTab({ campaigns }: Props) {
       const { data } = await q.limit(20000);
       const filtered = ((data ?? []) as any[]).filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
-        if (utm && utm !== "google") return true;
+        if (isPushSource(utm)) return true;
         const blob = String(r.url ?? "").toLowerCase();
         return PUSH_KEYWORDS.some((k) => blob.includes(k));
       });
@@ -123,6 +127,7 @@ export function RetentionTab({ campaigns }: Props) {
       const map = new Map<string, { utm: string; rev: number; impr: number }>();
       for (const r of (data ?? []) as any[]) {
         const utm = String(r.utm_source ?? "(sem utm)");
+        if (!isPushSource(utm)) continue;
         const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
