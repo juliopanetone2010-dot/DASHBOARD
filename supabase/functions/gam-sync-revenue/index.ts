@@ -839,6 +839,7 @@ async function runUrlNameCandidate(
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { label, rows: [] };
+  }
 }
 
 async function persistGamUrlRevenue(args: {
