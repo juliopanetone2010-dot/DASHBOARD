@@ -889,26 +889,47 @@ async function persistGamUrlRevenue(args: {
     user_id: string; site_id: string; url: string; utm_source: string | null;
     date: string; revenue_usd: number; impressions: number;
   }>();
+  const mediumFallback = new Map<string, {
+    user_id: string; site_id: string; url: string; utm_source: string | null;
+    date: string; revenue_usd: number; impressions: number;
+  }>();
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
     if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-    let utmSource: string | null = null;
-    try {
-      const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
-      utmSource = (u.searchParams.get("utm_source") || "").toLowerCase().trim() || null;
-    } catch { /* ignore */ }
+    const kv = parseKeyValueDimension(r.dims[2] ?? "");
+    const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
+    const medium = safeDecode(kv.utm_medium ?? "").toLowerCase().trim();
     const date = r.date ?? today;
-    const key = `${date}|${rawUrl}`;
-    const cur = buckets.get(key) ?? {
-      user_id: userId, site_id: siteId, url: rawUrl, utm_source: utmSource,
-      date, revenue_usd: 0, impressions: 0,
-    };
-    cur.revenue_usd += (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-    cur.impressions += Number(r.impressions) || 0;
-    buckets.set(key, cur);
+    const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+    const impressions = Number(r.impressions) || 0;
+
+    if (source && source !== "google") {
+      const key = `${date}|${rawUrl}|${source}`;
+      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      buckets.set(key, cur);
+      continue;
+    }
+
+    if (!source && ["notification", "push", "webpush"].includes(medium)) {
+      const key = `${date}|${rawUrl}|medium:${medium}`;
+      const cur = mediumFallback.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: `medium:${medium}`, date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      mediumFallback.set(key, cur);
+    }
   }
-  const payload = [...buckets.values()];
-  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}`);
+  for (const [key, value] of mediumFallback) {
+    const [date, rawUrl] = key.split("|");
+    if (![...buckets.keys()].some((k) => k.startsWith(`${date}|${rawUrl}|`))) buckets.set(key, value);
+  }
+  const dates = [...new Set([...expandFixedDates(ranges), ...[...buckets.values()].map((b) => b.date)])];
+  if (dates.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  }
+  const payload = [...buckets.values()].map((row) => ({ ...row, utm_source: row.utm_source ?? "" }));
+  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}; dates=${dates.join(",")}`);
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
     const { error } = await admin
