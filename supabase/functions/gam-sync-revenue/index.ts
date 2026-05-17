@@ -304,6 +304,14 @@ async function runSync(req: Request): Promise<Response> {
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+          try {
+            await persistGamUrlRevenue({
+              admin, userId, siteId: networkSites[0]?.id,
+              networkCode, accessToken, ranges, debug, ingestionDivisor,
+            });
+          } catch (e) {
+            debug.push(`[${networkCode}] persistGamUrlRevenue erro: ${String(e).slice(0, 300)}`);
+          }
         }
 
         const vTot = viewabilityRows.reduce((a, r) => ({
@@ -831,6 +839,57 @@ async function runUrlNameCandidate(
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { label, rows: [] };
+  }
+}
+
+async function persistGamUrlRevenue(args: {
+  admin: any;
+  userId: string;
+  siteId: string | undefined;
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  debug: string[];
+  ingestionDivisor: number;
+}) {
+  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
+  if (!siteId) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const reportRows = (await Promise.all(ranges.map((range) =>
+    runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+  ))).flat();
+
+  const buckets = new Map<string, {
+    user_id: string; site_id: string; url: string; utm_source: string | null;
+    date: string; revenue_usd: number; impressions: number;
+  }>();
+  for (const r of reportRows) {
+    const rawUrl = String(r.dims[1] ?? "").trim();
+    if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+    // separa utm da url p/ guardar (a URL "limpa" continua com qs — útil p/ identificar artigo)
+    let utmSource: string | null = null;
+    try {
+      const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+      utmSource = (u.searchParams.get("utm_source") || "").toLowerCase().trim() || null;
+    } catch { /* ignore */ }
+    const date = r.date ?? today;
+    const key = `${date}|${rawUrl}`;
+    const cur = buckets.get(key) ?? {
+      user_id: userId, site_id: siteId, url: rawUrl, utm_source: utmSource,
+      date, revenue_usd: 0, impressions: 0,
+    };
+    cur.revenue_usd += (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+    cur.impressions += Number(r.impressions) || 0;
+    buckets.set(key, cur);
+  }
+  const payload = [...buckets.values()];
+  debug.push(`[${networkCode}] gam_url_revenue rows=${payload.length}`);
+  const CHUNK = 500;
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error } = await admin
+      .from("gam_url_revenue")
+      .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
+    if (error) debug.push(`[${networkCode}] gam_url_revenue upsert erro: ${error.message}`);
   }
 }
 

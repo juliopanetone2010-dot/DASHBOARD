@@ -77,28 +77,28 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  // Push/retention placements (URLs) — busca por placement OU por raw_utm/utm_source com keywords de push/retenção
-  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "direct", "organic", "wppes", "notification", "notif", "utm_medium=notification", "utm_source=push"];
+  // URLs reais do GAM (dimensão URL_NAME) — receita por artigo/página
+  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "notification", "notif"];
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
-    queryKey: ["push-placements-v2", range.from, range.to, filters.siteId],
+    queryKey: ["gam-url-revenue", range.from, range.to, filters.siteId],
     queryFn: async () => {
       let q = supabase
-        .from("gam_placement_revenue")
-        .select("placement, raw_utm, utm_source, revenue_usd, impressions, site_id")
+        .from("gam_url_revenue")
+        .select("url, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const filtered = ((data ?? []) as any[]).filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
-        if (utm && utm !== "google") return true; // qualquer utm não-google é retenção/outras
-        const blob = `${r.placement ?? ""} ${r.raw_utm ?? ""}`.toLowerCase();
+        if (utm && utm !== "google") return true;
+        const blob = String(r.url ?? "").toLowerCase();
         return PUSH_KEYWORDS.some((k) => blob.includes(k));
       });
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of filtered) {
-        const key = `${r.placement}||${r.utm_source ?? ""}`;
-        const cur = map.get(key) ?? { placement: r.placement, raw_utm: r.raw_utm, utm_source: r.utm_source, rev: 0, impr: 0 };
+        const key = `${r.url}||${r.utm_source ?? ""}`;
+        const cur = map.get(key) ?? { placement: r.url, raw_utm: r.url, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
         map.set(key, cur);
@@ -157,7 +157,7 @@ export function RetentionTab({ campaigns }: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
-      await queryClient.invalidateQueries({ queryKey: ["push-placements-v2"] });
+      await queryClient.invalidateQueries({ queryKey: ["gam-url-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-utms"] });
       await Promise.all([pushPlacementsQuery.refetch(), pushUtmsQuery.refetch()]);
     } finally {
