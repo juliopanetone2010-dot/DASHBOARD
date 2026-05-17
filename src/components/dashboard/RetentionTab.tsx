@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap } from "lucide-react";
+import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap, Bell, Link2 } from "lucide-react";
 import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
@@ -75,6 +75,31 @@ export function RetentionTab({ campaigns }: Props) {
       return Number.isFinite(rate) && rate > 0 ? rate : 5;
     },
     staleTime: 60 * 60 * 1000,
+  });
+
+  // Push/retention placements (URLs) — agrega receita+impressões por placement filtrando por palavras-chave de push/retenção
+  const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
+    queryKey: ["push-placements", range.from, range.to, filters.siteId],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_placement_revenue")
+        .select("placement, raw_utm, utm_source, revenue_usd, impressions, site_id")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .or("placement.ilike.%push%,placement.ilike.%welcome%,placement.ilike.%reten%,placement.ilike.%izooto%,placement.ilike.%pushly%,raw_utm.ilike.%push%,raw_utm.ilike.%welcome%,raw_utm.ilike.%reten%,raw_utm.ilike.%izooto%");
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data } = await q.limit(5000);
+      const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
+      for (const r of (data ?? []) as any[]) {
+        const key = `${r.placement}||${r.utm_source ?? ""}||${r.raw_utm ?? ""}`;
+        const cur = map.get(key) ?? { placement: r.placement, raw_utm: r.raw_utm, utm_source: r.utm_source, rev: 0, impr: 0 };
+        cur.rev += Number(r.revenue_usd) || 0;
+        cur.impr += Number(r.impressions) || 0;
+        map.set(key, cur);
+      }
+      return [...map.values()].sort((a, b) => b.rev - a.rev);
+    },
+    staleTime: 30_000,
   });
 
   const rows = rowsQuery.data ?? [];
@@ -312,6 +337,137 @@ export function RetentionTab({ campaigns }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {(() => {
+        const pushRows = pushPlacementsQuery.data ?? [];
+        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
+        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
+
+        const byUtm = new Map<string, { utm: string; rev: number; impr: number }>();
+        for (const r of pushRows) {
+          const key = r.utm_source || "(sem utm)";
+          const cur = byUtm.get(key) ?? { utm: key, rev: 0, impr: 0 };
+          cur.rev += r.rev;
+          cur.impr += r.impr;
+          byUtm.set(key, cur);
+        }
+        const utms = [...byUtm.values()].sort((a, b) => b.rev - a.rev);
+
+        return (
+          <>
+            <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <MetricCard
+                label="eCPM médio (Push/Retenção)"
+                value={`$${avgEcpm.toFixed(2)}`}
+                icon={Bell}
+                variant="primary"
+                hint={`${pushRows.length} URL(s) detectada(s)`}
+              />
+              <MetricCard
+                label="Receita push (USD)"
+                value={fmtUSD(totalRev)}
+                icon={Repeat}
+                hint={`${totalImpr.toLocaleString("pt-BR")} impressões`}
+              />
+              <MetricCard
+                label="UTMs distintas"
+                value={String(utms.length)}
+                icon={Link2}
+                hint="origens de retenção identificadas"
+              />
+            </section>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span className="flex items-center gap-2"><Bell className="h-4 w-4" /> UTMs de retenção</span>
+                  <Badge variant="outline">{utms.length} utm(s)</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {utms.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    Nenhuma UTM de push/retenção encontrada no período.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>UTM source</TableHead>
+                          <TableHead className="text-right">Impressões</TableHead>
+                          <TableHead className="text-right">Receita (USD)</TableHead>
+                          <TableHead className="text-right">eCPM</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {utms.map((u) => {
+                          const ecpm = u.impr > 0 ? (u.rev / u.impr) * 1000 : 0;
+                          return (
+                            <TableRow key={u.utm}>
+                              <TableCell className="font-mono text-sm">{u.utm}</TableCell>
+                              <TableCell className="text-right tabular-nums">{u.impr.toLocaleString("pt-BR")}</TableCell>
+                              <TableCell className="text-right tabular-nums">{fmtUSD(u.rev)}</TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold">${ecpm.toFixed(2)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span className="flex items-center gap-2"><Link2 className="h-4 w-4" /> URLs de push / retenção</span>
+                  <Badge variant="outline">{pushRows.length} url(s)</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pushRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    Nenhuma URL de push detectada. Buscamos placements que contenham push, welcome, retenção, izooto ou pushly.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>URL / Placement</TableHead>
+                          <TableHead>UTM</TableHead>
+                          <TableHead className="text-right">Impressões</TableHead>
+                          <TableHead className="text-right">Receita</TableHead>
+                          <TableHead className="text-right">eCPM</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pushRows.slice(0, 200).map((r, i) => {
+                          const ecpm = r.impr > 0 ? (r.rev / r.impr) * 1000 : 0;
+                          return (
+                            <TableRow key={`${r.placement}-${i}`}>
+                              <TableCell className="font-mono text-xs max-w-[420px] truncate" title={r.placement}>{r.placement}</TableCell>
+                              <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.raw_utm ?? ""}>
+                                {r.utm_source ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">{r.impr.toLocaleString("pt-BR")}</TableCell>
+                              <TableCell className="text-right tabular-nums">{fmtUSD(r.rev)}</TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold">${ecpm.toFixed(2)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        );
+      })()}
 
       <p className="text-xs text-muted-foreground">
         ⓘ ROI/ROAS na aba Dashboard considera <b>somente</b> receita com <code>utm_source=google</code>.
