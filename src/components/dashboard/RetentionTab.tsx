@@ -316,19 +316,16 @@ export function RetentionTab({ campaigns }: Props) {
 
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
-        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
-        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const utms = pushUtmsQuery.data ?? [];
+        // eCPM/receita usam fonte de UTMs (mais confiável p/ push) + soma do que veio de placements
+        const utmRev = utms.reduce((a, u) => a + u.rev, 0);
+        const utmImpr = utms.reduce((a, u) => a + u.impr, 0);
+        const plcRev = pushRows.reduce((a, r) => a + r.rev, 0);
+        const plcImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const totalRev = Math.max(utmRev, plcRev);
+        const totalImpr = Math.max(utmImpr, plcImpr);
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
-        const byUtm = new Map<string, { utm: string; rev: number; impr: number }>();
-        for (const r of pushRows) {
-          const key = r.utm_source || "(sem utm)";
-          const cur = byUtm.get(key) ?? { utm: key, rev: 0, impr: 0 };
-          cur.rev += r.rev;
-          cur.impr += r.impr;
-          byUtm.set(key, cur);
-        }
-        const utms = [...byUtm.values()].sort((a, b) => b.rev - a.rev);
 
         return (
           <>
