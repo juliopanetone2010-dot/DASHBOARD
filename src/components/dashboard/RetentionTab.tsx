@@ -78,7 +78,7 @@ export function RetentionTab({ campaigns }: Props) {
   });
 
   // Push/retention placements (URLs) — busca por placement OU por raw_utm/utm_source com keywords de push/retenção
-  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "direct", "organic", "wppes"];
+  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "direct", "organic", "wppes", "notification", "notif", "utm_medium=notification", "utm_source=push"];
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["push-placements-v2", range.from, range.to, filters.siteId],
     queryFn: async () => {
@@ -157,6 +157,9 @@ export function RetentionTab({ campaigns }: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-placements-v2"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-utms"] });
+      await Promise.all([pushPlacementsQuery.refetch(), pushUtmsQuery.refetch()]);
     } finally {
       setSyncing(false);
     }
