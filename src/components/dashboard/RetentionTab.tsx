@@ -95,9 +95,7 @@ export function RetentionTab({ campaigns }: Props) {
       const { data } = await q.limit(20000);
       const filtered = ((data ?? []) as any[]).filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
-        if (isPushSource(utm)) return true;
-        const blob = String(r.url ?? "").toLowerCase();
-        return PUSH_KEYWORDS.some((k) => blob.includes(k));
+        return isPushSource(utm);
       });
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of filtered) {
@@ -325,13 +323,11 @@ export function RetentionTab({ campaigns }: Props) {
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
         const utms = pushUtmsQuery.data ?? [];
-        // eCPM/receita usam fonte de UTMs (mais confiável p/ push) + soma do que veio de placements
+        // eCPM/receita usam somente UTMs de push: URL do GAM pode trazer o artigo inteiro sem separar a origem.
         const utmRev = utms.reduce((a, u) => a + u.rev, 0);
         const utmImpr = utms.reduce((a, u) => a + u.impr, 0);
-        const plcRev = pushRows.reduce((a, r) => a + r.rev, 0);
-        const plcImpr = pushRows.reduce((a, r) => a + r.impr, 0);
-        const totalRev = Math.max(utmRev, plcRev);
-        const totalImpr = Math.max(utmImpr, plcImpr);
+        const totalRev = utmRev;
+        const totalImpr = utmImpr;
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
 
