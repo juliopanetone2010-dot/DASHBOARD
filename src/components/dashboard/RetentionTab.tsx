@@ -283,61 +283,6 @@ export function RetentionTab({ campaigns }: Props) {
         />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>LTV por campanha ({range.from} → {range.to})</span>
-            <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {byCampaign.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Sem receita atribuída por UTM ainda. Aplique as UTMs nas campanhas e aguarde o tráfego retornar.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Campanha</TableHead>
-                    <TableHead className="text-right">Google (USD)</TableHead>
-                    <TableHead className="text-right">Push (USD)</TableHead>
-                    <TableHead className="text-right">Outras</TableHead>
-                    <TableHead className="text-right">LTV total</TableHead>
-                    <TableHead className="text-right">% Retenção</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {byCampaign.map((c) => {
-                    const pctPush = c.total > 0 ? (c.push / c.total) * 100 : 0;
-                    return (
-                      <TableRow key={c.campaign_id}>
-                        <TableCell>
-                          <div className="font-medium text-sm">
-                            {campaignName.get(c.campaign_id) ?? `#${c.campaign_id}`}
-                          </div>
-                          <div className="text-xs text-muted-foreground font-mono">{c.campaign_id}</div>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtUSD(c.google)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-primary">{fmtUSD(c.push)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(c.other)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(c.total)}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={pctPush > 30 ? "default" : "outline"}>
-                            {pctPush.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
         const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
