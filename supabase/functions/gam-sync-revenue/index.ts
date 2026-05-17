@@ -904,8 +904,9 @@ async function persistGamUrlRevenue(args: {
     const impressions = Number(r.impressions) || 0;
 
     if (source && source !== "google") {
-      const key = `${date}|${rawUrl}|${source}`;
+      const key = `${date}|${rawUrl}`;
       const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
+      if (cur.utm_source && cur.utm_source !== source) cur.utm_source = `${cur.utm_source},${source}`;
       cur.revenue_usd += revenue;
       cur.impressions += impressions;
       buckets.set(key, cur);
@@ -913,7 +914,7 @@ async function persistGamUrlRevenue(args: {
     }
 
     if (!source && ["notification", "push", "webpush"].includes(medium)) {
-      const key = `${date}|${rawUrl}|medium:${medium}`;
+      const key = `${date}|${rawUrl}`;
       const cur = mediumFallback.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: `medium:${medium}`, date, revenue_usd: 0, impressions: 0 };
       cur.revenue_usd += revenue;
       cur.impressions += impressions;
@@ -921,8 +922,7 @@ async function persistGamUrlRevenue(args: {
     }
   }
   for (const [key, value] of mediumFallback) {
-    const [date, rawUrl] = key.split("|");
-    if (![...buckets.keys()].some((k) => k.startsWith(`${date}|${rawUrl}|`))) buckets.set(key, value);
+    if (!buckets.has(key)) buckets.set(key, value);
   }
   const dates = [...new Set([...expandFixedDates(ranges), ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length > 0) {
