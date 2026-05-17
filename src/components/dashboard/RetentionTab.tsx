@@ -77,6 +77,31 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
+  // Push/retention placements (URLs) — agrega receita+impressões por placement filtrando por palavras-chave de push/retenção
+  const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
+    queryKey: ["push-placements", range.from, range.to, filters.siteId],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_placement_revenue")
+        .select("placement, raw_utm, utm_source, revenue_usd, impressions, site_id")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .or("placement.ilike.%push%,placement.ilike.%welcome%,placement.ilike.%reten%,placement.ilike.%izooto%,placement.ilike.%pushly%,raw_utm.ilike.%push%,raw_utm.ilike.%welcome%,raw_utm.ilike.%reten%,raw_utm.ilike.%izooto%");
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data } = await q.limit(5000);
+      const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
+      for (const r of (data ?? []) as any[]) {
+        const key = `${r.placement}||${r.utm_source ?? ""}||${r.raw_utm ?? ""}`;
+        const cur = map.get(key) ?? { placement: r.placement, raw_utm: r.raw_utm, utm_source: r.utm_source, rev: 0, impr: 0 };
+        cur.rev += Number(r.revenue_usd) || 0;
+        cur.impr += Number(r.impressions) || 0;
+        map.set(key, cur);
+      }
+      return [...map.values()].sort((a, b) => b.rev - a.rev);
+    },
+    staleTime: 30_000,
+  });
+
   const rows = rowsQuery.data ?? [];
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
