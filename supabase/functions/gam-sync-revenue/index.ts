@@ -849,14 +849,17 @@ async function persistGamUrlRevenue(args: {
   admin: any;
   userId: string;
   siteId: string | undefined;
+  siteDomain?: string | null;
   networkCode: string;
   accessToken: string;
   ranges: GamRange[];
   debug: string[];
   ingestionDivisor: number;
+  allowRelativeUrls?: boolean;
 }) {
-  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
+  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls } = args;
   if (!siteId) return;
+  const domain = normalizeDomain(siteDomain);
   const today = new Date().toISOString().slice(0, 10);
   const dates = expandFixedDates(ranges);
   if (dates.length > 0) {
@@ -879,7 +882,7 @@ async function persistGamUrlRevenue(args: {
         return rows.map((r) => ({ ...r, date }));
       }))).flat();
       console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
-      await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor });
+      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls });
       return;
     } catch (e0) {
       console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
@@ -913,7 +916,7 @@ async function persistGamUrlRevenue(args: {
       }
     } catch (e2) {
       console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
-      await persistGamUrlOnlyFallback({ admin, userId, siteId, networkCode, accessToken, ranges, debug, today, ingestionDivisor });
+      console.error(`[${networkCode}] URL de push não foi persistida: GAM não aceitou URL + KEY_VALUES_NAME (${String(e2).slice(0, 300)})`);
       return;
     }
   }
@@ -928,7 +931,7 @@ async function persistGamUrlRevenue(args: {
   }>();
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
-    if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+    if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls)) || !urlLooksLikePush(rawUrl)) continue;
     const kv = parseKeyValueDimension(r.dims[2] ?? "");
     const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
     const medium = safeDecode(kv.utm_medium ?? "").toLowerCase().trim();
@@ -936,9 +939,9 @@ async function persistGamUrlRevenue(args: {
     const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
     const impressions = Number(r.impressions) || 0;
 
-    if (source && source !== "google") {
+    if (isPushSourceValue(source)) {
       const key = `${date}|${rawUrl}`;
-      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
+      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source || "push", date, revenue_usd: 0, impressions: 0 };
       if (cur.utm_source && cur.utm_source !== source) cur.utm_source = `${cur.utm_source},${source}`;
       cur.revenue_usd += revenue;
       cur.impressions += impressions;
@@ -946,7 +949,7 @@ async function persistGamUrlRevenue(args: {
       continue;
     }
 
-    if (!source && ["notification", "push", "webpush"].includes(medium)) {
+    if (!source && isPushMediumValue(medium)) {
       const key = `${date}|${rawUrl}`;
       const cur = mediumFallback.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: `medium:${medium}`, date, revenue_usd: 0, impressions: 0 };
       cur.revenue_usd += revenue;
