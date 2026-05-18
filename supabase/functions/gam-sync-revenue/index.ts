@@ -938,10 +938,6 @@ async function persistGamUrlRevenue(args: {
     user_id: string; site_id: string; url: string; utm_source: string | null;
     date: string; revenue_usd: number; impressions: number;
   }>();
-  const mediumFallback = new Map<string, {
-    user_id: string; site_id: string; url: string; utm_source: string | null;
-    date: string; revenue_usd: number; impressions: number;
-  }>();
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
     if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls))) continue;
@@ -960,10 +956,6 @@ async function persistGamUrlRevenue(args: {
       buckets.set(key, cur);
       continue;
     }
-
-  }
-  for (const [key, value] of mediumFallback) {
-    if (!buckets.has(key)) buckets.set(key, value);
   }
   const payload = [...buckets.values()].map((row) => ({ ...row, utm_source: row.utm_source ?? "" }));
   console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}; dates=${dates.join(",")}`);
