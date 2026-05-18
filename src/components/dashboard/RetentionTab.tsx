@@ -98,11 +98,10 @@ export function RetentionTab({ campaigns }: Props) {
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const rows = (data ?? []) as any[];
-      const pushFiltered = rows.filter((r) => {
+      const filtered = rows.filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
         return isPushSource(utm);
       });
-      const filtered = pushFiltered.length > 0 ? pushFiltered : rows;
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of filtered) {
         const key = `${r.url}||${r.utm_source ?? ""}`;
@@ -423,7 +422,7 @@ export function RetentionTab({ campaigns }: Props) {
               <CardContent>
                 {pushRows.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    Nenhuma URL encontrada no GAM para o período selecionado. Clique em Atualizar para sincronizar esse período.
+                    Nenhuma URL com UTM de push encontrada no GAM para o período selecionado. Clique em Atualizar para sincronizar esse período.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
