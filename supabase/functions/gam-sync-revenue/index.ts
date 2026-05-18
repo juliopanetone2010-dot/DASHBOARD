@@ -856,6 +856,9 @@ async function persistGamUrlRevenue(args: {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
   const dates = expandFixedDates(ranges);
+  if (dates.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  }
 
   for (const urlDimension of ["URL", "PAGE_PATH"]) {
     try {
