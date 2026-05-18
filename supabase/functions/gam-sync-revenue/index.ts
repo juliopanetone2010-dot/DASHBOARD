@@ -1048,11 +1048,6 @@ function isPushMediumValue(value: string) {
   return PUSH_MEDIUM_VALUES.has(medium);
 }
 
-function urlLooksLikePush(rawUrl: string) {
-  const params = parseUrlParams(rawUrl);
-  return isPushSourceValue(params.utm_source ?? "") || isPushMediumValue(params.utm_medium ?? "");
-}
-
 function normalizeDomain(value?: string | null) {
   return String(value ?? "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
 }
