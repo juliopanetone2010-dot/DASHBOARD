@@ -603,6 +603,13 @@ const IndexInner = () => {
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
+                  {/* Visible signal that the background cron is feeding fresh
+                      data every ~20 min, so the operator knows they don't
+                      need to keep clicking "Atualizar". */}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Auto-sincronização ativa (~20 min)</span>
+                  </div>
                 </div>
               );
             })()}
