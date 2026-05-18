@@ -910,6 +910,7 @@ async function persistGamUrlRevenue(args: {
       }
     } catch (e2) {
       console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
+      await persistGamUrlOnlyFallback({ admin, userId, siteId, networkCode, accessToken, ranges, debug, today, ingestionDivisor });
       return;
     }
   }
@@ -1024,6 +1025,38 @@ async function persistUrlRevenueRows(args: {
       .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
     if (error) console.error(`[${networkCode}] gam_url_revenue filtered upsert: ${error.message}`);
   }
+}
+
+async function persistGamUrlOnlyFallback(args: {
+  admin: any;
+  userId: string;
+  siteId: string;
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  debug: string[];
+  today: string;
+  ingestionDivisor: number;
+}) {
+  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, today, ingestionDivisor } = args;
+  const metricGroups = [
+    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+  ];
+  const rows: ReportRow[] = [];
+  for (const group of metricGroups) {
+    try {
+      const groupRows = (await Promise.all(ranges.map((range) =>
+        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL"], metrics: group.metrics, debug })
+      ))).flat();
+      rows.push(...groupRows);
+      console.log(`[${networkCode}] URL-only fallback ${group.label} rows=${groupRows.length}`);
+    } catch (e) {
+      console.log(`[${networkCode}] URL-only fallback ${group.label} falhou: ${String(e).slice(0, 240)}`);
+    }
+  }
+  await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows, source: "gam_url", today, ingestionDivisor });
 }
 
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
