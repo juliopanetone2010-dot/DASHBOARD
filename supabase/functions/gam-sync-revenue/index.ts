@@ -855,6 +855,30 @@ async function persistGamUrlRevenue(args: {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
+  const dates = expandFixedDates(ranges);
+  if (dates.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  }
+
+  try {
+    const filteredRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode,
+        accessToken,
+        range,
+        dimensions: ["DATE", "URL"],
+        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        filters: buildPushKeyValueFilters(),
+        debug,
+      })
+    ))).flat();
+    console.log(`[${networkCode}] URL filtered by push key-values rows=${filteredRows.length}`);
+    await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor });
+    return;
+  } catch (e0) {
+    console.log(`[${networkCode}] URL filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)}), tentando fallback URL+KEY_VALUES_NAME`);
+  }
+
   let reportRows: ReportRow[] = [];
   const metricGroups = [
     { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
@@ -923,10 +947,6 @@ async function persistGamUrlRevenue(args: {
   }
   for (const [key, value] of mediumFallback) {
     if (!buckets.has(key)) buckets.set(key, value);
-  }
-  const dates = [...new Set([...expandFixedDates(ranges), ...[...buckets.values()].map((b) => b.date)])];
-  if (dates.length > 0) {
-    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   }
   const payload = [...buckets.values()].map((row) => ({ ...row, utm_source: row.utm_source ?? "" }));
   console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}; dates=${dates.join(",")}`);
