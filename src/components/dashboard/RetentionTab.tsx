@@ -42,7 +42,11 @@ export function RetentionTab({ campaigns }: Props) {
 
   const applyPreset = (key: DatePresetKey) => {
     const p = DATE_PRESETS.find((x) => x.key === key);
-    if (p) setLocalRange(p.range());
+    if (p) {
+      const nextRange = p.range();
+      setLocalRange(nextRange);
+      void load(nextRange);
+    }
   };
 
   const queryKey = useMemo(
@@ -140,10 +144,10 @@ export function RetentionTab({ campaigns }: Props) {
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
 
-  const load = async () => {
+  const load = async (targetRange = range) => {
     setSyncing(true);
     try {
-      const chunks = chunkDates(range.from, range.to, 1);
+      const chunks = chunkDates(targetRange.from, targetRange.to, 1);
       for (const c of chunks) {
         await supabase.functions.invoke("gam-sync-revenue", {
           body: {
@@ -229,7 +233,7 @@ export function RetentionTab({ campaigns }: Props) {
               Usar período do dashboard
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
+          <Button size="sm" variant="outline" onClick={() => load()} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Atualizar
           </Button>
@@ -265,7 +269,12 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={fromDate}
-                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const nextRange = { from: format(d, "yyyy-MM-dd"), to: range.to };
+                  setLocalRange(nextRange);
+                  void load(nextRange);
+                }}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
@@ -282,7 +291,12 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={toDate}
-                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const nextRange = { from: range.from, to: format(d, "yyyy-MM-dd") };
+                  setLocalRange(nextRange);
+                  void load(nextRange);
+                }}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
