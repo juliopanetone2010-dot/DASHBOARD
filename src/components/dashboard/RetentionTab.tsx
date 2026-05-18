@@ -338,11 +338,8 @@ export function RetentionTab({ campaigns }: Props) {
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
         const utms = pushUtmsQuery.data ?? [];
-        // eCPM/receita usam somente UTMs de push: URL do GAM pode trazer o artigo inteiro sem separar a origem.
-        const utmRev = utms.reduce((a, u) => a + u.rev, 0);
-        const utmImpr = utms.reduce((a, u) => a + u.impr, 0);
-        const totalRev = utmRev;
-        const totalImpr = utmImpr;
+        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
+        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
 
