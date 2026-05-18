@@ -42,7 +42,11 @@ export function RetentionTab({ campaigns }: Props) {
 
   const applyPreset = (key: DatePresetKey) => {
     const p = DATE_PRESETS.find((x) => x.key === key);
-    if (p) setLocalRange(p.range());
+    if (p) {
+      const nextRange = p.range();
+      setLocalRange(nextRange);
+      void load(nextRange);
+    }
   };
 
   const queryKey = useMemo(
@@ -140,10 +144,10 @@ export function RetentionTab({ campaigns }: Props) {
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
 
-  const load = async () => {
+  const load = async (targetRange = range) => {
     setSyncing(true);
     try {
-      const chunks = chunkDates(range.from, range.to, 1);
+      const chunks = chunkDates(targetRange.from, targetRange.to, 1);
       for (const c of chunks) {
         await supabase.functions.invoke("gam-sync-revenue", {
           body: {
