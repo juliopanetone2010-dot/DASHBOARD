@@ -866,21 +866,39 @@ async function persistGamUrlRevenue(args: {
     await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   }
 
+  const metricGroups = [
+    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+  ];
+
   for (const urlDimension of ["URL", "PAGE_PATH"]) {
     try {
-      const filteredRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-        const rows = await runReport({
-          networkCode,
-          accessToken,
-          range,
-          dimensions: [urlDimension],
-          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-          filters: buildPushKeyValueFilters(),
-          expandedCompatibility: true,
-          debug,
-        });
-        return rows.map((r) => ({ ...r, date }));
-      }))).flat();
+      const filteredRows: ReportRow[] = [];
+      let succeededGroups = 0;
+      for (const group of metricGroups) {
+        try {
+          const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
+            const rows = await runReport({
+              networkCode,
+              accessToken,
+              range,
+              dimensions: [urlDimension],
+              metrics: group.metrics,
+              filters: buildPushKeyValueFilters(),
+              expandedCompatibility: true,
+              debug,
+            });
+            return rows.map((r) => ({ ...r, date }));
+          }))).flat();
+          succeededGroups += 1;
+          filteredRows.push(...groupRows);
+          console.log(`[${networkCode}] ${urlDimension} filtered ${group.label} rows=${groupRows.length}`);
+        } catch (groupError) {
+          console.log(`[${networkCode}] ${urlDimension} filtered ${group.label} falhou (${String(groupError).slice(0, 180)})`);
+        }
+      }
+      if (succeededGroups === 0) throw new Error(`${urlDimension} filtered sem grupos válidos`);
       console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
       await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls });
       return;
@@ -891,11 +909,6 @@ async function persistGamUrlRevenue(args: {
   console.log(`[${networkCode}] tentando fallback URL+KEY_VALUES_NAME`);
 
   let reportRows: ReportRow[] = [];
-  const metricGroups = [
-    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-  ];
   try {
     for (const group of metricGroups) {
       const groupRows = (await Promise.all(ranges.map((range) =>
