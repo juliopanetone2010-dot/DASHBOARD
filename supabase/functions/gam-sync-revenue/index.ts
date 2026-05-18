@@ -876,7 +876,7 @@ async function persistGamUrlRevenue(args: {
           dimensions: [urlDimension],
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
           filters: buildPushKeyValueFilters(),
-        expandedCompatibility: true,
+          expandedCompatibility: true,
           debug,
         });
         return rows.map((r) => ({ ...r, date }));
@@ -931,7 +931,7 @@ async function persistGamUrlRevenue(args: {
   }>();
   for (const r of reportRows) {
     const rawUrl = String(r.dims[1] ?? "").trim();
-    if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls)) || !urlLooksLikePush(rawUrl)) continue;
+    if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls))) continue;
     const kv = parseKeyValueDimension(r.dims[2] ?? "");
     const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
     const medium = safeDecode(kv.utm_medium ?? "").toLowerCase().trim();
@@ -1011,7 +1011,7 @@ async function persistUrlRevenueRows(args: {
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
   for (const r of rows) {
     const rawUrl = String(r.dims[1] ?? r.dims[0] ?? "").trim();
-    if (!isUrlForSite(rawUrl, siteDomain, Boolean(allowRelativeUrls)) || !urlLooksLikePush(rawUrl)) continue;
+    if (!isUrlForSite(rawUrl, siteDomain, Boolean(allowRelativeUrls))) continue;
     const date = r.date ?? today;
     const key = `${date}|${rawUrl}`;
     const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
