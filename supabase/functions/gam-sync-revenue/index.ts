@@ -1044,8 +1044,9 @@ async function persistUrlPushParamFallback(args: {
         const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL"], metrics: group.metrics, debug });
         return reportRows.map((r) => ({ ...r, date }));
       }))).flat();
-      rows.push(...groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? ""))));
-      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}`);
+      const pushRows = groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? "")));
+      rows.push(...pushRows);
+      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}; samples=${JSON.stringify(groupRows.slice(0, 5).map((r) => String(r.dims[0] ?? "").slice(0, 180)))}`);
     } catch (e) {
       console.log(`[${networkCode}] URL push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
     }
