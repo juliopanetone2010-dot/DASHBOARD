@@ -997,7 +997,7 @@ async function persistUrlRevenueRows(args: {
   const { admin, userId, siteId, networkCode, rows, source, today, ingestionDivisor } = args;
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
   for (const r of rows) {
-    const rawUrl = String(r.dims[1] ?? "").trim();
+    const rawUrl = String(r.dims[1] ?? r.dims[0] ?? "").trim();
     if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
     const date = r.date ?? today;
     const key = `${date}|${rawUrl}`;
