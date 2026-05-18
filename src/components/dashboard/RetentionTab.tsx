@@ -97,10 +97,9 @@ export function RetentionTab({ campaigns }: Props) {
   });
 
   // URLs reais do GAM (dimensão URL_NAME) — receita por artigo/página
-  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "notification", "notif"];
   const isPushSource = (value: unknown) => {
     const source = String(value ?? "").toLowerCase();
-    return PUSH_KEYWORDS.some((k) => source.includes(k));
+    return source === "push" || source === "utm_source=push";
   };
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["gam-url-revenue", range.from, range.to, filters.siteId],
