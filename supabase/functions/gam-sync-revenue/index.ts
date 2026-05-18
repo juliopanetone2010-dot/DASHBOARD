@@ -929,7 +929,8 @@ async function persistGamUrlRevenue(args: {
       }
     } catch (e2) {
       console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
-      console.error(`[${networkCode}] URL de push não foi persistida: GAM não aceitou URL + KEY_VALUES_NAME (${String(e2).slice(0, 300)})`);
+      console.error(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL`);
+      await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups });
       return;
     }
   }
@@ -1022,11 +1023,47 @@ async function persistUrlRevenueRows(args: {
   }
 }
 
+async function persistUrlPushParamFallback(args: {
+  admin: any;
+  userId: string;
+  siteId: string;
+  siteDomain?: string | null;
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  debug: string[];
+  ingestionDivisor: number;
+  allowRelativeUrls?: boolean;
+  metricGroups: Array<{ label: string; metrics: string[] }>;
+}) {
+  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups } = args;
+  const rows: ReportRow[] = [];
+  for (const group of metricGroups) {
+    try {
+      const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
+        const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL"], metrics: group.metrics, debug });
+        return reportRows.map((r) => ({ ...r, date }));
+      }))).flat();
+      const pushRows = groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? "")));
+      rows.push(...pushRows);
+      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}; samples=${JSON.stringify(groupRows.slice(0, 5).map((r) => String(r.dims[0] ?? "").slice(0, 180)))}`);
+    } catch (e) {
+      console.log(`[${networkCode}] URL push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
+    }
+  }
+  await persistUrlRevenueRows({ admin, userId, siteId, siteDomain, networkCode, rows, source: "push", today: new Date().toISOString().slice(0, 10), ingestionDivisor, allowRelativeUrls });
+}
+
 const PUSH_SOURCE_VALUES = new Set(["push"]);
 
 function isPushSourceValue(value: string) {
   const source = safeDecode(value).toLowerCase().trim();
   return PUSH_SOURCE_VALUES.has(source);
+}
+
+function urlHasPushSource(rawUrl: string) {
+  const params = parseUrlParams(rawUrl);
+  return isPushSourceValue(params.utm_source ?? "");
 }
 
 function normalizeDomain(value?: string | null) {

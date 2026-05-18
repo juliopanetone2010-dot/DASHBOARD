@@ -353,8 +353,8 @@ export function RetentionTab({ campaigns }: Props) {
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
         const utms = pushUtmsQuery.data ?? [];
-        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
-        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
+        const totalRev = utms.reduce((a, u) => a + u.rev, 0);
+        const totalImpr = utms.reduce((a, u) => a + u.impr, 0);
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
 
@@ -366,7 +366,7 @@ export function RetentionTab({ campaigns }: Props) {
                 value={`$${avgEcpm.toFixed(2)}`}
                 icon={Bell}
                 variant="primary"
-                hint={`${pushRows.length} URL(s) detectada(s)`}
+                hint={`${pushRows.length} URL(s) exata(s) detectada(s)`}
               />
               <MetricCard
                 label="Receita push (USD)"
@@ -434,7 +434,7 @@ export function RetentionTab({ campaigns }: Props) {
               <CardContent>
                 {pushRows.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    Nenhuma URL com UTM de push encontrada no GAM para o período selecionado. Clique em Atualizar para sincronizar esse período.
+                    O GAM retornou a receita de push na tabela de UTMs acima, mas não retornou URL exata com utm_source=push neste período.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
