@@ -870,6 +870,7 @@ async function persistGamUrlRevenue(args: {
           dimensions: [urlDimension],
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
           filters: buildPushKeyValueFilters(),
+        expandedCompatibility: true,
           debug,
         });
         return rows.map((r) => ({ ...r, date }));
@@ -1297,6 +1298,7 @@ interface RunReportArgs {
   dimensions: string[];
   metrics?: string[];
   filters?: any[];
+  expandedCompatibility?: boolean;
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
@@ -1304,7 +1306,7 @@ interface RunReportArgs {
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, filters, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, filters, expandedCompatibility, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const ensureBudget = (minimumMs = 8_000) => {
     if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
@@ -1327,6 +1329,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     dateRange: range.dateRange,
   };
   if (filters?.length) reportDefinition.filters = filters;
+  if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
