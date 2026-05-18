@@ -108,7 +108,8 @@ export function RetentionTab({ campaigns }: Props) {
         .from("gam_url_revenue")
         .select("url, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
-        .lte("date", range.to);
+        .lte("date", range.to)
+        .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const rows = (data ?? []) as GamUrlRevenueRow[];
@@ -138,7 +139,7 @@ export function RetentionTab({ campaigns }: Props) {
         .select("utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to)
-        .neq("utm_source", "google");
+        .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const map = new Map<string, { utm: string; rev: number; impr: number }>();
