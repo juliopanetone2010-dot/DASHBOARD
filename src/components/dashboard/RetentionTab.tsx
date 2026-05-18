@@ -156,7 +156,7 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 30_000,
   });
 
-  const rows = rowsQuery.data ?? [];
+  const rows = useMemo(() => rowsQuery.data ?? [], [rowsQuery.data]);
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
 
