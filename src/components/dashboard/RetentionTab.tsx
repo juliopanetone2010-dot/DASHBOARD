@@ -26,6 +26,21 @@ interface SourceRow {
   impressions: number;
 }
 
+interface GamUrlRevenueRow {
+  url: string;
+  utm_source: string | null;
+  revenue_usd: number;
+  impressions: number;
+  site_id: string | null;
+}
+
+interface PushUtmRevenueRow {
+  utm_source: string | null;
+  revenue_usd: number;
+  impressions: number;
+  site_id: string | null;
+}
+
 interface Props {
   campaigns: Campaign[];
 }
@@ -82,10 +97,9 @@ export function RetentionTab({ campaigns }: Props) {
   });
 
   // URLs reais do GAM (dimensão URL_NAME) — receita por artigo/página
-  const PUSH_KEYWORDS = ["push", "welcome", "reten", "izooto", "pushly", "recupera", "wpp", "messenger", "notification", "notif"];
   const isPushSource = (value: unknown) => {
     const source = String(value ?? "").toLowerCase();
-    return PUSH_KEYWORDS.some((k) => source.includes(k));
+    return source === "push" || source === "utm_source=push";
   };
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["gam-url-revenue", range.from, range.to, filters.siteId],
@@ -94,15 +108,15 @@ export function RetentionTab({ campaigns }: Props) {
         .from("gam_url_revenue")
         .select("url, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
-        .lte("date", range.to);
+        .lte("date", range.to)
+        .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
-      const rows = (data ?? []) as any[];
-      const pushFiltered = rows.filter((r) => {
+      const rows = (data ?? []) as GamUrlRevenueRow[];
+      const filtered = rows.filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
         return isPushSource(utm);
       });
-      const filtered = pushFiltered.length > 0 ? pushFiltered : rows;
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of filtered) {
         const key = `${r.url}||${r.utm_source ?? ""}`;
@@ -125,11 +139,11 @@ export function RetentionTab({ campaigns }: Props) {
         .select("utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to)
-        .neq("utm_source", "google");
+        .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const map = new Map<string, { utm: string; rev: number; impr: number }>();
-      for (const r of (data ?? []) as any[]) {
+      for (const r of (data ?? []) as PushUtmRevenueRow[]) {
         const utm = String(r.utm_source ?? "(sem utm)");
         if (!isPushSource(utm)) continue;
         const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
@@ -142,7 +156,7 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 30_000,
   });
 
-  const rows = rowsQuery.data ?? [];
+  const rows = useMemo(() => rowsQuery.data ?? [], [rowsQuery.data]);
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
 
@@ -339,11 +353,8 @@ export function RetentionTab({ campaigns }: Props) {
       {(() => {
         const pushRows = pushPlacementsQuery.data ?? [];
         const utms = pushUtmsQuery.data ?? [];
-        // eCPM/receita usam somente UTMs de push: URL do GAM pode trazer o artigo inteiro sem separar a origem.
-        const utmRev = utms.reduce((a, u) => a + u.rev, 0);
-        const utmImpr = utms.reduce((a, u) => a + u.impr, 0);
-        const totalRev = utmRev;
-        const totalImpr = utmImpr;
+        const totalRev = pushRows.reduce((a, r) => a + r.rev, 0);
+        const totalImpr = pushRows.reduce((a, r) => a + r.impr, 0);
         const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
 
 
@@ -423,7 +434,7 @@ export function RetentionTab({ campaigns }: Props) {
               <CardContent>
                 {pushRows.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    Nenhuma URL encontrada no GAM para o período selecionado. Clique em Atualizar para sincronizar esse período.
+                    Nenhuma URL com UTM de push encontrada no GAM para o período selecionado. Clique em Atualizar para sincronizar esse período.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
