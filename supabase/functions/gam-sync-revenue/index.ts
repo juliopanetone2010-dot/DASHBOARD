@@ -959,6 +959,64 @@ async function persistGamUrlRevenue(args: {
   }
 }
 
+function buildPushKeyValueFilters() {
+  const values = [
+    "utm_source=push",
+    "utm_source=izooto",
+    "utm_source=notification",
+    "utm_source=notif",
+    "utm_source=pushly",
+    "utm_source=recupera",
+    "utm_source=wpp",
+    "utm_source=messenger",
+    "utm_medium=notification",
+    "utm_medium=push",
+    "utm_medium=webpush",
+  ].map((stringValue) => ({ stringValue }));
+
+  return [{
+    fieldFilter: {
+      field: { dimension: "KEY_VALUES_NAME" },
+      operation: "IN",
+      values,
+    },
+  }];
+}
+
+async function persistUrlRevenueRows(args: {
+  admin: any;
+  userId: string;
+  siteId: string;
+  networkCode: string;
+  rows: ReportRow[];
+  source: string;
+  today: string;
+  ingestionDivisor: number;
+}) {
+  const { admin, userId, siteId, networkCode, rows, source, today, ingestionDivisor } = args;
+  const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
+  for (const r of rows) {
+    const rawUrl = String(r.dims[1] ?? "").trim();
+    if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+    const date = r.date ?? today;
+    const key = `${date}|${rawUrl}`;
+    const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
+    cur.revenue_usd += (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+    cur.impressions += Number(r.impressions) || 0;
+    buckets.set(key, cur);
+  }
+
+  const payload = [...buckets.values()];
+  console.log(`[${networkCode}] gam_url_revenue filtered payload=${payload.length}`);
+  const CHUNK = 500;
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error } = await admin
+      .from("gam_url_revenue")
+      .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
+    if (error) console.error(`[${networkCode}] gam_url_revenue filtered upsert: ${error.message}`);
+  }
+}
+
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
