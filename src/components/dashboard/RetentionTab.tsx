@@ -26,6 +26,21 @@ interface SourceRow {
   impressions: number;
 }
 
+interface GamUrlRevenueRow {
+  url: string;
+  utm_source: string | null;
+  revenue_usd: number;
+  impressions: number;
+  site_id: string | null;
+}
+
+interface PushUtmRevenueRow {
+  utm_source: string | null;
+  revenue_usd: number;
+  impressions: number;
+  site_id: string | null;
+}
+
 interface Props {
   campaigns: Campaign[];
 }
@@ -97,7 +112,7 @@ export function RetentionTab({ campaigns }: Props) {
         .lte("date", range.to);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
-      const rows = (data ?? []) as any[];
+      const rows = (data ?? []) as GamUrlRevenueRow[];
       const filtered = rows.filter((r) => {
         const utm = String(r.utm_source ?? "").toLowerCase();
         return isPushSource(utm);
@@ -128,7 +143,7 @@ export function RetentionTab({ campaigns }: Props) {
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const map = new Map<string, { utm: string; rev: number; impr: number }>();
-      for (const r of (data ?? []) as any[]) {
+      for (const r of (data ?? []) as PushUtmRevenueRow[]) {
         const utm = String(r.utm_source ?? "(sem utm)");
         if (!isPushSource(utm)) continue;
         const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
