@@ -1023,7 +1023,7 @@ async function persistUrlRevenueRows(args: {
   }
 }
 
-async function persistUrlNamePushParamFallback(args: {
+async function persistUrlPushParamFallback(args: {
   admin: any;
   userId: string;
   siteId: string;
@@ -1041,13 +1041,13 @@ async function persistUrlNamePushParamFallback(args: {
   for (const group of metricGroups) {
     try {
       const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-        const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL_NAME"], metrics: group.metrics, debug });
+        const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL"], metrics: group.metrics, debug });
         return reportRows.map((r) => ({ ...r, date }));
       }))).flat();
       rows.push(...groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? ""))));
-      console.log(`[${networkCode}] URL_NAME push-param fallback ${group.label} rows=${groupRows.length}`);
+      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}`);
     } catch (e) {
-      console.log(`[${networkCode}] URL_NAME push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
+      console.log(`[${networkCode}] URL push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
     }
   }
   await persistUrlRevenueRows({ admin, userId, siteId, siteDomain, networkCode, rows, source: "push", today: new Date().toISOString().slice(0, 10), ingestionDivisor, allowRelativeUrls });
