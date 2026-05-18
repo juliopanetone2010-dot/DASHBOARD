@@ -444,7 +444,7 @@ export function RetentionTab({ campaigns }: Props) {
                             <TableRow key={`${r.placement}-${i}`}>
                               <TableCell className="font-mono text-xs max-w-[420px] truncate" title={r.placement}>{r.placement}</TableCell>
                               <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.raw_utm ?? ""}>
-                                {r.utm_source ?? "—"}
+                                push
                               </TableCell>
                               <TableCell className="text-right tabular-nums">{r.impr.toLocaleString("pt-BR")}</TableCell>
                               <TableCell className="text-right tabular-nums">{fmtUSD(r.rev)}</TableCell>
