@@ -1288,6 +1288,7 @@ interface RunReportArgs {
   range: GamRange;
   dimensions: string[];
   metrics?: string[];
+  filters?: any[];
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
@@ -1295,7 +1296,7 @@ interface RunReportArgs {
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, filters, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const ensureBudget = (minimumMs = 8_000) => {
     if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
@@ -1317,6 +1318,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     ],
     dateRange: range.dateRange,
   };
+  if (filters?.length) reportDefinition.filters = filters;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
