@@ -929,7 +929,8 @@ async function persistGamUrlRevenue(args: {
       }
     } catch (e2) {
       console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
-      console.error(`[${networkCode}] URL de push não foi persistida: GAM não aceitou URL + KEY_VALUES_NAME (${String(e2).slice(0, 300)})`);
+      console.error(`[${networkCode}] tentando fallback URL_NAME com utm_source=push na própria URL`);
+      await persistUrlNamePushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups });
       return;
     }
   }
