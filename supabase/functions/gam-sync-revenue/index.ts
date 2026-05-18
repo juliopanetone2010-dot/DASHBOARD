@@ -861,17 +861,18 @@ async function persistGamUrlRevenue(args: {
   }
 
   try {
-    const filteredRows = (await Promise.all(ranges.map((range) =>
-      runReport({
+    const filteredRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
+      const rows = await runReport({
         networkCode,
         accessToken,
         range,
-        dimensions: ["DATE", "URL"],
+        dimensions: ["URL"],
         metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
         filters: buildPushKeyValueFilters(),
         debug,
-      })
-    ))).flat();
+      });
+      return rows.map((r) => ({ ...r, date }));
+    }))).flat();
     console.log(`[${networkCode}] URL filtered by push key-values rows=${filteredRows.length}`);
     await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor });
     return;
