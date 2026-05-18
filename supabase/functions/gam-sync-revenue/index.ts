@@ -947,7 +947,6 @@ async function persistGamUrlRevenue(args: {
     if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls))) continue;
     const kv = parseKeyValueDimension(r.dims[2] ?? "");
     const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
-    const medium = safeDecode(kv.utm_medium ?? "").toLowerCase().trim();
     const date = r.date ?? today;
     const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
     const impressions = Number(r.impressions) || 0;
@@ -962,13 +961,6 @@ async function persistGamUrlRevenue(args: {
       continue;
     }
 
-    if (!source && isPushMediumValue(medium)) {
-      const key = `${date}|${rawUrl}`;
-      const cur = mediumFallback.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: `medium:${medium}`, date, revenue_usd: 0, impressions: 0 };
-      cur.revenue_usd += revenue;
-      cur.impressions += impressions;
-      mediumFallback.set(key, cur);
-    }
   }
   for (const [key, value] of mediumFallback) {
     if (!buckets.has(key)) buckets.set(key, value);
@@ -987,16 +979,6 @@ async function persistGamUrlRevenue(args: {
 function buildPushKeyValueFilters() {
   const values = [
     "utm_source=push",
-    "utm_source=izooto",
-    "utm_source=notification",
-    "utm_source=notif",
-    "utm_source=pushly",
-    "utm_source=recupera",
-    "utm_source=wpp",
-    "utm_source=messenger",
-    "utm_medium=notification",
-    "utm_medium=push",
-    "utm_medium=webpush",
   ].map((stringValue) => ({ stringValue }));
 
   return [{
@@ -1048,17 +1030,11 @@ async function persistUrlRevenueRows(args: {
   }
 }
 
-const PUSH_SOURCE_VALUES = new Set(["push", "izooto", "notification", "notif", "pushly", "recupera", "wpp", "messenger"]);
-const PUSH_MEDIUM_VALUES = new Set(["notification", "push", "webpush"]);
+const PUSH_SOURCE_VALUES = new Set(["push"]);
 
 function isPushSourceValue(value: string) {
   const source = safeDecode(value).toLowerCase().trim();
   return PUSH_SOURCE_VALUES.has(source);
-}
-
-function isPushMediumValue(value: string) {
-  const medium = safeDecode(value).toLowerCase().trim();
-  return PUSH_MEDIUM_VALUES.has(medium);
 }
 
 function normalizeDomain(value?: string | null) {
