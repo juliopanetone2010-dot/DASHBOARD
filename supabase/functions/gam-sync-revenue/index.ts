@@ -999,17 +999,19 @@ async function persistUrlRevenueRows(args: {
   admin: any;
   userId: string;
   siteId: string;
+  siteDomain?: string | null;
   networkCode: string;
   rows: ReportRow[];
   source: string;
   today: string;
   ingestionDivisor: number;
+  allowRelativeUrls?: boolean;
 }) {
-  const { admin, userId, siteId, networkCode, rows, source, today, ingestionDivisor } = args;
+  const { admin, userId, siteId, siteDomain, networkCode, rows, source, today, ingestionDivisor, allowRelativeUrls } = args;
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
   for (const r of rows) {
     const rawUrl = String(r.dims[1] ?? r.dims[0] ?? "").trim();
-    if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+    if (!isUrlForSite(rawUrl, siteDomain, Boolean(allowRelativeUrls)) || !urlLooksLikePush(rawUrl)) continue;
     const date = r.date ?? today;
     const key = `${date}|${rawUrl}`;
     const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
@@ -1033,36 +1035,40 @@ async function persistUrlRevenueRows(args: {
   }
 }
 
-async function persistGamUrlOnlyFallback(args: {
-  admin: any;
-  userId: string;
-  siteId: string;
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  debug: string[];
-  today: string;
-  ingestionDivisor: number;
-}) {
-  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, today, ingestionDivisor } = args;
-  const metricGroups = [
-    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-  ];
-  const rows: ReportRow[] = [];
-  for (const group of metricGroups) {
-    try {
-      const groupRows = (await Promise.all(ranges.map((range) =>
-        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL"], metrics: group.metrics, debug })
-      ))).flat();
-      rows.push(...groupRows);
-      console.log(`[${networkCode}] URL-only fallback ${group.label} rows=${groupRows.length}`);
-    } catch (e) {
-      console.log(`[${networkCode}] URL-only fallback ${group.label} falhou: ${String(e).slice(0, 240)}`);
-    }
+const PUSH_SOURCE_VALUES = new Set(["push", "izooto", "notification", "notif", "pushly", "recupera", "wpp", "messenger"]);
+const PUSH_MEDIUM_VALUES = new Set(["notification", "push", "webpush"]);
+
+function isPushSourceValue(value: string) {
+  const source = safeDecode(value).toLowerCase().trim();
+  return PUSH_SOURCE_VALUES.has(source);
+}
+
+function isPushMediumValue(value: string) {
+  const medium = safeDecode(value).toLowerCase().trim();
+  return PUSH_MEDIUM_VALUES.has(medium);
+}
+
+function urlLooksLikePush(rawUrl: string) {
+  const params = parseUrlParams(rawUrl);
+  return isPushSourceValue(params.utm_source ?? "") || isPushMediumValue(params.utm_medium ?? "");
+}
+
+function normalizeDomain(value?: string | null) {
+  return String(value ?? "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+}
+
+function isUrlForSite(rawUrl: string, siteDomain?: string | null, allowRelativeUrls = false) {
+  const url = String(rawUrl ?? "").trim();
+  if (!url || url === "(not applicable)" || url === "(unknown)") return false;
+  const domain = normalizeDomain(siteDomain);
+  if (!domain) return true;
+  if (url.startsWith("/")) return allowRelativeUrls;
+  try {
+    const host = new URL(url.startsWith("http") ? url : `https://${url}`).hostname.toLowerCase().replace(/^www\./, "");
+    return host === domain || host.endsWith(`.${domain}`);
+  } catch {
+    return allowRelativeUrls;
   }
-  await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows, source: "gam_url", today, ingestionDivisor });
 }
 
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
