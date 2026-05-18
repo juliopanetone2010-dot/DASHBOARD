@@ -860,25 +860,28 @@ async function persistGamUrlRevenue(args: {
     await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   }
 
-  try {
-    const filteredRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-      const rows = await runReport({
-        networkCode,
-        accessToken,
-        range,
-        dimensions: ["URL"],
-        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-        filters: buildPushKeyValueFilters(),
-        debug,
-      });
-      return rows.map((r) => ({ ...r, date }));
-    }))).flat();
-    console.log(`[${networkCode}] URL filtered by push key-values rows=${filteredRows.length}`);
-    await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor });
-    return;
-  } catch (e0) {
-    console.log(`[${networkCode}] URL filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)}), tentando fallback URL+KEY_VALUES_NAME`);
+  for (const urlDimension of ["URL", "PAGE_PATH"]) {
+    try {
+      const filteredRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
+        const rows = await runReport({
+          networkCode,
+          accessToken,
+          range,
+          dimensions: [urlDimension],
+          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          filters: buildPushKeyValueFilters(),
+          debug,
+        });
+        return rows.map((r) => ({ ...r, date }));
+      }))).flat();
+      console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
+      await persistUrlRevenueRows({ admin, userId, siteId, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor });
+      return;
+    } catch (e0) {
+      console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
+    }
   }
+  console.log(`[${networkCode}] tentando fallback URL+KEY_VALUES_NAME`);
 
   let reportRows: ReportRow[] = [];
   const metricGroups = [
