@@ -233,7 +233,7 @@ export function RetentionTab({ campaigns }: Props) {
               Usar período do dashboard
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
+          <Button size="sm" variant="outline" onClick={() => load()} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Atualizar
           </Button>
@@ -269,7 +269,12 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={fromDate}
-                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const nextRange = { from: format(d, "yyyy-MM-dd"), to: range.to };
+                  setLocalRange(nextRange);
+                  void load(nextRange);
+                }}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
@@ -286,7 +291,12 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={toDate}
-                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const nextRange = { from: range.from, to: format(d, "yyyy-MM-dd") };
+                  setLocalRange(nextRange);
+                  void load(nextRange);
+                }}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
