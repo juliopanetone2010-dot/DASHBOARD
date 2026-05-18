@@ -621,7 +621,7 @@ async function collectUtmAttribution(args: {
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
   // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
-  let reportRows: ReportRow[] = [];
+  const reportRows: ReportRow[] = [];
   try {
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
