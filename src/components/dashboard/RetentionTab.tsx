@@ -11,6 +11,7 @@ import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
+import { PushDebugPanel } from "./PushDebugPanel";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
