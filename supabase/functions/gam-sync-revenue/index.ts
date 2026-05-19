@@ -886,7 +886,7 @@ async function persistGamUrlRevenue(args: {
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
     let rows: ReportRow[] = [];
     let usedFilter = true;
-    let filterLabel = "AD_EXCHANGE_CHANNEL_NAME=utm_source=push";
+    let filterLabel = "CHANNEL_NAME=utm_source=push";
     try {
       rows = await runReport({
         networkCode, accessToken, range,
