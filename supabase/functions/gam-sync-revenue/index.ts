@@ -886,7 +886,7 @@ async function persistGamUrlRevenue(args: {
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
     let rows: ReportRow[] = [];
     let usedFilter = true;
-    let filterLabel = "CHANNEL_NAME=utm_source=push";
+    let filterLabel = "CHANNEL=utm_source=push";
     try {
       filterLabel = "URL+KEY_VALUES_NAME=utm_source=push";
       const kvRows = await runReport({
@@ -1105,19 +1105,19 @@ async function persistPushUrlRevenue(args: {
 
 function buildPushKeyValueFilters() {
   // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
-  // "Channel" na UI = CHANNEL_NAME na enum de relatórios; o channel configurado
+  // "Channel" na UI = CHANNEL na enum REST v1; o channel configurado
   // no GAM chama exatamente "utm_source=push".
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
     fieldFilter: {
-      field: { dimension: "CHANNEL_NAME" },
+      field: { dimension: "CHANNEL" },
       operation: "IN",
       values,
     },
   }];
 }
 
-// Fallback alternativo caso CHANNEL_NAME seja rejeitado em alguma network
+// Fallback alternativo caso CHANNEL seja rejeitado em alguma network
 function buildPushKeyValueFiltersFallback() {
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
