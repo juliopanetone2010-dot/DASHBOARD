@@ -885,10 +885,12 @@ async function persistGamUrlRevenue(args: {
   const sample: string[] = [];
   const sampleDropped: string[] = [];
   const pushFilters = buildPushKeyValueFilters();
+  const pushFiltersFallback = buildPushKeyValueFiltersFallback();
 
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
     let rows: ReportRow[] = [];
     let usedFilter = true;
+    let filterLabel = "AD_EXCHANGE_CHANNEL_NAME=utm_source=push";
     try {
       rows = await runReport({
         networkCode, accessToken, range,
@@ -899,25 +901,42 @@ async function persistGamUrlRevenue(args: {
         debug,
       });
     } catch (e) {
-      usedFilter = false;
-      const msg = `[${networkCode}] URL+AdX+pushFilter ${date} falhou (${String(e).slice(0, 180)}); tentando sem filtro com fallback client-side`;
-      console.warn(msg);
-      debug.push(msg);
+      const msg1 = `[${networkCode}] URL+AdX+CHANNEL ${date} falhou (${String(e).slice(0, 180)}); tentando KEY_VALUES_NAME`;
+      console.warn(msg1);
+      debug.push(msg1);
       try {
+        filterLabel = "KEY_VALUES_NAME=utm_source=push";
         rows = await runReport({
           networkCode, accessToken, range,
           dimensions: ["URL"],
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          filters: pushFiltersFallback,
           expandedCompatibility: true,
           debug,
         });
       } catch (e2) {
-        const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e2).slice(0, 300)}`;
-        console.error(m);
-        debug.push(m);
-        continue;
+        usedFilter = false;
+        filterLabel = "sem filtro (client-side)";
+        const msg2 = `[${networkCode}] URL+AdX+KEY_VALUES ${date} falhou (${String(e2).slice(0, 180)}); tentando sem filtro`;
+        console.warn(msg2);
+        debug.push(msg2);
+        try {
+          rows = await runReport({
+            networkCode, accessToken, range,
+            dimensions: ["URL"],
+            metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+            expandedCompatibility: true,
+            debug,
+          });
+        } catch (e3) {
+          const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e3).slice(0, 300)}`;
+          console.error(m);
+          debug.push(m);
+          continue;
+        }
       }
     }
+    debug.push(`[${networkCode}] URL+AdX ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
 
     totalRows += rows.length;
     for (const r of rows) {
