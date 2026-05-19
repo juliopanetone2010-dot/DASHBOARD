@@ -1102,12 +1102,12 @@ async function persistPushUrlRevenue(args: {
 
 function buildPushKeyValueFilters() {
   // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
-  // "Channel" na UI = AD_EXCHANGE_CHANNEL_NAME (canal do Ad Exchange nomeado
-  // exatamente "utm_source=push"). NÃO é KEY_VALUES_NAME.
+  // "Channel" na UI = CHANNEL_NAME na enum de relatórios; o channel configurado
+  // no GAM chama exatamente "utm_source=push".
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
     fieldFilter: {
-      field: { dimension: "AD_EXCHANGE_CHANNEL_NAME" },
+      field: { dimension: "CHANNEL_NAME" },
       operation: "IN",
       values,
     },
