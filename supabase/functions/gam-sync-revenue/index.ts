@@ -899,41 +899,22 @@ async function persistGamUrlRevenue(args: {
         }
       }
       if (succeededGroups === 0) throw new Error(`${urlDimension} filtered sem grupos válidos`);
+      if (filteredRows.length === 0) {
+        console.log(`[${networkCode}] ${urlDimension} filtered retornou 0 rows; tentando próxima dim/fallback`);
+        continue;
+      }
       console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
-      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls });
+      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls: true });
       return;
     } catch (e0) {
       console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
     }
   }
-  console.log(`[${networkCode}] tentando fallback URL+KEY_VALUES_NAME`);
+  console.log(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL (expandedCompatibility)`);
+  await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls: true, metricGroups });
+  return;
 
   let reportRows: ReportRow[] = [];
-  try {
-    for (const group of metricGroups) {
-      const groupRows = (await Promise.all(ranges.map((range) =>
-        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
-      ))).flat();
-      reportRows.push(...groupRows);
-      console.log(`[${networkCode}] URL+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
-    }
-  } catch (e1) {
-    console.log(`[${networkCode}] URL+KEY_VALUES_NAME falhou (${String(e1).slice(0, 200)}), tentando URL_NAME+KEY_VALUES_NAME`);
-    try {
-      for (const group of metricGroups) {
-        const groupRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
-        ))).flat();
-        reportRows.push(...groupRows);
-        console.log(`[${networkCode}] URL_NAME+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
-      }
-    } catch (e2) {
-      console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
-      console.error(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL`);
-      await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups });
-      return;
-    }
-  }
 
   const buckets = new Map<string, {
     user_id: string; site_id: string; url: string; utm_source: string | null;
@@ -1038,19 +1019,43 @@ async function persistUrlPushParamFallback(args: {
 }) {
   const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups } = args;
   const rows: ReportRow[] = [];
+  let totalRowsSeen = 0;
+  let totalRowsWithQuery = 0;
+  const sampleAll: string[] = [];
+  const samplePush: string[] = [];
   for (const group of metricGroups) {
     try {
       const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-        const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL"], metrics: group.metrics, debug });
+        const reportRows = await runReport({
+          networkCode, accessToken, range,
+          dimensions: ["URL"],
+          metrics: group.metrics,
+          expandedCompatibility: true,
+          debug,
+        });
         return reportRows.map((r) => ({ ...r, date }));
       }))).flat();
+      totalRowsSeen += groupRows.length;
+      for (const r of groupRows) {
+        const u = String(r.dims[0] ?? "");
+        if (u.includes("?")) totalRowsWithQuery++;
+        if (sampleAll.length < 5) sampleAll.push(u.slice(0, 200));
+      }
       const pushRows = groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? "")));
+      for (const r of pushRows.slice(0, 5)) {
+        if (samplePush.length < 5) samplePush.push(String(r.dims[0] ?? "").slice(0, 200));
+      }
       rows.push(...pushRows);
-      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}; samples=${JSON.stringify(groupRows.slice(0, 5).map((r) => String(r.dims[0] ?? "").slice(0, 180)))}`);
+      const msg = `[${networkCode}] URL fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}`;
+      console.log(msg);
+      debug.push(msg);
     } catch (e) {
-      console.log(`[${networkCode}] URL push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
+      const msg = `[${networkCode}] URL fallback ${group.label} falhou: ${String(e).slice(0, 240)}`;
+      console.log(msg);
+      debug.push(msg);
     }
   }
+  debug.push(`[${networkCode}] URL fallback total: seen=${totalRowsSeen} withQuery=${totalRowsWithQuery} pushKept=${rows.length} sampleAll=${JSON.stringify(sampleAll)} samplePush=${JSON.stringify(samplePush)}`);
   await persistUrlRevenueRows({ admin, userId, siteId, siteDomain, networkCode, rows, source: "push", today: new Date().toISOString().slice(0, 10), ingestionDivisor, allowRelativeUrls });
 }
 
@@ -1405,7 +1410,10 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+  if (!createRes.ok) {
+    console.error(`[${tag}] create failed body=${JSON.stringify(reportBody).slice(0, 800)} response=${createText.slice(0, 1200)}`);
+    throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 800)}`);
+  }
   const reportName: string = createJson.name;
 
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
