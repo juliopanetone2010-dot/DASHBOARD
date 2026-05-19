@@ -906,34 +906,11 @@ async function persistGamUrlRevenue(args: {
       console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
     }
   }
-  console.log(`[${networkCode}] tentando fallback URL+KEY_VALUES_NAME`);
+  console.log(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL (expandedCompatibility)`);
+  await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls: true, metricGroups });
+  return;
 
   let reportRows: ReportRow[] = [];
-  try {
-    for (const group of metricGroups) {
-      const groupRows = (await Promise.all(ranges.map((range) =>
-        runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
-      ))).flat();
-      reportRows.push(...groupRows);
-      console.log(`[${networkCode}] URL+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
-    }
-  } catch (e1) {
-    console.log(`[${networkCode}] URL+KEY_VALUES_NAME falhou (${String(e1).slice(0, 200)}), tentando URL_NAME+KEY_VALUES_NAME`);
-    try {
-      for (const group of metricGroups) {
-        const groupRows = (await Promise.all(ranges.map((range) =>
-          runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME", "KEY_VALUES_NAME"], metrics: group.metrics, debug })
-        ))).flat();
-        reportRows.push(...groupRows);
-        console.log(`[${networkCode}] URL_NAME+KEY_VALUES_NAME ${group.label} rows=${groupRows.length}`);
-      }
-    } catch (e2) {
-      console.error(`[${networkCode}] URL_NAME+KEY_VALUES_NAME tb falhou: ${String(e2).slice(0, 300)}`);
-      console.error(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL`);
-      await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups });
-      return;
-    }
-  }
 
   const buckets = new Map<string, {
     user_id: string; site_id: string; url: string; utm_source: string | null;
