@@ -34,8 +34,22 @@ interface GamUrlRevenueRow {
   site_id: string | null;
 }
 
+interface PushUrlRevenueRow {
+  page_url: string;
+  utm_source: string | null;
+  utm_campaign: string | null;
+  revenue_usd: number;
+  impressions: number;
+  ecpm: number | null;
+  site_id: string | null;
+}
+
 interface PushUtmRevenueRow {
   utm_source: string | null;
+  revenue_usd: number;
+  impressions: number;
+  site_id: string | null;
+}
   revenue_usd: number;
   impressions: number;
   site_id: string | null;
