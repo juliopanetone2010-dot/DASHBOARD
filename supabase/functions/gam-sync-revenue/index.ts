@@ -871,7 +871,7 @@ async function persistGamUrlRevenue(args: {
   const authoritativeDates = new Set<string>();
 
   // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue)
-  // FILTRADO em CHANNEL=utm_source=push (KEY_VALUES_NAME). Se o filtro for rejeitado pelo
+  // FILTRADO em Channel=utm_source=push. Se o filtro for rejeitado pelo
   // GAM, caímos no fallback client-side filtrando URLs cuja query string contenha
   // utm_source=push. eCPM é derivado em runtime: revenue / impressions * 1000.
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
@@ -1114,7 +1114,7 @@ function buildPushKeyValueFilters() {
   }];
 }
 
-// Fallback alternativo caso AD_EXCHANGE_CHANNEL_NAME seja rejeitado em alguma network
+// Fallback alternativo caso CHANNEL_NAME seja rejeitado em alguma network
 function buildPushKeyValueFiltersFallback() {
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
