@@ -866,45 +866,76 @@ async function persistGamUrlRevenue(args: {
     await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   }
 
-  // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue).
-  // Salvamos TODAS as URLs com receita — não descartamos por domínio/query string.
-  // eCPM é derivado em runtime: revenue / impressions * 1000.
+  // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue)
+  // FILTRADO em CHANNEL=utm_source=push (KEY_VALUES_NAME). Se o filtro for rejeitado pelo
+  // GAM, caímos no fallback client-side filtrando URLs cuja query string contenha
+  // utm_source=push. eCPM é derivado em runtime: revenue / impressions * 1000.
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
   let totalRows = 0;
+  let filteredPushRows = 0;
+  let totalRevenue = 0;
   const sample: string[] = [];
+  const sampleDropped: string[] = [];
+  const pushFilters = buildPushKeyValueFilters();
 
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
+    let rows: ReportRow[] = [];
+    let usedFilter = true;
     try {
-      const rows = await runReport({
+      rows = await runReport({
         networkCode, accessToken, range,
         dimensions: ["URL"],
         metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        filters: pushFilters,
         expandedCompatibility: true,
         debug,
       });
-      totalRows += rows.length;
-      for (const r of rows) {
-        const rawUrl = String(r.dims[0] ?? "").trim();
-        if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-        const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-        const impressions = Number(r.impressions) || 0;
-        if (revenue <= 0 && impressions <= 0) continue;
-        if (sample.length < 8) sample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
-        const key = `${date}|${rawUrl}`;
-        const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "push", date, revenue_usd: 0, impressions: 0 };
-        cur.revenue_usd += revenue;
-        cur.impressions += impressions;
-        buckets.set(key, cur);
-      }
     } catch (e) {
-      const msg = `[${networkCode}] URL+AdX ${date} falhou: ${String(e).slice(0, 300)}`;
-      console.error(msg);
+      usedFilter = false;
+      const msg = `[${networkCode}] URL+AdX+pushFilter ${date} falhou (${String(e).slice(0, 180)}); tentando sem filtro com fallback client-side`;
+      console.warn(msg);
       debug.push(msg);
+      try {
+        rows = await runReport({
+          networkCode, accessToken, range,
+          dimensions: ["URL"],
+          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          expandedCompatibility: true,
+          debug,
+        });
+      } catch (e2) {
+        const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e2).slice(0, 300)}`;
+        console.error(m);
+        debug.push(m);
+        continue;
+      }
+    }
+
+    totalRows += rows.length;
+    for (const r of rows) {
+      const rawUrl = String(r.dims[0] ?? "").trim();
+      if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+      // Se NÃO usamos o filtro do GAM, exigimos utm_source=push no próprio URL.
+      if (!usedFilter && !urlHasPushSource(rawUrl)) {
+        if (sampleDropped.length < 5) sampleDropped.push(rawUrl.slice(0, 200));
+        continue;
+      }
+      const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+      const impressions = Number(r.impressions) || 0;
+      if (revenue <= 0 && impressions <= 0) continue;
+      filteredPushRows++;
+      totalRevenue += revenue;
+      if (sample.length < 8) sample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
+      const key = `${date}|${rawUrl}`;
+      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "push", date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      buckets.set(key, cur);
     }
   }
 
   const payload = [...buckets.values()];
-  const msg = `[${networkCode}] gam_url_revenue: rows_gam=${totalRows} persistidas=${payload.length} site=${domain} sample=${JSON.stringify(sample)}`;
+  const msg = `[${networkCode}] gam_url_revenue PUSH-only: push_rows=${totalRows} filtered_push_rows=${filteredPushRows} persistidas=${payload.length} total_push_revenue_usd=${totalRevenue.toFixed(4)} site=${domain} sample=${JSON.stringify(sample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
   console.log(msg);
   debug.push(msg);
 
