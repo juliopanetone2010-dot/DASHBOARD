@@ -868,11 +868,7 @@ async function persistGamUrlRevenue(args: {
   const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls } = args;
   if (!siteId) return;
   const domain = normalizeDomain(siteDomain);
-  const today = new Date().toISOString().slice(0, 10);
-  const dates = expandFixedDates(ranges);
-  if (dates.length > 0) {
-    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  }
+  const authoritativeDates = new Set<string>();
 
   // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue)
   // FILTRADO em CHANNEL=utm_source=push (KEY_VALUES_NAME). Se o filtro for rejeitado pelo
@@ -937,6 +933,7 @@ async function persistGamUrlRevenue(args: {
       }
     }
     debug.push(`[${networkCode}] URL+AdX ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
+    if (usedFilter) authoritativeDates.add(date);
 
     totalRows += rows.length;
     for (const r of rows) {
@@ -965,6 +962,11 @@ async function persistGamUrlRevenue(args: {
   const msg = `[${networkCode}] gam_url_revenue PUSH-only: push_rows=${totalRows} filtered_push_rows=${filteredPushRows} persistidas=${payload.length} total_push_revenue_usd=${totalRevenue.toFixed(4)} site=${domain} sample=${JSON.stringify(sample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
   console.log(msg);
   debug.push(msg);
+
+  const datesToRefresh = [...new Set([...authoritativeDates, ...payload.map((row) => row.date)])];
+  if (datesToRefresh.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", datesToRefresh);
+  }
 
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
