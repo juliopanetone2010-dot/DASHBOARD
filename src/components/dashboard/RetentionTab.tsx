@@ -106,20 +106,15 @@ export function RetentionTab({ campaigns }: Props) {
     queryFn: async () => {
       let q = supabase
         .from("gam_url_revenue")
-        .select("url, utm_source, revenue_usd, impressions, site_id")
+        .select("url, utm_source, revenue_usd, impressions, site_id, date")
         .gte("date", range.from)
-        .lte("date", range.to)
-        .eq("utm_source", "push");
+        .lte("date", range.to);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const rows = (data ?? []) as GamUrlRevenueRow[];
-      const filtered = rows.filter((r) => {
-        const utm = String(r.utm_source ?? "").toLowerCase();
-        return isPushSource(utm);
-      });
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
-      for (const r of filtered) {
-        const key = `${r.url}||${r.utm_source ?? ""}`;
+      for (const r of rows) {
+        const key = r.url;
         const cur = map.get(key) ?? { placement: r.url, raw_utm: r.url, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
