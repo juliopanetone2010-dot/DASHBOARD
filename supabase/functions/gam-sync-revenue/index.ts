@@ -888,17 +888,14 @@ async function persistGamUrlRevenue(args: {
     let usedFilter = true;
     let filterLabel = "CHANNEL=utm_source=push";
     try {
-      filterLabel = "URL+KEY_VALUES_NAME=utm_source=push";
-      const kvRows = await runReport({
+      rows = await runReport({
         networkCode, accessToken, range,
-        dimensions: ["URL", "KEY_VALUES_NAME"],
+        dimensions: ["URL"],
         metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        filters: pushFilters,
         expandedCompatibility: true,
         debug,
       });
-      rows = kvRows
-        .filter((r) => parseKeyValueDimension(String(r.dims[1] ?? "")).utm_source === "push")
-        .map((r) => ({ ...r, dims: [r.dims[0]] }));
     } catch (e) {
       const msg1 = `[${networkCode}] URL+AdX+CHANNEL ${date} falhou (${String(e).slice(0, 180)}); tentando KEY_VALUES_NAME`;
       console.warn(msg1);
