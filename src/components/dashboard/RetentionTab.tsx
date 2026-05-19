@@ -111,24 +111,25 @@ export function RetentionTab({ campaigns }: Props) {
     const source = String(value ?? "").toLowerCase();
     return source === "push" || source === "utm_source=push";
   };
-  // URLs de push — lê APENAS push_url_revenue (key-values do GPT, dimension CUSTOM_CRITERIA)
-  // filtrando utm_source=push. Database-first: nunca chama o GAM ao abrir.
+  // URLs de push — espelha o report da UI do GAM (dim=URL + filtro Channel=utm_source=push).
+  // Lê de gam_url_revenue (populado pelo edge function com AD_EXCHANGE_CHANNEL_NAME).
+  // Database-first: nunca chama o GAM ao abrir.
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["push-url-revenue", range.from, range.to, filters.siteId],
     queryFn: async () => {
       let q = supabase
-        .from("push_url_revenue")
-        .select("page_url, utm_source, utm_campaign, revenue_usd, impressions, ecpm, site_id")
+        .from("gam_url_revenue")
+        .select("url, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to)
         .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
-      const rows = (data ?? []) as PushUrlRevenueRow[];
+      const rows = (data ?? []) as GamUrlRevenueRow[];
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of rows) {
-        const key = r.page_url;
-        const cur = map.get(key) ?? { placement: r.page_url, raw_utm: r.utm_campaign ?? null, utm_source: r.utm_source, rev: 0, impr: 0 };
+        const key = r.url;
+        const cur = map.get(key) ?? { placement: r.url, raw_utm: null, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
         map.set(key, cur);
