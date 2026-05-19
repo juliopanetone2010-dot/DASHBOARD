@@ -1814,6 +1814,51 @@ export type Database = {
         }
         Relationships: []
       }
+      push_url_revenue: {
+        Row: {
+          created_at: string
+          date: string
+          ecpm: number
+          id: string
+          impressions: number
+          network_code: string | null
+          page_url: string
+          revenue_usd: number
+          site_id: string | null
+          user_id: string
+          utm_campaign: string
+          utm_source: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          network_code?: string | null
+          page_url: string
+          revenue_usd?: number
+          site_id?: string | null
+          user_id: string
+          utm_campaign?: string
+          utm_source?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          network_code?: string | null
+          page_url?: string
+          revenue_usd?: number
+          site_id?: string | null
+          user_id?: string
+          utm_campaign?: string
+          utm_source?: string
+        }
+        Relationships: []
+      }
       rules_config: {
         Row: {
           analysis_days: number

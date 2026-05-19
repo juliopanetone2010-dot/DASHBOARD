@@ -1,150 +1,85 @@
+# Retenção/Push via Key-Values do GAM — Plano definitivo
 
-# Arquitetura Database-First (estilo GAM/AdSense)
+Hoje a aba quebra porque a API v1 do GAM não aceita `URL + KEY_VALUES_NAME` juntos. A solução real é parar de depender da dimensão `URL` e usar **key-values customizados** que nós mesmos enviamos no GPT. Assim controlamos exatamente o que vem no relatório.
 
-Objetivo: tela abre **instantânea** lendo do banco. APIs externas (Google Ads/GAM) rodam **só em background** via cron. UI **nunca** espera por elas.
+## 1. Key-values no GPT (site)
 
----
+No template de tag do site (snippet `googletag`), antes de cada `display()`:
 
-## Princípio central
+```js
+const u = new URL(window.location.href);
+const pageUrl = (u.host + u.pathname).toLowerCase().replace(/\/+$/, "");
+const params = new URLSearchParams(u.search);
 
-```text
-[ Google Ads API ]──┐
-                    ├──► [ CRON background ] ──► [ Postgres (banco) ] ──► [ React (UI instantânea) ]
-[ GAM API ]─────────┘                                  ▲
-                                                       │
-                              [ Botão "Atualizar" manual (opcional) ]
+googletag.pubads().setTargeting("page_url", pageUrl);
+googletag.pubads().setTargeting("utm_source", params.get("utm_source") || "unknown");
+googletag.pubads().setTargeting("utm_campaign", params.get("utm_campaign") || "unknown");
+googletag.pubads().setTargeting("site_slug", "<slug do site>");
 ```
 
-Regras:
-1. Frontend **só lê** do banco. Nunca chama edge function de sync no carregamento.
-2. Sync acontece **só** via cron OU clique manual no botão "Atualizar".
-3. Trocar filtro/site/data = `data.refresh()` (leitura). **Não** dispara sync.
-4. Botão "Atualizar": se último sync < 30min → mostra toast "dados recentes" e nem chama. Se > 30min → dispara sync em background, UI continua respondendo.
-5. Header sempre mostra `Última atualização: 10:35` por fonte (Google Ads / GAM).
+`page_url` salvo só como `host + pathname`, sem `fbclid/gclid/utm/hash`, lowercase, sem trailing slash.
 
----
+**No GAM Admin** (manual, uma vez por network): criar as keys customizadas `page_url`, `utm_source`, `utm_campaign`, `site_slug` como **Report on values = Include values in reporting** (free-form, report-only). Sem isso o GAM não devolve no relatório.
 
-## Etapas
+Multi-site: o snippet é genérico; só `site_slug` muda. Sem hardcode no backend.
 
-### 1. Limpar gatilhos de sync no frontend
-- `src/pages/Index.tsx`: remover `syncDashboardData` do `handleFilterChange`. Filtro só chama `data.refresh()`.
-- Carregamento inicial **nunca** dispara sync. Se banco vazio para o range, mostra estado "sem dados — clique em Atualizar".
-- Banner "Coletando dados…" só aparece quando o usuário **clicou** em Atualizar e o sync está em curso.
-- Mesma regra aplicada às abas: Calendário, Migração, Funil, Países, Placements, Criativos, Retenção.
+## 2. Helper `normalizeUrl()`
 
-### 2. Botão "Atualizar" inteligente (cache 30min)
-- Lê `rules_config.last_*_sync_at` (já existem alguns campos: `automation_last_run_at`, etc).
-- Se `now - lastSync < 30min`: toast "Dados recentes (sync há Xmin)". Não chama nada.
-- Se ≥ 30min: dispara sync **fire-and-forget** (não dá `await`). UI segue navegável. Quando termina, invalida React Query e atualiza silenciosamente.
-- Indicador de "sync em andamento" só no header (spinner pequeno + "sincronizando…"), nunca cobrindo a tela.
+Tanto no client (snippet) quanto no edge function (parse). Igual em ambos os lados:
+- lowercase
+- remove `?query`, `#hash`, `utm_*`, `fbclid`, `gclid`
+- remove trailing `/`
+- mantém `host + pathname`
 
-### 3. Tabela de controle de sync
-Nova tabela `sync_state` para registrar última sincronização por (site/conta/fonte):
+## 3. Nova tabela `push_url_revenue`
 
-```text
-sync_state
-├── id, user_id
-├── source (google_ads | gam | placements | countries | creatives | funnel)
-├── google_account_id (nullable)
-├── site_id (nullable)
-├── last_started_at, last_finished_at
-├── last_status (ok | error | running)
-├── last_error (text)
-└── rows_synced (int)
+Migração:
 ```
-RLS: `auth.uid() = user_id`.
-
-Cada edge function de sync grava aqui ao começar e ao terminar. Frontend lê pra mostrar "Última atualização: 10:35 ✓" por fonte.
-
-### 4. Crons em background (pg_cron)
-Um cron por fonte, intervalado pra não saturar. Cada um chama a edge function existente para **todos** os usuários/contas:
-
-| Cron | Frequência | Função |
-|---|---|---|
-| Google Ads campanhas + métricas | 30 min | `google-ads-sync-campaigns` |
-| GAM revenue | 1 h | `gam-sync-revenue` |
-| Placements | 2 h | `google-ads-sync-placements` |
-| Countries | 2 h | `google-ads-sync-countries` |
-| Creatives | 4 h | `google-ads-sync-creatives` |
-| FX rates | 6 h | `fx-sync` |
-
-(Os crons de automação/funil/geo-cleanup já existem e ficam como estão.)
-
-### 5. Materialized views para dashboards pesados
-Views que agregam por dia/site/conta — refresh diário (ou a cada 1h via cron). Frontend lê da view, não recalcula no client:
-
-- `dashboard_overview_daily` (spend, revenue_usd, revenue_brl, profit, roi, roas, clicks, conversions) por `user_id, site_id, date`
-- `campaign_summary_daily` por `user_id, campaign_id, date`
-- `placement_summary_daily` por `user_id, campaign_id, placement, date`
-- `country_summary_daily` por `user_id, campaign_id, country_code, date`
-- `creative_summary_daily` por `user_id, campaign_id, ad_id, date`
-
-`REFRESH MATERIALIZED VIEW CONCURRENTLY` via cron a cada 30min. Índices em `(user_id, site_id, date)`.
-
-### 6. React Query — stale-while-revalidate
-Configurar globalmente:
-- `staleTime: 5 * 60 * 1000` (5min — não refaz fetch)
-- `gcTime: 30 * 60 * 1000`
-- `refetchOnWindowFocus: false`
-- `refetchOnMount: false` (já tem cache → mostra cache, não bloqueia)
-- `placeholderData: keepPreviousData` (troca de filtro mostra dados antigos enquanto novo chega)
-
-Resultado: navegar entre abas = instantâneo. Trocar filtro = mostra dados antigos por 200ms até o novo chegar do banco.
-
-### 7. Aplicação por aba
-Remover qualquer chamada a `*-sync-*` no `useEffect`/mount de:
-- `MigrationTab`, `PlacementsTab`, `CountriesTab`, `CreativesTab`, `FinancialCalendarTab`, `RetentionTab`, `PlacementFunnelTab`, `SmartFunnelPanel`.
-
-Cada uma passa a ler **só** das tabelas/views correspondentes. Se precisarem de "atualizar agora", têm botão local que segue mesma regra (cache 30min + fire-and-forget).
-
-### 8. Header global de status
-Componente `SyncStatusBar` no topo da Index:
-```text
-✓ Google Ads: 10:31  ✓ GAM: 10:15  ✓ Placements: 09:00   [Atualizar tudo]
+site_id, network_code, date, page_url, utm_source, utm_campaign,
+revenue_usd, impressions, ecpm, created_at
+unique (site_id, date, page_url, utm_source, utm_campaign)
+RLS por user_id (via site)
 ```
-Cores: verde se < 1h, amarelo 1-6h, vermelho > 6h ou erro.
 
----
+## 4. Edge function: novo report do GAM
 
-## Detalhes técnicos
+Em `gam-sync-revenue`, adicionar fluxo `syncPushUrlRevenue()`:
 
-**Migrations necessárias:**
-- `CREATE TABLE sync_state (...)` + RLS
-- `CREATE MATERIALIZED VIEW dashboard_overview_daily AS ...` (+ outras 4)
-- Índices: `CREATE UNIQUE INDEX ON dashboard_overview_daily (user_id, site_id, date)` (necessário para `REFRESH CONCURRENTLY`)
-- Habilitar `pg_cron` e `pg_net` se ainda não.
+- Dimensões: `DATE`, `CUSTOM_CRITERIA` (ou `CUSTOM_DIMENSION` por key), `DOMAIN_NAME`
+- Métricas: `AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE`, `AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS`, `AD_EXCHANGE_AVERAGE_ECPM`
+- Sem filtro de URL. O agrupamento já vem por combinação de key-values.
+- Parse: extrair `page_url`, `utm_source`, `utm_campaign` da string `CUSTOM_CRITERIA` (`page_url=...;utm_source=push;...`).
+- Upsert em `push_url_revenue`.
+- Fallback `utm_source = "unknown"` quando ausente — **nunca** atribuído a `push`.
 
-**Crons (via supabase--insert, não migration — contém keys):**
-- 6 jobs novos no `cron.schedule(...)` chamando as edge functions com `pg_net.http_post`.
-- 1 job extra chamando `REFRESH MATERIALIZED VIEW CONCURRENTLY` a cada 30min.
+Logs de debug: total rows, rows com `utm_source=push`, sample dropped.
 
-**Edge functions:**
-- Adicionar em cada sync function: `INSERT INTO sync_state` no início (status=running), `UPDATE` no fim (status=ok/error + rows_synced).
-- Não criar funções novas — só instrumentar as existentes.
+## 5. Cron
 
-**Frontend:**
-- `src/pages/Index.tsx`: remover sync do `handleFilterChange` e do mount.
-- `src/App.tsx`: configurar QueryClient com defaults stale-while-revalidate.
-- Novo `src/components/dashboard/SyncStatusBar.tsx`.
-- Novo hook `src/hooks/useSyncState.ts` lendo `sync_state` com Realtime opcional.
-- `src/hooks/useDashboardData.ts`: trocar fontes por views materializadas onde possível.
+Adicionar `syncPushUrlRevenue` ao loop atual de retenção em `sync-all-sites-cron`. Mesmo schedule de hoje.
 
-**Compatibilidade:**
-- Tabelas atuais (`daily_metrics`, `gam_placement_revenue` etc) ficam intactas. Views materializadas leem delas. Zero breaking change.
+## 6. UI — `RetentionTab.tsx`
 
----
+- A tabela "URLs de push / retenção" passa a ler **apenas** `push_url_revenue` filtrado por `utm_source=push` e `site_id`.
+- Sem chamada ao GAM ao abrir (database-first). Botão "Atualizar" continua invocando o edge function.
+- Validação visível: soma `revenue_usd` da tabela = card "Receita Push".
+- Cards superiores continuam usando `gam_campaign_source_revenue` (já funcionam).
 
-## Entregáveis (em ordem)
+## 7. Etapas
 
-1. Migration: `sync_state` + materialized views + índices.
-2. Insert: 7 cron jobs (`pg_cron`).
-3. Edge functions: instrumentar com `sync_state`.
-4. Frontend: remover syncs automáticos + QueryClient defaults + `SyncStatusBar` + botão Atualizar inteligente.
-5. Frontend por aba: remover syncs em mount de Migração/Funil/Países/Placements/Criativos/Calendário/Retenção.
-6. QA visual de cada aba: abrir e confirmar carregamento instantâneo.
+1. Migração: criar `push_url_revenue` + RLS + índices.
+2. Edge function: `normalizeUrl()`, `syncPushUrlRevenue()`, parse CUSTOM_CRITERIA, upsert.
+3. Atualizar `RetentionTab` para ler de `push_url_revenue`.
+4. Snippet GPT: documento `docs/gpt-snippet.md` com o JS pronto para colar (o usuário aplica no site).
+5. Instruções do GAM Admin (criar keys como reportable) — passo manual no painel do GAM.
 
----
+## 8. O que fica de fora desta entrega
 
-## Confirmação
+- Ranking de LTV / IA de seleção de URLs / alertas de queda → fase seguinte, depois que os dados começarem a chegar.
 
-Esse é um trabalho grande (touches ~15 arquivos, 1 migration grande, 7 crons, 6 edge functions). Vou executar em uma única passada se você aprovar este plano. Posso começar?
+## 9. Pré-requisito que depende do usuário
+
+- Colar o snippet no header dos 3 sites (Diario Vagas, Ligado360, Universo dos Cartões).
+- No GAM, marcar as 4 keys como **reportable**. Sem isso o report volta vazio mesmo com a tag correta.
+
+Posso aprovar e começar pela migração + edge function + UI; o snippet eu entrego como arquivo de instruções para você aplicar nos sites.

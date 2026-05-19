@@ -34,6 +34,16 @@ interface GamUrlRevenueRow {
   site_id: string | null;
 }
 
+interface PushUrlRevenueRow {
+  page_url: string;
+  utm_source: string | null;
+  utm_campaign: string | null;
+  revenue_usd: number;
+  impressions: number;
+  ecpm: number | null;
+  site_id: string | null;
+}
+
 interface PushUtmRevenueRow {
   utm_source: string | null;
   revenue_usd: number;
@@ -96,26 +106,28 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  // URLs reais do GAM (dimensão URL_NAME) — receita por artigo/página
   const isPushSource = (value: unknown) => {
     const source = String(value ?? "").toLowerCase();
     return source === "push" || source === "utm_source=push";
   };
+  // URLs de push — lê APENAS push_url_revenue (key-values do GPT, dimension CUSTOM_CRITERIA)
+  // filtrando utm_source=push. Database-first: nunca chama o GAM ao abrir.
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
-    queryKey: ["gam-url-revenue", range.from, range.to, filters.siteId],
+    queryKey: ["push-url-revenue", range.from, range.to, filters.siteId],
     queryFn: async () => {
       let q = supabase
-        .from("gam_url_revenue")
-        .select("url, utm_source, revenue_usd, impressions, site_id, date")
+        .from("push_url_revenue")
+        .select("page_url, utm_source, utm_campaign, revenue_usd, impressions, ecpm, site_id")
         .gte("date", range.from)
-        .lte("date", range.to);
+        .lte("date", range.to)
+        .eq("utm_source", "push");
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
-      const rows = (data ?? []) as GamUrlRevenueRow[];
+      const rows = (data ?? []) as PushUrlRevenueRow[];
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of rows) {
-        const key = r.url;
-        const cur = map.get(key) ?? { placement: r.url, raw_utm: r.url, utm_source: r.utm_source, rev: 0, impr: 0 };
+        const key = r.page_url;
+        const cur = map.get(key) ?? { placement: r.page_url, raw_utm: r.utm_campaign ?? null, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
         map.set(key, cur);
@@ -175,7 +187,7 @@ export function RetentionTab({ campaigns }: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
-      await queryClient.invalidateQueries({ queryKey: ["gam-url-revenue"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-url-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-utms"] });
       await Promise.all([pushPlacementsQuery.refetch(), pushUtmsQuery.refetch()]);
     } finally {
@@ -429,7 +441,7 @@ export function RetentionTab({ campaigns }: Props) {
               <CardContent>
                 {pushRows.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    O GAM retornou a receita de push na tabela de UTMs acima, mas não retornou URL exata com utm_source=push neste período.
+                    Nenhuma URL com utm_source=push encontrada. Confirme que o snippet de key-values (page_url, utm_source) está ativo no site e que as keys estão marcadas como "reportable" no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
