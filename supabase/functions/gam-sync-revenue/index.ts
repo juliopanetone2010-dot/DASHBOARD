@@ -948,6 +948,129 @@ async function persistGamUrlRevenue(args: {
   }
 }
 
+// Normaliza page_url no servidor (espelha o helper do snippet GPT)
+function normalizePageUrl(raw: string): string {
+  try {
+    const decoded = safeDecode(String(raw ?? "")).trim();
+    if (!decoded) return "";
+    // Pode vir como host+path direto, ou URL completa.
+    const hasScheme = /^https?:\/\//i.test(decoded);
+    const u = new URL(hasScheme ? decoded : `https://${decoded}`);
+    const host = u.host.toLowerCase();
+    let path = u.pathname.replace(/\/+$/, "");
+    return (host + path).toLowerCase();
+  } catch {
+    return String(raw ?? "")
+      .toLowerCase()
+      .split(/[?#]/)[0]
+      .replace(/\/+$/, "")
+      .trim();
+  }
+}
+
+// Puxa CUSTOM_CRITERIA (key-values enviados pelo GPT) + AdX e persiste em push_url_revenue.
+async function persistPushUrlRevenue(args: {
+  admin: any;
+  userId: string;
+  siteId: string | undefined;
+  siteDomain?: string | null;
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  debug: string[];
+  ingestionDivisor: number;
+}) {
+  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
+  if (!siteId) return;
+  const dates = expandFixedDates(ranges);
+  if (dates.length > 0) {
+    await admin.from("push_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  }
+
+  type Bucket = {
+    user_id: string;
+    site_id: string;
+    network_code: string;
+    date: string;
+    page_url: string;
+    utm_source: string;
+    utm_campaign: string;
+    revenue_usd: number;
+    impressions: number;
+    ecpm: number;
+  };
+  const buckets = new Map<string, Bucket>();
+  let totalRows = 0;
+  let kept = 0;
+  let pushRows = 0;
+  let totalPushRev = 0;
+  const sample: string[] = [];
+  const sampleDropped: string[] = [];
+
+  for (const { range, date } of expandToDailyGamRanges(ranges)) {
+    let rows: ReportRow[] = [];
+    try {
+      rows = await runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "CUSTOM_CRITERIA"],
+        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        debug,
+      });
+    } catch (e) {
+      const m = `[${networkCode}] push_url_revenue CUSTOM_CRITERIA ${date} falhou: ${String(e).slice(0, 300)}`;
+      console.error(m); debug.push(m);
+      continue;
+    }
+    totalRows += rows.length;
+    for (const r of rows) {
+      const rawKv = String(r.dims[1] ?? r.dims[0] ?? "");
+      const kv = parseKeyValueDimension(rawKv);
+      const pageUrlRaw = kv.page_url ?? "";
+      if (!pageUrlRaw) {
+        if (sampleDropped.length < 5) sampleDropped.push(`no_page_url|${rawKv.slice(0, 200)}`);
+        continue;
+      }
+      const pageUrl = normalizePageUrl(pageUrlRaw);
+      if (!pageUrl) continue;
+      const utmSource = (kv.utm_source || "unknown").toLowerCase().trim();
+      const utmCampaign = (kv.utm_campaign || "unknown").toLowerCase().trim();
+      const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+      const impressions = Number(r.impressions) || 0;
+      if (revenue <= 0 && impressions <= 0) continue;
+      kept++;
+      if (utmSource === "push") { pushRows++; totalPushRev += revenue; }
+      if (sample.length < 8) sample.push(`${pageUrl}|utm=${utmSource}|impr=${impressions}|rev=${revenue.toFixed(4)}`);
+      const d = r.date ?? date;
+      const key = `${d}|${pageUrl}|${utmSource}|${utmCampaign}`;
+      const cur = buckets.get(key) ?? {
+        user_id: userId, site_id: siteId, network_code: networkCode,
+        date: d, page_url: pageUrl, utm_source: utmSource, utm_campaign: utmCampaign,
+        revenue_usd: 0, impressions: 0, ecpm: 0,
+      };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      buckets.set(key, cur);
+    }
+  }
+
+  const payload = [...buckets.values()].map((b) => ({
+    ...b,
+    ecpm: b.impressions > 0 ? (b.revenue_usd / b.impressions) * 1000 : 0,
+  }));
+
+  const msg = `[${networkCode}] push_url_revenue site=${siteDomain ?? siteId} rows=${totalRows} kept=${kept} push_rows=${pushRows} persisted=${payload.length} push_revenue_usd=${totalPushRev.toFixed(4)} sample=${JSON.stringify(sample)} dropped=${JSON.stringify(sampleDropped)}`;
+  console.log(msg);
+  debug.push(msg);
+
+  const CHUNK = 500;
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error } = await admin
+      .from("push_url_revenue")
+      .upsert(payload.slice(i, i + CHUNK), { onConflict: "site_id,date,page_url,utm_source,utm_campaign" });
+    if (error) console.error(`[${networkCode}] push_url_revenue upsert: ${error.message}`);
+  }
+}
+
 function buildPushKeyValueFilters() {
   // Filtra por KEY_VALUES_NAME=utm_source=push (Channel = utm_source=push na UI do GAM).
   // Como FILTRO (não dimensão), o GAM aceita junto com a dimensão URL.
