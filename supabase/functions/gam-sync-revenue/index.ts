@@ -949,13 +949,12 @@ async function persistGamUrlRevenue(args: {
 }
 
 function buildPushKeyValueFilters() {
-  const values = [
-    "utm_source=push",
-  ].map((stringValue) => ({ stringValue }));
-
+  // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
+  // Na API REST v1, a dimensão correta é AD_EXCHANGE_CHANNEL_NAME (Ad Exchange channel).
+  const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
     fieldFilter: {
-      field: { dimension: "KEY_VALUES_NAME" },
+      field: { dimension: "AD_EXCHANGE_CHANNEL_NAME" },
       operation: "IN",
       values,
     },
