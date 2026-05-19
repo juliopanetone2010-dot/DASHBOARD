@@ -33,15 +33,15 @@ export function PushDebugPanel({ pushRows, utms, totalRev, totalImpr, range, sit
     setLoading(true);
     try {
       let q = supabase
-        .from("push_url_revenue")
-        .select("page_url, utm_source, created_at")
+        .from("gam_url_revenue")
+        .select("url, utm_source, created_at")
         .gte("date", range.from)
         .lte("date", range.to)
         .order("created_at", { ascending: false })
         .limit(5000);
       if (siteId !== "all") q = q.eq("site_id", siteId);
       const { data } = await q;
-      const rows = data ?? [];
+      const rows = (data ?? []).map((r: any) => ({ page_url: r.url, utm_source: r.utm_source, created_at: r.created_at }));
       const utmSet = new Set<string>();
       const urlSet = new Set<string>();
       let push = 0;
