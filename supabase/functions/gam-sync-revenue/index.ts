@@ -866,81 +866,48 @@ async function persistGamUrlRevenue(args: {
     await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   }
 
-  const metricGroups = [
-    { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-    { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-    { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-  ];
+  // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue).
+  // Salvamos TODAS as URLs com receita — não descartamos por domínio/query string.
+  // eCPM é derivado em runtime: revenue / impressions * 1000.
+  const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
+  let totalRows = 0;
+  const sample: string[] = [];
 
-  for (const urlDimension of ["URL", "PAGE_PATH"]) {
+  for (const { range, date } of expandToDailyGamRanges(ranges)) {
     try {
-      const filteredRows: ReportRow[] = [];
-      let succeededGroups = 0;
-      for (const group of metricGroups) {
-        try {
-          const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-            const rows = await runReport({
-              networkCode,
-              accessToken,
-              range,
-              dimensions: [urlDimension],
-              metrics: group.metrics,
-              filters: buildPushKeyValueFilters(),
-              expandedCompatibility: true,
-              debug,
-            });
-            return rows.map((r) => ({ ...r, date }));
-          }))).flat();
-          succeededGroups += 1;
-          filteredRows.push(...groupRows);
-          console.log(`[${networkCode}] ${urlDimension} filtered ${group.label} rows=${groupRows.length}`);
-        } catch (groupError) {
-          console.log(`[${networkCode}] ${urlDimension} filtered ${group.label} falhou (${String(groupError).slice(0, 180)})`);
-        }
+      const rows = await runReport({
+        networkCode, accessToken, range,
+        dimensions: ["URL"],
+        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        expandedCompatibility: true,
+        debug,
+      });
+      totalRows += rows.length;
+      for (const r of rows) {
+        const rawUrl = String(r.dims[0] ?? "").trim();
+        if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+        const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+        const impressions = Number(r.impressions) || 0;
+        if (revenue <= 0 && impressions <= 0) continue;
+        if (sample.length < 8) sample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
+        const key = `${date}|${rawUrl}`;
+        const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "push", date, revenue_usd: 0, impressions: 0 };
+        cur.revenue_usd += revenue;
+        cur.impressions += impressions;
+        buckets.set(key, cur);
       }
-      if (succeededGroups === 0) throw new Error(`${urlDimension} filtered sem grupos válidos`);
-      if (filteredRows.length === 0) {
-        console.log(`[${networkCode}] ${urlDimension} filtered retornou 0 rows; tentando próxima dim/fallback`);
-        continue;
-      }
-      console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
-      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls: true });
-      return;
-    } catch (e0) {
-      console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
+    } catch (e) {
+      const msg = `[${networkCode}] URL+AdX ${date} falhou: ${String(e).slice(0, 300)}`;
+      console.error(msg);
+      debug.push(msg);
     }
   }
-  console.log(`[${networkCode}] tentando fallback URL com utm_source=push na própria URL (expandedCompatibility)`);
-  await persistUrlPushParamFallback({ admin, userId, siteId, siteDomain: domain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls: true, metricGroups });
-  return;
 
-  let reportRows: ReportRow[] = [];
+  const payload = [...buckets.values()];
+  const msg = `[${networkCode}] gam_url_revenue: rows_gam=${totalRows} persistidas=${payload.length} site=${domain} sample=${JSON.stringify(sample)}`;
+  console.log(msg);
+  debug.push(msg);
 
-  const buckets = new Map<string, {
-    user_id: string; site_id: string; url: string; utm_source: string | null;
-    date: string; revenue_usd: number; impressions: number;
-  }>();
-  for (const r of reportRows) {
-    const rawUrl = String(r.dims[1] ?? "").trim();
-    if (!isUrlForSite(rawUrl, domain, Boolean(allowRelativeUrls))) continue;
-    const kv = parseKeyValueDimension(r.dims[2] ?? "");
-    const source = safeDecode(kv.utm_source ?? "").toLowerCase().trim();
-    const date = r.date ?? today;
-    const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-    const impressions = Number(r.impressions) || 0;
-
-    if (isPushSourceValue(source)) {
-      const key = `${date}|${rawUrl}`;
-      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source || "push", date, revenue_usd: 0, impressions: 0 };
-      if (cur.utm_source && cur.utm_source !== source) cur.utm_source = `${cur.utm_source},${source}`;
-      cur.revenue_usd += revenue;
-      cur.impressions += impressions;
-      buckets.set(key, cur);
-      continue;
-    }
-  }
-  const payload = [...buckets.values()].map((row) => ({ ...row, utm_source: row.utm_source ?? "" }));
-  console.log(`[${networkCode}] gam_url_revenue payload=${payload.length}; dates=${dates.join(",")}`);
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
     const { error } = await admin
