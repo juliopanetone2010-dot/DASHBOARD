@@ -187,7 +187,7 @@ export function RetentionTab({ campaigns }: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
-      await queryClient.invalidateQueries({ queryKey: ["gam-url-revenue"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-url-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-utms"] });
       await Promise.all([pushPlacementsQuery.refetch(), pushUtmsQuery.refetch()]);
     } finally {
