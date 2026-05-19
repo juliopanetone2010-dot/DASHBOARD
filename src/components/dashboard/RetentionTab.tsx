@@ -50,10 +50,6 @@ interface PushUtmRevenueRow {
   impressions: number;
   site_id: string | null;
 }
-  revenue_usd: number;
-  impressions: number;
-  site_id: string | null;
-}
 
 interface Props {
   campaigns: Campaign[];
