@@ -8,24 +8,49 @@ Ele envia ao GAM 4 key-values por requisição de ad slot:
 - `utm_campaign` — valor cru da query ou `unknown`
 - `site_slug` — slug fixo do site (trocar por site)
 
+**IMPORTANTE:** o `setTargeting` precisa rodar **ANTES** do primeiro `googletag.display()` / `enableServices()`.
+Se a página já chama `enableServices()` em outro snippet, remova lá e deixe só este bloco chamar.
+
 ```html
 <script>
   window.googletag = window.googletag || { cmd: [] };
-  googletag.cmd.push(function () {
+
+  function __normalizeUrl() {
     try {
       var u = new URL(window.location.href);
-      var pageUrl = (u.host + u.pathname).toLowerCase().replace(/\/+$/, "");
-      var params = new URLSearchParams(u.search);
+      return (u.hostname + u.pathname.replace(/\/+$/, "")).toLowerCase();
+    } catch (e) { return ""; }
+  }
+
+  googletag.cmd.push(function () {
+    try {
+      var params = new URLSearchParams(window.location.search);
       var pubads = googletag.pubads();
-      pubads.setTargeting("page_url", pageUrl);
+      pubads.setTargeting("page_url", __normalizeUrl());
       pubads.setTargeting("utm_source", (params.get("utm_source") || "unknown").toLowerCase());
       pubads.setTargeting("utm_campaign", (params.get("utm_campaign") || "unknown").toLowerCase());
       // Troque pelo slug do site (ligado360, diariovagas, universocartoes, ...)
       pubads.setTargeting("site_slug", "REPLACE_WITH_SITE_SLUG");
+      googletag.enableServices();
     } catch (e) { /* noop */ }
   });
 </script>
 ```
+
+## Como validar no console (DevTools da página)
+
+```js
+googletag.pubads().getTargetingKeys();
+// => ["page_url","utm_source","utm_campaign","site_slug"]
+
+googletag.pubads().getTargeting("utm_source");
+// => ["push"]  (em URLs com ?utm_source=push)
+
+googletag.pubads().getTargeting("page_url");
+// => ["seusite.com/algum/path"]
+```
+
+Se vier `[]`, o snippet **não está rodando antes** do `enableServices()` — corrija a ordem.
 
 ## Pré-requisito no GAM (uma vez por network)
 

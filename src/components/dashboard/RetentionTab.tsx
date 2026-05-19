@@ -11,6 +11,7 @@ import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
+import { PushDebugPanel } from "./PushDebugPanel";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
@@ -440,9 +441,21 @@ export function RetentionTab({ campaigns }: Props) {
               </CardHeader>
               <CardContent>
                 {pushRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">
-                    Nenhuma URL com utm_source=push encontrada. Confirme que o snippet de key-values (page_url, utm_source) está ativo no site e que as keys estão marcadas como "reportable" no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
-                  </p>
+                  totalRev > 0 ? (
+                    <div className="text-sm text-muted-foreground py-6 text-center space-y-2">
+                      <p>
+                        Receita push detectada (<b>{fmtUSD(totalRev)}</b>) mas nenhuma URL retornada ainda.
+                      </p>
+                      <p className="text-xs">
+                        Aguardando primeiras URLs do GAM (delay normal de 5–30min após ativação dos key-values).
+                        Confirme que o snippet (<code>page_url</code>, <code>utm_source</code>) roda <b>antes</b> de <code>enableServices()</code> e que as keys estão marcadas como <b>Reportable</b> no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-6 text-center">
+                      Nenhuma URL com utm_source=push encontrada. Confirme que o snippet de key-values (page_url, utm_source) está ativo no site e que as keys estão marcadas como "Reportable" no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
+                    </p>
+                  )
                 ) : (
                   <div className="overflow-x-auto">
                     <Table>
@@ -476,6 +489,15 @@ export function RetentionTab({ campaigns }: Props) {
                 )}
               </CardContent>
             </Card>
+
+            <PushDebugPanel
+              pushRows={pushRows}
+              utms={utms}
+              totalRev={totalRev}
+              totalImpr={totalImpr}
+              range={range}
+              siteId={filters.siteId}
+            />
           </>
         );
       })()}
