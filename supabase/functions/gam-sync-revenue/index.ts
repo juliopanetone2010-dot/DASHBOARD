@@ -868,14 +868,10 @@ async function persistGamUrlRevenue(args: {
   const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls } = args;
   if (!siteId) return;
   const domain = normalizeDomain(siteDomain);
-  const today = new Date().toISOString().slice(0, 10);
-  const dates = expandFixedDates(ranges);
-  if (dates.length > 0) {
-    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  }
+  const authoritativeDates = new Set<string>();
 
   // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue)
-  // FILTRADO em CHANNEL=utm_source=push (KEY_VALUES_NAME). Se o filtro for rejeitado pelo
+  // FILTRADO em Channel=utm_source=push. Se o filtro for rejeitado pelo
   // GAM, caímos no fallback client-side filtrando URLs cuja query string contenha
   // utm_source=push. eCPM é derivado em runtime: revenue / impressions * 1000.
   const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
@@ -890,7 +886,7 @@ async function persistGamUrlRevenue(args: {
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
     let rows: ReportRow[] = [];
     let usedFilter = true;
-    let filterLabel = "AD_EXCHANGE_CHANNEL_NAME=utm_source=push";
+    let filterLabel = "CHANNEL=utm_source=push";
     try {
       rows = await runReport({
         networkCode, accessToken, range,
@@ -937,6 +933,7 @@ async function persistGamUrlRevenue(args: {
       }
     }
     debug.push(`[${networkCode}] URL+AdX ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
+    if (usedFilter) authoritativeDates.add(date);
 
     totalRows += rows.length;
     for (const r of rows) {
@@ -965,6 +962,11 @@ async function persistGamUrlRevenue(args: {
   const msg = `[${networkCode}] gam_url_revenue PUSH-only: push_rows=${totalRows} filtered_push_rows=${filteredPushRows} persistidas=${payload.length} total_push_revenue_usd=${totalRevenue.toFixed(4)} site=${domain} sample=${JSON.stringify(sample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
   console.log(msg);
   debug.push(msg);
+
+  const datesToRefresh = [...new Set([...authoritativeDates, ...payload.map((row) => row.date)])];
+  if (datesToRefresh.length > 0) {
+    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", datesToRefresh);
+  }
 
   const CHUNK = 500;
   for (let i = 0; i < payload.length; i += CHUNK) {
@@ -1100,19 +1102,19 @@ async function persistPushUrlRevenue(args: {
 
 function buildPushKeyValueFilters() {
   // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
-  // "Channel" na UI = AD_EXCHANGE_CHANNEL_NAME (canal do Ad Exchange nomeado
-  // exatamente "utm_source=push"). NÃO é KEY_VALUES_NAME.
+  // "Channel" na UI = CHANNEL na enum REST v1; o channel configurado
+  // no GAM chama exatamente "utm_source=push".
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
     fieldFilter: {
-      field: { dimension: "AD_EXCHANGE_CHANNEL_NAME" },
+      field: { dimension: "CHANNEL" },
       operation: "IN",
       values,
     },
   }];
 }
 
-// Fallback alternativo caso AD_EXCHANGE_CHANNEL_NAME seja rejeitado em alguma network
+// Fallback alternativo caso CHANNEL seja rejeitado em alguma network
 function buildPushKeyValueFiltersFallback() {
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
