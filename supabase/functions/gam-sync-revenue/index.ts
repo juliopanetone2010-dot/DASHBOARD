@@ -1015,19 +1015,43 @@ async function persistUrlPushParamFallback(args: {
 }) {
   const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups } = args;
   const rows: ReportRow[] = [];
+  let totalRowsSeen = 0;
+  let totalRowsWithQuery = 0;
+  const sampleAll: string[] = [];
+  const samplePush: string[] = [];
   for (const group of metricGroups) {
     try {
       const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-        const reportRows = await runReport({ networkCode, accessToken, range, dimensions: ["URL"], metrics: group.metrics, debug });
+        const reportRows = await runReport({
+          networkCode, accessToken, range,
+          dimensions: ["URL"],
+          metrics: group.metrics,
+          expandedCompatibility: true,
+          debug,
+        });
         return reportRows.map((r) => ({ ...r, date }));
       }))).flat();
+      totalRowsSeen += groupRows.length;
+      for (const r of groupRows) {
+        const u = String(r.dims[0] ?? "");
+        if (u.includes("?")) totalRowsWithQuery++;
+        if (sampleAll.length < 5) sampleAll.push(u.slice(0, 200));
+      }
       const pushRows = groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? "")));
+      for (const r of pushRows.slice(0, 5)) {
+        if (samplePush.length < 5) samplePush.push(String(r.dims[0] ?? "").slice(0, 200));
+      }
       rows.push(...pushRows);
-      console.log(`[${networkCode}] URL push-param fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}; samples=${JSON.stringify(groupRows.slice(0, 5).map((r) => String(r.dims[0] ?? "").slice(0, 180)))}`);
+      const msg = `[${networkCode}] URL fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}`;
+      console.log(msg);
+      debug.push(msg);
     } catch (e) {
-      console.log(`[${networkCode}] URL push-param fallback ${group.label} falhou (${String(e).slice(0, 180)})`);
+      const msg = `[${networkCode}] URL fallback ${group.label} falhou: ${String(e).slice(0, 240)}`;
+      console.log(msg);
+      debug.push(msg);
     }
   }
+  debug.push(`[${networkCode}] URL fallback total: seen=${totalRowsSeen} withQuery=${totalRowsWithQuery} pushKept=${rows.length} sampleAll=${JSON.stringify(sampleAll)} samplePush=${JSON.stringify(samplePush)}`);
   await persistUrlRevenueRows({ admin, userId, siteId, siteDomain, networkCode, rows, source: "push", today: new Date().toISOString().slice(0, 10), ingestionDivisor, allowRelativeUrls });
 }
 
