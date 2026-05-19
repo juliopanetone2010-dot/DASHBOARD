@@ -1410,7 +1410,10 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+  if (!createRes.ok) {
+    console.error(`[${tag}] create failed body=${JSON.stringify(reportBody).slice(0, 800)} response=${createText.slice(0, 1200)}`);
+    throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 800)}`);
+  }
   const reportName: string = createJson.name;
 
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
