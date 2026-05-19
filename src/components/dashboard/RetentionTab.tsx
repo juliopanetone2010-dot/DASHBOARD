@@ -441,7 +441,7 @@ export function RetentionTab({ campaigns }: Props) {
               <CardContent>
                 {pushRows.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    O GAM retornou a receita de push na tabela de UTMs acima, mas não retornou URL exata com utm_source=push neste período.
+                    Nenhuma URL com utm_source=push encontrada. Confirme que o snippet de key-values (page_url, utm_source) está ativo no site e que as keys estão marcadas como "reportable" no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
