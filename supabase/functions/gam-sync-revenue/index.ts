@@ -1080,8 +1080,21 @@ async function persistPushUrlRevenue(args: {
 }
 
 function buildPushKeyValueFilters() {
-  // Filtra por KEY_VALUES_NAME=utm_source=push (Channel = utm_source=push na UI do GAM).
-  // Como FILTRO (não dimensão), o GAM aceita junto com a dimensão URL.
+  // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
+  // "Channel" na UI = AD_EXCHANGE_CHANNEL_NAME (canal do Ad Exchange nomeado
+  // exatamente "utm_source=push"). NÃO é KEY_VALUES_NAME.
+  const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
+  return [{
+    fieldFilter: {
+      field: { dimension: "AD_EXCHANGE_CHANNEL_NAME" },
+      operation: "IN",
+      values,
+    },
+  }];
+}
+
+// Fallback alternativo caso AD_EXCHANGE_CHANNEL_NAME seja rejeitado em alguma network
+function buildPushKeyValueFiltersFallback() {
   const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
   return [{
     fieldFilter: {
