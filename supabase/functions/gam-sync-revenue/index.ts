@@ -314,6 +314,14 @@ async function runSync(req: Request): Promise<Response> {
             } catch (e) {
               debug.push(`[${networkCode}] persistGamUrlRevenue site=${site?.domain ?? site?.id} erro: ${String(e).slice(0, 300)}`);
             }
+            try {
+              await persistPushUrlRevenue({
+                admin, userId, siteId: site?.id, siteDomain: site?.domain,
+                networkCode, accessToken, ranges, debug, ingestionDivisor,
+              });
+            } catch (e) {
+              debug.push(`[${networkCode}] persistPushUrlRevenue site=${site?.domain ?? site?.id} erro: ${String(e).slice(0, 300)}`);
+            }
           }
         }
 
