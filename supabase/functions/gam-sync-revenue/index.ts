@@ -899,8 +899,12 @@ async function persistGamUrlRevenue(args: {
         }
       }
       if (succeededGroups === 0) throw new Error(`${urlDimension} filtered sem grupos válidos`);
+      if (filteredRows.length === 0) {
+        console.log(`[${networkCode}] ${urlDimension} filtered retornou 0 rows; tentando próxima dim/fallback`);
+        continue;
+      }
       console.log(`[${networkCode}] ${urlDimension} filtered by push key-values rows=${filteredRows.length}`);
-      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls });
+      await persistUrlRevenueRows({ admin, userId, siteId, siteDomain: domain, networkCode, rows: filteredRows, source: "push", today, ingestionDivisor, allowRelativeUrls: true });
       return;
     } catch (e0) {
       console.log(`[${networkCode}] ${urlDimension} filtered by KEY_VALUES_NAME falhou (${String(e0).slice(0, 240)})`);
