@@ -455,6 +455,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 </Badge>
               )}
               <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
+                <Badge variant="outline" className="border-warning text-warning" title="Campanhas com receita GAM que não foi 100% atribuída a placements específicos foram totalmente protegidas — nenhum placement delas pode ser excluído.">
+                  🛡️ {stats?.skipped_unsafe_campaign} placement(s) protegido(s) (receita órfã)
+                </Badge>
+              )}
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
