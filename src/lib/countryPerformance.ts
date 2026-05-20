@@ -13,6 +13,8 @@ export interface ClientCountryEngineParams {
   to: string;
   fxUsdBrl: number;
   netFactor: number;
+  /** Mantém apenas países atualmente segmentados (presentes na data mais recente sincronizada). */
+  restrictToCurrentCountries?: boolean;
 }
 
 export interface ClientCountryCell {
