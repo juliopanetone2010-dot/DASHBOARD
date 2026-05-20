@@ -378,8 +378,8 @@ Deno.serve(async (req) => {
           JSON.stringify(j);
         return json({ error: String(detail) });
       }
-      await logAction("executed", { country_criterion_id: countryCriterionId, mode });
-      return json({ ok: true, action, country_criterion_id: countryCriterionId, mode });
+      await logAction("executed", { country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
     }
 
     // set_ad_status: pausa/ativa um ou vários criativos (ad_group_ad)
