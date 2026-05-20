@@ -330,6 +330,23 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     toast({ title: "Exclusão em lote", description: `${ok} excluídos${fail ? `, ${fail} falharam` : ""}.`, variant: fail && !ok ? "destructive" : "default" });
   };
 
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const handleRename = async (campaignId: string, newName: string) => {
+    setRenaming(campaignId);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; name?: string }>(
+        "google-ads-mutate",
+        { body: { action: "set_name", campaign_id: campaignId, name: newName } },
+      );
+      if (error || data?.error) {
+        toast({ title: "Erro ao renomear", description: data?.error ?? error?.message, variant: "destructive" });
+        return false;
+      }
+      setCampNames((m) => ({ ...m, [campaignId]: newName }));
+      toast({ title: "Campanha renomeada", description: newName });
+      return true;
+    } finally { setRenaming(null); }
+
   const toggleSelect = (key: string) => setSelectedKeys((s) => {
     const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
   });
