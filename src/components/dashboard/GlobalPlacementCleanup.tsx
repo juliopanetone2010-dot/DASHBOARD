@@ -102,6 +102,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
+  const [siteAccounts, setSiteAccounts] = useState<Record<string, string[]>>({});
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
   const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
 
@@ -129,6 +130,17 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .select("id, name")
         .order("name", { ascending: true });
       setSites((ss ?? []).map((s: any) => ({ id: s.id, name: s.name })));
+      const { data: links } = await supabase
+        .from("account_site_links")
+        .select("site_id, google_account_id");
+      const bySite: Record<string, string[]> = {};
+      for (const link of links ?? []) {
+        const siteId = String((link as any).site_id ?? "");
+        const accountId = String((link as any).google_account_id ?? "");
+        if (!siteId || !accountId) continue;
+        bySite[siteId] = [...(bySite[siteId] ?? []), accountId];
+      }
+      setSiteAccounts(bySite);
     })();
   }, []);
 
@@ -303,6 +315,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
+  const visibleAccounts = filters.siteId && filters.siteId !== "all" && siteAccounts[filters.siteId]
+    ? accounts.filter((a) => siteAccounts[filters.siteId].includes(a.id))
+    : accounts;
 
   // filtra items pela conta selecionada
   const filteredItems = accountFilter === "all"
@@ -474,8 +489,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   });
                 }}
               >
-                <option value="all">Todas as contas ({accounts.length})</option>
-                {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+                <option value="all">Todas as contas do site ({visibleAccounts.length})</option>
+                {visibleAccounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
               </select>
               <span className="ml-auto flex items-center gap-3 text-xs">
                 <Button
