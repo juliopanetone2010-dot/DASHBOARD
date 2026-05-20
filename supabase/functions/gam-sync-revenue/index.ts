@@ -35,7 +35,7 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
   const res = await fetch(input, init);
   if ((res.status === 429 || res.status === 503) && attempt < 4) {
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
-    const backoff = retryAfter > 0 ? retryAfter * 1000 : [3000, 8000, 20000, 45000][attempt];
+    const backoff = retryAfter > 0 ? Math.min(retryAfter * 1000, 15000) : [1500, 4000, 8000, 15000][attempt];
     console.warn(`[gam-sync-revenue] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
     await new Promise((r) => setTimeout(r, backoff));
     return gamFetchRaw(input, init, attempt + 1);
