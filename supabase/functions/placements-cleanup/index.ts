@@ -508,7 +508,7 @@ Deno.serve(async (req) => {
         return true;
       });
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
-      const safetyResults = await Promise.all(selected.map(async (it) => {
+      const safetyResults = await Promise.all(preFiltered.map(async (it) => {
         // TRAVA EXTRA: receita GAM EXATA do placement (qualquer campanha) no período.
         // Se o GAM tem receita registrada exatamente para este host, NUNCA bloqueia.
         const placementNorm = normalize(it.placement, it.type);
