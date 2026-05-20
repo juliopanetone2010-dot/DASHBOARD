@@ -99,6 +99,25 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
       }
       setCampNames(names);
+
+      // Rehidrata exclusões já executadas (persistidas em automation_actions)
+      if (ids.length > 0) {
+        const excluded = new Set<string>();
+        for (let i = 0; i < ids.length; i += 200) {
+          const { data: acts } = await supabase
+            .from("automation_actions")
+            .select("campaign_id, payload")
+            .eq("action_type", "exclude_country")
+            .eq("status", "executed")
+            .in("campaign_id", ids.slice(i, i + 200))
+            .limit(5000);
+          for (const a of acts ?? []) {
+            const cc = (a.payload as any)?.country_code;
+            if (cc) excluded.add(`${a.campaign_id}|${String(cc).toUpperCase()}`);
+          }
+        }
+        setExcludedKeys(excluded);
+      }
     } catch (e) {
       toast({ title: "Erro ao carregar países", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
       setCountryRows([]);
