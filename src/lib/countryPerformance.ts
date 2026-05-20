@@ -244,7 +244,6 @@ export async function computeCountryPerformanceClient(
     const impr = Number(r.impressions) || 0;
     const conv = Number(r.conversions) || 0;
 
-    cell.cost_brl += cost;
     cell.clicks += clicks;
     cell.impressions += impr;
     cell.conversions += conv;
@@ -254,14 +253,26 @@ export async function computeCountryPerformanceClient(
     const cd = `${r.campaign_id}|${r.date}`;
     const totals = totalsByCD.get(cd);
     const daily = dailyByCD.get(cd);
-    if (!totals || !daily || daily.grossRevenueBrl <= 0) continue;
 
+    // Share por país no dia (usado tanto pra custo quanto pra receita).
     let share = 0;
     let method: ClientCountryCell["share_method"] = "none";
-    if (totals.impr > 0)        { share = impr   / totals.impr;   method = "impressions"; }
-    else if (totals.clicks > 0) { share = clicks / totals.clicks; method = "clicks"; }
-    else if (totals.conv > 0)   { share = conv   / totals.conv;   method = "conversions"; }
-    else if (totals.cost > 0)   { share = cost   / totals.cost;   method = "cost"; }
+    if (totals) {
+      if (totals.impr > 0)        { share = impr   / totals.impr;   method = "impressions"; }
+      else if (totals.clicks > 0) { share = clicks / totals.clicks; method = "clicks"; }
+      else if (totals.conv > 0)   { share = conv   / totals.conv;   method = "conversions"; }
+      else if (totals.cost > 0)   { share = cost   / totals.cost;   method = "cost"; }
+    }
+
+    // CUSTO: usa daily_metrics.spend × share quando disponível (mais confiável
+    // que campaign_country_metrics.cost, que pode estar fora de sync). Fallback: cost cru.
+    if (daily && daily.spend > 0 && share > 0) {
+      cell.cost_brl += daily.spend * share;
+    } else {
+      cell.cost_brl += cost;
+    }
+
+    if (!daily || daily.grossRevenueBrl <= 0) continue;
     if (share <= 0) continue;
 
     const sf = siteFactor(r.campaign_id, r.date);
