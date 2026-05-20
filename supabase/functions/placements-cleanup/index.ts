@@ -258,13 +258,9 @@ Deno.serve(async (req) => {
     let totalGamUsd = 0;
     let attributedGamUsd = 0;
     const campaignRevenueTotals = new Map<string, number>();
-    // Distribuição em 2 PASSES para evitar diluição de receita exata:
-    //   PASS 1 — atribui receita só a placements que casam EXATAMENTE com o
-    //            host registrado no GAM (byExact). Nada reivindica nada.
-    //   PASS 2 — distribui o que sobrou via root/prefixo, mas SÓ entre os
-    //            placements que ainda não receberam receita direta no pass 1.
-    // Antes, um GAM sem match exato (ex.: root match) "reivindicava" todos os
-    // placements do root e diluía a receita real do subdomínio com match exato.
+    // Atribuição ESTRITA: cada placement só recebe receita GAM com match EXATO do host.
+    // Sem root, sem prefixo, sem rateio de receita "órfã" por custo — isso inflava
+    // placements que não têm nenhuma receita real registrada no GAM.
     for (const [cid, revenues] of revByCampaign) {
       const ads = adsByCampaign.get(cid) ?? [];
       let campaignGamUsd = 0;
@@ -275,59 +271,18 @@ Deno.serve(async (req) => {
       campaignRevenueTotals.set(cid, campaignGamUsd);
       if (ads.length === 0) continue;
       const indexes = buildPlacementIndexes(ads);
-      const directlyMatched = new Set<string>();
-      const leftover: Array<[string, number]> = [];
 
-      // PASS 1: match EXATO (byExact) — distribui só entre os exatos.
       for (const [rawPlacement, usd] of revenues) {
         if (usd <= 0) continue;
         const norm = normalize(rawPlacement);
         const exactMatches = indexes.byExact.get(norm);
-        if (!exactMatches || exactMatches.length === 0) {
-          leftover.push([rawPlacement, usd]);
-          continue;
-        }
+        if (!exactMatches || exactMatches.length === 0) continue; // sem match exato → receita não é atribuída a ninguém
         const totalCost = exactMatches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
         const totalClicks = exactMatches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
         const equalShare = usd / exactMatches.length;
         for (const a of exactMatches) {
           const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
           const share = weight > 0 ? usd * weight : equalShare;
-          const key = cpKey(cid, a.placement);
-          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
-          attributedGamUsd += share;
-          directlyMatched.add(a.placement);
-        }
-      }
-
-      // PASS 2: root/prefixo SÓ entre placements que não receberam receita exata.
-      let unmatchedUsd = 0;
-      for (const [rawPlacement, usd] of leftover) {
-        const norm = normalize(rawPlacement);
-        const allMatches = findPlacementMatches(norm, indexes);
-        const matches = allMatches.filter((a) => !directlyMatched.has(a.placement));
-        if (matches.length === 0) { unmatchedUsd += usd; continue; }
-        const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-        const totalClicks = matches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-        const equalShare = usd / matches.length;
-        for (const a of matches) {
-          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
-          const share = weight > 0 ? usd * weight : equalShare;
-          const key = cpKey(cid, a.placement);
-          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
-          attributedGamUsd += share;
-        }
-      }
-      if (unmatchedUsd > 0) {
-        // Sobra: divide proporcional ao custo entre placements sem receita exata
-        const targets = ads.filter((a) => !directlyMatched.has(a.placement));
-        const fallback = targets.length > 0 ? targets : ads;
-        const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-        const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-        const equalShare = unmatchedUsd / fallback.length;
-        for (const a of fallback) {
-          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
-          const share = weight > 0 ? unmatchedUsd * weight : equalShare;
           const key = cpKey(cid, a.placement);
           revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
           attributedGamUsd += share;
