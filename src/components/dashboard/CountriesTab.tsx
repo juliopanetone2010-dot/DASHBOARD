@@ -604,7 +604,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             {!loading && view === "country" && sortedCountries.map((c) => {
               const isOpen = expanded.has(c.code);
               const allCamps = campaignsByCountry.get(c.code) ?? [];
-              const camps = allCamps.filter((cp) => !excludedKeys.has(`${cp.campaign_id}|${c.code}`));
+              const camps = allCamps.filter((cp) => !isCountryExcluded(excludedKeys, cp.campaign_id, c.code, cp.country_criterion_id));
               if (camps.length === 0) return null;
               const visCost = camps.reduce((a, x) => a + x.cost, 0);
               const visRev = camps.reduce((a, x) => a + x.revenue_brl, 0);
@@ -650,7 +650,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {camps.map((cp) => {
                             const key = `${cp.campaign_id}|${cp.country_criterion_id ?? ""}`;
-                            const selKey = `${cp.campaign_id}|${c.code}`;
+                            const selKey = countryExclusionKey(cp.campaign_id, c.code);
                             return (
                               <TableRow key={cp.campaign_id}>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -691,7 +691,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             {!loading && view === "campaign" && sortedCampaigns.map((cp) => {
               const isOpen = expanded.has(cp.campaign_id);
               const allList = countriesByCampaign.get(cp.campaign_id) ?? [];
-              const list = allList.filter((co) => !excludedKeys.has(`${cp.campaign_id}|${co.country_code}`));
+              const list = allList.filter((co) => !isCountryExcluded(excludedKeys, cp.campaign_id, co.country_code, co.country_criterion_id));
               if (list.length === 0) return null;
               const visCost = list.reduce((a, x) => a + x.cost, 0);
               const visRev = list.reduce((a, x) => a + x.revenue_brl, 0);
@@ -745,7 +745,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {list.map((co) => {
                             const key = `${cp.campaign_id}|${co.country_criterion_id ?? ""}`;
-                            const selKey = `${cp.campaign_id}|${co.country_code}`;
+                            const selKey = countryExclusionKey(cp.campaign_id, co.country_code);
                             return (
                               <TableRow key={co.country_code}>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
