@@ -73,6 +73,8 @@ const fmtPlacementRevenue = (usd: number) => {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 };
 
+const protectedActionText = "Receita existe na campanha, mas não bate com esse placement. Confira UTM/placement no GAM e ressincronize; enquanto isso, não excluir automático.";
+
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters, range, selectSite } = useDashboardFilters();
   // Permite o usuário sobrescrever o período do dashboard só para a limpeza.
@@ -365,24 +367,28 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const first = list.flatMap((i) => i.campaigns).find((c) => c.campaign_id === cid);
       const meta = campaignMeta.get(cid);
       const cost = list.reduce((sum, i) => sum + (i.campaigns.find((c) => c.campaign_id === cid)?.cost_brl ?? 0), 0);
-      const revenue = list.reduce((sum, i) => {
+      const exactRevenue = list.reduce((sum, i) => {
         const campaign = i.campaigns.find((c) => c.campaign_id === cid);
         if (!campaign) return sum;
         const share = i.revenue_usd > 0 ? (campaign.revenue_usd ?? 0) / i.revenue_usd : 0;
         return sum + i.revenue_brl * share;
       }, 0);
-      const profit = revenue - cost;
+      const protected_count = list.filter((i) => i.is_protected).length;
+      const gamRevenue = protected_count > 0 && (meta?.revenue_brl ?? 0) > exactRevenue ? (meta?.revenue_brl ?? 0) : exactRevenue;
+      const profit = exactRevenue - cost;
       const revenue_count = list.filter((i) => i.revenue_brl > 0).length;
       return {
         campaign_id: cid,
         name: first?.name ?? meta?.name ?? cid,
         google_account_id: first?.google_account_id ?? meta?.google_account_id,
         cost_brl: cost,
-        revenue_brl: revenue,
+        revenue_brl: exactRevenue,
+        gam_revenue_brl: gamRevenue,
         profit_brl: profit,
         roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
         bad_count: list.length,
         revenue_count,
+        protected_count,
         eligible: meta?.eligible,
       };
     })
