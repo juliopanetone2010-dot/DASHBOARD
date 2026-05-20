@@ -483,56 +483,20 @@ function allocateRevenueUsdByPlacement(
     const ads = adsByCampaign.get(cid) ?? [];
     if (ads.length === 0) continue;
     const indexes = buildPlacementIndexes(ads);
-    const directlyMatched = new Set<string>();
-    const leftover: Array<[string, number]> = [];
 
-    // PASS 1: match EXATO — sem reivindicar, sem diluir.
+    // Atribuição ESTRITA: só match EXATO do host. Sem root/prefixo e sem rateio
+    // de receita órfã — garante que a receita exibida bate 100% com o GAM.
     for (const [rawPlacement, usd] of revenues) {
       if (usd <= 0) continue;
       const revPlacement = normalize(rawPlacement);
       const exactMatches = indexes.byExact.get(revPlacement);
-      if (!exactMatches || exactMatches.length === 0) {
-        leftover.push([rawPlacement, usd]);
-        continue;
-      }
+      if (!exactMatches || exactMatches.length === 0) continue;
       const totalCost = exactMatches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
       const totalClicks = exactMatches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
       const equalShare = usd / exactMatches.length;
       for (const a of exactMatches) {
         const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
         const share = weight > 0 ? usd * weight : equalShare;
-        const key = cpKey(scope, cid, a.placement);
-        result.set(key, (result.get(key) ?? 0) + share);
-        directlyMatched.add(a.placement);
-      }
-    }
-
-    // PASS 2: root/prefixo só entre placements sem match exato.
-    let unmatchedUsd = 0;
-    for (const [rawPlacement, usd] of leftover) {
-      const revPlacement = normalize(rawPlacement);
-      const allMatches = findPlacementMatches(revPlacement, indexes);
-      const matches = allMatches.filter((a) => !directlyMatched.has(a.placement));
-      if (matches.length === 0) { unmatchedUsd += usd; continue; }
-      const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-      const totalClicks = matches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-      const equalShare = usd / matches.length;
-      for (const a of matches) {
-        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
-        const share = weight > 0 ? usd * weight : equalShare;
-        const key = cpKey(scope, cid, a.placement);
-        result.set(key, (result.get(key) ?? 0) + share);
-      }
-    }
-    if (unmatchedUsd > 0) {
-      const targets = ads.filter((a) => !directlyMatched.has(a.placement));
-      const fallback = targets.length > 0 ? targets : ads;
-      const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-      const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-      const equalShare = unmatchedUsd / fallback.length;
-      for (const a of fallback) {
-        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
-        const share = weight > 0 ? unmatchedUsd * weight : equalShare;
         const key = cpKey(scope, cid, a.placement);
         result.set(key, (result.get(key) ?? 0) + share);
       }
