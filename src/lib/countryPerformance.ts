@@ -231,7 +231,7 @@ export async function computeCountryPerformanceClient(
   const cells = new Map<string, ClientCountryCell>();
   const cellAccum = new Map<string, { shareSum: number; shareCount: number; sfWeight: number; sfTotal: number }>();
 
-  type BasisItem = CRow & { share: number; method: ClientCountryCell["share_method"] };
+  type BasisItem = CRow & { share: number; costShare: number; method: ClientCountryCell["share_method"] };
   const buildBasisMap = (rows: CRow[], keyOf: (r: CRow) => string) => {
     const grouped = new Map<string, Map<string, CRow>>();
     for (const r of rows) {
@@ -259,17 +259,24 @@ export async function computeCountryPerformanceClient(
       }), { impr: 0, clicks: 0, conv: 0, cost: 0 });
       let method: ClientCountryCell["share_method"] = "none";
       const basis = items.map((r): BasisItem => {
+        // Revenue share: prefer impressions > clicks > conversions > cost
         let share = 0;
         if (totals.impr > 0)        { share = (Number(r.impressions) || 0) / totals.impr; method = "impressions"; }
         else if (totals.clicks > 0) { share = (Number(r.clicks) || 0) / totals.clicks; method = "clicks"; }
         else if (totals.conv > 0)   { share = (Number(r.conversions) || 0) / totals.conv; method = "conversions"; }
         else if (totals.cost > 0)   { share = (Number(r.cost) || 0) / totals.cost; method = "cost"; }
-        return { ...r, share, method };
-      }).filter((r) => r.share > 0);
+        // Cost share: use real per-country cost from Google Ads when available,
+        // so each country reflects its actual spend ratio (gives a real ROI per país).
+        let costShare = 0;
+        if (totals.cost > 0)        costShare = (Number(r.cost) || 0) / totals.cost;
+        else                        costShare = share;
+        return { ...r, share, costShare, method };
+      }).filter((r) => r.share > 0 || r.costShare > 0);
       if (basis.length > 0) out.set(key, basis);
     }
     return out;
   };
+
 
   const basisByCD = buildBasisMap(countryRows, (r) => `${r.campaign_id}|${r.date}`);
   const periodBasisByCampaign = buildBasisMap(countryRows, (r) => r.campaign_id);
@@ -325,7 +332,7 @@ export async function computeCountryPerformanceClient(
     for (const b of basis) {
       const cell = ensureCell(b);
       const acc = cellAccum.get(`${b.campaign_id}|${b.country_code}`)!;
-      cell.cost_brl += daily.spend * b.share;
+      cell.cost_brl += daily.spend * b.costShare;
       if (daily.grossRevenueBrl > 0 && sf > 0) {
         const grossUsd = daily.revenue * sf * b.share;
         const grossBrl = daily.grossRevenueBrl * sf * b.share;
