@@ -326,7 +326,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const first = list.flatMap((i) => i.campaigns).find((c) => c.campaign_id === cid);
       const meta = campaignMeta.get(cid);
       const cost = list.reduce((sum, i) => sum + (i.campaigns.find((c) => c.campaign_id === cid)?.cost_brl ?? 0), 0);
-      const revenue = list.reduce((sum, i) => sum + (i.campaigns.some((c) => c.campaign_id === cid) ? i.revenue_brl : 0), 0);
+      const revenue = list.reduce((sum, i) => {
+        const campaign = i.campaigns.find((c) => c.campaign_id === cid);
+        if (!campaign) return sum;
+        const share = i.revenue_usd > 0 ? (campaign.revenue_usd ?? 0) / i.revenue_usd : 0;
+        return sum + i.revenue_brl * share;
+      }, 0);
       const profit = revenue - cost;
       return {
         campaign_id: cid,
