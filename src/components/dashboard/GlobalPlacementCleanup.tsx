@@ -318,6 +318,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
+  for (const [cid, list] of itemsByCampaign) {
+    itemsByCampaign.set(cid, [...list].sort((a, b) =>
+      (b.revenue_brl || 0) - (a.revenue_brl || 0)
+      || a.roi_pct - b.roi_pct
+      || b.cost_brl - a.cost_brl,
+    ));
+  }
   // Mostra apenas o total dos placements ruins exibidos. Assim a linha da campanha
   // bate exatamente com as linhas expandidas, sem misturar o total geral da campanha.
   const campaignMeta = new Map(campaignTotals.map((c) => [c.campaign_id, c]));
@@ -333,6 +340,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         return sum + i.revenue_brl * share;
       }, 0);
       const profit = revenue - cost;
+      const revenue_count = list.filter((i) => i.revenue_brl > 0).length;
       return {
         campaign_id: cid,
         name: first?.name ?? meta?.name ?? cid,
@@ -342,6 +350,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         profit_brl: profit,
         roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
         bad_count: list.length,
+        revenue_count,
         eligible: meta?.eligible,
       };
     })
@@ -506,7 +515,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
                         <TableCell className="font-medium text-sm">{camp.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <div>{fmtBRL(camp.revenue_brl)}</div>
+                          {(camp as any).revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{(camp as any).revenue_count} com receita</div>}
+                        </TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
                         <TableCell className="text-right">
