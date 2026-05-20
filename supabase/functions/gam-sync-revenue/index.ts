@@ -35,7 +35,7 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
   const res = await fetch(input, init);
   if ((res.status === 429 || res.status === 503) && attempt < 4) {
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
-    const backoff = retryAfter > 0 ? retryAfter * 1000 : [3000, 8000, 20000, 45000][attempt];
+    const backoff = retryAfter > 0 ? Math.min(retryAfter * 1000, 15000) : [1500, 4000, 8000, 15000][attempt];
     console.warn(`[gam-sync-revenue] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
     await new Promise((r) => setTimeout(r, backoff));
     return gamFetchRaw(input, init, attempt + 1);
@@ -308,7 +308,7 @@ async function runSync(req: Request): Promise<Response> {
             try {
               await persistGamUrlRevenue({
                 admin, userId, siteId: site?.id, siteDomain: site?.domain,
-                networkCode, accessToken, ranges, debug, ingestionDivisor,
+                networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt,
                 allowRelativeUrls: networkSites.length === 1,
               });
             } catch (e) {
@@ -402,14 +402,21 @@ async function runSync(req: Request): Promise<Response> {
         }
       }
       for (const d of expanded) {
+        if (!hasBudget(8_000)) {
+          debug.push(`[snapshot] stopped before Edge timeout after partial regen`);
+          break;
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5_000);
         await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
           method: "POST",
           headers: {
             Authorization: authHeader!,
             "Content-Type": "application/json",
           },
+          signal: controller.signal,
           body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => clearTimeout(timeout));
       }
       debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
       }
@@ -863,9 +870,10 @@ async function persistGamUrlRevenue(args: {
   ranges: GamRange[];
   debug: string[];
   ingestionDivisor: number;
+  deadlineAt?: number;
   allowRelativeUrls?: boolean;
 }) {
-  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls } = args;
+  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt, allowRelativeUrls } = args;
   if (!siteId) return;
   const domain = normalizeDomain(siteDomain);
   const authoritativeDates = new Set<string>();
@@ -884,6 +892,10 @@ async function persistGamUrlRevenue(args: {
   const pushFiltersFallback = buildPushKeyValueFiltersFallback();
 
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
+    if (deadlineAt && Date.now() + 18_000 >= deadlineAt) {
+      debug.push(`[${networkCode}] URL+AdX stopped before Edge timeout`);
+      break;
+    }
     let rows: ReportRow[] = [];
     let usedFilter = true;
     let filterLabel = "CHANNEL=utm_source=push";
@@ -895,6 +907,7 @@ async function persistGamUrlRevenue(args: {
         filters: pushFilters,
         expandedCompatibility: true,
         debug,
+          deadlineAt,
       });
     } catch (e) {
       const msg1 = `[${networkCode}] URL+AdX+CHANNEL ${date} falhou (${String(e).slice(0, 180)}); tentando KEY_VALUES_NAME`;
@@ -909,6 +922,7 @@ async function persistGamUrlRevenue(args: {
           filters: pushFiltersFallback,
           expandedCompatibility: true,
           debug,
+          deadlineAt,
         });
       } catch (e2) {
         usedFilter = false;
@@ -923,6 +937,7 @@ async function persistGamUrlRevenue(args: {
             metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
             expandedCompatibility: true,
             debug,
+            deadlineAt,
           });
         } catch (e3) {
           const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e3).slice(0, 300)}`;
