@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
     // 2) Senão => cria critério NEGATIVO (location exclusion)
     if (action === "exclude_country") {
       const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
+      const countryCode = String((body as any)?.country_code ?? "").toUpperCase().slice(0, 4);
       if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
 
       const geoRN = `geoTargetConstants/${countryCriterionId}`;
