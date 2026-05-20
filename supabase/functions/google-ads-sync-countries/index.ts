@@ -110,47 +110,81 @@ Deno.serve(async (req) => {
       };
       if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
 
+      let rowsThisAccount = 0;
       for (const chunk of chunkArr(ids, 50)) {
         const idList = chunk.map((id) => id.replace(/\D/g, "")).filter(Boolean).join(",");
         if (!idList) continue;
-        const query = `
-          SELECT campaign.id, segments.date,
-                 geographic_view.country_criterion_id,
-                 metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
-          FROM geographic_view
-          WHERE segments.date BETWEEN '${from}' AND '${to}'
-            AND campaign.id IN (${idList})
-            AND metrics.cost_micros > 0
-        `;
-        let pageToken: string | undefined;
-        do {
-          const r = await fetch(
-            `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
-            { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
-          );
-          const j = await r.json();
-          if (!r.ok) {
-            console.error("[sync-countries] gaql error", JSON.stringify(j));
-            return json({ error: j?.error?.message ?? "Erro Google Ads" });
-          }
-          for (const row of j.results ?? []) {
-            const countryId = String(
-              row.geographicView?.countryCriterionId ??
-              (row.geographicView?.resourceName?.split("~").pop() ?? "")
+
+        // Tenta 2 views: geographic_view (location targeted) e user_location_view (onde o usuário estava).
+        // user_location_view costuma ter cobertura melhor para campanhas internacionais.
+        const queries: Array<{ view: "geographic_view" | "user_location_view"; geoField: string; gql: string }> = [
+          {
+            view: "geographic_view",
+            geoField: "geographicView",
+            gql: `SELECT campaign.id, segments.date, geographic_view.country_criterion_id,
+                         metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
+                  FROM geographic_view
+                  WHERE segments.date BETWEEN '${from}' AND '${to}'
+                    AND campaign.id IN (${idList})
+                    AND metrics.cost_micros > 0`,
+          },
+          {
+            view: "user_location_view",
+            geoField: "userLocationView",
+            gql: `SELECT campaign.id, segments.date, user_location_view.country_criterion_id,
+                         metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
+                  FROM user_location_view
+                  WHERE segments.date BETWEEN '${from}' AND '${to}'
+                    AND campaign.id IN (${idList})
+                    AND metrics.cost_micros > 0`,
+          },
+        ];
+
+        const collectedAll: typeof all = [];
+        for (const qDef of queries) {
+          const collected: typeof all = [];
+          let pageToken: string | undefined;
+          let failed = false;
+          do {
+            const r = await fetch(
+              `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+              { method: "POST", headers, body: JSON.stringify({ query: qDef.gql, pageToken }) },
             );
-            all.push({
-              campaign_id: String(row.campaign?.id ?? ""),
-              date: String(row.segments?.date ?? ""),
-              country_id: countryId,
-              cost: Number(row.metrics?.costMicros ?? 0) / 1_000_000,
-              clicks: Number(row.metrics?.clicks ?? 0),
-              impressions: Number(row.metrics?.impressions ?? 0),
-              conversions: Number(row.metrics?.conversions ?? 0),
-            });
+            const j = await r.json();
+            if (!r.ok) {
+              console.error(`[sync-countries] gaql error (${qDef.view})`, JSON.stringify(j));
+              failed = true;
+              break;
+            }
+            for (const row of j.results ?? []) {
+              const geoNode = (row as any)[qDef.geoField] ?? {};
+              const countryId = String(
+                geoNode.countryCriterionId ??
+                (geoNode.resourceName?.split("~").pop() ?? "")
+              );
+              collected.push({
+                campaign_id: String(row.campaign?.id ?? ""),
+                date: String(row.segments?.date ?? ""),
+                country_id: countryId,
+                cost: Number(row.metrics?.costMicros ?? 0) / 1_000_000,
+                clicks: Number(row.metrics?.clicks ?? 0),
+                impressions: Number(row.metrics?.impressions ?? 0),
+                conversions: Number(row.metrics?.conversions ?? 0),
+              });
+            }
+            pageToken = j.nextPageToken || undefined;
+          } while (pageToken);
+
+          if (!failed && collected.length > 0) {
+            collectedAll.push(...collected);
+            console.log(`[sync-countries] account=${accountId} view=${qDef.view} rows=${collected.length}`);
+            break; // achou dados nessa view, não precisa tentar a próxima
           }
-          pageToken = j.nextPageToken || undefined;
-        } while (pageToken);
+        }
+        all.push(...collectedAll);
+        rowsThisAccount += collectedAll.length;
       }
+      console.log(`[sync-countries] account=${accountId} total_rows=${rowsThisAccount}`);
     }
 
     // Resolve países desconhecidos via Google Ads API (geo_target_constant)
