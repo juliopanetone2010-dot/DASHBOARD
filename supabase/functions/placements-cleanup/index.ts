@@ -572,11 +572,16 @@ Deno.serve(async (req) => {
         const allOk = !hasDirectGam && checks.every((x) => x.ok);
         return { it, checks, allOk, directGamUsd: round4(directGamUsd), hasDirectGam };
       }));
-      for (const { it, checks, allOk } of safetyResults) {
+      for (const { it, checks, allOk, directGamUsd, hasDirectGam } of safetyResults) {
         if (allOk) safetyApproved.push(it);
         else {
-          safetyRejected.push({ placement: it.placement, reason: "safety_recheck_failed", checks });
-          console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
+          const reason = hasDirectGam ? "has_direct_gam_revenue" : "safety_recheck_failed";
+          safetyRejected.push({ placement: it.placement, reason, direct_gam_usd: directGamUsd, checks });
+          if (hasDirectGam) {
+            console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — possui receita GAM direta ($${directGamUsd} USD) no período`);
+          } else {
+            console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
+          }
         }
       }
 
