@@ -630,11 +630,18 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className={cn("text-right tabular-nums", cp.profit < 0 && "text-danger")}>{fmtBRL(cp.profit)}</TableCell>
                                 <TableCell className={cn("text-right tabular-nums font-semibold", cp.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(cp.roi)}</TableCell>
                                 <TableCell className="text-right">
-                                  <ExcludeButton
-                                    busy={excluding === key}
-                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
-                                    label={`Excluir ${c.name} desta campanha`}
-                                  />
+                                  <div className="inline-flex items-center gap-1">
+                                    <RenameButton
+                                      busy={renaming === cp.campaign_id}
+                                      currentName={cp.name}
+                                      onConfirm={(n) => handleRename(cp.campaign_id, n)}
+                                    />
+                                    <ExcludeButton
+                                      busy={excluding === key}
+                                      onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
+                                      label={`Excluir ${c.name} desta campanha`}
+                                    />
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
