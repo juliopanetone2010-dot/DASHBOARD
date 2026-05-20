@@ -298,7 +298,7 @@ Deno.serve(async (req) => {
     const orphanUsdByCampaign = new Map<string, number>();
     const attributedByCampaign = new Map<string, number>();
     for (const [key, usd] of revenueUsdByCp) {
-      const cid = key.split("|")[0];
+      const cid = key.split(KEY_SEP)[0];
       attributedByCampaign.set(cid, (attributedByCampaign.get(cid) ?? 0) + usd);
     }
     for (const [cid, totalUsd] of campaignRevenueTotals) {
@@ -428,6 +428,7 @@ Deno.serve(async (req) => {
     const grand_cost_brl = round(campaign_totals.reduce((a, c) => a + c.cost_brl, 0));
     const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
     const grand_profit_brl = round(grand_revenue_brl - grand_cost_brl);
+    const orphanGamUsd = Math.max(0, totalGamUsd - attributedGamUsd);
 
     const totalAnalyzed = withMatch + withoutMatch;
     const stats = {
@@ -446,6 +447,7 @@ Deno.serve(async (req) => {
       match_pct: totalAnalyzed > 0 ? round((withMatch / totalAnalyzed) * 100) : 0,
       gam_total_usd: round(totalGamUsd),
       gam_attributed_usd: round(attributedGamUsd),
+      gam_orphan_usd: round(orphanGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
       analysis_window_days: analysisWindowDays,

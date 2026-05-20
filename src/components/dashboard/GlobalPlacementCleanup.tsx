@@ -51,7 +51,7 @@ interface PreviewStats {
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
   skipped_unsafe_campaign?: number; unsafe_campaigns?: string[];
   with_match?: number; without_match?: number; match_pct?: number;
-  gam_total_usd?: number; gam_attributed_usd?: number; gam_attributed_pct?: number;
+  gam_total_usd?: number; gam_attributed_usd?: number; gam_orphan_usd?: number; gam_attributed_pct?: number;
   period?: { from: string; to: string };
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
@@ -450,14 +450,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 </Badge>
               )}
               {typeof stats?.gam_attributed_pct === "number" && (
-                <Badge variant="outline" title={`GAM total US$ ${stats.gam_total_usd} · atribuído US$ ${stats.gam_attributed_usd}`}>
-                  Receita atribuída: {stats.gam_attributed_pct}%
+                <Badge variant="outline" title={`GAM total US$ ${stats.gam_total_usd} · batido por placement US$ ${stats.gam_attributed_usd}${stats.gam_orphan_usd ? ` · sem placement exato US$ ${stats.gam_orphan_usd}` : ""}`}>
+                  Receita com match: {stats.gam_attributed_pct}%
                 </Badge>
               )}
               <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
-                <Badge variant="outline" className="border-warning text-warning" title="Campanhas com receita GAM que não foi 100% atribuída a placements específicos foram totalmente protegidas — nenhum placement delas pode ser excluído.">
-                  🛡️ {stats?.skipped_unsafe_campaign} placement(s) protegido(s) (receita órfã)
+                <Badge variant="outline" className="border-warning text-warning" title="A receita do GAM não bateu exatamente com um placement do Ads. Por segurança, só removi da lista os placements que poderiam ficar bons se essa receita fosse deles.">
+                  🛡️ {stats?.skipped_unsafe_campaign} protegido(s) por receita sem match exato
                 </Badge>
               )}
               <select
