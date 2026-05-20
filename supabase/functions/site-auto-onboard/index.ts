@@ -149,7 +149,9 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       }
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: true },
+        // Snapshot regen no chunk mais recente para o dashboard refletir receita nova;
+        // pulamos nos chunks antigos para caber no deadline.
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: !isFreshestChunk },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
