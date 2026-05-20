@@ -32,6 +32,21 @@ interface Props { fxUsdBrl: number; }
 type SortKey = "cost" | "revenue" | "roi" | "clicks" | "impressions";
 type ViewMode = "country" | "campaign";
 
+const normalizeCountryCode = (countryCode: string | null | undefined) => String(countryCode ?? "").trim().toUpperCase();
+const countryExclusionKey = (campaignId: string, countryCode: string | null | undefined) => `${campaignId}|country:${normalizeCountryCode(countryCode)}`;
+const criterionExclusionKey = (campaignId: string, criterionId: string | null | undefined) => `${campaignId}|criterion:${String(criterionId ?? "").replace(/\D/g, "")}`;
+const addCountryExclusionKeys = (set: Set<string>, campaignId: string, countryCode?: string | null, criterionId?: string | null) => {
+  const code = normalizeCountryCode(countryCode);
+  const criterion = String(criterionId ?? "").replace(/\D/g, "");
+  if (code) set.add(countryExclusionKey(campaignId, code));
+  if (criterion) set.add(criterionExclusionKey(campaignId, criterion));
+};
+const isCountryExcluded = (set: Set<string>, campaignId: string, countryCode?: string | null, criterionId?: string | null) => {
+  const code = normalizeCountryCode(countryCode);
+  const criterion = String(criterionId ?? "").replace(/\D/g, "");
+  return (code && set.has(countryExclusionKey(campaignId, code))) || (criterion && set.has(criterionExclusionKey(campaignId, criterion)));
+};
+
 export function CountriesTab({ fxUsdBrl }: Props) {
   const dash = useDashboardData();
 
