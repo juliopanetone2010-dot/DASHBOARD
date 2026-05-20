@@ -503,13 +503,22 @@ Deno.serve(async (req) => {
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
 
-      // Reaproveita a trava de campanha "insegura" (receita GAM órfã) calculada no preview.
-      // Se a campanha do item está marcada como insegura, rejeita ANTES de qualquer outra checagem.
+      // Reaproveita a trava cirúrgica (pior caso de receita órfã) calculada no preview.
+      // Se, no pior caso, a receita órfã da campanha tornaria o ROI deste placement bom,
+      // rejeita ANTES de qualquer outra checagem.
       const preFiltered = selected.filter((it) => {
         const cid = it.campaigns?.[0]?.campaign_id;
-        if (cid && unsafeCampaigns.has(cid)) {
-          safetyRejected.push({ placement: it.placement, reason: "campaign_has_orphan_gam_revenue", campaign_id: cid });
-          return false;
+        if (!cid) return true;
+        const orphanUsd = orphanUsdByCampaign.get(cid) ?? 0;
+        const cost = Number(it.cost_brl) || 0;
+        const revUsd = Number(it.revenue_usd) || 0;
+        if (orphanUsd > 0 && cost > 0) {
+          const worstCaseRevBrl = (revUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
+          const worstCaseRoi = ((worstCaseRevBrl - cost) / cost) * 100;
+          if (worstCaseRoi > maxRoiPct) {
+            safetyRejected.push({ placement: it.placement, reason: "orphan_revenue_worst_case_safe", campaign_id: cid, orphan_usd: round4(orphanUsd) });
+            return false;
+          }
         }
         return true;
       });
