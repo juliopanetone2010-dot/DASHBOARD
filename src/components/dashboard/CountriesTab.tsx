@@ -127,7 +127,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             .in("campaign_id", ids.slice(i, i + 200))
             .limit(5000);
           for (const a of acts ?? []) {
-            const payload = (a.payload as any) ?? {};
+            const payload = (a.payload ?? {}) as { country_code?: string | null; country_criterion_id?: string | null };
             addCountryExclusionKeys(excluded, String(a.campaign_id), payload.country_code, payload.country_criterion_id);
           }
         }
