@@ -298,7 +298,7 @@ Deno.serve(async (req) => {
     const orphanUsdByCampaign = new Map<string, number>();
     const attributedByCampaign = new Map<string, number>();
     for (const [key, usd] of revenueUsdByCp) {
-      const cid = key.split("|")[0];
+      const cid = key.split(KEY_SEP)[0];
       attributedByCampaign.set(cid, (attributedByCampaign.get(cid) ?? 0) + usd);
     }
     for (const [cid, totalUsd] of campaignRevenueTotals) {
