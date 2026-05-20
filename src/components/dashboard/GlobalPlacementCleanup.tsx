@@ -39,6 +39,10 @@ interface PreviewItem {
   impressions: number;
   match_utm: boolean;
   reason: string;
+  is_protected?: boolean;
+  protected_reason?: string;
+  orphan_revenue_usd?: number;
+  worst_case_roi_pct?: number;
   campaigns: PreviewCampaign[];
 }
 interface CampaignTotal {
@@ -226,14 +230,18 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const [resyncing, setResyncing] = useState(false);
-  const runResyncAndPreview = async () => {
+  const [reviewingProtected, setReviewingProtected] = useState(false);
+  const runResyncAndPreview = async (includeProtected = false) => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", variant: "destructive" });
       return;
     }
-    setResyncing(true);
+    includeProtected ? setReviewingProtected(true) : setResyncing(true);
     try {
-      toast({ title: "Ressincronizando receita do GAM…", description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}` });
+      toast({
+        title: includeProtected ? "Rechecando protegidos com calma…" : "Ressincronizando receita do GAM…",
+        description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}`,
+      });
       const { data: gamData, error: gamErr } = await supabase.functions.invoke<GamSyncResp>("gam-sync-revenue", {
         body: {
           wait: true,
@@ -255,12 +263,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const googleRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_rows ?? s.rows_returned ?? 0), 0);
       const placementRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_placement_rows ?? 0), 0);
       toast({
-        title: "Receita atualizada — rechecando placements…",
+        title: includeProtected ? "Receita atualizada — mostrando protegidos…" : "Receita atualizada — rechecando placements…",
         description: `${googleRows} linha(s) de campanha · ${placementRows} linha(s) de placement`,
       });
-      await runPreview();
+      if (includeProtected) {
+        await runPreview({ includeProtected: true });
+      } else {
+        await runPreview();
+      }
     } finally {
-      setResyncing(false);
+      includeProtected ? setReviewingProtected(false) : setResyncing(false);
     }
   };
 
