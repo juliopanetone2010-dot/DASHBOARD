@@ -256,7 +256,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           revenue_only: true,
           skip_viewability: true,
           skip_legacy_reports: true,
-          skip_snapshot_regen: true,
+          // ressync manual: regenera snapshot pra receita aparecer atualizada nos cards.
+          skip_snapshot_regen: false,
         },
       });
       if (gamErr || gamData?.error) {
