@@ -61,6 +61,7 @@ Deno.serve(async (req) => {
     const accountIds: string[] = Array.isArray(body?.google_account_ids)
       ? body.google_account_ids.map((x: unknown) => String(x)).filter(Boolean)
       : [];
+    const includeProtected = Boolean(body?.include_protected);
 
     // Quando vier do client (não do cron interno), exigimos site_id para evitar afetar outros sites.
     const isCron = isService && !!targetUserId;
@@ -336,7 +337,40 @@ Deno.serve(async (req) => {
       if (orphanUsd > 0 && v.cost > 0) {
         const worstCaseRevBrl = (revenueUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
         const worstCaseRoi = ((worstCaseRevBrl - v.cost) / v.cost) * 100;
-        if (worstCaseRoi > maxRoiPct) { skippedUnsafeCampaign++; continue; }
+        if (worstCaseRoi > maxRoiPct) {
+          skippedUnsafeCampaign++;
+          if (!includeProtected) continue;
+          const itemKey = `${v.campaign_id}|${v.placement}`;
+          items.push({
+            key: itemKey,
+            placement: v.placement,
+            type: v.type,
+            app_id: v.app_id,
+            cost_brl: round(v.cost),
+            revenue_brl: round4(revenueBrl),
+            revenue_usd: round4(revenueUsd),
+            profit_brl: round(profitBrl),
+            roi_pct: round(roi),
+            clicks: v.clicks,
+            impressions: v.impressions,
+            match_utm: matched,
+            reason: "protegido_receita_sem_match",
+            is_protected: true,
+            protected_reason: "receita sem match exato pode pertencer a este placement",
+            orphan_revenue_usd: round4(orphanUsd),
+            worst_case_roi_pct: round(worstCaseRoi),
+            campaigns: [{
+              campaign_id: v.campaign_id,
+              name: meta.name,
+              google_account_id: meta.google_account_id,
+              cost_brl: round(v.cost),
+              revenue_usd: round4(revenueUsd),
+              matched_utm: matched,
+              roi_pct: round(roi),
+            }],
+          });
+          continue;
+        }
       }
 
 
@@ -452,6 +486,7 @@ Deno.serve(async (req) => {
       period: { from, to },
       analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
+      protected_visible: includeProtected,
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
       grand_cost_brl,
       grand_revenue_brl,

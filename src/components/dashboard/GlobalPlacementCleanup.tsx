@@ -39,6 +39,10 @@ interface PreviewItem {
   impressions: number;
   match_utm: boolean;
   reason: string;
+  is_protected?: boolean;
+  protected_reason?: string;
+  orphan_revenue_usd?: number;
+  worst_case_roi_pct?: number;
   campaigns: PreviewCampaign[];
 }
 interface CampaignTotal {
@@ -104,7 +108,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [siteAccounts, setSiteAccounts] = useState<Record<string, string[]>>({});
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
-  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  const canExclude = (i: PreviewItem) => !i.is_protected && (i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id));
 
   // carrega config persistida
   useEffect(() => {
@@ -180,7 +184,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
-  const runPreview = async () => {
+  const runPreview = async (options?: { includeProtected?: boolean }) => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
       return;
@@ -201,6 +205,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
+          include_protected: options?.includeProtected ?? false,
         },
       });
       if (error || data?.error) {
@@ -226,14 +231,18 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const [resyncing, setResyncing] = useState(false);
-  const runResyncAndPreview = async () => {
+  const [reviewingProtected, setReviewingProtected] = useState(false);
+  const runResyncAndPreview = async (includeProtected = false) => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", variant: "destructive" });
       return;
     }
-    setResyncing(true);
+    includeProtected ? setReviewingProtected(true) : setResyncing(true);
     try {
-      toast({ title: "Ressincronizando receita do GAM…", description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}` });
+      toast({
+        title: includeProtected ? "Rechecando protegidos com calma…" : "Ressincronizando receita do GAM…",
+        description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}`,
+      });
       const { data: gamData, error: gamErr } = await supabase.functions.invoke<GamSyncResp>("gam-sync-revenue", {
         body: {
           wait: true,
@@ -255,12 +264,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const googleRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_rows ?? s.rows_returned ?? 0), 0);
       const placementRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_placement_rows ?? 0), 0);
       toast({
-        title: "Receita atualizada — rechecando placements…",
+        title: includeProtected ? "Receita atualizada — mostrando protegidos…" : "Receita atualizada — rechecando placements…",
         description: `${googleRows} linha(s) de campanha · ${placementRows} linha(s) de placement`,
       });
-      await runPreview();
+      if (includeProtected) {
+        await runPreview({ includeProtected: true });
+      } else {
+        await runPreview();
+      }
     } finally {
-      setResyncing(false);
+      includeProtected ? setReviewingProtected(false) : setResyncing(false);
     }
   };
 
@@ -317,6 +330,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
+  const protectedVisible = items.filter((i) => i.is_protected).length;
   const visibleAccounts = filters.siteId && filters.siteId !== "all" && siteAccounts[filters.siteId]
     ? accounts.filter((a) => siteAccounts[filters.siteId].includes(a.id))
     : accounts;
@@ -407,7 +421,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
-        <Button onClick={runPreview} disabled={loading} variant="destructive">
+        <Button onClick={() => runPreview()} disabled={loading} variant="destructive">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
           Executar limpeza agora
         </Button>
@@ -459,7 +473,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
               <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas</Badge>
               <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
-              <Badge variant="destructive">{items.length} ruins</Badge>
+              <Badge variant="destructive">{items.length - protectedVisible} ruins</Badge>
+              {protectedVisible > 0 && <Badge variant="outline" className="border-warning text-warning">🛡️ {protectedVisible} protegidos em revisão</Badge>}
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
               {typeof stats?.match_pct === "number" && (
                 <Badge variant="outline" className={cn(stats.match_pct >= 70 ? "border-success text-success" : "border-warning text-warning")}>
@@ -498,13 +513,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={runResyncAndPreview}
+                  onClick={() => runResyncAndPreview(false)}
                   disabled={resyncing || loading}
                   title="Re-puxa receita do GAM no período e roda o preview de novo"
                 >
                   {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
                   Ressincronizar receita & rechecar
                 </Button>
+                {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => runResyncAndPreview(true)}
+                    disabled={reviewingProtected || resyncing || loading}
+                    title="Atualiza a receita e mostra os protegidos sem selecionar para exclusão automática"
+                  >
+                    {reviewingProtected ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />}
+                    Ver com calma
+                  </Button>
+                )}
                 <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
@@ -529,7 +556,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 )}
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
-                  const websiteList = list.filter((i) => i.type === "WEBSITE");
+                  const websiteList = list.filter(canExclude);
                   const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
                   return (
@@ -580,11 +607,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   return (
                                     <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
+                                        {i.is_protected ? <ShieldAlert className="h-3.5 w-3.5 text-warning" /> : <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />}
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">
                                         {i.type}
+                                        {i.is_protected && <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning">protegido</Badge>}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
                                         {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
                                       </TableCell>
@@ -599,7 +627,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                             : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                                         </TableCell>
                                       )}
-                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
+                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}{i.is_protected && ` · órfã $${(i.orphan_revenue_usd ?? 0).toFixed(4)} · pior ROI ${fmtPercent(i.worst_case_roi_pct ?? 0)}`}</TableCell>}
                                     </TableRow>
                                   );
                                 })}
