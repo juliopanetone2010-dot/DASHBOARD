@@ -318,6 +318,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
+  for (const [cid, list] of itemsByCampaign) {
+    itemsByCampaign.set(cid, [...list].sort((a, b) =>
+      (b.revenue_brl || 0) - (a.revenue_brl || 0)
+      || a.roi_pct - b.roi_pct
+      || b.cost_brl - a.cost_brl,
+    ));
+  }
   // Mostra apenas o total dos placements ruins exibidos. Assim a linha da campanha
   // bate exatamente com as linhas expandidas, sem misturar o total geral da campanha.
   const campaignMeta = new Map(campaignTotals.map((c) => [c.campaign_id, c]));
@@ -333,6 +340,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         return sum + i.revenue_brl * share;
       }, 0);
       const profit = revenue - cost;
+      const revenue_count = list.filter((i) => i.revenue_brl > 0).length;
       return {
         campaign_id: cid,
         name: first?.name ?? meta?.name ?? cid,
@@ -342,6 +350,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         profit_brl: profit,
         roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
         bad_count: list.length,
+        revenue_count,
         eligible: meta?.eligible,
       };
     })
