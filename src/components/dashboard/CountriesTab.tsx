@@ -346,6 +346,9 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       toast({ title: "Campanha renomeada", description: newName });
       return true;
     } finally { setRenaming(null); }
+  };
+
+
 
   const toggleSelect = (key: string) => setSelectedKeys((s) => {
     const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
