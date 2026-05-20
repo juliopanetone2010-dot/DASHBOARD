@@ -142,6 +142,33 @@ Deno.serve(async (req) => {
       return json({ ok: true, action, new_status: newStatus });
     }
 
+    if (action === "set_name") {
+      if (!newName || newName.length < 2 || newName.length > 255) {
+        return json({ error: "Nome inválido (2-255 caracteres)" });
+      }
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            name: newName,
+          },
+          updateMask: "name",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaigns:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await admin.from("campaigns").update({ name: newName }).eq("id", camp.id);
+      await logAction("executed", { new_name: newName, old_name: camp.name });
+      return json({ ok: true, action, name: newName });
+    }
+
+
     // adjust_cpa: busca ad_groups com target_cpa_micros definido e atualiza
     if (action === "adjust_cpa") {
       if (!Number.isFinite(deltaPct) || deltaPct === 0) {
