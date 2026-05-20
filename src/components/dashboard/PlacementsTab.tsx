@@ -53,7 +53,7 @@ interface AggRow {
   revenueBrl: number;         // revenueUsdNet * fxUsdBrl
   profitBrl: number;          // receita_brl - custo_brl
   roi: number;                // ROI calculado em BRL
-  revenueSource: "utm_full" | "utm_root" | "utm_prefix" | "none";
+  revenueSource: "utm_full" | "none";
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
@@ -94,17 +94,6 @@ const normalizePlacementKey = (value: string, type?: string | null): string => {
 
 const isMobileAppPlacement = (type: string, placement: string) =>
   type === "MOBILE_APPLICATION" || /^\d+$/.test(placement);
-
-const findPrefixRevenueKey = (placement: string, keys: string[], usedKeys: Set<string>) => {
-  const normalized = placement.replace(/\.$/, "");
-  return keys
-    .filter((key) => {
-      if (usedKeys.has(key)) return false;
-      const prefix = key.replace(/\.$/, "");
-      return prefix.length >= 8 && normalized.startsWith(prefix);
-    })
-    .sort((a, b) => b.length - a.length)[0] ?? null;
-};
 
 async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   const all: AdsPlacementRow[] = [];
@@ -318,8 +307,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
-    const revenueKeys = [...gamRevenueByPlacement.keys()];
-    const usedPrefixRevenueKeys = new Set<string>();
     for (const r of rows) {
       const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
       // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
@@ -347,22 +334,11 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     }
     const values = [...map.values()];
     for (const a of values) {
-      // Match: 1) full normalizado  2) root domain
+      // Match estrito: só placement completo normalizado. Sem root/prefixo/fallback.
       let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
       let source: AggRow["revenueSource"] = "none";
       let matchedKey: string | null = null;
       if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
-      else if (a.placementRoot && a.placementRoot !== a.placement) {
-        const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
-        if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
-      }
-      if (usd <= 0 && isMobileAppPlacement(a.type, a.placement)) {
-        const prefixKey = findPrefixRevenueKey(a.placement, revenueKeys, usedPrefixRevenueKeys);
-        if (prefixKey) {
-          usd = gamRevenueByPlacement.get(prefixKey) ?? 0;
-          if (usd > 0) { source = "utm_prefix"; matchedKey = prefixKey; usedPrefixRevenueKeys.add(prefixKey); }
-        }
-      }
       const usdNet = usd * (1 - REV_SHARE_PCT);
       const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
       a.revenueUsd = usd;
