@@ -492,7 +492,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   Receita com match: {stats.gam_attributed_pct}%
                 </Badge>
               )}
-              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro com match exato: {fmtBRL(grandProfit)}</Badge>
               {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
                 <Badge variant="outline" className="border-warning text-warning" title="A receita do GAM não bateu exatamente com um placement do Ads. Por segurança, só removi da lista os placements que poderiam ficar bons se essa receita fosse deles.">
                   🛡️ {stats?.skipped_unsafe_campaign} protegido(s) por receita sem match exato
@@ -549,7 +549,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   <TableHead className="w-10"></TableHead>
                   <TableHead>Campanha</TableHead>
                   <TableHead className="text-right">Custo ({analysisWindowDays}d)</TableHead>
-                  <TableHead className="text-right">Receita ({analysisWindowDays}d)</TableHead>
+                  <TableHead className="text-right">Receita exata ({analysisWindowDays}d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
                   <TableHead className="text-right">Ruins</TableHead>
@@ -573,6 +573,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
                         <TableCell className="text-right tabular-nums">
                           <div>{fmtBRL(camp.revenue_brl)}</div>
+                          {(camp as any).protected_count > 0 && (camp as any).gam_revenue_brl > camp.revenue_brl && (
+                            <div className="text-[10px] text-warning">{fmtBRL((camp as any).gam_revenue_brl)} no GAM sem match</div>
+                          )}
                           {(camp as any).revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{(camp as any).revenue_count} com receita</div>}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
@@ -599,7 +602,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   <TableHead>Tipo</TableHead>
                                   <TableHead className="text-right">Cliques</TableHead>
                                   <TableHead className="text-right">Custo</TableHead>
-                                  <TableHead className="text-right">Receita</TableHead>
+                                  <TableHead className="text-right">Receita exata</TableHead>
+                                  <TableHead className="text-right">Sem match</TableHead>
                                   <TableHead className="text-right">ROI</TableHead>
                                   {showDebug && <TableHead>Match</TableHead>}
                                   {showDebug && <TableHead>Motivo</TableHead>}
@@ -625,6 +629,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtPlacementRevenue(c?.revenue_usd ?? 0)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-xs text-warning">{i.is_protected ? fmtPlacementRevenue(i.orphan_revenue_usd ?? 0) : "—"}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
                                       {showDebug && (
                                         <TableCell>
@@ -633,7 +638,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                             : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                                         </TableCell>
                                       )}
-                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}{i.is_protected && ` · órfã $${(i.orphan_revenue_usd ?? 0).toFixed(4)} · pior ROI ${fmtPercent(i.worst_case_roi_pct ?? 0)}`}</TableCell>}
+                                      {showDebug && <TableCell className="text-[10px] font-mono max-w-[320px]">{i.is_protected ? protectedActionText : i.reason}</TableCell>}
                                     </TableRow>
                                   );
                                 })}
