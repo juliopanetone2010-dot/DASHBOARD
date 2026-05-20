@@ -438,7 +438,7 @@ Deno.serve(async (req) => {
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
       skipped_unsafe_campaign: skippedUnsafeCampaign,
-      unsafe_campaigns: [...unsafeCampaigns],
+      unsafe_campaigns: [...orphanUsdByCampaign.keys()],
       ads_rows: ads.length,
       gam_rows: gam.length,
       with_match: withMatch,
