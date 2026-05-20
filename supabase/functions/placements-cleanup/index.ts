@@ -496,6 +496,17 @@ Deno.serve(async (req) => {
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
+
+      // Reaproveita a trava de campanha "insegura" (receita GAM órfã) calculada no preview.
+      // Se a campanha do item está marcada como insegura, rejeita ANTES de qualquer outra checagem.
+      const preFiltered = selected.filter((it) => {
+        const cid = it.campaigns?.[0]?.campaign_id;
+        if (cid && unsafeCampaigns.has(cid)) {
+          safetyRejected.push({ placement: it.placement, reason: "campaign_has_orphan_gam_revenue", campaign_id: cid });
+          return false;
+        }
+        return true;
+      });
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
       const safetyResults = await Promise.all(selected.map(async (it) => {
         // TRAVA EXTRA: receita GAM EXATA do placement (qualquer campanha) no período.
