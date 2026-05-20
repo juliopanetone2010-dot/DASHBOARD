@@ -522,6 +522,22 @@ Deno.serve(async (req) => {
       const safetyApproved: ApplyItem[] = [];
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
       const safetyResults = await Promise.all(selected.map(async (it) => {
+        // TRAVA EXTRA: receita GAM EXATA do placement (qualquer campanha) no período.
+        // Se o GAM tem receita registrada exatamente para este host, NUNCA bloqueia.
+        const placementNorm = normalize(it.placement, it.type);
+        let directGamUsd = 0;
+        if (placementNorm) {
+          let directQ = admin
+            .from("gam_placement_revenue")
+            .select("revenue_usd")
+            .eq("user_id", userId)
+            .eq("placement", placementNorm)
+            .gte("date", from)
+            .lte("date", to);
+          if (siteId) directQ = directQ.eq("site_id", siteId);
+          const { data: directRows } = await directQ.limit(5000);
+          directGamUsd = (directRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
+        }
         const checks = await Promise.all(it.campaigns.map(async (c) => {
           const root = rootDomain(it.placement);
           const { data: costRows } = await admin
@@ -551,7 +567,10 @@ Deno.serve(async (req) => {
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
           return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
         }));
-        return { it, checks, allOk: checks.every((x) => x.ok) };
+        // Bloqueia somente se: nenhuma campanha está OK no root E não há receita exata direta.
+        const hasDirectGam = directGamUsd > 0.01;
+        const allOk = !hasDirectGam && checks.every((x) => x.ok);
+        return { it, checks, allOk, directGamUsd: round4(directGamUsd), hasDirectGam };
       }));
       for (const { it, checks, allOk } of safetyResults) {
         if (allOk) safetyApproved.push(it);
