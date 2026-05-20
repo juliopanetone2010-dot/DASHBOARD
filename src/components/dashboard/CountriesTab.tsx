@@ -318,7 +318,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       try {
         const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
           "google-ads-mutate",
-          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId } },
+          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId, country_code: it.countryCode } },
         );
         if (error || data?.error) { fail++; continue; }
         setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });
