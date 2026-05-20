@@ -13,6 +13,8 @@ export interface ClientCountryEngineParams {
   to: string;
   fxUsdBrl: number;
   netFactor: number;
+  /** Mantém apenas países atualmente segmentados (presentes na data mais recente sincronizada). */
+  restrictToCurrentCountries?: boolean;
 }
 
 export interface ClientCountryCell {
@@ -380,6 +382,27 @@ export async function computeCountryPerformanceClient(
   for (const t of campaignTotals.values()) {
     if (t.daily_cost_brl > 0 && Math.abs(t.cost_brl - t.daily_cost_brl) / t.daily_cost_brl > 0.10) {
       warnings.push(`campaign ${t.campaign_id}: custo país (R$${t.cost_brl.toFixed(2)}) difere de daily_metrics (R$${t.daily_cost_brl.toFixed(2)}) em mais de 10%`);
+    }
+  }
+
+  if (p.restrictToCurrentCountries) {
+    // Mantém apenas países que aparecem na data mais recente sincronizada da campanha
+    // (proxy para "países atualmente segmentados hoje"), independentemente do período do filtro.
+    const currentByCampaign = new Map<string, Set<string>>();
+    for (const r of fallbackCountryRows) {
+      if (latestDateByCampaign.get(r.campaign_id) !== r.date) continue;
+      const code = r.country_code || "";
+      if (!code) continue;
+      const set = currentByCampaign.get(r.campaign_id) ?? new Set<string>();
+      set.add(code);
+      currentByCampaign.set(r.campaign_id, set);
+    }
+    for (const [k, cell] of [...cells]) {
+      const current = currentByCampaign.get(cell.campaign_id);
+      // Se a campanha não tem snapshot recente, preserva (não conseguimos inferir o estado atual).
+      if (current && current.size > 0 && !current.has(cell.country_code)) {
+        cells.delete(k);
+      }
     }
   }
 

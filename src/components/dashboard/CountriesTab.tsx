@@ -98,6 +98,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         to: range.to,
         fxUsdBrl,
         netFactor: NET_FACTOR,
+        restrictToCurrentCountries: true,
       });
       const cells = [...result.cells.values()];
       setCountryRows(cells);
