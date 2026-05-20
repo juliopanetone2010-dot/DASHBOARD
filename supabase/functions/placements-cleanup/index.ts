@@ -345,8 +345,9 @@ Deno.serve(async (req) => {
 
     type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
-    // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
-    // não só as elegíveis para limpeza. Assim o header bate com o dashboard.
+    // IMPORTANTE: custo vem do Ads, mas receita do header vem do mesmo GAM filtrado
+    // por site/período usado nos placements. Não usar daily_metrics.revenue aqui,
+    // porque ela pode estar agregada por campanha e divergir do site selecionado.
     for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -366,7 +367,6 @@ Deno.serve(async (req) => {
           totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
-        t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
     }
     for (const [cid, revenueUsd] of campaignRevenueTotals) {
@@ -378,7 +378,7 @@ Deno.serve(async (req) => {
         totalsMap.set(cid, t);
       }
       const liveRevenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
-      if (liveRevenueBrl > t.revenue_brl) t.revenue_brl = liveRevenueBrl;
+      t.revenue_brl = liveRevenueBrl;
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
