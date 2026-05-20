@@ -332,7 +332,7 @@ export async function computeCountryPerformanceClient(
     for (const b of basis) {
       const cell = ensureCell(b);
       const acc = cellAccum.get(`${b.campaign_id}|${b.country_code}`)!;
-      cell.cost_brl += daily.spend * b.share;
+      cell.cost_brl += daily.spend * b.costShare;
       if (daily.grossRevenueBrl > 0 && sf > 0) {
         const grossUsd = daily.revenue * sf * b.share;
         const grossBrl = daily.grossRevenueBrl * sf * b.share;
