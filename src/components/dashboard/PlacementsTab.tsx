@@ -576,7 +576,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           </div>
           <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
             <div className="font-semibold text-sm">2. Verificação de ROI real</div>
-            <p className="text-muted-foreground">Cruza <b>custo real</b> (ads_placements) × <b>receita real</b> (GAM) por domínio raiz, aplicando NET_FACTOR (0.935) × FX.</p>
+            <p className="text-muted-foreground">Cruza <b>custo real</b> (ads_placements) × <b>receita real</b> (GAM) por placement exato, aplicando NET_FACTOR (0.935) × FX.</p>
           </div>
           <div className="rounded-lg border border-success/40 bg-success/5 p-3 space-y-1.5">
             <div className="font-semibold text-sm text-success">🛡️ 3. Trava de segurança</div>
