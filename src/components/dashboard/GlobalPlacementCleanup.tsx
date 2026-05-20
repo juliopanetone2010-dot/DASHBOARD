@@ -515,7 +515,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                         <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
                         <TableCell className="font-medium text-sm">{camp.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <div>{fmtBRL(camp.revenue_brl)}</div>
+                          {(camp as any).revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{(camp as any).revenue_count} com receita</div>}
+                        </TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
                         <TableCell className="text-right">
