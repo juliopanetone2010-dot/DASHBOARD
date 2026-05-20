@@ -870,9 +870,10 @@ async function persistGamUrlRevenue(args: {
   ranges: GamRange[];
   debug: string[];
   ingestionDivisor: number;
+  deadlineAt?: number;
   allowRelativeUrls?: boolean;
 }) {
-  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls } = args;
+  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt, allowRelativeUrls } = args;
   if (!siteId) return;
   const domain = normalizeDomain(siteDomain);
   const authoritativeDates = new Set<string>();
@@ -891,6 +892,10 @@ async function persistGamUrlRevenue(args: {
   const pushFiltersFallback = buildPushKeyValueFiltersFallback();
 
   for (const { range, date } of expandToDailyGamRanges(ranges)) {
+    if (deadlineAt && Date.now() + 18_000 >= deadlineAt) {
+      debug.push(`[${networkCode}] URL+AdX stopped before Edge timeout`);
+      break;
+    }
     let rows: ReportRow[] = [];
     let usedFilter = true;
     let filterLabel = "CHANNEL=utm_source=push";
@@ -902,6 +907,7 @@ async function persistGamUrlRevenue(args: {
         filters: pushFilters,
         expandedCompatibility: true,
         debug,
+          deadlineAt,
       });
     } catch (e) {
       const msg1 = `[${networkCode}] URL+AdX+CHANNEL ${date} falhou (${String(e).slice(0, 180)}); tentando KEY_VALUES_NAME`;
@@ -916,6 +922,7 @@ async function persistGamUrlRevenue(args: {
           filters: pushFiltersFallback,
           expandedCompatibility: true,
           debug,
+          deadlineAt,
         });
       } catch (e2) {
         usedFilter = false;
@@ -930,6 +937,7 @@ async function persistGamUrlRevenue(args: {
             metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
             expandedCompatibility: true,
             debug,
+            deadlineAt,
           });
         } catch (e3) {
           const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e3).slice(0, 300)}`;
