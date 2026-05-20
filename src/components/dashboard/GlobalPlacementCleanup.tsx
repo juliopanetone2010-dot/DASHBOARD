@@ -49,6 +49,7 @@ interface CampaignTotal {
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
+  skipped_unsafe_campaign?: number; unsafe_campaigns?: string[];
   with_match?: number; without_match?: number; match_pct?: number;
   gam_total_usd?: number; gam_attributed_usd?: number; gam_attributed_pct?: number;
   period?: { from: string; to: string };
@@ -454,6 +455,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 </Badge>
               )}
               <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
+              {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
+                <Badge variant="outline" className="border-warning text-warning" title="Campanhas com receita GAM que não foi 100% atribuída a placements específicos foram totalmente protegidas — nenhum placement delas pode ser excluído.">
+                  🛡️ {stats?.skipped_unsafe_campaign} placement(s) protegido(s) (receita órfã)
+                </Badge>
+              )}
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
