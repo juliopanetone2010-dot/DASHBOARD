@@ -543,17 +543,14 @@ Deno.serve(async (req) => {
           directGamUsd = (directRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
         }
         const checks = await Promise.all(it.campaigns.map(async (c) => {
-          const { data: costRows } = await admin
-            .from("ads_placements")
-            .select("cost, placement, placement_clean, placement_type")
-            .eq("user_id", userId)
-            .eq("campaign_id", c.campaign_id)
-            .gte("date", from)
-            .lte("date", to)
-            .limit(5000);
-          const costBrl = (costRows ?? [])
-            .filter((r: any) => normalize(r.placement_clean || r.placement, r.placement_type) === placementNorm)
-            .reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          // CUSTO: usa o agregado AO VIVO do Google Ads já buscado no preview (cpAgg),
+          // e não a tabela `ads_placements` (que pode estar defasada para campanhas
+          // recém-renomeadas/recém-sincronizadas, gerando falsos positivos de
+          // "ROI real positivo" e bloqueando placements legitimamente ruins).
+          const liveCost = cpAgg.get(cpKey(c.campaign_id, placementNorm))?.cost ?? 0;
+          // Fallback: se por algum motivo o live não tem o item, aceita o custo
+          // enviado pelo cliente (que veio do mesmo preview live).
+          const costBrl = liveCost > 0 ? liveCost : (Number(c.cost_brl) || 0);
           let gamQ = admin
             .from("gam_placement_revenue")
             .select("revenue_usd")
@@ -569,7 +566,7 @@ Deno.serve(async (req) => {
           const profit = revBrl - costBrl;
           const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
-          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
+          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok, cost_source: liveCost > 0 ? "live_ads" : "client_preview" };
         }));
         // Bloqueia somente se: nenhuma campanha está OK no root E não há receita exata direta.
         const hasDirectGam = directGamUsd > 0.01;
