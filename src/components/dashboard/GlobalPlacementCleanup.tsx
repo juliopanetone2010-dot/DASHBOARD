@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 
 interface PreviewCampaign {
   campaign_id: string;
-  name?: string;
   name: string;
   google_account_id: string;
   cost_brl: number;
