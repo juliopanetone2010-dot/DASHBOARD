@@ -390,3 +390,9 @@ function chunk200<T>(arr: T[]): T[][] {
   for (let i = 0; i < arr.length; i += 200) out.push(arr.slice(i, i + 200));
   return out;
 }
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
