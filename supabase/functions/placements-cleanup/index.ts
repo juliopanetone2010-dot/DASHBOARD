@@ -470,8 +470,7 @@ Deno.serve(async (req) => {
       // ============================================================
       // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
       // direto no banco (gam_placement_revenue + ads_placements) antes
-      // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
-      // Match por root domain + variantes (sk2.x.com, www.x.com etc).
+      // de negativar. A regra é a mesma do preview: match EXATO apenas.
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
@@ -494,25 +493,25 @@ Deno.serve(async (req) => {
           directGamUsd = (directRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
         }
         const checks = await Promise.all(it.campaigns.map(async (c) => {
-          const root = rootDomain(it.placement);
           const { data: costRows } = await admin
             .from("ads_placements")
-            .select("cost, placement, placement_clean")
+            .select("cost, placement, placement_clean, placement_type")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
             .limit(5000);
-          const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          const costBrl = (costRows ?? [])
+            .filter((r: any) => normalize(r.placement_clean || r.placement, r.placement_type) === placementNorm)
+            .reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
           let gamQ = admin
             .from("gam_placement_revenue")
-            .select("revenue_usd, placement")
+            .select("revenue_usd")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .ilike("placement", `%${root}%`);
+            .eq("placement", placementNorm);
           if (siteId) gamQ = gamQ.eq("site_id", siteId);
           const { data: revRows } = await gamQ.limit(5000);
           const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
