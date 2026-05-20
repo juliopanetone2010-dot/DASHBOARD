@@ -288,7 +288,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
         "google-ads-mutate",
-        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId } },
+        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId, country_code: countryCode } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
