@@ -330,6 +330,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
+  const protectedVisible = items.filter((i) => i.is_protected).length;
   const visibleAccounts = filters.siteId && filters.siteId !== "all" && siteAccounts[filters.siteId]
     ? accounts.filter((a) => siteAccounts[filters.siteId].includes(a.id))
     : accounts;
@@ -472,7 +473,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
               <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas</Badge>
               <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
-              <Badge variant="destructive">{items.length} ruins</Badge>
+              <Badge variant="destructive">{items.length - protectedVisible} ruins</Badge>
+              {protectedVisible > 0 && <Badge variant="outline" className="border-warning text-warning">🛡️ {protectedVisible} protegidos em revisão</Badge>}
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
               {typeof stats?.match_pct === "number" && (
                 <Badge variant="outline" className={cn(stats.match_pct >= 70 ? "border-success text-success" : "border-warning text-warning")}>
@@ -554,7 +556,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 )}
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
-                  const websiteList = list.filter((i) => i.type === "WEBSITE");
+                  const websiteList = list.filter(canExclude);
                   const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
                   return (
@@ -605,11 +607,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   return (
                                     <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
                                       <TableCell>
-                                        <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
+                                        {i.is_protected ? <ShieldAlert className="h-3.5 w-3.5 text-warning" /> : <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />}
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">
                                         {i.type}
+                                        {i.is_protected && <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning">protegido</Badge>}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
                                         {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
                                       </TableCell>
@@ -624,7 +627,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                             : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                                         </TableCell>
                                       )}
-                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
+                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}{i.is_protected && ` · órfã $${(i.orphan_revenue_usd ?? 0).toFixed(4)} · pior ROI ${fmtPercent(i.worst_case_roi_pct ?? 0)}`}</TableCell>}
                                     </TableRow>
                                   );
                                 })}
