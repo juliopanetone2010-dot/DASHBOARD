@@ -1011,6 +1011,16 @@ async function persistPushUrlRevenue(args: {
 }) {
   const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor } = args;
   if (!siteId) return;
+  // CUSTOM_CRITERIA não é dimensão válida na GAM Reporting API v1 (retorna 400).
+  // gam_url_revenue (URL + key-values) já cobre push. Mantemos a função como no-op
+  // para não estourar o IDLE_TIMEOUT de 150s tentando dia-a-dia.
+  const skipMsg = `[${networkCode}] push_url_revenue skipped (CUSTOM_CRITERIA não suportado na API v1) site=${siteDomain ?? siteId}`;
+  console.log(skipMsg);
+  debug.push(skipMsg);
+  return;
+  // eslint-disable-next-line no-unreachable
+  // @ts-ignore unreachable block kept for reference
+  // deno-lint-ignore no-unreachable
   const dates = expandFixedDates(ranges);
   if (dates.length > 0) {
     await admin.from("push_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
