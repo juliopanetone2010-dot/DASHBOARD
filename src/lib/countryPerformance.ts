@@ -385,6 +385,27 @@ export async function computeCountryPerformanceClient(
     }
   }
 
+  if (p.restrictToCurrentCountries) {
+    // Mantém apenas países que aparecem na data mais recente sincronizada da campanha
+    // (proxy para "países atualmente segmentados hoje"), independentemente do período do filtro.
+    const currentByCampaign = new Map<string, Set<string>>();
+    for (const r of fallbackCountryRows) {
+      if (latestDateByCampaign.get(r.campaign_id) !== r.date) continue;
+      const code = r.country_code || "";
+      if (!code) continue;
+      const set = currentByCampaign.get(r.campaign_id) ?? new Set<string>();
+      set.add(code);
+      currentByCampaign.set(r.campaign_id, set);
+    }
+    for (const [k, cell] of [...cells]) {
+      const current = currentByCampaign.get(cell.campaign_id);
+      // Se a campanha não tem snapshot recente, preserva (não conseguimos inferir o estado atual).
+      if (current && current.size > 0 && !current.has(cell.country_code)) {
+        cells.delete(k);
+      }
+    }
+  }
+
   return {
     cells, campaignTotals, warnings,
     meta: {
