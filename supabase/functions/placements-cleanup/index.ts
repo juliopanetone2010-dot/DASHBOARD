@@ -431,6 +431,8 @@ Deno.serve(async (req) => {
       grouped: cpAgg.size,
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
+      skipped_unsafe_campaign: skippedUnsafeCampaign,
+      unsafe_campaigns: [...unsafeCampaigns],
       ads_rows: ads.length,
       gam_rows: gam.length,
       with_match: withMatch,
