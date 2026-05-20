@@ -344,12 +344,16 @@ Deno.serve(async (req) => {
       const existing = sj?.results?.[0]?.campaignCriterion;
 
       let mutateBody: any;
-      let mode: "remove" | "create_negative";
+      let mode: "remove_positive" | "keep_negative" | "create_negative";
 
-      if (existing?.resourceName) {
-        // Remove o critério existente (positivo OU negativo já criado antes)
-        mode = "remove";
+      if (existing?.resourceName && existing.negative !== true) {
+        // Remove o critério positivo existente: a campanha deixa de mirar explicitamente nesse país.
+        mode = "remove_positive";
         mutateBody = { operations: [{ remove: existing.resourceName }] };
+      } else if (existing?.resourceName && existing.negative === true) {
+        mode = "keep_negative";
+        await logAction("executed", { country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
+        return json({ ok: true, action, country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
       } else {
         // Cria como negativo
         mode = "create_negative";
