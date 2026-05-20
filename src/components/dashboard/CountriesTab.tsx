@@ -99,6 +99,25 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
       }
       setCampNames(names);
+
+      // Rehidrata exclusões já executadas (persistidas em automation_actions)
+      if (ids.length > 0) {
+        const excluded = new Set<string>();
+        for (let i = 0; i < ids.length; i += 200) {
+          const { data: acts } = await supabase
+            .from("automation_actions")
+            .select("campaign_id, payload")
+            .eq("action_type", "exclude_country")
+            .eq("status", "executed")
+            .in("campaign_id", ids.slice(i, i + 200))
+            .limit(5000);
+          for (const a of acts ?? []) {
+            const cc = (a.payload as any)?.country_code;
+            if (cc) excluded.add(`${a.campaign_id}|${String(cc).toUpperCase()}`);
+          }
+        }
+        setExcludedKeys(excluded);
+      }
     } catch (e) {
       toast({ title: "Erro ao carregar países", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
       setCountryRows([]);
@@ -288,7 +307,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
         "google-ads-mutate",
-        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId } },
+        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId, country_code: countryCode } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
@@ -318,7 +337,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       try {
         const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
           "google-ads-mutate",
-          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId } },
+          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId, country_code: it.countryCode } },
         );
         if (error || data?.error) { fail++; continue; }
         setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });

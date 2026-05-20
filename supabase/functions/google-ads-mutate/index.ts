@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
     // 2) Senão => cria critério NEGATIVO (location exclusion)
     if (action === "exclude_country") {
       const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
+      const countryCode = String((body as any)?.country_code ?? "").toUpperCase().slice(0, 4);
       if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
 
       const geoRN = `geoTargetConstants/${countryCriterionId}`;
@@ -377,8 +378,8 @@ Deno.serve(async (req) => {
           JSON.stringify(j);
         return json({ error: String(detail) });
       }
-      await logAction("executed", { country_criterion_id: countryCriterionId, mode });
-      return json({ ok: true, action, country_criterion_id: countryCriterionId, mode });
+      await logAction("executed", { country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
     }
 
     // set_ad_status: pausa/ativa um ou vários criativos (ad_group_ad)
