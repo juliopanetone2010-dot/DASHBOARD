@@ -108,7 +108,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [siteAccounts, setSiteAccounts] = useState<Record<string, string[]>>({});
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
-  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  const canExclude = (i: PreviewItem) => !i.is_protected && (i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id));
 
   // carrega config persistida
   useEffect(() => {
@@ -184,7 +184,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
-  const runPreview = async () => {
+  const runPreview = async (options?: { includeProtected?: boolean }) => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
       return;
@@ -205,6 +205,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
+          include_protected: options?.includeProtected ?? false,
         },
       });
       if (error || data?.error) {
@@ -510,13 +511,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={runResyncAndPreview}
+                  onClick={() => runResyncAndPreview(false)}
                   disabled={resyncing || loading}
                   title="Re-puxa receita do GAM no período e roda o preview de novo"
                 >
                   {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
                   Ressincronizar receita & rechecar
                 </Button>
+                {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => runResyncAndPreview(true)}
+                    disabled={reviewingProtected || resyncing || loading}
+                    title="Atualiza a receita e mostra os protegidos sem selecionar para exclusão automática"
+                  >
+                    {reviewingProtected ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />}
+                    Ver com calma
+                  </Button>
+                )}
                 <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
