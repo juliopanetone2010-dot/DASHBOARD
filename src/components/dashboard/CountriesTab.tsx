@@ -127,8 +127,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             .in("campaign_id", ids.slice(i, i + 200))
             .limit(5000);
           for (const a of acts ?? []) {
-            const cc = (a.payload as any)?.country_code;
-            if (cc) excluded.add(`${a.campaign_id}|${String(cc).toUpperCase()}`);
+            const payload = (a.payload as any) ?? {};
+            addCountryExclusionKeys(excluded, String(a.campaign_id), payload.country_code, payload.country_criterion_id);
           }
         }
         setExcludedKeys(excluded);
@@ -328,8 +328,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
         return;
       }
-      setExcludedKeys((s) => { const n = new Set(s); n.add(`${campaignId}|${countryCode}`); return n; });
-      setSelectedKeys((s) => { const n = new Set(s); n.delete(`${campaignId}|${countryCode}`); return n; });
+      setExcludedKeys((s) => { const n = new Set(s); addCountryExclusionKeys(n, campaignId, countryCode, criterionId); return n; });
+      setSelectedKeys((s) => { const n = new Set(s); n.delete(countryExclusionKey(campaignId, countryCode)); return n; });
       toast({ title: "País excluído", description: `${countryName} adicionado como exclusão na campanha.` });
     } finally { setExcluding(null); }
   };
@@ -338,8 +338,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     const items: { campaignId: string; criterionId: string | null; countryCode: string; countryName: string }[] = [];
     const seen = new Set<string>();
     for (const r of countryRows) {
-      const k = `${r.campaign_id}|${r.country_code}`;
-      if (selectedKeys.has(k) && !excludedKeys.has(k) && !seen.has(k)) {
+      const k = countryExclusionKey(r.campaign_id, r.country_code);
+      if (selectedKeys.has(k) && !isCountryExcluded(excludedKeys, r.campaign_id, r.country_code, r.country_criterion_id) && !seen.has(k)) {
         seen.add(k);
         items.push({ campaignId: r.campaign_id, criterionId: r.country_criterion_id, countryCode: r.country_code, countryName: r.country_name ?? r.country_code });
       }
@@ -355,7 +355,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId, country_code: it.countryCode } },
         );
         if (error || data?.error) { fail++; continue; }
-        setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });
+        setExcludedKeys((s) => { const n = new Set(s); addCountryExclusionKeys(n, it.campaignId, it.countryCode, it.criterionId); return n; });
         ok++;
       } catch { fail++; }
     }
