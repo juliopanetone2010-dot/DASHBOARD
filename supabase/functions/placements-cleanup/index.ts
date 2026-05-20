@@ -290,22 +290,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // TRAVA DE SEGURANÇA POR CAMPANHA:
-    // Se a campanha tem receita GAM > 0 mas a atribuição exata não cobriu ≥ 99% dela,
-    // existe receita "órfã" — ou seja, algum placement está gerando dinheiro mas não
-    // conseguimos provar qual. Nesse caso NÃO marcamos NENHUM placement dessa campanha
-    // como ruim, pra evitar excluir um placement bom por erro de atribuição.
-    const unsafeCampaigns = new Set<string>();
+    // TRAVA DE SEGURANÇA POR PLACEMENT (cirúrgica):
+    // Calcula a receita "órfã" da campanha (GAM total − atribuída exato).
+    // Se, no pior caso, TODA essa receita órfã pertencesse a este placement,
+    // o ROI dele subiria acima do limite (passaria a ser "bom")? Então protege.
+    // Isso evita apagar um placement que pode ser o dono da receita órfã.
+    const orphanUsdByCampaign = new Map<string, number>();
     const attributedByCampaign = new Map<string, number>();
     for (const [key, usd] of revenueUsdByCp) {
       const cid = key.split("|")[0];
       attributedByCampaign.set(cid, (attributedByCampaign.get(cid) ?? 0) + usd);
     }
     for (const [cid, totalUsd] of campaignRevenueTotals) {
-      if (totalUsd <= 0) continue;
       const attributed = attributedByCampaign.get(cid) ?? 0;
-      const coverage = attributed / totalUsd;
-      if (coverage < 0.99) unsafeCampaigns.add(cid);
+      const orphan = Math.max(0, totalUsd - attributed);
+      if (orphan > 0) orphanUsdByCampaign.set(cid, orphan);
     }
 
     const items = [];
@@ -321,10 +320,8 @@ Deno.serve(async (req) => {
         continue;
       }
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
-      if (unsafeCampaigns.has(v.campaign_id)) { skippedUnsafeCampaign++; continue; }
 
       const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
-      // "matched" = teve algum match real (exato/root/prefixo) — checa se houve receita direta
       const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
       const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
       const matched = directUsd > 0 || rootUsd > 0 || revenueUsd > 0;
@@ -333,6 +330,15 @@ Deno.serve(async (req) => {
       const profitBrl = revenueBrl - v.cost;
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
       if (roi > maxRoiPct) continue;
+
+      // Pior caso: este placement recebe TODA a receita órfã da campanha.
+      const orphanUsd = orphanUsdByCampaign.get(v.campaign_id) ?? 0;
+      if (orphanUsd > 0 && v.cost > 0) {
+        const worstCaseRevBrl = (revenueUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
+        const worstCaseRoi = ((worstCaseRevBrl - v.cost) / v.cost) * 100;
+        if (worstCaseRoi > maxRoiPct) { skippedUnsafeCampaign++; continue; }
+      }
+
 
       const reason = !matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo");
       const itemKey = `${v.campaign_id}|${v.placement}`;
@@ -432,7 +438,7 @@ Deno.serve(async (req) => {
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
       skipped_unsafe_campaign: skippedUnsafeCampaign,
-      unsafe_campaigns: [...unsafeCampaigns],
+      unsafe_campaigns: [...orphanUsdByCampaign.keys()],
       ads_rows: ads.length,
       gam_rows: gam.length,
       with_match: withMatch,
@@ -497,13 +503,22 @@ Deno.serve(async (req) => {
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
 
-      // Reaproveita a trava de campanha "insegura" (receita GAM órfã) calculada no preview.
-      // Se a campanha do item está marcada como insegura, rejeita ANTES de qualquer outra checagem.
+      // Reaproveita a trava cirúrgica (pior caso de receita órfã) calculada no preview.
+      // Se, no pior caso, a receita órfã da campanha tornaria o ROI deste placement bom,
+      // rejeita ANTES de qualquer outra checagem.
       const preFiltered = selected.filter((it) => {
         const cid = it.campaigns?.[0]?.campaign_id;
-        if (cid && unsafeCampaigns.has(cid)) {
-          safetyRejected.push({ placement: it.placement, reason: "campaign_has_orphan_gam_revenue", campaign_id: cid });
-          return false;
+        if (!cid) return true;
+        const orphanUsd = orphanUsdByCampaign.get(cid) ?? 0;
+        const cost = Number(it.cost_brl) || 0;
+        const revUsd = Number(it.revenue_usd) || 0;
+        if (orphanUsd > 0 && cost > 0) {
+          const worstCaseRevBrl = (revUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
+          const worstCaseRoi = ((worstCaseRevBrl - cost) / cost) * 100;
+          if (worstCaseRoi > maxRoiPct) {
+            safetyRejected.push({ placement: it.placement, reason: "orphan_revenue_worst_case_safe", campaign_id: cid, orphan_usd: round4(orphanUsd) });
+            return false;
+          }
         }
         return true;
       });
