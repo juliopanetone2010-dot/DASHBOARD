@@ -568,10 +568,17 @@ Deno.serve(async (req) => {
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
           return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok, cost_source: liveCost > 0 ? "live_ads" : "client_preview" };
         }));
-        // Bloqueia somente se: nenhuma campanha está OK no root E não há receita exata direta.
-        const hasDirectGam = directGamUsd > 0.01;
+        // Bloqueia somente se: nenhuma campanha está OK no root.
+        // A trava de "receita GAM direta" só protege se essa receita for grande o
+        // suficiente para tornar o ROI agregado (todas as campanhas envolvidas) bom.
+        // Caso contrário, um placement com R$ 287 de custo e $9 de receita seria
+        // incorretamente protegido.
+        const totalCostBrl = checks.reduce((a, x) => a + x.cost_brl, 0);
+        const directGamBrl = directGamUsd * NET_FACTOR * fxUsdBrl;
+        const directRoi = totalCostBrl > 0 ? ((directGamBrl - totalCostBrl) / totalCostBrl) * 100 : 0;
+        const hasDirectGam = directGamUsd > 0.01 && totalCostBrl > 0 && directRoi > maxRoiPct;
         const allOk = !hasDirectGam && checks.every((x) => x.ok);
-        return { it, checks, allOk, directGamUsd: round4(directGamUsd), hasDirectGam };
+        return { it, checks, allOk, directGamUsd: round4(directGamUsd), hasDirectGam, directRoi: round(directRoi), totalCostBrl: round(totalCostBrl) };
       }));
       for (const { it, checks, allOk, directGamUsd, hasDirectGam } of safetyResults) {
         if (allOk) safetyApproved.push(it);
