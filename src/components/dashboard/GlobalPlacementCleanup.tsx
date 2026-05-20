@@ -318,16 +318,36 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
-  // Mostra apenas campanhas que TÊM placements ruins (respeitando ROI máx e custo mín).
-  const accountFilteredTotals = accountFilter === "all"
-    ? campaignTotals
-    : campaignTotals.filter((c) => c.google_account_id === accountFilter);
-  const sortedCampaigns = [...accountFilteredTotals]
-    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
+  // Mostra apenas o total dos placements ruins exibidos. Assim a linha da campanha
+  // bate exatamente com as linhas expandidas, sem misturar o total geral da campanha.
+  const campaignMeta = new Map(campaignTotals.map((c) => [c.campaign_id, c]));
+  const sortedCampaigns = [...itemsByCampaign.entries()]
+    .map(([cid, list]) => {
+      const first = list.flatMap((i) => i.campaigns).find((c) => c.campaign_id === cid);
+      const meta = campaignMeta.get(cid);
+      const cost = list.reduce((sum, i) => sum + (i.campaigns.find((c) => c.campaign_id === cid)?.cost_brl ?? 0), 0);
+      const revenue = list.reduce((sum, i) => {
+        const campaign = i.campaigns.find((c) => c.campaign_id === cid);
+        if (!campaign) return sum;
+        const share = i.revenue_usd > 0 ? (campaign.revenue_usd ?? 0) / i.revenue_usd : 0;
+        return sum + i.revenue_brl * share;
+      }, 0);
+      const profit = revenue - cost;
+      return {
+        campaign_id: cid,
+        name: first?.name ?? meta?.name ?? cid,
+        google_account_id: first?.google_account_id ?? meta?.google_account_id,
+        cost_brl: cost,
+        revenue_brl: revenue,
+        profit_brl: profit,
+        roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
+        bad_count: list.length,
+        eligible: meta?.eligible,
+      };
+    })
     .sort((a, b) => a.roi_pct - b.roi_pct);
 
-  // Custo/Lucro do header reflete TODAS campanhas exibidas (com e sem placements ruins),
-  // assim bate com o dashboard "Últimos 15 dias".
+  // Custo/Lucro do header reflete somente os placements ruins exibidos.
   const grandCost = sortedCampaigns.reduce((a, c) => a + (c.cost_brl || 0), 0);
   const grandProfit = sortedCampaigns.reduce((a, c) => a + (c.profit_brl || 0), 0);
 

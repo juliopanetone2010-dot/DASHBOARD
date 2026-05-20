@@ -345,8 +345,9 @@ Deno.serve(async (req) => {
 
     type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
-    // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
-    // não só as elegíveis para limpeza. Assim o header bate com o dashboard.
+    // IMPORTANTE: custo vem do Ads, mas receita do header vem do mesmo GAM filtrado
+    // por site/período usado nos placements. Não usar daily_metrics.revenue aqui,
+    // porque ela pode estar agregada por campanha e divergir do site selecionado.
     for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -366,7 +367,6 @@ Deno.serve(async (req) => {
           totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
-        t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
     }
     for (const [cid, revenueUsd] of campaignRevenueTotals) {
@@ -378,7 +378,7 @@ Deno.serve(async (req) => {
         totalsMap.set(cid, t);
       }
       const liveRevenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
-      if (liveRevenueBrl > t.revenue_brl) t.revenue_brl = liveRevenueBrl;
+      t.revenue_brl = liveRevenueBrl;
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
@@ -470,8 +470,7 @@ Deno.serve(async (req) => {
       // ============================================================
       // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
       // direto no banco (gam_placement_revenue + ads_placements) antes
-      // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
-      // Match por root domain + variantes (sk2.x.com, www.x.com etc).
+      // de negativar. A regra é a mesma do preview: match EXATO apenas.
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
@@ -494,25 +493,25 @@ Deno.serve(async (req) => {
           directGamUsd = (directRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
         }
         const checks = await Promise.all(it.campaigns.map(async (c) => {
-          const root = rootDomain(it.placement);
           const { data: costRows } = await admin
             .from("ads_placements")
-            .select("cost, placement, placement_clean")
+            .select("cost, placement, placement_clean, placement_type")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
             .limit(5000);
-          const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          const costBrl = (costRows ?? [])
+            .filter((r: any) => normalize(r.placement_clean || r.placement, r.placement_type) === placementNorm)
+            .reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
           let gamQ = admin
             .from("gam_placement_revenue")
-            .select("revenue_usd, placement")
+            .select("revenue_usd")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .ilike("placement", `%${root}%`);
+            .eq("placement", placementNorm);
           if (siteId) gamQ = gamQ.eq("site_id", siteId);
           const { data: revRows } = await gamQ.limit(5000);
           const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
