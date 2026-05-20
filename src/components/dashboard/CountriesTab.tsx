@@ -1,5 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown, Ban, Bug } from "lucide-react";
+import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown, Ban, Bug, Pencil } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -326,6 +330,26 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     toast({ title: "Exclusão em lote", description: `${ok} excluídos${fail ? `, ${fail} falharam` : ""}.`, variant: fail && !ok ? "destructive" : "default" });
   };
 
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const handleRename = async (campaignId: string, newName: string) => {
+    setRenaming(campaignId);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; name?: string }>(
+        "google-ads-mutate",
+        { body: { action: "set_name", campaign_id: campaignId, name: newName } },
+      );
+      if (error || data?.error) {
+        toast({ title: "Erro ao renomear", description: data?.error ?? error?.message, variant: "destructive" });
+        return false;
+      }
+      setCampNames((m) => ({ ...m, [campaignId]: newName }));
+      toast({ title: "Campanha renomeada", description: newName });
+      return true;
+    } finally { setRenaming(null); }
+  };
+
+
+
   const toggleSelect = (key: string) => setSelectedKeys((s) => {
     const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
   });
@@ -606,11 +630,18 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className={cn("text-right tabular-nums", cp.profit < 0 && "text-danger")}>{fmtBRL(cp.profit)}</TableCell>
                                 <TableCell className={cn("text-right tabular-nums font-semibold", cp.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(cp.roi)}</TableCell>
                                 <TableCell className="text-right">
-                                  <ExcludeButton
-                                    busy={excluding === key}
-                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
-                                    label={`Excluir ${c.name} desta campanha`}
-                                  />
+                                  <div className="inline-flex items-center gap-1">
+                                    <RenameButton
+                                      busy={renaming === cp.campaign_id}
+                                      currentName={cp.name}
+                                      onConfirm={(n) => handleRename(cp.campaign_id, n)}
+                                    />
+                                    <ExcludeButton
+                                      busy={excluding === key}
+                                      onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
+                                      label={`Excluir ${c.name} desta campanha`}
+                                    />
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
@@ -638,7 +669,18 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                 <Fragment key={cp.campaign_id}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
                     <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
-                    <TableCell className="font-medium text-sm">{cp.name}</TableCell>
+                    <TableCell className="font-medium text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">{cp.name}</span>
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <RenameButton
+                            busy={renaming === cp.campaign_id}
+                            currentName={cp.name}
+                            onConfirm={(n) => handleRename(cp.campaign_id, n)}
+                          />
+                        </span>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{list.length}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
@@ -731,5 +773,42 @@ function ExcludeButton({ busy, onConfirm, label }: { busy: boolean; onConfirm: (
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+function RenameButton({ busy, currentName, onConfirm }: { busy: boolean; currentName: string; onConfirm: (newName: string) => Promise<boolean | void> }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(currentName);
+  useEffect(() => { if (open) setValue(currentName); }, [open, currentName]);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} title="Renomear campanha">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Renomear campanha</DialogTitle>
+          <DialogDescription>
+            O nome será atualizado no Google Ads. Útil quando você removeu um país do nome.
+          </DialogDescription>
+        </DialogHeader>
+        <Input value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button
+            disabled={busy || !value.trim() || value.trim() === currentName}
+            onClick={async () => {
+              const ok = await onConfirm(value.trim());
+              if (ok !== false) setOpen(false);
+            }}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : null}
+            Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

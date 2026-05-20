@@ -20,9 +20,10 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_name"].includes(action)) {
       return json({ error: "action inválida" });
     }
+    const newName = typeof (body as any)?.name === "string" ? String((body as any).name).trim() : "";
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -140,6 +141,33 @@ Deno.serve(async (req) => {
       await logAction("executed", mutateBody);
       return json({ ok: true, action, new_status: newStatus });
     }
+
+    if (action === "set_name") {
+      if (!newName || newName.length < 2 || newName.length > 255) {
+        return json({ error: "Nome inválido (2-255 caracteres)" });
+      }
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            name: newName,
+          },
+          updateMask: "name",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaigns:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await admin.from("campaigns").update({ name: newName }).eq("id", camp.id);
+      await logAction("executed", { new_name: newName, old_name: camp.name });
+      return json({ ok: true, action, name: newName });
+    }
+
 
     // adjust_cpa: busca ad_groups com target_cpa_micros definido e atualiza
     if (action === "adjust_cpa") {
