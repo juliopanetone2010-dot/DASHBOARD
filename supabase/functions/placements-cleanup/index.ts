@@ -290,9 +290,28 @@ Deno.serve(async (req) => {
       }
     }
 
+    // TRAVA DE SEGURANÇA POR CAMPANHA:
+    // Se a campanha tem receita GAM > 0 mas a atribuição exata não cobriu ≥ 99% dela,
+    // existe receita "órfã" — ou seja, algum placement está gerando dinheiro mas não
+    // conseguimos provar qual. Nesse caso NÃO marcamos NENHUM placement dessa campanha
+    // como ruim, pra evitar excluir um placement bom por erro de atribuição.
+    const unsafeCampaigns = new Set<string>();
+    const attributedByCampaign = new Map<string, number>();
+    for (const [key, usd] of revenueUsdByCp) {
+      const cid = key.split("|")[0];
+      attributedByCampaign.set(cid, (attributedByCampaign.get(cid) ?? 0) + usd);
+    }
+    for (const [cid, totalUsd] of campaignRevenueTotals) {
+      if (totalUsd <= 0) continue;
+      const attributed = attributedByCampaign.get(cid) ?? 0;
+      const coverage = attributed / totalUsd;
+      if (coverage < 0.99) unsafeCampaigns.add(cid);
+    }
+
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
+    let skippedUnsafeCampaign = 0;
     let withMatch = 0, withoutMatch = 0;
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
@@ -302,6 +321,7 @@ Deno.serve(async (req) => {
         continue;
       }
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
+      if (unsafeCampaigns.has(v.campaign_id)) { skippedUnsafeCampaign++; continue; }
 
       const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
       // "matched" = teve algum match real (exato/root/prefixo) — checa se houve receita direta
