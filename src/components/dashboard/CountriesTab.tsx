@@ -669,7 +669,18 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                 <Fragment key={cp.campaign_id}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
                     <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
-                    <TableCell className="font-medium text-sm">{cp.name}</TableCell>
+                    <TableCell className="font-medium text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">{cp.name}</span>
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <RenameButton
+                            busy={renaming === cp.campaign_id}
+                            currentName={cp.name}
+                            onConfirm={(n) => handleRename(cp.campaign_id, n)}
+                          />
+                        </span>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{list.length}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
