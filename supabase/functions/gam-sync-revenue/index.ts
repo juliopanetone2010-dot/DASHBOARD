@@ -308,7 +308,7 @@ async function runSync(req: Request): Promise<Response> {
             try {
               await persistGamUrlRevenue({
                 admin, userId, siteId: site?.id, siteDomain: site?.domain,
-                networkCode, accessToken, ranges, debug, ingestionDivisor,
+                networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt,
                 allowRelativeUrls: networkSites.length === 1,
               });
             } catch (e) {
@@ -402,14 +402,21 @@ async function runSync(req: Request): Promise<Response> {
         }
       }
       for (const d of expanded) {
+        if (!hasBudget(8_000)) {
+          debug.push(`[snapshot] stopped before Edge timeout after partial regen`);
+          break;
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5_000);
         await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
           method: "POST",
           headers: {
             Authorization: authHeader!,
             "Content-Type": "application/json",
           },
+          signal: controller.signal,
           body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => clearTimeout(timeout));
       }
       debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
       }
