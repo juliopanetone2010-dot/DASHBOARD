@@ -244,6 +244,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           account_ids: filters.googleAccountIds ?? [],
           revenue_only: true,
           skip_viewability: true,
+          skip_legacy_reports: true,
+          skip_snapshot_regen: true,
         },
       });
       if (gamErr || gamData?.error) {
