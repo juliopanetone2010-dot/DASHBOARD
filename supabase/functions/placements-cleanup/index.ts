@@ -104,6 +104,9 @@ Deno.serve(async (req) => {
       from = fromOverride;
       // Garante "até ontem" no máximo (Google Ads não tem dia atual fechado)
       to = toOverride > iso(yesterday) ? iso(yesterday) : toOverride;
+      // Se o range do dashboard incluía só hoje, o cap acima deixa from > to.
+      // Recuamos o from para casar com to (analisa pelo menos 1 dia válido).
+      if (from > to) from = to;
     } else {
       to = iso(yesterday);
       from = iso(new Date(today.getTime() - lookbackDays * 86400_000));
