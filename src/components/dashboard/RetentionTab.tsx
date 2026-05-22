@@ -107,13 +107,16 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  const isPushSource = (value: unknown) => {
-    const source = String(value ?? "").toLowerCase();
-    return source === "push" || source === "utm_source=push";
+  const RETENTION_SOURCES = ["push", "wpp", "whatsapp"] as const;
+  const isRetentionSource = (value: unknown) => {
+    const source = String(value ?? "").toLowerCase().trim();
+    if (!source) return false;
+    if (source === "push" || source === "utm_source=push") return true;
+    if (source === "wpp" || source === "utm_source=wpp") return true;
+    if (source === "whatsapp" || source === "utm_source=whatsapp") return true;
+    return false;
   };
-  // URLs de push — espelha o report da UI do GAM (dim=URL + filtro Channel=utm_source=push).
-  // Lê de gam_url_revenue (populado pelo edge function com AD_EXCHANGE_CHANNEL_NAME).
-  // Database-first: nunca chama o GAM ao abrir.
+  // URLs de retenção (push + wpp) — espelha report do GAM (dim=URL + filtro Channel=utm_source=push|wpp).
   const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
     queryKey: ["push-url-revenue", range.from, range.to, filters.siteId],
     queryFn: async () => {
@@ -122,13 +125,14 @@ export function RetentionTab({ campaigns }: Props) {
         .select("url, utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to)
-        .eq("utm_source", "push");
+        .in("utm_source", RETENTION_SOURCES as unknown as string[]);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const rows = (data ?? []) as GamUrlRevenueRow[];
       const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
       for (const r of rows) {
-        const key = r.url;
+        if (!isRetentionSource(r.utm_source)) continue;
+        const key = `${r.url}|${r.utm_source ?? ""}`;
         const cur = map.get(key) ?? { placement: r.url, raw_utm: null, utm_source: r.utm_source, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
@@ -139,7 +143,7 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 30_000,
   });
 
-  // UTMs de retenção — fonte autoritativa de receita por UTM (push, izooto, etc) vem de gam_campaign_source_revenue
+  // UTMs de retenção (push + wpp) — receita por UTM vem de gam_campaign_source_revenue
   const pushUtmsQuery = useQuery<Array<{ utm: string; rev: number; impr: number }>>({
     queryKey: ["push-utms", range.from, range.to, filters.siteId],
     queryFn: async () => {
@@ -148,13 +152,13 @@ export function RetentionTab({ campaigns }: Props) {
         .select("utm_source, revenue_usd, impressions, site_id")
         .gte("date", range.from)
         .lte("date", range.to)
-        .eq("utm_source", "push");
+        .in("utm_source", RETENTION_SOURCES as unknown as string[]);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
       const { data } = await q.limit(20000);
       const map = new Map<string, { utm: string; rev: number; impr: number }>();
       for (const r of (data ?? []) as PushUtmRevenueRow[]) {
         const utm = String(r.utm_source ?? "(sem utm)");
-        if (!isPushSource(utm)) continue;
+        if (!isRetentionSource(utm)) continue;
         const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
         cur.rev += Number(r.revenue_usd) || 0;
         cur.impr += Number(r.impressions) || 0;
