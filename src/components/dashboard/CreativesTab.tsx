@@ -17,6 +17,7 @@ import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { getNetFactor } from "@/lib/revshare";
 
 interface CreativeRow {
   campaign_id: string;
@@ -95,6 +96,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
+  const [netFactor, setNetFactor] = useState(1);
 
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -134,6 +136,12 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      setNetFactor(await getNetFactor(siteId === "all" ? null : siteId));
+    })();
+  }, [siteId]);
 
   const saveRules = async (patch: Partial<{ creative_auto_optimize_enabled: boolean; creative_min_cost_brl: number; creative_min_days: number; creative_min_roi_diff_pct: number }>) => {
     const { data: u } = await supabase.auth.getUser();
@@ -201,7 +209,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     const adMap = new Map<string, AdAgg & { datesSet: Set<string> }>();
     const campMap = new Map<string, CampAgg>();
     for (const r of rows) {
-      const revBrl = Number(r.revenue_usd) * fxUsdBrl;
+      const revBrl = Number(r.revenue_usd) * fxUsdBrl * netFactor;
       const adKey = `${r.campaign_id}|${r.ad_group_id}|${r.ad_id}`;
       const a = adMap.get(adKey);
       if (a) {
@@ -248,7 +256,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       c.ads.sort((a, b) => b.cost - a.cost);
     }
     return [...campMap.values()].sort((a, b) => b.cost - a.cost);
-  }, [rows, fxUsdBrl]);
+  }, [rows, fxUsdBrl, netFactor]);
 
   // Decisão por criativo dentro da campanha
   const decideAd = (ad: AdAgg, bestRoi: number | null) => {
