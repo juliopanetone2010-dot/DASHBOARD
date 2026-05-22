@@ -256,7 +256,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       c.ads.sort((a, b) => b.cost - a.cost);
     }
     return [...campMap.values()].sort((a, b) => b.cost - a.cost);
-  }, [rows, fxUsdBrl]);
+  }, [rows, fxUsdBrl, netFactor]);
 
   // Decisão por criativo dentro da campanha
   const decideAd = (ad: AdAgg, bestRoi: number | null) => {
