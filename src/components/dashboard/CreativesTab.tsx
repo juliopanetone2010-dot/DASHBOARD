@@ -96,6 +96,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
+  const [netFactor, setNetFactor] = useState(1);
 
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
