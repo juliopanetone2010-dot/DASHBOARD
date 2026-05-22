@@ -17,6 +17,7 @@ import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { getNetFactor } from "@/lib/revshare";
 
 interface CreativeRow {
   campaign_id: string;
