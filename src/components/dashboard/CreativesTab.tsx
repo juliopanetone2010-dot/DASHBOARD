@@ -209,7 +209,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     const adMap = new Map<string, AdAgg & { datesSet: Set<string> }>();
     const campMap = new Map<string, CampAgg>();
     for (const r of rows) {
-      const revBrl = Number(r.revenue_usd) * fxUsdBrl;
+      const revBrl = Number(r.revenue_usd) * fxUsdBrl * netFactor;
       const adKey = `${r.campaign_id}|${r.ad_group_id}|${r.ad_id}`;
       const a = adMap.get(adKey);
       if (a) {
