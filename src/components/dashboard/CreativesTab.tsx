@@ -137,6 +137,12 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     })();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      setNetFactor(await getNetFactor(siteId === "all" ? null : siteId));
+    })();
+  }, [siteId]);
+
   const saveRules = async (patch: Partial<{ creative_auto_optimize_enabled: boolean; creative_min_cost_brl: number; creative_min_days: number; creative_min_roi_diff_pct: number }>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u?.user) return;
