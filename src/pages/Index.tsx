@@ -53,6 +53,7 @@ const Index = () => {
 
 const IndexInner = () => {
   const { user } = useAuth();
+  const acl = useAdminAcl();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
