@@ -74,6 +74,11 @@ Deno.serve(async (req) => {
 
     if (!userId) return json({ error: "Login obrigatório" }, 401);
 
+    if (userJwt) {
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_pause_campaigns" });
+      if (!hasPerm) return json({ error: "Permissão negada: can_pause_campaigns" }, 403);
+    }
+
     if (action === "preview") {
       const campaignId = String(body?.campaign_id ?? "");
       if (!campaignId) return json({ error: "campaign_id obrigatório" }, 400);

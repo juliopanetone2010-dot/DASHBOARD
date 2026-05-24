@@ -90,6 +90,8 @@ Deno.serve(async (req) => {
       const { data: claims } = await userClient.auth.getClaims(token);
       userId = String(claims?.claims?.sub ?? "");
       if (!userId) return json({ error: "Token inválido" }, 401);
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_scale_campaigns" });
+      if (!hasPerm) return json({ error: "Permissão negada: can_scale_campaigns" }, 403);
     }
 
     // Carrega ou cria config

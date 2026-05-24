@@ -159,6 +159,13 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ACL: chamada manual (com JWT) exige can_run_automation. Cron (sem JWT) passa.
+    if (userJwt && onlyUserId) {
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: onlyUserId, _perm: "can_run_automation" });
+      if (!hasPerm) return json({ error: "Permissão negada: can_run_automation" }, 403);
+    }
+
+
     // Regras numéricas continuam em rules_config; habilitação agora é por site/conta.
     let rulesQuery = admin.from("rules_config").select("*");
     if (onlyUserId) rulesQuery = rulesQuery.eq("user_id", onlyUserId);

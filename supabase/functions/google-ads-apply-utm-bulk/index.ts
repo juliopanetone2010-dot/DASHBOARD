@@ -28,6 +28,9 @@ Deno.serve(async (req) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_edit_rules" });
+    if (!hasPerm) return json({ error: "Permissão negada: can_edit_rules" });
+
     let q = admin.from("campaigns")
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId);
