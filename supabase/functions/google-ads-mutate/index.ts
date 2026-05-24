@@ -83,6 +83,10 @@ Deno.serve(async (req) => {
     if (requestedSiteId && requestedSiteId !== resolvedSiteId) {
       return json({ error: "Bloqueado: campanha não pertence ao site selecionado" });
     }
+    if (!isSystemCall) {
+      const { data: hasSite } = await admin.rpc("admin_has_site_access", { _uid: userId, _site: resolvedSiteId });
+      if (!hasSite) return json({ error: "Sem acesso ao site desta campanha" });
+    }
 
     const { data: acc, error: aErr } = await admin
       .from("google_accounts")
