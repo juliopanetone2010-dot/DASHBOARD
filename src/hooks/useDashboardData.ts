@@ -702,6 +702,16 @@ export function useDashboardData(): DashboardData {
     await refresh();
   };
 
+  // ACL: usuário não-super_admin só enxerga sites permitidos
+  const allowedSites = acl.allowedSiteIds;
+  const visibleSites = acl.isSuperAdmin || allowedSites.size === 0
+    ? snap.sites
+    : snap.sites.filter((s) => allowedSites.has(s.id));
+  const visibleSiteIds = new Set(visibleSites.map((s) => s.id));
+  const visibleLinks = acl.isSuperAdmin
+    ? snap.links
+    : snap.links.filter((l) => visibleSiteIds.has(l.site_id));
+
   return {
     campaigns: snap.campaigns,
     metrics: snap.metrics,
@@ -710,8 +720,8 @@ export function useDashboardData(): DashboardData {
     alerts: snap.alerts,
     googleAccounts: snap.googleAccounts,
     gamAccounts: snap.gamAccounts,
-    sites: snap.sites,
-    links: snap.links,
+    sites: visibleSites,
+    links: visibleLinks,
     loading: query.isLoading || query.isFetching,
     refresh,
     lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
