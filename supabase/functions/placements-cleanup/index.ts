@@ -88,6 +88,13 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
+    // ACL: usuário precisa de can_use_placements_cleanup (cron passa)
+    if (!isCron && userId) {
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_use_placements_cleanup" });
+      if (!hasPerm) return json({ error: "Permissão negada: can_use_placements_cleanup" });
+    }
+
+
     // Revshare configurável por usuário (rules_config.revenue_share_pct, default 6.5).
     const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
     const NET_FACTOR = 1 - REV_SHARE_PCT;

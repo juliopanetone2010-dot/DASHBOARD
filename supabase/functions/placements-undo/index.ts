@@ -30,6 +30,10 @@ Deno.serve(async (req) => {
     const userId = claims?.claims?.sub;
     if (!userId) return json({ error: "Token inválido" }, 401);
 
+    const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_use_placements_cleanup" });
+    if (!hasPerm) return json({ error: "Permissão negada: can_use_placements_cleanup" }, 403);
+
+
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
     const accIds = [...new Set(items.map((i) => i.google_account_id))];
     const { data: accs } = await admin

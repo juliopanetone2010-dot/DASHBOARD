@@ -39,6 +39,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_run_automation" });
+    if (!hasPerm) return json({ error: "Permissão negada: can_run_automation" }, 403);
+
+
     const since = new Date(Date.now() - hours * 3600_000).toISOString();
 
     // 1. Carrega automation_actions executed do período
