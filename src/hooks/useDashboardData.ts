@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminAcl } from "@/hooks/useAdminAcl";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { DataReadiness, EngineAlertDraft } from "@/engine/rules";
