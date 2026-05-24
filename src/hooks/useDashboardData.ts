@@ -339,6 +339,7 @@ export function useDashboardData(): DashboardData {
   const { filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
+  const acl = useAdminAcl();
 
   // queryKey deliberately does NOT include the user's date filter (range.*).
   // We always fetch the broad FETCH_WINDOW_DAYS window so that date-preset
