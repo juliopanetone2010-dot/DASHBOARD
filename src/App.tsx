@@ -26,6 +26,7 @@ const App = () => (
             <Route path="/oauth/google-ads/callback" element={<OAuthCallback />} />
             <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+            <Route path="/admins" element={<RequireAuth><Admins /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
