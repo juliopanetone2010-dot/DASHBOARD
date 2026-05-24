@@ -41,6 +41,7 @@ import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
+import { useAdminAcl } from "@/hooks/useAdminAcl";
 
 const Index = () => {
   return (
