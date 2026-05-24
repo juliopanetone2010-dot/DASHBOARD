@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminAcl } from "@/hooks/useAdminAcl";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { DataReadiness, EngineAlertDraft } from "@/engine/rules";
@@ -339,6 +340,7 @@ export function useDashboardData(): DashboardData {
   const { filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
+  const acl = useAdminAcl();
 
   // queryKey deliberately does NOT include the user's date filter (range.*).
   // We always fetch the broad FETCH_WINDOW_DAYS window so that date-preset
@@ -700,6 +702,16 @@ export function useDashboardData(): DashboardData {
     await refresh();
   };
 
+  // ACL: usuário não-super_admin só enxerga sites permitidos
+  const allowedSites = acl.allowedSiteIds;
+  const visibleSites = acl.isSuperAdmin || allowedSites.size === 0
+    ? snap.sites
+    : snap.sites.filter((s) => allowedSites.has(s.id));
+  const visibleSiteIds = new Set(visibleSites.map((s) => s.id));
+  const visibleLinks = acl.isSuperAdmin
+    ? snap.links
+    : snap.links.filter((l) => visibleSiteIds.has(l.site_id));
+
   return {
     campaigns: snap.campaigns,
     metrics: snap.metrics,
@@ -708,8 +720,8 @@ export function useDashboardData(): DashboardData {
     alerts: snap.alerts,
     googleAccounts: snap.googleAccounts,
     gamAccounts: snap.gamAccounts,
-    sites: snap.sites,
-    links: snap.links,
+    sites: visibleSites,
+    links: visibleLinks,
     loading: query.isLoading || query.isFetching,
     refresh,
     lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,

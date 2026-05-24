@@ -537,42 +537,66 @@ const IndexInner = () => {
       <main className="container py-6 space-y-6">
         <Tabs defaultValue="dashboard">
           <TabsList>
-            <TabsTrigger value="dashboard" className="gap-1.5">
-              <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="calendar" className="gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" /> Calendário
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="gap-1.5">
-              <Plug className="h-3.5 w-3.5" /> Integrações
-            </TabsTrigger>
-            <TabsTrigger value="placements" className="gap-1.5">
-              <MapPin className="h-3.5 w-3.5" /> Placements
-            </TabsTrigger>
-            <TabsTrigger value="funnel" className="gap-1.5">
-              <BarChart3 className="h-3.5 w-3.5" /> Funil
-            </TabsTrigger>
-            <TabsTrigger value="countries" className="gap-1.5">
-              <Globe className="h-3.5 w-3.5" /> Países
-            </TabsTrigger>
-            <TabsTrigger value="creatives" className="gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" /> Criativos
-            </TabsTrigger>
-            <TabsTrigger value="retention" className="gap-1.5">
-              <Repeat className="h-3.5 w-3.5" /> Retenção / Push
-            </TabsTrigger>
-            <TabsTrigger value="automation" className="gap-1.5">
-              <Bot className="h-3.5 w-3.5" /> Automação
-            </TabsTrigger>
-            <TabsTrigger value="scale-unlock" className="gap-1.5">
-              <Rocket className="h-3.5 w-3.5" /> Destravar Escala
-            </TabsTrigger>
-            <TabsTrigger value="migration" className="gap-1.5">
-              <Repeat className="h-3.5 w-3.5" /> Migração
-            </TabsTrigger>
-            <TabsTrigger value="rules" className="gap-1.5">
-              <Settings className="h-3.5 w-3.5" /> Regras
-            </TabsTrigger>
+            {acl.can("can_view_dashboard") && (
+              <TabsTrigger value="dashboard" className="gap-1.5">
+                <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
+              </TabsTrigger>
+            )}
+            {acl.can("can_view_revenue") && (
+              <TabsTrigger value="calendar" className="gap-1.5">
+                <CalendarDays className="h-3.5 w-3.5" /> Calendário
+              </TabsTrigger>
+            )}
+            {(acl.isSuperAdmin || acl.can("can_manage_users")) && (
+              <TabsTrigger value="integrations" className="gap-1.5">
+                <Plug className="h-3.5 w-3.5" /> Integrações
+              </TabsTrigger>
+            )}
+            {acl.can("can_use_placements_cleanup") && (
+              <TabsTrigger value="placements" className="gap-1.5">
+                <MapPin className="h-3.5 w-3.5" /> Placements
+              </TabsTrigger>
+            )}
+            {acl.can("can_use_funil") && (
+              <TabsTrigger value="funnel" className="gap-1.5">
+                <BarChart3 className="h-3.5 w-3.5" /> Funil
+              </TabsTrigger>
+            )}
+            {acl.can("can_view_dashboard") && (
+              <TabsTrigger value="countries" className="gap-1.5">
+                <Globe className="h-3.5 w-3.5" /> Países
+              </TabsTrigger>
+            )}
+            {acl.can("can_view_dashboard") && (
+              <TabsTrigger value="creatives" className="gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" /> Criativos
+              </TabsTrigger>
+            )}
+            {acl.can("can_manage_push") && (
+              <TabsTrigger value="retention" className="gap-1.5">
+                <Repeat className="h-3.5 w-3.5" /> Retenção / Push
+              </TabsTrigger>
+            )}
+            {acl.can("can_run_automation") && (
+              <TabsTrigger value="automation" className="gap-1.5">
+                <Bot className="h-3.5 w-3.5" /> Automação
+              </TabsTrigger>
+            )}
+            {acl.can("can_scale_campaigns") && (
+              <TabsTrigger value="scale-unlock" className="gap-1.5">
+                <Rocket className="h-3.5 w-3.5" /> Destravar Escala
+              </TabsTrigger>
+            )}
+            {acl.can("can_use_migration") && (
+              <TabsTrigger value="migration" className="gap-1.5">
+                <Repeat className="h-3.5 w-3.5" /> Migração
+              </TabsTrigger>
+            )}
+            {acl.can("can_edit_rules") && (
+              <TabsTrigger value="rules" className="gap-1.5">
+                <Settings className="h-3.5 w-3.5" /> Regras
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
