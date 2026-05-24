@@ -52,6 +52,19 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ACL: valida permissão (pula em modo system/cron)
+    const isSystemCall = token === serviceRoleKey && !!systemUserId;
+    if (!isSystemCall) {
+      const requiredPerm =
+        action === "set_status" || action === "set_ad_status" ? "can_pause_campaigns"
+        : action === "adjust_cpa" || action === "set_target_cpa" ? "can_edit_cpa"
+        : action === "adjust_budget" || action === "set_budget_absolute" ? "can_edit_budgets"
+        : "can_pause_campaigns";
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: requiredPerm });
+      if (!hasPerm) return json({ error: `Permissão negada: ${requiredPerm}` });
+    }
+
+
     // Localiza campanha + conta Ads
     const { data: camp, error: cErr } = await admin
       .from("campaigns")
