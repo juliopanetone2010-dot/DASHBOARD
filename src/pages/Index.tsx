@@ -500,6 +500,11 @@ const IndexInner = () => {
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
+            {(acl.isSuperAdmin || acl.can("can_manage_users")) && (
+              <Button asChild variant="outline" size="sm" className="gap-2" title="Admins / Controle de Acesso">
+                <Link to="/admins"><Shield className="h-4 w-4" /> Admins</Link>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
