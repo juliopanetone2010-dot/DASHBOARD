@@ -38,6 +38,174 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_audit_logs: {
+        Row: {
+          action: string
+          after: Json | null
+          before: Json | null
+          campaign_id: string | null
+          created_at: string
+          id: string
+          ip: string | null
+          resource_id: string | null
+          resource_type: string | null
+          site_id: string | null
+          user_agent: string | null
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          after?: Json | null
+          before?: Json | null
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          ip?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          site_id?: string | null
+          user_agent?: string | null
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          after?: Json | null
+          before?: Json | null
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          ip?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          site_id?: string | null
+          user_agent?: string | null
+          user_email?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      admin_permissions: {
+        Row: {
+          can_edit_budgets: boolean
+          can_edit_cpa: boolean
+          can_edit_rules: boolean
+          can_manage_push: boolean
+          can_manage_users: boolean
+          can_pause_campaigns: boolean
+          can_run_automation: boolean
+          can_scale_campaigns: boolean
+          can_sync: boolean
+          can_use_funil: boolean
+          can_use_geo_expansion: boolean
+          can_use_migration: boolean
+          can_use_placements_cleanup: boolean
+          can_view_dashboard: boolean
+          can_view_logs: boolean
+          can_view_profit: boolean
+          can_view_revenue: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          can_edit_budgets?: boolean
+          can_edit_cpa?: boolean
+          can_edit_rules?: boolean
+          can_manage_push?: boolean
+          can_manage_users?: boolean
+          can_pause_campaigns?: boolean
+          can_run_automation?: boolean
+          can_scale_campaigns?: boolean
+          can_sync?: boolean
+          can_use_funil?: boolean
+          can_use_geo_expansion?: boolean
+          can_use_migration?: boolean
+          can_use_placements_cleanup?: boolean
+          can_view_dashboard?: boolean
+          can_view_logs?: boolean
+          can_view_profit?: boolean
+          can_view_revenue?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          can_edit_budgets?: boolean
+          can_edit_cpa?: boolean
+          can_edit_rules?: boolean
+          can_manage_push?: boolean
+          can_manage_users?: boolean
+          can_pause_campaigns?: boolean
+          can_run_automation?: boolean
+          can_scale_campaigns?: boolean
+          can_sync?: boolean
+          can_use_funil?: boolean
+          can_use_geo_expansion?: boolean
+          can_use_migration?: boolean
+          can_use_placements_cleanup?: boolean
+          can_view_dashboard?: boolean
+          can_view_logs?: boolean
+          can_view_profit?: boolean
+          can_view_revenue?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      admin_profiles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          is_active: boolean
+          last_login_at: string | null
+          name: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          is_active?: boolean
+          last_login_at?: string | null
+          name?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          is_active?: boolean
+          last_login_at?: string | null
+          name?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      admin_site_access: {
+        Row: {
+          created_at: string
+          id: string
+          site_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          site_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          site_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ads_placements: {
         Row: {
           ad_group_id: string | null
@@ -2632,10 +2800,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      admin_has_permission: {
+        Args: { _perm: string; _uid: string }
+        Returns: boolean
+      }
+      admin_has_site_access: {
+        Args: { _site: string; _uid: string }
+        Returns: boolean
+      }
+      is_super_admin: { Args: { _uid: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      app_role:
+        | "super_admin"
+        | "admin"
+        | "media_buyer"
+        | "adops"
+        | "viewer"
+        | "site_manager"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2762,6 +2944,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: [
+        "super_admin",
+        "admin",
+        "media_buyer",
+        "adops",
+        "viewer",
+        "site_manager",
+      ],
+    },
   },
 } as const

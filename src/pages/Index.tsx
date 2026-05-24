@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,7 @@ import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
+import { useAdminAcl } from "@/hooks/useAdminAcl";
 
 const Index = () => {
   return (
@@ -51,6 +53,7 @@ const Index = () => {
 
 const IndexInner = () => {
   const { user } = useAuth();
+  const acl = useAdminAcl();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
@@ -497,6 +500,11 @@ const IndexInner = () => {
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
+            {(acl.isSuperAdmin || acl.can("can_manage_users")) && (
+              <Button asChild variant="outline" size="sm" className="gap-2" title="Admins / Controle de Acesso">
+                <Link to="/admins"><Shield className="h-4 w-4" /> Admins</Link>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
