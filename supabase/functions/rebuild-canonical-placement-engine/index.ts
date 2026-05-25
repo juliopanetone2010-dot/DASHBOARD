@@ -97,6 +97,8 @@ Deno.serve(async (req) => {
   let inferredRevenue = 0;
   let brokenRevenue = 0;
   let withoutUtmRevenue = 0;
+  let campaignIdMismatchRows = 0;
+  let campaignIdMismatchRevenue = 0;
   const rawSamples: any[] = [];
   const methodCounts: Record<string, number> = {};
 
@@ -115,6 +117,10 @@ Deno.serve(async (req) => {
     else inferredRevenue += revenue;
     if (canon.broken_tracking) brokenRevenue += revenue;
     if (!rawUtmPlacement) withoutUtmRevenue += revenue;
+    if (String(canon.campaign_id) !== String(r.campaign_id)) {
+      campaignIdMismatchRows++;
+      campaignIdMismatchRevenue += revenue;
+    }
     if (rawSamples.length < 25) {
       rawSamples.push({
         source_table: "gam_placement_revenue",
@@ -124,6 +130,7 @@ Deno.serve(async (req) => {
         raw_placement: r.placement ?? null,
         dimensions: { date: r.date, campaign_id: r.campaign_id, placement: r.placement, site_id: r.site_id, utm_source: r.utm_source },
         parser_result: canon,
+        campaign_id_mismatch: String(canon.campaign_id) !== String(r.campaign_id),
       });
     }
 
@@ -173,6 +180,16 @@ Deno.serve(async (req) => {
     broken_tracking: v.canon.broken_tracking,
     source_row: { source_rows: v.source_rows, raw_utm_placement: v.canon.raw_utm_placement },
   }));
+
+  let delQ = admin.from("placement_revenue_reconciled")
+    .delete()
+    .eq("user_id", userId)
+    .gte("date", periodStart)
+    .lte("date", periodEnd);
+  if (body.site_id) delQ = delQ.eq("site_id", body.site_id);
+  if (body.campaign_ids?.length) delQ = delQ.in("campaign_id", body.campaign_ids);
+  const { error: delErr } = await delQ;
+  if (delErr) return jerr(`clear canonical period: ${delErr.message}`);
 
   // upsert em batch
   const batchSize = 500;
