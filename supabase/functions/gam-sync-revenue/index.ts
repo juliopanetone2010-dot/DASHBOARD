@@ -451,7 +451,8 @@ function dedupeAttributedRows(rows: AttributedRow[]): AttributedRow[] {
       row.source ?? "",
       row.cid ?? "",
       row.placement ?? "",
-      row.raw ?? "",
+      String(row.impressions ?? 0),
+      String(row.revenue ?? 0),
     ].join("|");
     if (!out.has(key)) out.set(key, row);
   }
@@ -765,35 +766,29 @@ async function collectUtmAttribution(args: {
   let googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
-  const needsCanonicalFallback = googleCampaignRows.length === 0 || googlePlacementRows.length === 0;
-  if (needsCanonicalFallback) {
-    const fallbackCandidates = await Promise.all([
-      runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug),
-      runUrlNameCandidate(networkCode, accessToken, ranges, debug),
-    ]);
+  const fallbackCandidates = await Promise.all([
+    runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug),
+    runUrlNameCandidate(networkCode, accessToken, ranges, debug),
+  ]);
 
-    for (const candidate of fallbackCandidates) {
-      const candidateCampaignRows = candidate.rows
-        .filter((r) => r.source === "google" && !!r.cid)
-        .map((r) => ({
-          ...r,
-          placement: null,
-          raw: `${candidate.label}|${r.raw}`,
-        }));
-      const candidatePlacementRows = candidate.rows
-        .filter((r) => r.source === "google" && !!r.cid && !!r.placement)
-        .map((r) => ({
-          ...r,
-          raw: `${candidate.label}|${r.raw}`,
-        }));
+  for (const candidate of fallbackCandidates) {
+    const candidateCampaignRows = candidate.rows
+      .filter((r) => r.source === "google" && !!r.cid)
+      .map((r) => ({
+        ...r,
+        placement: null,
+        raw: `${candidate.label}|${r.raw}`,
+      }));
+    const candidatePlacementRows = candidate.rows
+      .filter((r) => r.source === "google" && !!r.cid && !!r.placement)
+      .map((r) => ({
+        ...r,
+        raw: `${candidate.label}|${r.raw}`,
+      }));
 
-      if (candidateCampaignRows.length > 0) {
-        googleCampaignRows = dedupeAttributedRows([...googleCampaignRows, ...candidateCampaignRows]);
-      }
-      if (candidatePlacementRows.length > 0) {
-        googlePlacementRows = dedupeAttributedRows([...googlePlacementRows, ...candidatePlacementRows]);
-      }
-    }
+    googleCampaignRows = dedupeAttributedRows([...googleCampaignRows, ...candidateCampaignRows]);
+    googlePlacementRows = dedupeAttributedRows([...googlePlacementRows, ...candidatePlacementRows]);
+    debug.push(`[${networkCode}/ATTRIBUTION_FALLBACK] ${candidate.label}: campaign_rows=${candidateCampaignRows.length}; placement_rows=${candidatePlacementRows.length}`);
   }
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
