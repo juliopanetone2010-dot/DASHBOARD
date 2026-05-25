@@ -235,13 +235,35 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     const { data: site } = await admin
       .from("sites")
-      .select("id, sync_status, sync_started_at, last_full_sync_at")
+      .select("id, user_id, sync_status, sync_started_at, last_full_sync_at")
       .eq("id", site_id)
-      .eq("user_id", user.id)
       .maybeSingle();
     if (!site) {
       return new Response(JSON.stringify({ error: "site not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Access check: owner, super_admin, or granted via admin_site_access
+    const ownerUserId = (site as { user_id: string }).user_id;
+    let allowed = user.id === ownerUserId;
+    if (!allowed) {
+      const { data: isSuper } = await admin.rpc("is_super_admin", { _uid: user.id });
+      allowed = !!isSuper;
+    }
+    if (!allowed) {
+      const { data: granted } = await admin
+        .from("admin_site_access")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("site_id", site_id)
+        .maybeSingle();
+      allowed = !!granted;
+    }
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "forbidden" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -268,11 +290,11 @@ Deno.serve(async (req) => {
     await admin
       .from("sites")
       .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
-      .eq("id", site_id)
-      .eq("user_id", user.id);
+      .eq("id", site_id);
 
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader, isIncrementalRefresh));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, authHeader, isIncrementalRefresh));
+
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,
