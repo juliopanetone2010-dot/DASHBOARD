@@ -499,11 +499,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   size="sm"
                   variant="default"
                   className="h-6 px-2 ml-1"
-                  onClick={() => runResyncAndPreview(false)}
-                  disabled={resyncing || loading}
-                  title="Re-puxa receita do GAM no período e recalcula estes números"
+                  onClick={() => runResyncAndPreview(true)}
+                  disabled={resyncing || reviewingProtected || loading}
+                  title="Re-puxa receita do GAM e recheca TUDO (inclusive os protegidos)"
                 >
-                  {resyncing ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  {(resyncing || reviewingProtected) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
                   Checar GAM
                 </Button>
               </span>
