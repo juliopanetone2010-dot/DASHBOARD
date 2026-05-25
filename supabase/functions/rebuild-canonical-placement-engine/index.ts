@@ -15,7 +15,7 @@
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-import { reconcileRow, type CanonicalPlacement } from "../_shared/canonical_placement.ts";
+import { extractUtmPlacementFromRaw, reconcileRow, type CanonicalPlacement } from "../_shared/canonical_placement.ts";
 
 interface Body {
   user_id?: string;
@@ -92,9 +92,17 @@ Deno.serve(async (req) => {
   }>();
 
   let brokenCount = 0;
+  let placementRevenue = 0;
+  let exactRevenue = 0;
+  let inferredRevenue = 0;
+  let brokenRevenue = 0;
+  let withoutUtmRevenue = 0;
+  const rawSamples: any[] = [];
   const methodCounts: Record<string, number> = {};
 
   for (const r of rows ?? []) {
+    const revenue = num(r.revenue_usd);
+    const rawUtmPlacement = extractUtmPlacementFromRaw(r.raw_utm);
     const canon = reconcileRow({
       rawUtm: r.raw_utm,
       campaignId: r.campaign_id,
@@ -102,6 +110,22 @@ Deno.serve(async (req) => {
     });
     methodCounts[canon.reconciliation_method] = (methodCounts[canon.reconciliation_method] ?? 0) + 1;
     if (canon.broken_tracking) brokenCount++;
+    placementRevenue += revenue;
+    if (canon.reconciliation_method === "exact_utm_placement") exactRevenue += revenue;
+    else inferredRevenue += revenue;
+    if (canon.broken_tracking) brokenRevenue += revenue;
+    if (!rawUtmPlacement) withoutUtmRevenue += revenue;
+    if (rawSamples.length < 25) {
+      rawSamples.push({
+        source_table: "gam_placement_revenue",
+        raw_gam_row: r,
+        raw_utm_placement: rawUtmPlacement,
+        raw_url: null,
+        raw_placement: r.placement ?? null,
+        dimensions: { date: r.date, campaign_id: r.campaign_id, placement: r.placement, site_id: r.site_id, utm_source: r.utm_source },
+        parser_result: canon,
+      });
+    }
 
     const key = `${canon.canonical_key}|${r.date}`;
     const cur = reconciled.get(key);
@@ -115,7 +139,7 @@ Deno.serve(async (req) => {
         user_id: r.user_id,
         site_id: r.site_id ?? null,
         date: r.date,
-        revenue_usd: num(r.revenue_usd),
+        revenue_usd: revenue,
         impressions: num(r.impressions),
         source_rows: 1,
       });
