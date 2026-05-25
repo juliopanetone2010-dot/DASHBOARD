@@ -1891,6 +1891,87 @@ export type Database = {
         }
         Relationships: []
       }
+      placement_revenue_audit: {
+        Row: {
+          audit_status: string
+          campaign_id: string
+          campaign_name: string | null
+          campaign_revenue_usd: number
+          confidence: number
+          created_at: string
+          findings: Json
+          google_account_id: string | null
+          id: string
+          leak_amount_usd: number
+          leak_percent: number
+          match_success_pct: number | null
+          orphan_rows: number
+          parser_success_pct: number | null
+          period_end: string
+          period_match_pct: number | null
+          period_start: string
+          placements_revenue_usd: number
+          rebuild_summary: Json | null
+          rebuilt: boolean
+          site_id: string | null
+          site_match_pct: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audit_status?: string
+          campaign_id: string
+          campaign_name?: string | null
+          campaign_revenue_usd?: number
+          confidence?: number
+          created_at?: string
+          findings?: Json
+          google_account_id?: string | null
+          id?: string
+          leak_amount_usd?: number
+          leak_percent?: number
+          match_success_pct?: number | null
+          orphan_rows?: number
+          parser_success_pct?: number | null
+          period_end: string
+          period_match_pct?: number | null
+          period_start: string
+          placements_revenue_usd?: number
+          rebuild_summary?: Json | null
+          rebuilt?: boolean
+          site_id?: string | null
+          site_match_pct?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audit_status?: string
+          campaign_id?: string
+          campaign_name?: string | null
+          campaign_revenue_usd?: number
+          confidence?: number
+          created_at?: string
+          findings?: Json
+          google_account_id?: string | null
+          id?: string
+          leak_amount_usd?: number
+          leak_percent?: number
+          match_success_pct?: number | null
+          orphan_rows?: number
+          parser_success_pct?: number | null
+          period_end?: string
+          period_match_pct?: number | null
+          period_start?: string
+          placements_revenue_usd?: number
+          rebuild_summary?: Json | null
+          rebuilt?: boolean
+          site_id?: string | null
+          site_match_pct?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       placement_status: {
         Row: {
           app_id: string | null
