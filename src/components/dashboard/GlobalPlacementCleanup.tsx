@@ -228,6 +228,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
+      const campaignIds = Array.from(new Set(list.flatMap((i) => i.campaigns.map((c) => c.campaign_id))));
+      setCleanupSnapshot({
+        ran_at: new Date().toISOString(),
+        mode: "preview",
+        period: { from: effectiveRange.from, to: effectiveRange.to },
+        campaign_ids: campaignIds,
+        stats: (data?.stats ?? {}) as Record<string, unknown>,
+      });
       // persiste filtros
       await persistConfig({
         placement_cleanup_min_days: minDays,
