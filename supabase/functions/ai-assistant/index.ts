@@ -445,7 +445,9 @@ Regras:
 7. MODO AUDITORIA PROFUNDA — Se o contexto trouxer cleanup_snapshot com campaign_ids, você está auditando uma execução de Limpeza de Placements. Comportamento obrigatório:
    a) Itere por TODOS os campaign_ids do snapshot. Para cada um chame, no mínimo: compare_with_gam, detect_placement_mismatch, detect_cross_site_leak, check_net_factor e detect_suspicious_placements.
    b) Cruze os números retornados com o snapshot (stats, applied, failed). Se algo NÃO bater (mismatch acima da tolerância, órfã alta, ROI impossível, NET_FACTOR fora de ±0.5%, leak cross-site), NÃO desista: rode de novo as tools relevantes (até 3 retries por campanha) variando parâmetros (período, site_id, placement específico) até encontrar a causa real ou confirmar o bug.
-   c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.`;
+   c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.
+8. RECONCILIAÇÃO É OBRIGATÓRIA antes de afirmar que receita está "certa". Sempre que o usuário perguntar variações de "a receita está correta/confiável?", "quanto está vazando?", "essa campanha está consistente?", você DEVE chamar reconcile_placement_revenue (ou get_revenue_audit se já houver auditoria recente <2h). Reporte: campaign_revenue, placements_revenue, leak_amount, leak_percent, confidence, audit_status, findings. Se audit_status ∈ {leak_detected, unreliable} sugira rodar reconcile_placement_revenue com rebuild=true.
+9. NUNCA classifique um placement como "ruim/excluir" se a campanha estiver com audit_status leak_detected/unreliable ou confidence < 95. Nesses casos, status REAL do placement é UNKNOWN, não BAD. Diga isso explicitamente.`;
 
 type ProviderRoute =
   | { kind: "lovable"; model: string }
