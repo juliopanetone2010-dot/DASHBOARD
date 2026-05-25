@@ -218,6 +218,45 @@ export function AttributionAuditTab() {
             </div>
           </Card>
 
+          <Card className="p-5">
+            <h3 className="font-semibold mb-3">Revenue sources</h3>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
+              {Object.entries(report.revenue_sources ?? {}).map(([key, value]) => (
+                <div key={key} className="rounded border border-border bg-secondary/30 p-3">
+                  <div className="text-xs text-muted-foreground">{key.replaceAll("_", " ")}</div>
+                  <div className="font-semibold tabular-nums">${Number(value?.revenue_usd ?? 0).toFixed(2)}</div>
+                  {typeof value?.rows === "number" && <div className="text-[10px] text-muted-foreground">{value.rows.toLocaleString()} rows</div>}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <AlertOctagon className="h-4 w-4 text-destructive" /> Top unreconciled rows
+            </h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dimensions</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead>why_not_matched</TableHead>
+                  <TableHead>Raw GAM row</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(report.top_unreconciled_rows ?? []).slice(0, 10).map((r, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-mono text-[10px] max-w-[260px] truncate" title={JSON.stringify(r.dimensions)}>{JSON.stringify(r.dimensions)}</TableCell>
+                    <TableCell className="text-right tabular-nums">${Number(r.unreconciled_usd ?? r.revenue_usd ?? 0).toFixed(2)}</TableCell>
+                    <TableCell className="text-xs">{String(r.why_not_matched ?? "unknown")}</TableCell>
+                    <TableCell className="font-mono text-[10px] max-w-[360px] truncate" title={JSON.stringify(r.raw_gam_row)}>{JSON.stringify(r.raw_gam_row)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+
           {/* Status summary */}
           <Card className="p-5">
             <h3 className="font-semibold mb-3">Status das campanhas ({totalCampaigns})</h3>
