@@ -383,6 +383,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const gamRevenue = protected_count > 0 && (meta?.revenue_brl ?? 0) > exactRevenue ? (meta?.revenue_brl ?? 0) : exactRevenue;
       const profit = exactRevenue - cost;
       const revenue_count = list.filter((i) => i.revenue_brl > 0).length;
+      const orphan_brl = Math.max(0, gamRevenue - exactRevenue);
+      const fully_matched = cost <= 0 || orphan_brl <= cost * ORPHAN_TOLERANCE;
+      // ROI estimado (com rateio da receita órfã pelo custo do placement)
+      const estRevenue = exactRevenue + orphan_brl;
+      const estProfit = estRevenue - cost;
       return {
         campaign_id: cid,
         name: first?.name ?? meta?.name ?? cid,
@@ -390,6 +395,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         cost_brl: cost,
         revenue_brl: exactRevenue,
         gam_revenue_brl: gamRevenue,
+        orphan_brl,
+        fully_matched,
+        est_revenue_brl: estRevenue,
+        est_profit_brl: estProfit,
+        est_roi_pct: cost > 0 ? (estProfit / cost) * 100 : 0,
         profit_brl: profit,
         roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
         bad_count: list.length,
@@ -399,6 +409,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       };
     })
     .sort((a, b) => a.roi_pct - b.roi_pct);
+
+  // mapa rápido id -> meta da campanha (orfã, fully_matched, etc)
+  const campAggMap = new Map(sortedCampaigns.map((c) => [c.campaign_id, c]));
+  const canExcludeInMode = (i: PreviewItem, campaignId: string) => {
+    if (!canExclude(i)) return false;
+    if (!safeMode) return true;
+    const agg = campAggMap.get(campaignId);
+    return !!agg?.fully_matched;
+  };
+  const estimatedItemRoi = (i: PreviewItem, campaignId: string) => {
+    const agg = campAggMap.get(campaignId);
+    const c = i.campaigns.find((x) => x.campaign_id === campaignId);
+    if (!agg || !c || agg.cost_brl <= 0 || (c.cost_brl ?? 0) <= 0) return i.roi_pct;
+    const share = (c.cost_brl ?? 0) / agg.cost_brl;
+    const placementOrphan = (agg.orphan_brl ?? 0) * share;
+    const estRev = (i.revenue_brl ?? 0) + placementOrphan;
+    const estProfit = estRev - (c.cost_brl ?? 0);
+    return (estProfit / (c.cost_brl ?? 1)) * 100;
+  };
 
   // Custo/Lucro do header reflete somente os placements ruins exibidos.
   const grandCost = sortedCampaigns.reduce((a, c) => a + (c.cost_brl || 0), 0);
