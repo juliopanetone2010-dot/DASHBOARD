@@ -233,11 +233,12 @@ const IndexInner = () => {
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
+      // Canonical engine: usa placement_revenue_reconciled (exact_utm_placement only)
       const { data: rows } = await supabase
-        .from("gam_placement_revenue")
+        .from("placement_revenue_reconciled")
         .select("campaign_id, site_id, revenue_usd")
+        .eq("reconciliation_method", "exact_utm_placement")
         .not("site_id", "is", null)
-        .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
         .limit(50000);
       const totalByCamp = new Map<string, number>();
