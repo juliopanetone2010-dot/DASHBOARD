@@ -130,8 +130,11 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
               <SortHead k="ecpm" label="eCPM" />
+              <SortHead k="ctr" label="CTR" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
+              <SortHead k="conv_rate" label="Tx. Conv." />
+              <SortHead k="cost_per_conv" label="CPA" />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
