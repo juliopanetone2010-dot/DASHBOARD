@@ -570,12 +570,19 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                       {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {c.campaign_name}
-                      <span className="ml-2 text-xs text-muted-foreground">({c.ads.length} criativos)</span>
+                      <div>{c.campaign_name}
+                        <span className="ml-2 text-xs text-muted-foreground">({c.ads.length} criativos)</span>
+                      </div>
+                      {finalUrls.get(c.campaign_id) && (
+                        <FinalUrlActions url={finalUrls.get(c.campaign_id)} compact className="mt-0.5" />
+                      )}
                     </TableCell>
                     <TableCell className="text-right">{fmtNumber(c.impressions)}</TableCell>
                     <TableCell className="text-right">{fmtNumber(c.clicks)}</TableCell>
                     <TableCell className="text-right">{fmtPercent(c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0)}</TableCell>
+                    <TableCell className="text-right">{fmtNumber(Math.round(c.conversions))}</TableCell>
+                    <TableCell className="text-right">{fmtPercent(c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0)}</TableCell>
+                    <TableCell className="text-right">{c.conversions > 0 ? fmtBRL(c.cost / c.conversions) : "—"}</TableCell>
                     <TableCell className="text-right">{fmtBRL(c.cost)}</TableCell>
                     <TableCell className="text-right">{fmtBRL(c.revenue_brl)}</TableCell>
                     <TableCell className={cn("text-right", c.revenue_brl - c.cost >= 0 ? "text-success" : "text-danger")}>
