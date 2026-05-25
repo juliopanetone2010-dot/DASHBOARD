@@ -623,42 +623,69 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </TableHeader>
               <TableBody>
                 {sortedCampaigns.length === 0 && (
-                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={estimateOrphan ? 10 : 9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
                 )}
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
-                  const websiteList = list.filter(canExclude);
-                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
+                  const selectableList = list.filter((i) => canExcludeInMode(i, camp.campaign_id));
+                  const allSelected = selectableList.length > 0 && selectableList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
+                  const isUnsafe = !camp.fully_matched && camp.orphan_brl > 0;
+                  const openGamSearch = (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    const q = encodeURIComponent(camp.name);
+                    window.open(`https://admanager.google.com/${q}#delivery/report_home`, "_blank");
+                  };
                   return (
                     <Fragment key={camp.campaign_id}>
-                      <TableRow key={camp.campaign_id} className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(camp.campaign_id)}>
+                      <TableRow key={camp.campaign_id} className={cn("cursor-pointer hover:bg-muted/30", isUnsafe && "bg-warning/5")} onClick={() => toggleExpand(camp.campaign_id)}>
                         <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
-                        <TableCell className="font-medium text-sm">{camp.name}</TableCell>
+                        <TableCell className="font-medium text-sm">
+                          <div className="flex items-center gap-2">
+                            {isUnsafe && <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />}
+                            <span>{camp.name}</span>
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
                         <TableCell className="text-right tabular-nums">
                           <div>{fmtBRL(camp.revenue_brl)}</div>
-                          {(camp as any).protected_count > 0 && (camp as any).gam_revenue_brl > camp.revenue_brl && (
-                            <div className="text-[10px] text-warning">{fmtBRL((camp as any).gam_revenue_brl)} no GAM sem match</div>
+                          {camp.orphan_brl > 0 && (
+                            <div className="text-[10px] text-warning" title="Receita atribuída ao GAM mas sem placement com match exato">
+                              +{fmtBRL(camp.orphan_brl)} órfã GAM
+                            </div>
                           )}
-                          {(camp as any).revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{(camp as any).revenue_count} com receita</div>}
+                          {camp.revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{camp.revenue_count} com receita</div>}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
+                        {estimateOrphan && (
+                          <TableCell className={cn("text-right tabular-nums text-xs", camp.est_roi_pct < 0 ? "text-danger" : "text-success")} title="ROI estimado considerando a receita órfã do GAM rateada por custo">
+                            {fmtPercent(camp.est_roi_pct)}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">
                           {list.length > 0
                             ? <Badge variant="destructive">{list.length}</Badge>
                             : <Badge variant="outline" className="border-success/50 text-success">0</Badge>}
                         </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" onClick={openGamSearch} title="Abrir GAM para investigar UTM/placement">
+                            <ExternalLink className="h-3 w-3 mr-1" />GAM
+                          </Button>
+                        </TableCell>
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           {list.length > 0 && (
-                            <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
+                            <Checkbox
+                              checked={allSelected}
+                              disabled={selectableList.length === 0}
+                              onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)}
+                            />
                           )}
                         </TableCell>
                       </TableRow>
                       {isOpen && (
                         <TableRow key={`${camp.campaign_id}-detail`}>
-                          <TableCell colSpan={8} className="bg-muted/10 p-0">
+                          <TableCell colSpan={estimateOrphan ? 10 : 9} className="bg-muted/10 p-0">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -670,6 +697,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   <TableHead className="text-right">Receita exata</TableHead>
                                   <TableHead className="text-right">Sem match</TableHead>
                                   <TableHead className="text-right">ROI</TableHead>
+                                  {estimateOrphan && <TableHead className="text-right">ROI est.</TableHead>}
                                   {showDebug && <TableHead>Match</TableHead>}
                                   {showDebug && <TableHead>Motivo</TableHead>}
                                 </TableRow>
@@ -677,25 +705,50 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
-                                  const disabled = !canExclude(i);
+                                  const baseCan = canExclude(i);
+                                  const allowedInMode = canExcludeInMode(i, camp.campaign_id);
+                                  const disabled = !allowedInMode;
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
+                                  const estRoi = estimatedItemRoi(i, camp.campaign_id);
+                                  const onCheck = () => {
+                                    if (selected.has(itemKey(i))) { toggle(itemKey(i)); return; }
+                                    // Se a campanha não é 100% atribuída, exigir confirmação explícita
+                                    if (!camp.fully_matched) {
+                                      const ok = confirm(
+                                        `⚠️ ATENÇÃO\n\nA campanha "${camp.name}" tem ${fmtBRL(camp.orphan_brl)} de receita no GAM SEM match exato a placements.\n\nROI atual: ${fmtPercent(i.roi_pct)}\nROI estimado (com rateio da órfã): ${fmtPercent(estRoi)}\n\nTem CERTEZA que quer excluir "${i.placement}"?`,
+                                      );
+                                      if (!ok) return;
+                                    }
+                                    toggle(itemKey(i));
+                                  };
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60", !camp.fully_matched && baseCan && "bg-warning/5")}>
                                       <TableCell>
-                                        {i.is_protected ? <ShieldAlert className="h-3.5 w-3.5 text-warning" /> : <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />}
+                                        {i.is_protected
+                                          ? <ShieldAlert className="h-3.5 w-3.5 text-warning" />
+                                          : <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={onCheck} />}
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">
                                         {i.type}
                                         {i.is_protected && <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning">protegido</Badge>}
+                                        {!camp.fully_matched && baseCan && !i.is_protected && (
+                                          <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning" title={`Campanha tem ${fmtBRL(camp.orphan_brl)} órfã no GAM`}>⚠️ sem match</Badge>
+                                        )}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
-                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                        {disabled && !i.is_protected && safeMode && !camp.fully_matched && <Badge variant="secondary" className="ml-1 text-[9px]">bloq. seguro</Badge>}
+                                        {disabled && !i.is_protected && !safeMode && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtPlacementRevenue(c?.revenue_usd ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs text-warning">{i.is_protected ? fmtPlacementRevenue(i.orphan_revenue_usd ?? 0) : "—"}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
+                                      {estimateOrphan && (
+                                        <TableCell className={cn("text-right tabular-nums text-xs", estRoi < 0 ? "text-danger" : "text-success")}>
+                                          {fmtPercent(estRoi)}
+                                        </TableCell>
+                                      )}
                                       {showDebug && (
                                         <TableCell>
                                           {c?.matched_utm
