@@ -374,16 +374,44 @@ Regras:
 5. Se uma tool retornar flags (cost_without_revenue, multiple_sites, roi_impossible, mismatch, etc), DESTAQUE e explique o que significa e o provável bug.
 6. Quando o usuário pedir "isso está calculando certo?" em um placement específico, rode validate_placement_revenue + explain_placement_roi e cruze com detect_cross_site_leak/compare_with_gam se necessário.`;
 
-async function callGateway(messages: any[], toolDefs: any[], stepBudget: number) {
-  const r = await fetch(AI_GATEWAY_URL, {
+type ProviderRoute =
+  | { kind: "lovable"; model: string }
+  | { kind: "external"; provider: string; baseUrl: string; apiKey: string; model: string };
+
+async function resolveProvider(admin: any, userId: string): Promise<ProviderRoute> {
+  const { data: cfg } = await admin.from("ai_provider_configs").select("*")
+    .eq("user_id", userId).eq("is_active", true).eq("enabled", true).maybeSingle();
+  if (cfg && OPENAI_COMPATIBLE.has(cfg.provider) && cfg.api_key_encrypted && cfg.api_key_iv) {
+    try {
+      const apiKey = await decryptApiKey(cfg.api_key_encrypted, cfg.api_key_iv);
+      return {
+        kind: "external",
+        provider: cfg.provider,
+        baseUrl: (cfg.base_url || DEFAULT_BASE_URL[cfg.provider]).replace(/\/+$/, ""),
+        apiKey,
+        model: cfg.model || DEFAULT_MODEL[cfg.provider],
+      };
+    } catch (e) {
+      console.error("[ai-assistant] failed to decrypt provider key, falling back", e);
+    }
+  }
+  return { kind: "lovable", model: "google/gemini-2.5-flash" };
+}
+
+async function callModel(route: ProviderRoute, messages: any[], toolDefs: any[], stepBudget: number) {
+  const url = route.kind === "lovable" ? AI_GATEWAY_URL : `${route.baseUrl}/chat/completions`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (route.kind === "lovable") {
+    headers.Authorization = `Bearer ${LOVABLE_API_KEY}`;
+    headers["X-Lovable-AIG-SDK"] = "edge-fn-raw";
+  } else {
+    headers.Authorization = `Bearer ${route.apiKey}`;
+  }
+  const r = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-      "X-Lovable-AIG-SDK": "edge-fn-raw",
-    },
+    headers,
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: route.model,
       messages,
       tools: toolDefs,
       tool_choice: stepBudget > 0 ? "auto" : "none",
@@ -391,7 +419,7 @@ async function callGateway(messages: any[], toolDefs: any[], stepBudget: number)
   });
   if (!r.ok) {
     const txt = await r.text();
-    throw new Error(`gateway ${r.status}: ${txt.slice(0, 500)}`);
+    throw new Error(`${route.kind === "lovable" ? "lovable" : route.provider} ${r.status}: ${txt.slice(0, 500)}`);
   }
   return await r.json();
 }
