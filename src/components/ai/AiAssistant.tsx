@@ -21,6 +21,16 @@ export interface AiContext {
   selected_placement?: string | null;
   selected_country?: string | null;
   loaded_data?: Record<string, unknown>;
+  cleanup_snapshot?: {
+    ran_at: string;
+    mode: "preview" | "apply";
+    period?: { from: string; to: string };
+    campaign_ids: string[];
+    campaigns?: Array<{ campaign_id: string; name?: string; cost_brl?: number; revenue_brl?: number; gam_revenue_brl?: number; orphan_brl?: number; roi_pct?: number; bad_count?: number; fully_matched?: boolean }>;
+    stats?: Record<string, unknown>;
+    applied?: number;
+    failed?: number;
+  } | null;
   debug?: boolean;
 }
 
