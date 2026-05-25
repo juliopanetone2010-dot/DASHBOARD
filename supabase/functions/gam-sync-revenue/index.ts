@@ -1014,8 +1014,95 @@ async function persistGamUrlRevenue(args: {
     }
   }
 
+  // ============================================================================
+  // SEGUNDA PASSADA: URL+AdX filtrado por utm_source=google
+  // ----------------------------------------------------------------------------
+  // Captura tráfego do Google Ads em nível de URL (utm_source=google) para que o
+  // attribution engine possa casar URL → final_url do anúncio quando o GAM não
+  // tagueia utm_campaign/utm_placement (rows que iriam para __aggregate__).
+  // ============================================================================
+  const googleFilters = buildGoogleKeyValueFilters();
+  const googleFiltersFallback = buildGoogleKeyValueFiltersFallback();
+  let totalGoogleRows = 0;
+  let filteredGoogleRows = 0;
+  let totalGoogleRevenue = 0;
+  const googleSample: string[] = [];
+
+  for (const { range, date } of expandToDailyGamRanges(ranges)) {
+    if (deadlineAt && Date.now() + 18_000 >= deadlineAt) {
+      debug.push(`[${networkCode}] URL+AdX (google) stopped before Edge timeout`);
+      break;
+    }
+    let rows: ReportRow[] = [];
+    let usedFilter = true;
+    let filterLabel = "CHANNEL=utm_source=google";
+    try {
+      rows = await runReport({
+        networkCode, accessToken, range,
+        dimensions: ["URL"],
+        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        filters: googleFilters,
+        expandedCompatibility: true,
+        debug,
+        deadlineAt,
+      });
+    } catch {
+      try {
+        filterLabel = "KEY_VALUES_NAME=utm_source=google";
+        rows = await runReport({
+          networkCode, accessToken, range,
+          dimensions: ["URL"],
+          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          filters: googleFiltersFallback,
+          expandedCompatibility: true,
+          debug,
+          deadlineAt,
+        });
+      } catch {
+        usedFilter = false;
+        filterLabel = "sem filtro (client-side google)";
+        try {
+          rows = await runReport({
+            networkCode, accessToken, range,
+            dimensions: ["URL"],
+            metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+            expandedCompatibility: true,
+            debug,
+            deadlineAt,
+          });
+        } catch (e3) {
+          debug.push(`[${networkCode}] URL+AdX (google) ${date} falhou: ${String(e3).slice(0, 200)}`);
+          continue;
+        }
+      }
+    }
+    debug.push(`[${networkCode}] URL+AdX (google) ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
+    if (usedFilter) authoritativeDates.add(date);
+    totalGoogleRows += rows.length;
+    for (const r of rows) {
+      const rawUrl = String(r.dims[0] ?? "").trim();
+      if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
+      const params = parseUrlParams(rawUrl);
+      const src = safeDecode(params.utm_source ?? "").toLowerCase().trim();
+      if (!usedFilter && src !== "google") continue;
+      if (src === "push") continue; // evita conflito com passada de push
+      const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
+      const impressions = Number(r.impressions) || 0;
+      if (revenue <= 0 && impressions <= 0) continue;
+      filteredGoogleRows++;
+      totalGoogleRevenue += revenue;
+      if (googleSample.length < 8) googleSample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
+      const key = `${date}|${rawUrl}`;
+      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "google", date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += revenue;
+      cur.impressions += impressions;
+      cur.utm_source = "google";
+      buckets.set(key, cur);
+    }
+  }
+
   const payload = [...buckets.values()];
-  const msg = `[${networkCode}] gam_url_revenue PUSH-only: push_rows=${totalRows} filtered_push_rows=${filteredPushRows} persistidas=${payload.length} total_push_revenue_usd=${totalRevenue.toFixed(4)} site=${domain} sample=${JSON.stringify(sample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
+  const msg = `[${networkCode}] gam_url_revenue PUSH+GOOGLE: push_rows=${totalRows} filtered_push=${filteredPushRows} push_usd=${totalRevenue.toFixed(4)} | google_rows=${totalGoogleRows} filtered_google=${filteredGoogleRows} google_usd=${totalGoogleRevenue.toFixed(4)} | persistidas=${payload.length} site=${domain} push_sample=${JSON.stringify(sample)} google_sample=${JSON.stringify(googleSample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
   console.log(msg);
   debug.push(msg);
 
