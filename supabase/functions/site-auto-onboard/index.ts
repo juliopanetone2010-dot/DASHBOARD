@@ -60,7 +60,10 @@ function delay(ms: number) {
 }
 
 async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
+  // Sempre chama funções internas como service-role e passa o user_id do dono do site.
+  const internalAuthHeader = `Bearer ${SERVICE_ROLE}`;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
   const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
