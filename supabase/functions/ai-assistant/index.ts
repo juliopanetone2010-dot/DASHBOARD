@@ -353,6 +353,75 @@ const tools: Record<string, { def: any; run: ToolFn }> = {
       return { suspects: suspects.sort((a, b) => (b.gross_revenue_usd + b.cost_usd) - (a.gross_revenue_usd + a.cost_usd)).slice(0, 30) };
     },
   },
+
+  reconcile_placement_revenue: {
+    def: {
+      type: "function",
+      function: {
+        name: "reconcile_placement_revenue",
+        description: "Roda a reconciliação OFICIAL entre gam_campaign_source_revenue (verdade) e gam_placement_revenue para detectar leak de atribuição. Retorna leak_amount, leak_percent, confidence (0-100) e audit_status (verified/partial/leak_detected/unreliable/unknown). Use SEMPRE antes de declarar 'a receita está confiável'. Use rebuild=true se confidence < 95 para tentar refazer parsing/match e re-medir.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            from: { type: "string", description: "YYYY-MM-DD" },
+            to: { type: "string", description: "YYYY-MM-DD" },
+            site_id: { type: "string" },
+            rebuild: { type: "boolean", description: "se true, força gam-sync-revenue antes de medir" },
+            tolerance_pct: { type: "number", description: "default 3" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    run: async (a, { userId, admin: _admin }) => {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/reconcile-placement-revenue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+        body: JSON.stringify({
+          mode: a.rebuild ? "rebuild" : "audit",
+          user_id: userId,
+          site_id: a.site_id ?? null,
+          campaign_ids: a.campaign_ids ?? [],
+          period_start: a.from, period_end: a.to,
+          tolerance_pct: a.tolerance_pct,
+        }),
+      });
+      const data = await r.json().catch(() => ({ error: `http ${r.status}` }));
+      return data;
+    },
+  },
+
+  get_revenue_audit: {
+    def: {
+      type: "function",
+      function: {
+        name: "get_revenue_audit",
+        description: "Retorna a última auditoria de receita já gravada em placement_revenue_audit para uma ou mais campanhas. Use para responder rápido 'essa receita está confiável?' sem rodar reconciliação nova.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            site_id: { type: "string" },
+            since: { type: "string", description: "YYYY-MM-DD — só auditorias criadas depois dessa data" },
+          },
+        },
+      },
+    },
+    run: async (a, { userId, admin }) => {
+      let q = admin.from("placement_revenue_audit")
+        .select("campaign_id, campaign_name, period_start, period_end, campaign_revenue_usd, placements_revenue_usd, leak_amount_usd, leak_percent, confidence, audit_status, parser_success_pct, match_success_pct, site_match_pct, period_match_pct, findings, rebuilt, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (a.campaign_ids?.length) q = q.in("campaign_id", a.campaign_ids);
+      if (a.site_id) q = q.eq("site_id", a.site_id);
+      if (a.since) q = q.gte("created_at", a.since);
+      const { data, error } = await q;
+      if (error) return { error: error.message };
+      return { audits: data ?? [], count: (data ?? []).length };
+    },
+  },
 };
 
 function round(n: number, d = 2) { return Math.round(n * 10 ** d) / 10 ** d; }
@@ -376,7 +445,9 @@ Regras:
 7. MODO AUDITORIA PROFUNDA — Se o contexto trouxer cleanup_snapshot com campaign_ids, você está auditando uma execução de Limpeza de Placements. Comportamento obrigatório:
    a) Itere por TODOS os campaign_ids do snapshot. Para cada um chame, no mínimo: compare_with_gam, detect_placement_mismatch, detect_cross_site_leak, check_net_factor e detect_suspicious_placements.
    b) Cruze os números retornados com o snapshot (stats, applied, failed). Se algo NÃO bater (mismatch acima da tolerância, órfã alta, ROI impossível, NET_FACTOR fora de ±0.5%, leak cross-site), NÃO desista: rode de novo as tools relevantes (até 3 retries por campanha) variando parâmetros (período, site_id, placement específico) até encontrar a causa real ou confirmar o bug.
-   c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.`;
+   c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.
+8. RECONCILIAÇÃO É OBRIGATÓRIA antes de afirmar que receita está "certa". Sempre que o usuário perguntar variações de "a receita está correta/confiável?", "quanto está vazando?", "essa campanha está consistente?", você DEVE chamar reconcile_placement_revenue (ou get_revenue_audit se já houver auditoria recente <2h). Reporte: campaign_revenue, placements_revenue, leak_amount, leak_percent, confidence, audit_status, findings. Se audit_status ∈ {leak_detected, unreliable} sugira rodar reconcile_placement_revenue com rebuild=true.
+9. NUNCA classifique um placement como "ruim/excluir" se a campanha estiver com audit_status leak_detected/unreliable ou confidence < 95. Nesses casos, status REAL do placement é UNKNOWN, não BAD. Diga isso explicitamente.`;
 
 type ProviderRoute =
   | { kind: "lovable"; model: string }
