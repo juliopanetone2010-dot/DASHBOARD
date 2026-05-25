@@ -85,7 +85,19 @@ Deno.serve(async (req) => {
   }
 
   // ====================== MODO AUDIT / REBUILD ==============================
-  if (!body.user_id) return jerr("user_id required");
+  let effectiveUserId = body.user_id;
+  if (!effectiveUserId) {
+    // tenta resolver via JWT do caller
+    const authHeader = req.headers.get("Authorization") || "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (token) {
+      const userClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: `Bearer ${token}` } } });
+      const { data: u } = await userClient.auth.getUser();
+      if (u?.user?.id) effectiveUserId = u.user.id;
+    }
+  }
+  if (!effectiveUserId) return jerr("user_id required");
+  const userId = effectiveUserId;
   let campaignIds = body.campaign_ids ?? [];
 
   if (!campaignIds.length) {
