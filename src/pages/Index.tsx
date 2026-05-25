@@ -772,27 +772,8 @@ const IndexInner = () => {
               />
             </section>
 
-            {/* Métricas de performance (CTR / Conversão / CPA) — calculadas a partir do banco */}
-            <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <MetricCard
-                label="CTR médio"
-                value={fmtPercent(avgCtr)}
-                icon={MousePointerClick}
-                hint={`${perfTotals.clicks.toLocaleString("pt-BR")} cliques / ${perfTotals.impressions.toLocaleString("pt-BR")} impr.`}
-              />
-              <MetricCard
-                label="Taxa de conversão média"
-                value={fmtPercent(avgConvRate)}
-                icon={Target}
-                hint={`${Math.round(perfTotals.conversions).toLocaleString("pt-BR")} conversões`}
-              />
-              <MetricCard
-                label="Custo por conversão (CPA)"
-                value={perfTotals.conversions > 0 ? fmtCurrency(avgCpa) : "—"}
-                icon={Receipt}
-                hint={perfTotals.conversions > 0 ? "Gasto / conversões" : "Sem conversões no período"}
-              />
-            </section>
+            {/* Métricas de performance (CTR / Conv / CPA) agora estão na própria tabela de campanhas. */}
+
 
             {filters.siteId !== "all" && siteMetricsQuery.data && (
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
