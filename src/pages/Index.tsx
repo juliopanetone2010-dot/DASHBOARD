@@ -70,7 +70,12 @@ const IndexInner = () => {
       });
       if (error) throw error;
       const total = (r as any)?.campaigns_upserted ?? (r as any)?.upserted ?? (r as any)?.rows ?? 0;
-      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s).` });
+      // Sincroniza URLs finais REAIS direto da API do Google Ads (não bloqueia a UI).
+      void supabase.functions.invoke("google-ads-sync-final-urls", { body: {} }).then(({ data: u, error: ue }) => {
+        if (ue) console.warn("[sync-final-urls]", ue);
+        else console.info("[sync-final-urls]", u);
+      });
+      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s). URLs reais sendo atualizadas em segundo plano.` });
       await data.refresh();
     } catch (e: any) {
       toast({ title: "Falha ao sincronizar campanhas", description: String(e?.message ?? e), variant: "destructive" });
@@ -78,6 +83,7 @@ const IndexInner = () => {
       setSyncingCampaigns(false);
     }
   };
+
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
   const extraRevQuery = useQuery({
