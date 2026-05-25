@@ -1,6 +1,7 @@
-// AI Assistant contextual — usa Lovable AI Gateway com tool-calling.
-// Investiga placements (revenue/attribution/NET_FACTOR/cross-site leaks/etc).
+// AI Assistant contextual — usa Lovable AI Gateway por padrão, OU o provider externo
+// configurado pelo usuário (DeepSeek/OpenAI/OpenRouter) via tabela ai_provider_configs.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { decryptApiKey } from "../_shared/ai-provider-crypto.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -13,6 +14,17 @@ const corsHeaders = {
 };
 
 const NET_FACTOR_DEFAULT = 0.935; // GAM revenue → líquido (rev share ~6.5%)
+const OPENAI_COMPATIBLE = new Set(["deepseek", "openai", "openrouter"]);
+const DEFAULT_BASE_URL: Record<string, string> = {
+  deepseek: "https://api.deepseek.com/v1",
+  openai: "https://api.openai.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+};
+const DEFAULT_MODEL: Record<string, string> = {
+  deepseek: "deepseek-chat",
+  openai: "gpt-4o-mini",
+  openrouter: "openai/gpt-4o-mini",
+};
 
 type ToolFn = (args: any, ctx: { userId: string; admin: any }) => Promise<any>;
 
