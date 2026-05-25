@@ -60,16 +60,26 @@ Deno.serve(async (req) => {
   const periodEnd = body.period_end ?? defEnd;
   const tol = Number.isFinite(body.tolerance_pct) ? Number(body.tolerance_pct) : 3;
 
-  // 1) puxa rows de GAM (gam_placement_revenue)
-  let q = admin.from("gam_placement_revenue")
-    .select("user_id, site_id, campaign_id, placement, date, revenue_usd, impressions, raw_utm, utm_source")
-    .eq("user_id", userId)
-    .gte("date", periodStart).lte("date", periodEnd);
-  if (body.site_id) q = q.eq("site_id", body.site_id);
-  if (body.campaign_ids?.length) q = q.in("campaign_id", body.campaign_ids);
+  // 1) puxa rows de GAM (gam_placement_revenue) — PAGINADO (Supabase limita 1000/req)
+  const PAGE = 1000;
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let q = admin.from("gam_placement_revenue")
+      .select("user_id, site_id, campaign_id, placement, date, revenue_usd, impressions, raw_utm, utm_source")
+      .eq("user_id", userId)
+      .gte("date", periodStart).lte("date", periodEnd)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (body.site_id) q = q.eq("site_id", body.site_id);
+    if (body.campaign_ids?.length) q = q.in("campaign_id", body.campaign_ids);
+    const { data: page, error } = await q;
+    if (error) return jerr(error.message);
+    if (!page?.length) break;
+    rows.push(...page);
+    if (page.length < PAGE) break;
+    if (rows.length > 500_000) break; // safety
+  }
 
-  const { data: rows, error } = await q;
-  if (error) return jerr(error.message);
 
   const reconciled = new Map<string, {
     canon: CanonicalPlacement;
@@ -152,17 +162,37 @@ Deno.serve(async (req) => {
     upserted += slice.length;
   }
 
-  // 4) leak check por campanha vs gam_campaign_source_revenue
-  let cq = admin.from("gam_campaign_source_revenue")
-    .select("campaign_id, revenue_usd, site_id, date")
-    .eq("user_id", userId)
-    .gte("date", periodStart).lte("date", periodEnd);
-  if (body.site_id) cq = cq.eq("site_id", body.site_id);
-  if (body.campaign_ids?.length) cq = cq.in("campaign_id", body.campaign_ids);
-  const { data: campRev } = await cq;
+  // 4) leak check por campanha vs gam_campaign_source_revenue (PAGINADO)
+  const campRev: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let cq = admin.from("gam_campaign_source_revenue")
+      .select("campaign_id, revenue_usd, site_id, date")
+      .eq("user_id", userId)
+      .gte("date", periodStart).lte("date", periodEnd)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (body.site_id) cq = cq.eq("site_id", body.site_id);
+    if (body.campaign_ids?.length) cq = cq.in("campaign_id", body.campaign_ids);
+    const { data: page, error: cErr } = await cq;
+    if (cErr) return jerr(`camp rev: ${cErr.message}`);
+    if (!page?.length) break;
+    campRev.push(...page);
+    if (page.length < PAGE) break;
+    if (campRev.length > 500_000) break;
+  }
 
+  // ignora rows sem campaign_id (totais agregados do GAM sem dimensão de campanha — não-reconciliáveis)
   const campTotals = new Map<string, number>();
-  for (const r of campRev ?? []) campTotals.set(String(r.campaign_id), (campTotals.get(String(r.campaign_id)) ?? 0) + num(r.revenue_usd));
+  let aggregateOrphanRevenue = 0;
+  for (const r of campRev) {
+    const cid = r.campaign_id ? String(r.campaign_id).trim() : "";
+    if (!cid || cid === "__aggregate__" || cid === "0") {
+      aggregateOrphanRevenue += num(r.revenue_usd);
+      continue;
+    }
+    campTotals.set(cid, (campTotals.get(cid) ?? 0) + num(r.revenue_usd));
+  }
+
 
   const reconciledByCampaign = new Map<string, { exact: number; other: number }>();
   for (const v of reconciled.values()) {
@@ -208,8 +238,10 @@ Deno.serve(async (req) => {
     method_breakdown: methodCounts,
     exact_utm_placement_pct: round(exactPctGlobal),
     broken_tracking_rows: brokenCount,
+    aggregate_orphan_revenue_usd: round(aggregateOrphanRevenue),
     leak_report: leakReport,
     summary: summarize(leakReport),
+
   });
 });
 
