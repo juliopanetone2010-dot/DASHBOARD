@@ -258,6 +258,30 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
+  // Final URL por campaign_id (extraída de ads_placements, banco local — sem chamar Google Ads)
+  const finalUrlQuery = useQuery({
+    queryKey: ["campaign-final-urls", filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("ads_placements")
+        .select("campaign_id, target_url, date")
+        .not("target_url", "is", null)
+        .order("date", { ascending: false })
+        .limit(5000);
+      if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
+      const { data: rows } = await q;
+      const map = new Map<string, string>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        const url = String((r as any).target_url ?? "");
+        if (!cid || !url) continue;
+        if (!map.has(cid)) map.set(cid, url);
+      }
+      return map;
+    },
+    staleTime: 5 * 60_000,
+  });
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
