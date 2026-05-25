@@ -73,24 +73,25 @@ Deno.serve(async (req) => {
 
         const query = `
           SELECT
-            campaign.id, campaign.name,
+            campaign.id,
             campaign.final_url_suffix, campaign.tracking_url_template,
-            ad_group.id, ad_group.name,
-            ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.status,
+            ad_group.id,
+            ad_group_ad.ad.id, ad_group_ad.status,
             ad_group_ad.ad.final_urls, ad_group_ad.ad.final_mobile_urls,
             ad_group_ad.ad.tracking_url_template, ad_group_ad.ad.final_url_suffix
           FROM ad_group_ad
-          WHERE ad_group_ad.status != 'REMOVED'
-            AND campaign.status != 'REMOVED'
+          WHERE ad_group_ad.status != REMOVED
+            AND campaign.status != REMOVED
         `;
 
         const res = await fetch(
           `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
-          { method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }) },
+          { method: "POST", headers, body: JSON.stringify({ query }) },
         );
         const j = await res.json();
         if (!res.ok) {
-          accountSummaries.push({ customer_id: acc.customer_id, error: j?.error?.message ?? JSON.stringify(j) });
+          const detail = Array.isArray(j?.error?.details) ? JSON.stringify(j.error.details) : "";
+          accountSummaries.push({ customer_id: acc.customer_id, error: j?.error?.message ?? JSON.stringify(j), detail });
           continue;
         }
 
@@ -115,7 +116,7 @@ Deno.serve(async (req) => {
             google_account_id: acc.id,
             campaign_id: String(r.campaign?.id ?? ""),
             ad_group_id: String(r.adGroup?.id ?? "") || null,
-            ad_id: String(r.adGroupAd?.ad?.id ?? "") || null,
+            ad_id: String(r.adGroupAd?.ad?.id ?? ""),
             final_url: finalUrl,
             mobile_url: adMobileUrls[0] ?? null,
             tracking_template: adTracking ?? campTracking,
