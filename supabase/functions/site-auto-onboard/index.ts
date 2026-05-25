@@ -60,7 +60,10 @@ function delay(ms: number) {
 }
 
 async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
+  // Sempre chama funções internas como service-role e passa o user_id do dono do site.
+  const internalAuthHeader = `Bearer ${SERVICE_ROLE}`;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
   const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -116,9 +119,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds },
-      authHeader,
+      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
+      internalAuthHeader,
     );
+
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
     if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
 
@@ -151,9 +155,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         "gam-sync-revenue",
         // Snapshot regen no chunk mais recente para o dashboard refletir receita nova;
         // pulamos nos chunks antigos para caber no deadline.
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: !isFreshestChunk },
-        authHeader,
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: !isFreshestChunk, user_id: userId },
+        internalAuthHeader,
       );
+
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
       syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
       if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
@@ -176,7 +181,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
-      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to, user_id: userId }, internalAuthHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
       await delay(1_000);
@@ -235,13 +240,35 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     const { data: site } = await admin
       .from("sites")
-      .select("id, sync_status, sync_started_at, last_full_sync_at")
+      .select("id, user_id, sync_status, sync_started_at, last_full_sync_at")
       .eq("id", site_id)
-      .eq("user_id", user.id)
       .maybeSingle();
     if (!site) {
       return new Response(JSON.stringify({ error: "site not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Access check: owner, super_admin, or granted via admin_site_access
+    const ownerUserId = (site as { user_id: string }).user_id;
+    let allowed = user.id === ownerUserId;
+    if (!allowed) {
+      const { data: isSuper } = await admin.rpc("is_super_admin", { _uid: user.id });
+      allowed = !!isSuper;
+    }
+    if (!allowed) {
+      const { data: granted } = await admin
+        .from("admin_site_access")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("site_id", site_id)
+        .maybeSingle();
+      allowed = !!granted;
+    }
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "forbidden" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -268,11 +295,11 @@ Deno.serve(async (req) => {
     await admin
       .from("sites")
       .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
-      .eq("id", site_id)
-      .eq("user_id", user.id);
+      .eq("id", site_id);
 
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader, isIncrementalRefresh));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, authHeader, isIncrementalRefresh));
+
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,
