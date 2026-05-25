@@ -12,6 +12,7 @@ import Auth from "./pages/Auth.tsx";
 import Admins from "./pages/Admins.tsx";
 import AiSettings from "./pages/AiSettings.tsx";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { FloatingAi } from "@/components/ai/FloatingAi";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/ai-settings" element={<RequireAuth><AiSettings /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <FloatingAi />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
