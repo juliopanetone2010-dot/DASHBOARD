@@ -493,7 +493,20 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   Receita com match: {stats.gam_attributed_pct}%
                 </Badge>
               )}
-              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro com match exato: {fmtBRL(grandProfit)}</Badge>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/60 px-2 py-1 text-xs">
+                <span>Custo ({analysisWindowDays}d): <strong className="tabular-nums">{fmtBRL(grandCost)}</strong> · Lucro com match exato: <strong className="tabular-nums">{fmtBRL(grandProfit)}</strong></span>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-6 px-2 ml-1"
+                  onClick={() => runResyncAndPreview(false)}
+                  disabled={resyncing || loading}
+                  title="Re-puxa receita do GAM no período e recalcula estes números"
+                >
+                  {resyncing ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  Checar GAM
+                </Button>
+              </span>
               {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
                 <Badge variant="outline" className="border-warning text-warning" title="A receita do GAM não bateu exatamente com um placement do Ads. Por segurança, só removi da lista os placements que poderiam ficar bons se essa receita fosse deles.">
                   🛡️ {stats?.skipped_unsafe_campaign} protegido(s) por receita sem match exato
