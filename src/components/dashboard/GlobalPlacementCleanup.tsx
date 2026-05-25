@@ -117,6 +117,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [estimateOrphan, setEstimateOrphan] = useState(true);
   // limite de tolerância: campanha é "100% atribuída" se órfã ≤ 5% do custo
   const ORPHAN_TOLERANCE = 0.05;
+  const [cleanupSnapshot, setCleanupSnapshot] = useState<NonNullable<AiContext["cleanup_snapshot"]> | null>(null);
 
   // carrega config persistida
   useEffect(() => {
