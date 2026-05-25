@@ -223,7 +223,7 @@ export function AttributionAuditTab() {
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
               {Object.entries(report.revenue_sources ?? {}).map(([key, value]) => (
                 <div key={key} className="rounded border border-border bg-secondary/30 p-3">
-                  <div className="text-xs text-muted-foreground">{key.replaceAll("_", " ")}</div>
+                  <div className="text-xs text-muted-foreground">{key.replace(/_/g, " ")}</div>
                   <div className="font-semibold tabular-nums">${Number(value?.revenue_usd ?? 0).toFixed(2)}</div>
                   {typeof value?.rows === "number" && <div className="text-[10px] text-muted-foreground">{value.rows.toLocaleString()} rows</div>}
                 </div>
