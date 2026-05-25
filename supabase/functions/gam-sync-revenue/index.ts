@@ -1519,6 +1519,25 @@ async function applyGoogleUtmRevenue(
     return;
   }
 
+  // Preload campaign_final_urls para URL-match fallback (uma vez por sync, não por dia)
+  const { data: finalUrlRows } = await admin
+    .from("campaign_final_urls")
+    .select("campaign_id, final_url, updated_at")
+    .eq("user_id", userId)
+    .in("google_account_id", accountIds)
+    .order("updated_at", { ascending: false })
+    .limit(20000);
+  const finalUrlByCid = new Map<string, string>();
+  for (const r of (finalUrlRows ?? []) as any[]) {
+    const cid = String(r.campaign_id);
+    if (!finalUrlByCid.has(cid) && r.final_url) {
+      const norm = normalizePageUrl(String(r.final_url));
+      if (norm) finalUrlByCid.set(cid, norm);
+    }
+  }
+  debug.push(`[url_match] preload final_urls=${finalUrlByCid.size} (de ${(finalUrlRows ?? []).length} rows)`);
+
+
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics } = await admin
