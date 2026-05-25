@@ -111,6 +111,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [siteAccounts, setSiteAccounts] = useState<Record<string, string[]>>({});
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
   const canExclude = (i: PreviewItem) => !i.is_protected && (i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id));
+  // Modo seguro: só permite excluir placements de campanhas 100% atribuídas (sem receita órfã do GAM)
+  const [safeMode, setSafeMode] = useState(true);
+  const [estimateOrphan, setEstimateOrphan] = useState(true);
+  // limite de tolerância: campanha é "100% atribuída" se órfã ≤ 5% do custo
+  const ORPHAN_TOLERANCE = 0.05;
 
   // carrega config persistida
   useEffect(() => {
