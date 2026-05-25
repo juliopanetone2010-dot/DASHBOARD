@@ -557,7 +557,28 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Preview · placements ruins</DialogTitle>
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle>Preview · placements ruins</DialogTitle>
+              {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
+                <AiAssistantButton
+                  label={`Auditar com AI (${cleanupSnapshot.campaign_ids.length} camp.)`}
+                  context={{
+                    active_tab: "placements_cleanup",
+                    current_site: filters.siteId && filters.siteId !== "all" ? filters.siteId : null,
+                    range: cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to },
+                    filters: { account_ids: filters.googleAccountIds, min_days: minDays, max_roi_pct: maxRoi, min_cost_brl: minCost },
+                    cleanup_snapshot: cleanupSnapshot,
+                  }}
+                  suggestions={[
+                    "Faça uma varredura profunda nessas campanhas e me diga se tudo está batendo (custo, receita, ROI, GAM).",
+                    "Tem receita órfã ou placement sem match nessas campanhas?",
+                    "O NET_FACTOR e o revshare foram aplicados certo em todas?",
+                    "Algum placement está com revenue inflada ou cross-site leak?",
+                    "Recheca tudo e, se não bater, rode de novo as tools até bater ou me mostrar o bug real.",
+                  ]}
+                />
+              )}
+            </div>
             <DialogDescription className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
               <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas</Badge>
