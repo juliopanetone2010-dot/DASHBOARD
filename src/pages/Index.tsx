@@ -35,6 +35,7 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
+import { AttributionAuditTab } from "@/components/dashboard/AttributionAuditTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
