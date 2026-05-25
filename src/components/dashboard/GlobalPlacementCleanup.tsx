@@ -595,6 +595,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                     Ver com calma
                   </Button>
                 )}
+                <span className="flex items-center gap-2" title="Quando ligado, bloqueia seleção de placements em campanhas com receita órfã no GAM (sem match exato).">
+                  🛡️ Modo seguro <Switch checked={safeMode} onCheckedChange={setSafeMode} />
+                </span>
+                <span className="flex items-center gap-2" title="Rateia a receita órfã do GAM por custo dos placements pra estimar um ROI mais realista.">
+                  📊 Estimar órfã <Switch checked={estimateOrphan} onCheckedChange={setEstimateOrphan} />
+                </span>
                 <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
@@ -609,7 +615,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   <TableHead className="text-right">Receita exata ({analysisWindowDays}d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
+                  {estimateOrphan && <TableHead className="text-right" title="ROI estimado com rateio da receita órfã do GAM por custo do placement">ROI est.</TableHead>}
                   <TableHead className="text-right">Ruins</TableHead>
+                  <TableHead className="w-20"></TableHead>
                   <TableHead className="text-right">Selec.</TableHead>
                 </TableRow>
               </TableHeader>
