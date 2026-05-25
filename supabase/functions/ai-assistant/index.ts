@@ -422,6 +422,115 @@ const tools: Record<string, { def: any; run: ToolFn }> = {
       return { audits: data ?? [], count: (data ?? []).length };
     },
   },
+
+  rebuild_canonical_engine: {
+    def: {
+      type: "function",
+      function: {
+        name: "rebuild_canonical_engine",
+        description: "Reconstrói a tabela placement_revenue_reconciled usando utm_placement como SOURCE OF TRUTH ({campaignid}_{placement}). Retorna método de reconciliação por row (exact_utm_placement / campaign_placement / normalized_url / inferred), % global de exact_utm_placement, broken_tracking_rows, e leak_report por campanha. Use SEMPRE antes de declarar attribution confiável.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            from: { type: "string", description: "YYYY-MM-DD" },
+            to: { type: "string", description: "YYYY-MM-DD" },
+            site_id: { type: "string" },
+            tolerance_pct: { type: "number", description: "default 3" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    run: async (a, { userId }) => {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/rebuild-canonical-placement-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+        body: JSON.stringify({
+          user_id: userId, site_id: a.site_id ?? null,
+          campaign_ids: a.campaign_ids ?? [],
+          period_start: a.from, period_end: a.to,
+          tolerance_pct: a.tolerance_pct,
+        }),
+      });
+      return await r.json().catch(() => ({ error: `http ${r.status}` }));
+    },
+  },
+
+  audit_canonical_attribution: {
+    def: {
+      type: "function",
+      function: {
+        name: "audit_canonical_attribution",
+        description: "Lê placement_revenue_reconciled e retorna: % por reconciliation_method, placements sem canonical key (broken_tracking), campanhas com leak vs gam_campaign_source_revenue, rows do GAM sem utm_placement. Mais rápido que rebuild — use quando já foi reconstruído.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            site_id: { type: "string" },
+            from: { type: "string" },
+            to: { type: "string" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    run: async (a, { userId, admin }) => {
+      let q = admin.from("placement_revenue_reconciled")
+        .select("campaign_id, placement, normalized_placement, revenue_usd, impressions, confidence, reconciliation_method, broken_tracking, date")
+        .eq("user_id", userId)
+        .gte("date", a.from).lte("date", a.to);
+      if (a.site_id) q = q.eq("site_id", a.site_id);
+      if (a.campaign_ids?.length) q = q.in("campaign_id", a.campaign_ids);
+      const { data: rows, error } = await q;
+      if (error) return { error: error.message };
+
+      const methodRevenue: Record<string, number> = {};
+      const broken: any[] = [];
+      const byCampaign: Record<string, { exact: number; total: number }> = {};
+      let totalRev = 0;
+      for (const r of rows ?? []) {
+        const rev = Number(r.revenue_usd) || 0;
+        totalRev += rev;
+        methodRevenue[r.reconciliation_method] = (methodRevenue[r.reconciliation_method] ?? 0) + rev;
+        if (r.broken_tracking) broken.push({ campaign_id: r.campaign_id, placement: r.placement, date: r.date, revenue_usd: rev });
+        const k = r.campaign_id;
+        byCampaign[k] = byCampaign[k] ?? { exact: 0, total: 0 };
+        byCampaign[k].total += rev;
+        if (r.reconciliation_method === "exact_utm_placement") byCampaign[k].exact += rev;
+      }
+      // cruza com GAM canonical
+      let cq = admin.from("gam_campaign_source_revenue")
+        .select("campaign_id, revenue_usd")
+        .eq("user_id", userId).gte("date", a.from).lte("date", a.to);
+      if (a.site_id) cq = cq.eq("site_id", a.site_id);
+      if (a.campaign_ids?.length) cq = cq.in("campaign_id", a.campaign_ids);
+      const { data: camp } = await cq;
+      const campTotals: Record<string, number> = {};
+      for (const r of camp ?? []) campTotals[r.campaign_id] = (campTotals[r.campaign_id] ?? 0) + (Number(r.revenue_usd) || 0);
+
+      const leaks = Object.entries(campTotals).map(([cid, gam]) => {
+        const rec = byCampaign[cid] ?? { exact: 0, total: 0 };
+        return {
+          campaign_id: cid,
+          gam_revenue: round(gam),
+          reconciled_total: round(rec.total),
+          exact_revenue: round(rec.exact),
+          exact_share_pct: gam > 0 ? round((rec.exact / gam) * 100) : 0,
+          leak_pct: gam > 0 ? round(((gam - rec.total) / gam) * 100) : 0,
+        };
+      });
+
+      return {
+        total_revenue: round(totalRev),
+        method_revenue: Object.fromEntries(Object.entries(methodRevenue).map(([k, v]) => [k, round(v)])),
+        exact_share_pct: totalRev > 0 ? round(((methodRevenue.exact_utm_placement ?? 0) / totalRev) * 100) : 0,
+        broken_tracking_count: broken.length,
+        broken_examples: broken.slice(0, 10),
+        leaks,
+      };
+    },
+  },
 };
 
 function round(n: number, d = 2) { return Math.round(n * 10 ** d) / 10 ** d; }
@@ -447,7 +556,8 @@ Regras:
    b) Cruze os números retornados com o snapshot (stats, applied, failed). Se algo NÃO bater (mismatch acima da tolerância, órfã alta, ROI impossível, NET_FACTOR fora de ±0.5%, leak cross-site), NÃO desista: rode de novo as tools relevantes (até 3 retries por campanha) variando parâmetros (período, site_id, placement específico) até encontrar a causa real ou confirmar o bug.
    c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.
 8. RECONCILIAÇÃO É OBRIGATÓRIA antes de afirmar que receita está "certa". Sempre que o usuário perguntar variações de "a receita está correta/confiável?", "quanto está vazando?", "essa campanha está consistente?", você DEVE chamar reconcile_placement_revenue (ou get_revenue_audit se já houver auditoria recente <2h). Reporte: campaign_revenue, placements_revenue, leak_amount, leak_percent, confidence, audit_status, findings. Se audit_status ∈ {leak_detected, unreliable} sugira rodar reconcile_placement_revenue com rebuild=true.
-9. NUNCA classifique um placement como "ruim/excluir" se a campanha estiver com audit_status leak_detected/unreliable ou confidence < 95. Nesses casos, status REAL do placement é UNKNOWN, não BAD. Diga isso explicitamente.`;
+9. NUNCA classifique um placement como "ruim/excluir" se a campanha estiver com audit_status leak_detected/unreliable ou confidence < 95. Nesses casos, status REAL do placement é UNKNOWN, não BAD. Diga isso explicitamente.
+10. SOURCE OF TRUTH OFICIAL = utm_placement no formato {campaignid}_{placement} (ex: 23847634986_accuweather.com). Toda análise séria de attribution deve passar por rebuild_canonical_engine ou audit_canonical_attribution. Use exact_share_pct para julgar confiança: ≥95% → attribution confiável; <95% → leak/broken tracking, recomende rebuild. Placement só pode ser marcado para exclusão se sua linha em placement_revenue_reconciled tiver reconciliation_method='exact_utm_placement'. Se broken_tracking_count > 0 ou exact_share_pct < 95, classifique como BROKEN TRACKING e sugira corrigir o Final URL Suffix do Google Ads para utm_placement={campaignid}_{placement}.`;
 
 type ProviderRoute =
   | { kind: "lovable"; model: string }

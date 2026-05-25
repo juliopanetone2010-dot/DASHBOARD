@@ -1972,6 +1972,72 @@ export type Database = {
         }
         Relationships: []
       }
+      placement_revenue_reconciled: {
+        Row: {
+          broken_tracking: boolean
+          campaign_id: string
+          canonical_key: string
+          clicks: number
+          confidence: number
+          created_at: string
+          date: string
+          ecpm: number | null
+          google_account_id: string | null
+          id: string
+          impressions: number
+          normalized_placement: string
+          placement: string
+          reconciliation_method: string
+          revenue_usd: number
+          site_id: string | null
+          source_row: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          broken_tracking?: boolean
+          campaign_id: string
+          canonical_key: string
+          clicks?: number
+          confidence?: number
+          created_at?: string
+          date: string
+          ecpm?: number | null
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          normalized_placement: string
+          placement: string
+          reconciliation_method?: string
+          revenue_usd?: number
+          site_id?: string | null
+          source_row?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          broken_tracking?: boolean
+          campaign_id?: string
+          canonical_key?: string
+          clicks?: number
+          confidence?: number
+          created_at?: string
+          date?: string
+          ecpm?: number | null
+          google_account_id?: string | null
+          id?: string
+          impressions?: number
+          normalized_placement?: string
+          placement?: string
+          reconciliation_method?: string
+          revenue_usd?: number
+          site_id?: string | null
+          source_row?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       placement_status: {
         Row: {
           app_id: string | null
