@@ -1580,14 +1580,17 @@ async function applyGoogleUtmRevenue(
         aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
       }
     }
-    // URL-match fallback: para campanhas ainda sem receita, soma gam_url_revenue
-    // (utm_source=google) cuja URL bata com a final_url do anúncio. Captura
-    // tráfego que iria para __aggregate__ porque o GAM não tagueou utm_campaign.
-    const stillMissing = cids.filter((c) => (aggregatedByCid.get(c) ?? 0) === 0 && finalUrlByCid.has(c));
-    if (stillMissing.length > 0) {
+    // URL-match: para campanhas com final_url conhecida, soma gam_url_revenue
+    // (utm_source=google) cuja URL bate com a final_url do anúncio. GAM agrupa
+    // muito tráfego em __aggregate__ porque KEY_VALUES_NAME não tem utm_campaign,
+    // mas o report por URL+CHANNEL=google captura a receita real da página.
+    // Estratégia: pegar o MAIOR entre o já agregado (source_revenue) e o
+    // URL-match — assim cobrimos o gap sem dobrar contagem.
+    const cidsWithFinalUrl = cids.filter((c) => finalUrlByCid.has(c));
+    if (cidsWithFinalUrl.length > 0) {
       const { data: urlRows } = await admin
         .from("gam_url_revenue")
-        .select("url, revenue_usd, utm_source")
+        .select("url, revenue_usd")
         .eq("user_id", userId)
         .eq("site_id", siteId)
         .eq("date", date)
@@ -1595,25 +1598,23 @@ async function applyGoogleUtmRevenue(
         .limit(20000);
       const revByNormUrl = new Map<string, number>();
       for (const r of (urlRows ?? []) as any[]) {
-        const rawUrl = String(r.url ?? "");
-        // Pula URLs que já têm utm_campaign — já foram contabilizadas em source_revenue
-        if (/[?&]utm_campaign=/i.test(rawUrl)) continue;
-        const u = normalizePageUrl(rawUrl);
+        const u = normalizePageUrl(String(r.url ?? ""));
         if (!u) continue;
         revByNormUrl.set(u, (revByNormUrl.get(u) ?? 0) + Number(r.revenue_usd ?? 0));
       }
-      let urlMatchedCount = 0;
-      let urlMatchedRev = 0;
-      for (const cid of stillMissing) {
+      let urlBoostedCount = 0;
+      let urlBoostedDelta = 0;
+      for (const cid of cidsWithFinalUrl) {
         const normFinal = finalUrlByCid.get(cid)!;
-        const rev = revByNormUrl.get(normFinal) ?? 0;
-        if (rev > 0) {
-          aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
-          urlMatchedCount++;
-          urlMatchedRev += rev;
+        const urlRev = revByNormUrl.get(normFinal) ?? 0;
+        const already = aggregatedByCid.get(cid) ?? 0;
+        if (urlRev > already) {
+          aggregatedByCid.set(cid, urlRev);
+          urlBoostedCount++;
+          urlBoostedDelta += (urlRev - already);
         }
       }
-      debug.push(`[url_match] ${date}: candidates=${stillMissing.length} matched=${urlMatchedCount} rev_usd=${urlMatchedRev.toFixed(4)}`);
+      debug.push(`[url_match] ${date}: candidates=${cidsWithFinalUrl.length} boosted=${urlBoostedCount} delta_usd=${urlBoostedDelta.toFixed(4)}`);
     }
 
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
