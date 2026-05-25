@@ -365,9 +365,11 @@ Deno.serve(async (req) => {
     const leakAbs = total - all;
     const leakPct = total > 0 ? (leakAbs / total) * 100 : 0;
     const exactPct = total > 0 ? (rec.exact / total) * 100 : 0;
+    // verified considera exact + allocated (verified_allocated conta como reconciliação confiável)
+    const exactCoveredPct = total > 0 ? ((rec.exact + rec.allocated) / total) * 100 : 0;
     let status: "verified" | "partial" | "leak_detected" | "unreliable" | "broken";
-    if (brokenCount > 0 && exactPct < 50) status = "broken";
-    else if (Math.abs(leakPct) <= tol && exactPct >= 95) status = "verified";
+    if (brokenCount > 0 && exactPct < 50 && exactCoveredPct < 50) status = "broken";
+    else if (Math.abs(leakPct) <= tol && exactCoveredPct >= 95) status = "verified";
     else if (Math.abs(leakPct) <= 10) status = "partial";
     else if (Math.abs(leakPct) <= 30) status = "leak_detected";
     else status = "unreliable";
