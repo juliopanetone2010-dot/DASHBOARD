@@ -210,10 +210,19 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                     {fmtUSD(Number(c.ecpm) || 0)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtPercent(ctrOf(c))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(Math.round(c.conversions))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtPercent(convRateOf(c))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {c.conversions > 0 ? fmtCurrency(cpaOf(c)) : "—"}
                   </TableCell>
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">
