@@ -337,5 +337,53 @@ function summarize(rs: any[]) {
   for (const r of rs) out[r.status] = (out[r.status] ?? 0) + 1;
   return out;
 }
+function roundRecord(input: Record<string, number>) {
+  return Object.fromEntries(Object.entries(input).map(([k, v]) => [k, round(v)]));
+}
+function buildTopUnreconciledRows(args: {
+  campRev: any[];
+  reconciledByCampaign: Map<string, { exact: number; other: number }>;
+  aggregateBySource: Record<string, number>;
+  limit: number;
+}) {
+  const out: any[] = [];
+  const byCampaign = new Map<string, { revenue: number; rows: any[] }>();
+  for (const r of args.campRev) {
+    const cid = r.campaign_id ? String(r.campaign_id).trim() : "";
+    const revenue = num(r.revenue_usd);
+    if (!cid || cid === "__aggregate__" || cid === "0") {
+      out.push({
+        source_table: "gam_campaign_source_revenue",
+        raw_gam_row: r,
+        dimensions: { date: r.date, campaign_id: r.campaign_id, site_id: r.site_id, utm_source: (r as any).utm_source ?? null },
+        revenue_usd: round(revenue),
+        why_not_matched: "aggregate_without_campaign_or_utm_placement",
+        report_query: "gam-sync-revenue KEY_VALUES_NAME row had utm_source but no utm_campaign/utm_placement",
+      });
+      continue;
+    }
+    const cur = byCampaign.get(cid) ?? { revenue: 0, rows: [] };
+    cur.revenue += revenue;
+    if (cur.rows.length < 5) cur.rows.push(r);
+    byCampaign.set(cid, cur);
+  }
+  for (const [cid, v] of byCampaign) {
+    const rec = args.reconciledByCampaign.get(cid) ?? { exact: 0, other: 0 };
+    const matched = rec.exact + rec.other;
+    const diff = v.revenue - matched;
+    if (Math.abs(diff) < 0.01) continue;
+    out.push({
+      source_table: "gam_campaign_source_revenue",
+      raw_gam_row: v.rows[0] ?? { campaign_id: cid },
+      dimensions: { campaign_id: cid, sample_dates: v.rows.map((r) => r.date), rows_sampled: v.rows.length },
+      revenue_usd: round(v.revenue),
+      reconciled_revenue_usd: round(matched),
+      unreconciled_usd: round(diff),
+      why_not_matched: diff > 0 ? "campaign_revenue_without_matching_placement_revenue" : "placement_revenue_exceeds_campaign_source_revenue",
+      report_query: "Compare gam_campaign_source_revenue(utm_campaign) vs gam_placement_revenue(utm_placement)",
+    });
+  }
+  return out.sort((a, b) => Math.abs(Number(b.unreconciled_usd ?? b.revenue_usd ?? 0)) - Math.abs(Number(a.unreconciled_usd ?? a.revenue_usd ?? 0))).slice(0, args.limit);
+}
 function jok(d: unknown) { return new Response(JSON.stringify(d), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }); }
 function jerr(m: string, s = 400) { return new Response(JSON.stringify({ error: m }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: s }); }
