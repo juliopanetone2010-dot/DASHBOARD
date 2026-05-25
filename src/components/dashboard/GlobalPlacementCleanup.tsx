@@ -437,7 +437,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
+    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => canExcludeInMode(i, cid)).map(itemKey);
+    if (on && placements.length === 0) {
+      const agg = campAggMap.get(cid);
+      toast({
+        title: "Bloqueado pelo Modo Seguro",
+        description: `Esta campanha tem ${agg ? fmtBRL(agg.orphan_brl) : "receita"} no GAM sem match exato. Conserte a UTM ou desligue Modo Seguro pra liberar.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
