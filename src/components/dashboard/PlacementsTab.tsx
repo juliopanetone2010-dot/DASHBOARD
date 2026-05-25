@@ -307,13 +307,22 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     return last2;
   };
 
-  // Receita GAM por placement (já agrupada via UTM no backend)
+  // Receita GAM por placement (canonical engine — placement_revenue_reconciled)
   const gamRevenueByPlacement = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { revenue: number; method: string | null; confidence: number; broken: boolean }>();
     for (const g of gamRows) {
-      const key = normalizePlacementKey(g.placement || "");
+      const key = normalizePlacementKey(g.normalized_placement || g.placement || "");
       if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cur = map.get(key) ?? { revenue: 0, method: null, confidence: 0, broken: false };
+      cur.revenue += Number(g.revenue_usd ?? 0);
+      // Mantém o método com maior confidence
+      const conf = Number(g.confidence ?? 0);
+      if (conf >= cur.confidence) {
+        cur.confidence = conf;
+        cur.method = g.reconciliation_method ?? cur.method;
+      }
+      if (g.broken_tracking) cur.broken = true;
+      map.set(key, cur);
     }
     return map;
   }, [gamRows]);
@@ -322,8 +331,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     const map = new Map<string, AggRow>();
     for (const r of rows) {
       const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
-      // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
-      // O root domain é guardado para fallback de match de receita via UTM.
       const key = rawPlacement;
       const root = rootDomain(rawPlacement);
       let agg = map.get(key);
@@ -336,19 +343,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
           revenueUsd: 0, revenueUsdNet: 0, revenueBrl: 0, profitBrl: 0, roi: 0,
           revenueSource: "none", matchedUtm: null, ctr: 0, cpcBrl: 0,
+          reconciliationMethod: null, confidence: 0, brokenTracking: false,
         };
         map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
       agg.clicks += Number(r.clicks);
-      agg.costBrl += Number(r.cost); // custo NATIVO (BRL na conta BR)
+      agg.costBrl += Number(r.cost);
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
     for (const a of values) {
-      // Match estrito: só placement completo normalizado. Sem root/prefixo/fallback.
-      let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
+      const match = gamRevenueByPlacement.get(a.placement);
+      const usd = match?.revenue ?? 0;
       let source: AggRow["revenueSource"] = "none";
       let matchedKey: string | null = null;
       if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
@@ -363,6 +371,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.matchedUtm = matchedKey;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
       a.cpcBrl = a.clicks > 0 ? a.costBrl / a.clicks : 0;
+      a.reconciliationMethod = match?.method ?? null;
+      a.confidence = match?.confidence ?? 0;
+      a.brokenTracking = match?.broken ?? false;
     }
     return values;
   }, [rows, gamRevenueByPlacement, fxUsdBrl]);
