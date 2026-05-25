@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AiAssistantButton, type AiContext } from "@/components/ai/AiAssistant";
 
 interface PreviewCampaign {
   campaign_id: string;
