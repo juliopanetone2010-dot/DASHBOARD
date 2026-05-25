@@ -20,16 +20,27 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const accountIds: string[] = Array.isArray((body as any)?.account_ids) ? (body as any).account_ids : [];
     const campaignIds: string[] = Array.isArray((body as any)?.campaign_ids) ? (body as any).campaign_ids : [];
+    const requestedUserId: string | null = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
 
-    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const token = authHeader.replace("Bearer ", "");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    let userId: string | undefined;
+    if (token && serviceRoleKey && token === serviceRoleKey) {
+      userId = requestedUserId ?? undefined;
+    } else {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_edit_rules" });
-    if (!hasPerm) return json({ error: "Permissão negada: can_edit_rules" });
+    if (token !== serviceRoleKey) {
+      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_edit_rules" });
+      if (!hasPerm) return json({ error: "Permissão negada: can_edit_rules" });
+    }
+
 
     let q = admin.from("campaigns")
       .select("campaign_id, name, google_account_id")
