@@ -372,7 +372,11 @@ Regras:
 3. Em modo debug, mostre a fórmula, valores brutos, queries lógicas (não SQL literal), e os flags retornados pelas tools.
 4. Respostas em pt-BR, técnicas, diretas. Use markdown. Listas/tabelas quando útil.
 5. Se uma tool retornar flags (cost_without_revenue, multiple_sites, roi_impossible, mismatch, etc), DESTAQUE e explique o que significa e o provável bug.
-6. Quando o usuário pedir "isso está calculando certo?" em um placement específico, rode validate_placement_revenue + explain_placement_roi e cruze com detect_cross_site_leak/compare_with_gam se necessário.`;
+6. Quando o usuário pedir "isso está calculando certo?" em um placement específico, rode validate_placement_revenue + explain_placement_roi e cruze com detect_cross_site_leak/compare_with_gam se necessário.
+7. MODO AUDITORIA PROFUNDA — Se o contexto trouxer cleanup_snapshot com campaign_ids, você está auditando uma execução de Limpeza de Placements. Comportamento obrigatório:
+   a) Itere por TODOS os campaign_ids do snapshot. Para cada um chame, no mínimo: compare_with_gam, detect_placement_mismatch, detect_cross_site_leak, check_net_factor e detect_suspicious_placements.
+   b) Cruze os números retornados com o snapshot (stats, applied, failed). Se algo NÃO bater (mismatch acima da tolerância, órfã alta, ROI impossível, NET_FACTOR fora de ±0.5%, leak cross-site), NÃO desista: rode de novo as tools relevantes (até 3 retries por campanha) variando parâmetros (período, site_id, placement específico) até encontrar a causa real ou confirmar o bug.
+   c) Entregue no fim um relatório markdown com: ✅ campanhas OK, ⚠️ campanhas com divergência (mostrando fórmula que não fechou e valor real vs esperado), 🐛 bugs reais detectados com evidência das tools, e ações sugeridas. Sempre cite os números brutos.`;
 
 type ProviderRoute =
   | { kind: "lovable"; model: string }
