@@ -486,9 +486,10 @@ Deno.serve(async (req) => {
     const toolEvents: any[] = [];
     let final = "";
     let lastAssistant: any = null;
+    const route = await resolveProvider(admin, user.id);
 
     for (let step = 0; step < 6; step += 1) {
-      const resp = await callGateway(msgs, toolDefs, 6 - step);
+      const resp = await callModel(route, msgs, toolDefs, 6 - step);
       const choice = resp?.choices?.[0]?.message;
       if (!choice) throw new Error("no choice");
       lastAssistant = choice;
