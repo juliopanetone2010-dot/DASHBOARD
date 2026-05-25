@@ -734,13 +734,25 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.costBrl > 100 && r.conversions === 0;
                     const action = actions[r.placement];
+                    const isVerified = matched && r.reconciliationMethod === "exact_utm_placement" && r.confidence >= 95;
+                    const isInferred = matched && !isVerified && !r.brokenTracking;
+                    const isBroken = r.brokenTracking === true;
+                    const isLeak = !matched && r.costBrl > 0; // gastou e nada veio do GAM
+                    // Trava: só permite blacklist se a receita é VERIFIED OU se realmente não há receita (leak).
+                    const canBlacklist = isVerified || (!matched && r.costBrl >= 100);
+                    const blacklistTitle = canBlacklist
+                      ? "Excluir no Google Ads (negative placement)"
+                      : "Bloqueado: tracking não verificado (confidence < 95 ou método não exact_utm_placement)";
                     return (
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
-                            {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
+                            {isVerified && <Badge className="text-[9px] bg-success/15 text-success border border-success/30" title={`exact_utm_placement · confidence ${r.confidence}`}>VERIFIED</Badge>}
+                            {isInferred && <Badge className="text-[9px] bg-warning/15 text-warning border border-warning/30" title={`${r.reconciliationMethod ?? "?"} · confidence ${r.confidence}`}>INFERRED</Badge>}
+                            {isBroken && <Badge variant="destructive" className="text-[9px]">BROKEN</Badge>}
+                            {isLeak && <Badge className="text-[9px] bg-foreground/10 text-foreground border border-border" title="Custo sem receita reconciliada">LEAK</Badge>}
+                            {r.revenueSource === "none" && !isLeak && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
@@ -774,7 +786,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir no Google Ads (negative placement)" onClick={() => toggleAction(r.placement, "blacklist", r)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className={cn("h-7 w-7", canBlacklist ? "text-danger" : "text-muted-foreground/40 cursor-not-allowed")}
+                              title={blacklistTitle}
+                              disabled={!canBlacklist}
+                              onClick={() => canBlacklist && toggleAction(r.placement, "blacklist", r)}
+                            >
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -786,6 +805,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <div>root: {r.placementRoot}</div>
                             <div>cost_ads: R$ {r.costBrl.toFixed(2)} (BRL)</div>
                             <div>utm_match: {r.matchedUtm ?? "—"} ({r.revenueSource})</div>
+                            <div>method: {r.reconciliationMethod ?? "—"} · conf: {r.confidence}</div>
+                            <div>broken: {String(r.brokenTracking)}</div>
                             <div>rev_usd: ${r.revenueUsd.toFixed(4)} → net ${r.revenueUsdNet.toFixed(4)}</div>
                             <div>fx: {fxUsdBrl} → rev_brl: R$ {r.revenueBrl.toFixed(2)}</div>
                             <div>roi: {r.roi.toFixed(2)}%</div>
