@@ -181,6 +181,27 @@ export function CreativesTab({ fxUsdBrl }: Props) {
         list = allowed.size > 0 ? list.filter((r) => allowed.has(String(r.campaign_id))) : [];
       }
       setRows(list);
+
+      // Final URL por campanha (banco local — sem chamar Google Ads)
+      try {
+        let uq = supabase
+          .from("ads_placements")
+          .select("campaign_id, target_url, date")
+          .not("target_url", "is", null)
+          .gte("date", range.from)
+          .lte("date", range.to)
+          .order("date", { ascending: false })
+          .limit(5000);
+        if (effectiveAccountIds.length > 0) uq = uq.in("google_account_id", effectiveAccountIds);
+        const { data: urlRows } = await uq;
+        const m = new Map<string, string>();
+        for (const r of urlRows ?? []) {
+          const cid = String((r as any).campaign_id ?? "");
+          const u = String((r as any).target_url ?? "");
+          if (cid && u && !m.has(cid)) m.set(cid, u);
+        }
+        setFinalUrls(m);
+      } catch { /* ignore */ }
     } finally { setLoading(false); }
   };
 
