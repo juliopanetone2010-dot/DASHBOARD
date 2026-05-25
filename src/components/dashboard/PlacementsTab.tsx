@@ -36,7 +36,16 @@ interface AdsPlacementRow {
   avg_cpc: number;
 }
 
-interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
+interface GamRevRow {
+  placement: string;
+  revenue_usd: number;
+  impressions: number;
+  date: string;
+  reconciliation_method?: string | null;
+  confidence?: number | null;
+  broken_tracking?: boolean | null;
+  normalized_placement?: string | null;
+}
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
 interface ApplyUtmResult { error?: string; success?: number; total?: number; failed?: number; }
 interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
@@ -59,6 +68,9 @@ interface AggRow {
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
+  reconciliationMethod: string | null;
+  confidence: number;          // 0..100 (0 = sem match)
+  brokenTracking: boolean;
 }
 
 type SortKey = "roi" | "costBrl" | "conversions" | "ctr" | "impressions";
