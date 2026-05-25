@@ -443,7 +443,7 @@ const IndexInner = () => {
   }, [allSites, getSyncRange, refreshUiData, syncRevenueAndRebuild]);
 
   useEffect(() => {
-    if (!user || syncingCampaigns || finalUrlQuery.isFetching) return;
+    if (!user || syncing || syncingCampaigns || finalUrlQuery.isFetching) return;
 
     const aggregates = engine?.aggregates ?? [];
     if (aggregates.length === 0) return;
@@ -470,7 +470,7 @@ const IndexInner = () => {
       }
       await refreshUiData();
     });
-  }, [user, syncingCampaigns, finalUrlQuery.isFetching, finalUrlQuery.data, engine?.aggregates, filters.siteId, filters.googleAccountIds, refreshUiData]);
+  }, [user, syncing, syncingCampaigns, finalUrlQuery.isFetching, finalUrlQuery.data, engine?.aggregates, filters.siteId, filters.googleAccountIds, refreshUiData]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
