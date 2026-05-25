@@ -119,6 +119,32 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const ORPHAN_TOLERANCE = 0.05;
   const [cleanupSnapshot, setCleanupSnapshot] = useState<NonNullable<AiContext["cleanup_snapshot"]> | null>(null);
 
+  // Reconciliação de receita por campanha
+  type AuditRow = { campaign_id: string; audit_status: "verified"|"partial"|"leak_detected"|"unreliable"|"unknown"; confidence: number; leak_percent: number; leak_amount_usd: number; campaign_revenue_usd: number; placements_revenue_usd: number; findings?: any[] };
+  const [audits, setAudits] = useState<Record<string, AuditRow>>({});
+  const [auditing, setAuditing] = useState(false);
+  const [paranoidMode, setParanoidMode] = useState(false);
+  const PARANOID_MIN_CONFIDENCE = 98;
+  const PARANOID_MAX_LEAK_PCT = 3;
+  const STANDARD_MIN_CONFIDENCE = 95;
+
+  const runReconciliation = async (campaignIds: string[], period: { from: string; to: string }, rebuild = false) => {
+    if (!campaignIds.length) return;
+    setAuditing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ results: AuditRow[] }>(
+        "reconcile-placement-revenue",
+        { body: { mode: rebuild ? "rebuild" : "audit", campaign_ids: campaignIds, period_start: period.from, period_end: period.to, site_id: filters.siteId !== "all" ? filters.siteId : null, user_id: undefined } },
+      );
+      if (error) { console.warn("[reconcile] error", error); return; }
+      const next: Record<string, AuditRow> = {};
+      for (const r of data?.results ?? []) if (r?.campaign_id) next[r.campaign_id] = r;
+      setAudits((prev) => ({ ...prev, ...next }));
+    } finally {
+      setAuditing(false);
+    }
+  };
+
   // carrega config persistida
   useEffect(() => {
     (async () => {
