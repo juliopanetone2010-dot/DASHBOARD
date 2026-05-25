@@ -341,6 +341,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         console.warn("[safety] placements rejeitados pela re-verificação:", rejected);
       }
 
+      setCleanupSnapshot((prev) => ({
+        ran_at: new Date().toISOString(),
+        mode: "apply",
+        period: prev?.period ?? { from: effectiveRange.from, to: effectiveRange.to },
+        campaign_ids: prev?.campaign_ids ?? Array.from(new Set(payload.flatMap((p) => p.campaigns.map((c) => c.campaign_id)))),
+        campaigns: prev?.campaigns,
+        stats: prev?.stats,
+        applied: data?.applied ?? 0,
+        failed: data?.failed ?? 0,
+      }));
       setOpen(false);
     } finally {
       setApplying(false);
