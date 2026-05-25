@@ -262,6 +262,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         campaign_ids: campaignIds,
         stats: (data?.stats ?? {}) as Record<string, unknown>,
       });
+      // dispara reconciliação em background — não bloqueia a UI
+      runReconciliation(campaignIds, { from: effectiveRange.from, to: effectiveRange.to }).catch(() => {});
       // persiste filtros
       await persistConfig({
         placement_cleanup_min_days: minDays,
