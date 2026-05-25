@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   CampaignAggregate, GoogleAccount, Site,
