@@ -521,6 +521,26 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "apply") {
+      let auditQ = admin
+        .from("canonical_attribution_audit_reports")
+        .select("campaign_match_pct, leak_percent, reconciled_revenue_usd, total_gam_revenue_usd, created_at")
+        .eq("user_id", userId)
+        .lte("period_start", from)
+        .gte("period_end", to)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (siteId) auditQ = auditQ.eq("site_id", siteId);
+      const { data: latestAudit, error: auditErr } = await auditQ.maybeSingle();
+      if (auditErr) return json({ error: `Falha ao validar Attribution Audit: ${auditErr.message}` });
+      const campaignMatch = Number(latestAudit?.campaign_match_pct ?? 0);
+      if (!latestAudit || campaignMatch < 95) {
+        return json({
+          error: `Cleanup bloqueado: Attribution Audit não confiável (campaign_match=${round(campaignMatch)}%). Rode o rebuild e só aplique com campaign_match ≥ 95%.`,
+          safety_gate: "campaign_match_lt_95",
+          latest_audit: latestAudit ?? null,
+        });
+      }
+
       const selected: ApplyItem[] = Array.isArray(body?.items) && body.items.length
         ? body.items as ApplyItem[]
         : items.map((i) => ({

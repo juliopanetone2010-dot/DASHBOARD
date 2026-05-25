@@ -30,6 +30,16 @@ interface RebuildReport {
   method_breakdown: Record<Method, number>;
   exact_utm_placement_pct: number;
   broken_tracking_rows: number;
+  aggregate_orphan_revenue_usd?: number;
+  revenue_sources?: Record<string, any>;
+  reconciled_vs_total?: string;
+  total_gam_revenue_usd?: number;
+  total_reconciled_revenue_usd?: number;
+  global_leak_percent?: number;
+  campaign_match_pct?: number;
+  raw_samples?: Array<Record<string, any>>;
+  top_unreconciled_rows?: Array<Record<string, any>>;
+  report_origin?: Record<string, string>;
   leak_report: LeakRow[];
   summary: Record<string, number>;
 }
@@ -76,11 +86,11 @@ export function AttributionAuditTab() {
 
   const verifiedCampaigns = report?.summary?.verified ?? 0;
   const totalCampaigns = report?.leak_report?.length ?? 0;
-  const campaignMatchPct = totalCampaigns ? (verifiedCampaigns / totalCampaigns) * 100 : 0;
+  const campaignMatchPct = report?.campaign_match_pct ?? (totalCampaigns ? (verifiedCampaigns / totalCampaigns) * 100 : 0);
 
-  const totalGam = report?.leak_report.reduce((s, r) => s + r.campaign_revenue_usd, 0) ?? 0;
-  const totalReconciled = report?.leak_report.reduce((s, r) => s + r.reconciled_revenue_usd, 0) ?? 0;
-  const globalLeak = totalGam > 0 ? ((totalGam - totalReconciled) / totalGam) * 100 : 0;
+  const totalGam = report?.total_gam_revenue_usd ?? (report?.leak_report.reduce((s, r) => s + r.campaign_revenue_usd, 0) ?? 0);
+  const totalReconciled = report?.total_reconciled_revenue_usd ?? (report?.leak_report.reduce((s, r) => s + r.reconciled_revenue_usd, 0) ?? 0);
+  const globalLeak = report?.global_leak_percent ?? (totalGam > 0 ? ((totalGam - totalReconciled) / totalGam) * 100 : 0);
 
   // Top leaks
   const topLeaks = [...(report?.leak_report ?? [])]
@@ -171,9 +181,19 @@ export function AttributionAuditTab() {
               <Stat label="Reconciled" value={report.reconciled_rows.toLocaleString()} />
               <Stat label="GAM revenue" value={`$${totalGam.toFixed(2)}`} />
               <Stat label="Reconciled rev" value={`$${totalReconciled.toFixed(2)}`} />
+              <Stat label="Reconciled vs total" value={report.reconciled_vs_total ?? `$${totalReconciled.toFixed(2)} / $${totalGam.toFixed(2)}`} accent={Math.abs(globalLeak) <= 3 ? "success" : "warning"} />
+              <Stat label="Aggregate" value={`$${(report.aggregate_orphan_revenue_usd ?? 0).toFixed(2)}`} accent={(report.aggregate_orphan_revenue_usd ?? 0) > 0 ? "warning" : undefined} />
               <Stat label="Exact rows" value={`${(report.method_breakdown.exact_utm_placement ?? 0)}`} accent="success" />
               <Stat label="Inferred/URL" value={`${inferredCount} (${inferredPct.toFixed(1)}%)`} accent="warning" />
             </div>
+
+            {report.report_origin && (
+              <div className="mt-4 rounded border border-warning/30 bg-warning/10 p-3 text-xs text-muted-foreground space-y-1">
+                <div><strong className="text-foreground">Root cause provável:</strong> {report.report_origin.aggregate_root_cause}</div>
+                <div><strong className="text-foreground">Report aggregate:</strong> {report.report_origin.campaign_report}</div>
+                <div><strong className="text-foreground">Report placement:</strong> {report.report_origin.placement_report}</div>
+              </div>
+            )}
 
             {/* Method breakdown bar */}
             <div className="mt-4">
@@ -196,6 +216,45 @@ export function AttributionAuditTab() {
                 ))}
               </div>
             </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold mb-3">Revenue sources</h3>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
+              {Object.entries(report.revenue_sources ?? {}).map(([key, value]) => (
+                <div key={key} className="rounded border border-border bg-secondary/30 p-3">
+                  <div className="text-xs text-muted-foreground">{key.replace(/_/g, " ")}</div>
+                  <div className="font-semibold tabular-nums">${Number(value?.revenue_usd ?? 0).toFixed(2)}</div>
+                  {typeof value?.rows === "number" && <div className="text-[10px] text-muted-foreground">{value.rows.toLocaleString()} rows</div>}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <AlertOctagon className="h-4 w-4 text-destructive" /> Top unreconciled rows
+            </h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dimensions</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead>why_not_matched</TableHead>
+                  <TableHead>Raw GAM row</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(report.top_unreconciled_rows ?? []).slice(0, 10).map((r, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-mono text-[10px] max-w-[260px] truncate" title={JSON.stringify(r.dimensions)}>{JSON.stringify(r.dimensions)}</TableCell>
+                    <TableCell className="text-right tabular-nums">${Number(r.unreconciled_usd ?? r.revenue_usd ?? 0).toFixed(2)}</TableCell>
+                    <TableCell className="text-xs">{String(r.why_not_matched ?? "unknown")}</TableCell>
+                    <TableCell className="font-mono text-[10px] max-w-[360px] truncate" title={JSON.stringify(r.raw_gam_row)}>{JSON.stringify(r.raw_gam_row)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </Card>
 
           {/* Status summary */}
