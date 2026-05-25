@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Plus, Send, Loader2, Trash2, ChevronRight, Wrench } from "lucide-react";
+import { Bot, Plus, Send, Loader2, Trash2, ChevronRight, Wrench, KeyRound, Zap, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
