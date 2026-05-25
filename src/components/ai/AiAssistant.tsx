@@ -283,3 +283,137 @@ export function AiAssistantButton({ context, suggestions, label = "Perguntar ao 
 
 // silence unused
 void Input;
+
+const PROVIDER_PRESETS: Record<string, { name: string; models: string[]; placeholder: string }> = {
+  deepseek: { name: "DeepSeek", models: ["deepseek-chat", "deepseek-reasoner"], placeholder: "sk-..." },
+  openai: { name: "OpenAI", models: ["gpt-4o-mini", "gpt-4o"], placeholder: "sk-..." },
+  openrouter: { name: "OpenRouter", models: ["openai/gpt-4o-mini", "deepseek/deepseek-chat"], placeholder: "sk-or-..." },
+};
+
+interface ActiveProvider { provider: string; model: string | null; has_api_key: boolean; is_active: boolean }
+
+function ProviderBar() {
+  const [active, setActive] = useState<ActiveProvider | null>(null);
+  const [all, setAll] = useState<ActiveProvider[]>([]);
+  const [open, setOpen] = useState(false);
+  const [provider, setProvider] = useState<string>("deepseek");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState<string>("deepseek-chat");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const { data, error } = await supabase.functions.invoke("ai-providers", { body: { action: "list" } });
+    if (error || data?.error) return;
+    const items = (data?.items ?? []) as ActiveProvider[];
+    setAll(items);
+    setActive(items.find((i) => i.is_active) ?? null);
+  };
+  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    setModel(PROVIDER_PRESETS[provider]?.models[0] ?? "");
+  }, [provider]);
+
+  const connect = async () => {
+    if (!apiKey.trim()) { toast({ title: "Cole a API key", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      const test = await supabase.functions.invoke("ai-providers", {
+        body: { action: "test", provider, api_key: apiKey.trim(), model },
+      });
+      if (test.error || test.data?.error || !test.data?.ok) {
+        toast({ title: "Chave inválida", description: test.data?.error ?? test.error?.message ?? "erro", variant: "destructive" });
+        setBusy(false); return;
+      }
+      const save = await supabase.functions.invoke("ai-providers", {
+        body: { action: "save", provider, api_key: apiKey.trim(), model },
+      });
+      if (save.error || save.data?.error) throw new Error(save.data?.error ?? save.error?.message);
+      const act = await supabase.functions.invoke("ai-providers", {
+        body: { action: "set_active", provider },
+      });
+      if (act.error || act.data?.error) throw new Error(act.data?.error ?? act.error?.message);
+      toast({ title: `${PROVIDER_PRESETS[provider].name} ativo`, description: `${test.data.model} · ${test.data.latency_ms}ms` });
+      setApiKey(""); setOpen(false); load();
+    } catch (e) {
+      toast({ title: "Erro", description: String(e), variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const switchTo = async (p: string) => {
+    setBusy(true);
+    try {
+      if (p === "lovable") {
+        await supabase.functions.invoke("ai-providers", { body: { action: "clear_active" } });
+        toast({ title: "Usando Lovable AI" });
+      } else {
+        await supabase.functions.invoke("ai-providers", { body: { action: "set_active", provider: p } });
+        toast({ title: `${PROVIDER_PRESETS[p]?.name ?? p} ativo` });
+      }
+      load();
+    } finally { setBusy(false); }
+  };
+
+  const preset = PROVIDER_PRESETS[provider];
+
+  return (
+    <div className="border-b bg-muted/30">
+      <div className="px-4 py-2 flex items-center gap-2 text-xs">
+        <Zap className="h-3.5 w-3.5 text-primary" />
+        <span className="text-muted-foreground">Modelo:</span>
+        <span className="font-semibold">
+          {active ? `${PROVIDER_PRESETS[active.provider]?.name ?? active.provider} · ${active.model ?? ""}` : "Lovable AI (padrão)"}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          {all.filter((i) => i.has_api_key && !i.is_active).map((i) => (
+            <Button key={i.provider} size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+              onClick={() => switchTo(i.provider)} disabled={busy}>
+              ↺ {PROVIDER_PRESETS[i.provider]?.name ?? i.provider}
+            </Button>
+          ))}
+          {active && (
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+              onClick={() => switchTo("lovable")} disabled={busy}>
+              ↺ Lovable
+            </Button>
+          )}
+          <Button size="sm" variant={active ? "ghost" : "default"} className="h-6 px-2 text-[11px] gap-1"
+            onClick={() => setOpen((o) => !o)}>
+            <KeyRound className="h-3 w-3" /> {active ? "Trocar key" : "Conectar API"}
+          </Button>
+        </div>
+      </div>
+      {open && (
+        <div className="px-4 pb-3 pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-[120px_1fr_180px] gap-2">
+            <select
+              value={provider} onChange={(e) => setProvider(e.target.value)}
+              className="h-9 rounded-md border bg-background px-2 text-xs"
+            >
+              {Object.entries(PROVIDER_PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>{p.name}</option>
+              ))}
+            </select>
+            <Input
+              type="password" autoComplete="off"
+              placeholder={preset?.placeholder ?? "API key"}
+              value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+              className="h-9 font-mono text-xs"
+              onKeyDown={(e) => { if (e.key === "Enter") connect(); }}
+            />
+            <select
+              value={model} onChange={(e) => setModel(e.target.value)}
+              className="h-9 rounded-md border bg-background px-2 text-xs font-mono"
+            >
+              {preset?.models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <Button size="sm" onClick={connect} disabled={busy} className="gap-1">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            Testar e ativar
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
