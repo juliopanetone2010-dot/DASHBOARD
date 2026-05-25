@@ -238,8 +238,10 @@ Deno.serve(async (req) => {
     method_breakdown: methodCounts,
     exact_utm_placement_pct: round(exactPctGlobal),
     broken_tracking_rows: brokenCount,
+    aggregate_orphan_revenue_usd: round(aggregateOrphanRevenue),
     leak_report: leakReport,
     summary: summarize(leakReport),
+
   });
 });
 
