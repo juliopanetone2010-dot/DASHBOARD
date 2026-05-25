@@ -207,14 +207,20 @@ Deno.serve(async (req) => {
 
   // ignora rows sem campaign_id (totais agregados do GAM sem dimensão de campanha — não-reconciliáveis)
   const campTotals = new Map<string, number>();
+  const aggregateBySource: Record<string, number> = {};
   let aggregateOrphanRevenue = 0;
+  let campaignSourceRevenue = 0;
   for (const r of campRev) {
+    const rowRevenue = num(r.revenue_usd);
     const cid = r.campaign_id ? String(r.campaign_id).trim() : "";
     if (!cid || cid === "__aggregate__" || cid === "0") {
-      aggregateOrphanRevenue += num(r.revenue_usd);
+      aggregateOrphanRevenue += rowRevenue;
+      const src = String((r as any).utm_source ?? "unknown").toLowerCase();
+      aggregateBySource[src] = (aggregateBySource[src] ?? 0) + rowRevenue;
       continue;
     }
-    campTotals.set(cid, (campTotals.get(cid) ?? 0) + num(r.revenue_usd));
+    campaignSourceRevenue += rowRevenue;
+    campTotals.set(cid, (campTotals.get(cid) ?? 0) + rowRevenue);
   }
 
 
@@ -253,6 +259,52 @@ Deno.serve(async (req) => {
 
   const totalRows = (rows ?? []).length;
   const exactPctGlobal = totalRows ? ((methodCounts.exact_utm_placement ?? 0) / totalRows) * 100 : 0;
+  const totalCanonicalGamRevenue = campaignSourceRevenue + aggregateOrphanRevenue;
+  const totalReconciledRevenue = [...reconciledByCampaign.values()].reduce((sum, r) => sum + r.exact + r.other, 0);
+  const totalLeakAmount = totalCanonicalGamRevenue - totalReconciledRevenue;
+  const totalLeakPct = totalCanonicalGamRevenue > 0 ? (totalLeakAmount / totalCanonicalGamRevenue) * 100 : 0;
+  const verifiedCount = leakReport.filter((r) => r.status === "verified").length;
+  const campaignMatchPct = leakReport.length ? (verifiedCount / leakReport.length) * 100 : 0;
+  const topUnreconciledRows = buildTopUnreconciledRows({ campRev, reconciledByCampaign, aggregateBySource, limit: 25 });
+  const revenueSources = {
+    gam_rows_with_placement: { rows: totalRows, revenue_usd: round(placementRevenue) },
+    gam_rows_aggregated: { rows: campRev.filter((r) => !r.campaign_id || String(r.campaign_id).trim() === "__aggregate__" || String(r.campaign_id).trim() === "0").length, revenue_usd: round(aggregateOrphanRevenue), by_utm_source: roundRecord(aggregateBySource) },
+    gam_rows_inferred: { rows: totalRows - (methodCounts.exact_utm_placement ?? 0), revenue_usd: round(inferredRevenue) },
+    gam_rows_broken: { rows: brokenCount, revenue_usd: round(brokenRevenue) },
+    gam_rows_without_utm: { revenue_usd: round(withoutUtmRevenue) },
+  };
+
+  const fullReport = {
+    period: { from: periodStart, to: periodEnd },
+    report_origin: {
+      aggregate_root_cause: "gam_campaign_source_revenue recebe rows de KEY_VALUES_NAME somente com utm_source e sem utm_campaign/utm_placement; essas rows são salvas como campaign_id='__aggregate__'. O report gerador fica em gam-sync-revenue.collectUtmAttribution com dimensions=['DATE','KEY_VALUES_NAME'].",
+      campaign_report: "gam-sync-revenue → collectUtmAttribution → KEY_VALUES_NAME → campaignRows por utm_campaign",
+      placement_report: "gam-sync-revenue → collectUtmAttribution → KEY_VALUES_NAME → placementRows por utm_placement",
+      likely_issue: aggregateOrphanRevenue > 0 ? "Existe revenue com utm_source, mas sem dimensões suficientes de utm_campaign/utm_placement no GAM report." : "Sem aggregate relevante no período.",
+    },
+    revenue_sources: revenueSources,
+    reconciled_vs_total: `$${round(totalReconciledRevenue).toLocaleString("en-US")} / $${round(totalCanonicalGamRevenue).toLocaleString("en-US")}`,
+    top_unreconciled_rows: topUnreconciledRows,
+    raw_samples: rawSamples,
+  };
+
+  await admin.from("canonical_attribution_audit_reports").insert({
+    user_id: userId,
+    site_id: body.site_id ?? null,
+    period_start: periodStart,
+    period_end: periodEnd,
+    total_gam_revenue_usd: round(totalCanonicalGamRevenue),
+    reconciled_revenue_usd: round(totalReconciledRevenue),
+    aggregate_revenue_usd: round(aggregateOrphanRevenue),
+    leak_amount_usd: round(totalLeakAmount),
+    leak_percent: round(totalLeakPct),
+    campaign_match_pct: round(campaignMatchPct),
+    exact_utm_placement_pct: round(exactPctGlobal),
+    revenue_sources: revenueSources,
+    raw_samples: rawSamples,
+    top_unreconciled_rows: topUnreconciledRows,
+    report: fullReport,
+  });
 
   return jok({
     ok: true,
@@ -263,6 +315,16 @@ Deno.serve(async (req) => {
     exact_utm_placement_pct: round(exactPctGlobal),
     broken_tracking_rows: brokenCount,
     aggregate_orphan_revenue_usd: round(aggregateOrphanRevenue),
+    revenue_sources: revenueSources,
+    reconciled_vs_total: `$${round(totalReconciledRevenue).toLocaleString("en-US")} / $${round(totalCanonicalGamRevenue).toLocaleString("en-US")}`,
+    total_gam_revenue_usd: round(totalCanonicalGamRevenue),
+    total_reconciled_revenue_usd: round(totalReconciledRevenue),
+    global_leak_amount_usd: round(totalLeakAmount),
+    global_leak_percent: round(totalLeakPct),
+    campaign_match_pct: round(campaignMatchPct),
+    raw_samples: rawSamples,
+    top_unreconciled_rows: topUnreconciledRows,
+    report_origin: fullReport.report_origin,
     leak_report: leakReport,
     summary: summarize(leakReport),
 
