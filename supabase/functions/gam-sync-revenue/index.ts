@@ -1528,14 +1528,19 @@ async function applyGoogleUtmRevenue(
     .order("updated_at", { ascending: false })
     .limit(20000);
   const finalUrlByCid = new Map<string, string>();
+  const cidsByFinalUrl = new Map<string, Set<string>>();
   for (const r of (finalUrlRows ?? []) as any[]) {
-    const cid = String(r.campaign_id);
-    if (!finalUrlByCid.has(cid) && r.final_url) {
-      const norm = normalizePageUrl(String(r.final_url));
-      if (norm) finalUrlByCid.set(cid, norm);
-    }
+    const cid = String(r.campaign_id ?? "");
+    if (!cid || finalUrlByCid.has(cid) || !r.final_url) continue;
+    const norm = normalizePageUrl(String(r.final_url));
+    if (!norm) continue;
+    finalUrlByCid.set(cid, norm);
+    const owners = cidsByFinalUrl.get(norm) ?? new Set<string>();
+    owners.add(cid);
+    cidsByFinalUrl.set(norm, owners);
   }
-  debug.push(`[url_match] preload final_urls=${finalUrlByCid.size} (de ${(finalUrlRows ?? []).length} rows)`);
+  const sharedFinalUrlCount = [...cidsByFinalUrl.values()].filter((owners) => owners.size > 1).length;
+  debug.push(`[url_match] preload final_urls=${finalUrlByCid.size} shared_urls=${sharedFinalUrlCount} (de ${(finalUrlRows ?? []).length} rows)`);
 
 
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
@@ -1553,6 +1558,13 @@ async function applyGoogleUtmRevenue(
     // gam_placement_revenue só captura tráfego do Google Ads (utm_source=google), então
     // usá-la como primário subnotifica receita de pushes e outras fontes.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
+    const metricByCid = new Map<string, { spend: number; impressions: number }>();
+    for (const m of (metrics as any[])) {
+      metricByCid.set(String(m.campaign_id), {
+        spend: Number(m.spend ?? 0),
+        impressions: Number(m.impressions ?? 0),
+      });
+    }
 
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
@@ -1586,8 +1598,15 @@ async function applyGoogleUtmRevenue(
     // mas o report por URL+CHANNEL=google captura a receita real da página.
     // Estratégia: pegar o MAIOR entre o já agregado (source_revenue) e o
     // URL-match — assim cobrimos o gap sem dobrar contagem.
-    const cidsWithFinalUrl = cids.filter((c) => finalUrlByCid.has(c));
-    if (cidsWithFinalUrl.length > 0) {
+    const urlGroups = new Map<string, string[]>();
+    for (const cid of cids) {
+      const normFinal = finalUrlByCid.get(cid);
+      if (!normFinal) continue;
+      const owners = urlGroups.get(normFinal) ?? [];
+      owners.push(cid);
+      urlGroups.set(normFinal, owners);
+    }
+    if (urlGroups.size > 0) {
       const { data: urlRows } = await admin
         .from("gam_url_revenue")
         .select("url, revenue_usd")
@@ -1602,19 +1621,50 @@ async function applyGoogleUtmRevenue(
         if (!u) continue;
         revByNormUrl.set(u, (revByNormUrl.get(u) ?? 0) + Number(r.revenue_usd ?? 0));
       }
-      let urlBoostedCount = 0;
+      let uniqueBoostedCount = 0;
+      let sharedGroupBoostCount = 0;
       let urlBoostedDelta = 0;
-      for (const cid of cidsWithFinalUrl) {
-        const normFinal = finalUrlByCid.get(cid)!;
+      for (const [normFinal, ownerCids] of urlGroups.entries()) {
         const urlRev = revByNormUrl.get(normFinal) ?? 0;
-        const already = aggregatedByCid.get(cid) ?? 0;
-        if (urlRev > already) {
-          aggregatedByCid.set(cid, urlRev);
-          urlBoostedCount++;
-          urlBoostedDelta += (urlRev - already);
+        if (urlRev <= 0) continue;
+
+        if (ownerCids.length === 1) {
+          const cid = ownerCids[0];
+          const already = aggregatedByCid.get(cid) ?? 0;
+          if (urlRev > already) {
+            aggregatedByCid.set(cid, urlRev);
+            uniqueBoostedCount++;
+            urlBoostedDelta += (urlRev - already);
+          }
+          continue;
         }
+
+        const alreadyTotal = ownerCids.reduce((sum, cid) => sum + (aggregatedByCid.get(cid) ?? 0), 0);
+        const delta = urlRev - alreadyTotal;
+        if (delta <= 0) continue;
+
+        const weightedOwners = ownerCids.map((cid) => {
+          const stats = metricByCid.get(cid);
+          const spend = stats?.spend ?? 0;
+          const impressions = stats?.impressions ?? 0;
+          const weight = spend > 0 ? spend : impressions > 0 ? impressions : 1;
+          return { cid, weight };
+        });
+        const totalWeight = weightedOwners.reduce((sum, owner) => sum + owner.weight, 0);
+        if (totalWeight <= 0) continue;
+
+        sharedGroupBoostCount++;
+        let distributed = 0;
+        weightedOwners.forEach((owner, index) => {
+          const slice = index === weightedOwners.length - 1
+            ? delta - distributed
+            : delta * (owner.weight / totalWeight);
+          aggregatedByCid.set(owner.cid, (aggregatedByCid.get(owner.cid) ?? 0) + slice);
+          distributed += slice;
+        });
+        urlBoostedDelta += delta;
       }
-      debug.push(`[url_match] ${date}: candidates=${cidsWithFinalUrl.length} boosted=${urlBoostedCount} delta_usd=${urlBoostedDelta.toFixed(4)}`);
+      debug.push(`[url_match] ${date}: urls=${urlGroups.size} unique_boosted=${uniqueBoostedCount} shared_groups=${sharedGroupBoostCount} delta_usd=${urlBoostedDelta.toFixed(4)}`);
     }
 
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
