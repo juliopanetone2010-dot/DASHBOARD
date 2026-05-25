@@ -138,6 +138,14 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       );
       console.log("[auto-onboard] utm bulk", { siteId, status: utm.status, body: typeof utm.body === "object" ? { ok: (utm.body as any)?.ok, success: (utm.body as any)?.success, skipped: (utm.body as any)?.skipped, failed: (utm.body as any)?.failed } : utm.body });
       if (!utm.ok) syncLog.errors.push(`utm bulk ${utm.status}: ${JSON.stringify(utm.body).slice(0, 200)}`);
+
+      const finalUrls = await callFn(
+        "google-ads-sync-final-urls",
+        { account_ids: accountIds, user_id: userId },
+        internalAuthHeader,
+      );
+      console.log("[auto-onboard] final urls", { siteId, status: finalUrls.status, body: typeof finalUrls.body === "object" ? { ok: (finalUrls.body as any)?.ok, upserted: (finalUrls.body as any)?.upserted } : finalUrls.body });
+      if (!finalUrls.ok) syncLog.errors.push(`final urls ${finalUrls.status}: ${JSON.stringify(finalUrls.body).slice(0, 200)}`);
     }
 
     // 2. receita GAM em chunks pequenos e aguardando concluir.
