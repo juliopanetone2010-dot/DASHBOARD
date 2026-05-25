@@ -860,6 +860,7 @@ const IndexInner = () => {
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
                     .map((a) => a.id)
                 )}
+                finalUrlMap={finalUrlQuery.data}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
                 onRefresh={data.refresh}
