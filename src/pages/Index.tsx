@@ -23,7 +23,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
@@ -56,11 +56,53 @@ const IndexInner = () => {
   const { user } = useAuth();
   const acl = useAdminAcl();
   const data = useDashboardData();
+  const queryClient = useQueryClient();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
   const [syncingCampaigns, setSyncingCampaigns] = useState(false);
+
+  const getSyncRange = useCallback((nextFilters: DashboardFilters) => {
+    const defaultRange = (() => {
+      const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      return { from: toIso(d), to: toIso(new Date()) };
+    })();
+
+    return {
+      from: nextFilters.fromDate || defaultRange.from,
+      to: nextFilters.toDate || defaultRange.to,
+    };
+  }, []);
+
+  const refreshUiData = useCallback(async () => {
+    await Promise.all([
+      data.refresh(),
+      queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
+    ]);
+  }, [data, queryClient]);
+
+  const syncRevenueAndRebuild = useCallback(async (nextFilters: DashboardFilters) => {
+    const { from, to } = getSyncRange(nextFilters);
+    const siteId = nextFilters.siteId !== "all" ? nextFilters.siteId : undefined;
+    const accountIds = nextFilters.googleAccountIds.length ? nextFilters.googleAccountIds : undefined;
+
+    const { data: gamData, error: gamError } = await supabase.functions.invoke("gam-sync-revenue", {
+      body: { from, to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, wait: true },
+    });
+    if (gamError || (gamData as any)?.error) {
+      throw new Error(gamError?.message ?? (gamData as any)?.error ?? "Falha ao sincronizar ganhos");
+    }
+
+    const { data: rebuildData, error: rebuildError } = await supabase.functions.invoke("rebuild-canonical-placement-engine", {
+      body: { period_start: from, period_end: to, ...(siteId ? { site_id: siteId } : {}) },
+    });
+    if (rebuildError || (rebuildData as any)?.error) {
+      throw new Error(rebuildError?.message ?? (rebuildData as any)?.error ?? "Falha ao recalcular attribution canônica");
+    }
+  }, [getSyncRange]);
 
   const syncCampaignsNow = async () => {
     setSyncingCampaigns(true);
@@ -75,8 +117,9 @@ const IndexInner = () => {
         if (ue) console.warn("[sync-final-urls]", ue);
         else console.info("[sync-final-urls]", u);
       });
-      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s). URLs reais sendo atualizadas em segundo plano.` });
-      await data.refresh();
+      await syncRevenueAndRebuild(filters);
+      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s) com ganhos recalculados.` });
+      await refreshUiData();
     } catch (e: any) {
       toast({ title: "Falha ao sincronizar campanhas", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
@@ -390,19 +433,12 @@ const IndexInner = () => {
   const lastSyncRef = useRef<{ key: string; at: number } | null>(null);
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters, opts?: { force?: boolean }) => {
-    const defaultRange = (() => {
-      const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const d = new Date();
-      d.setDate(d.getDate() - 29);
-      return { from: toIso(d), to: toIso(new Date()) };
-    })();
-    const from = nextFilters.fromDate || defaultRange.from;
-    const to = nextFilters.toDate || defaultRange.to;
+    const { from, to } = getSyncRange(nextFilters);
     const cacheKey = `${nextFilters.siteId}|${from}|${to}|${(nextFilters.googleAccountIds ?? []).join(",")}`;
     const now = Date.now();
     if (!opts?.force && lastSyncRef.current && lastSyncRef.current.key === cacheKey && (now - lastSyncRef.current.at) < SYNC_CACHE_MS) {
       // Cache hit — usa só dados do banco (refresh leve), sem chamar GAM/Ads.
-      void data.refresh();
+      void refreshUiData();
       return;
     }
 
@@ -410,18 +446,20 @@ const IndexInner = () => {
     try {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true);
+        toast({ title: "Sincronização em fila", description: "Campanhas e sites estão atualizando em segundo plano; os ganhos podem demorar um pouco mais para fechar." });
       } else {
         await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
-        toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
+        await syncRevenueAndRebuild(nextFilters);
+        toast({ title: "Ganhos atualizados", description: "Receita GAM e attribution canônica recalculadas com os filtros atuais." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
-      await data.refresh();
+      await refreshUiData();
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
-  }, [allSites, data]);
+  }, [allSites, getSyncRange, refreshUiData, syncRevenueAndRebuild]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
