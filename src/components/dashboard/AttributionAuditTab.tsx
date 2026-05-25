@@ -30,6 +30,16 @@ interface RebuildReport {
   method_breakdown: Record<Method, number>;
   exact_utm_placement_pct: number;
   broken_tracking_rows: number;
+  aggregate_orphan_revenue_usd?: number;
+  revenue_sources?: Record<string, any>;
+  reconciled_vs_total?: string;
+  total_gam_revenue_usd?: number;
+  total_reconciled_revenue_usd?: number;
+  global_leak_percent?: number;
+  campaign_match_pct?: number;
+  raw_samples?: Array<Record<string, any>>;
+  top_unreconciled_rows?: Array<Record<string, any>>;
+  report_origin?: Record<string, string>;
   leak_report: LeakRow[];
   summary: Record<string, number>;
 }
@@ -76,11 +86,11 @@ export function AttributionAuditTab() {
 
   const verifiedCampaigns = report?.summary?.verified ?? 0;
   const totalCampaigns = report?.leak_report?.length ?? 0;
-  const campaignMatchPct = totalCampaigns ? (verifiedCampaigns / totalCampaigns) * 100 : 0;
+  const campaignMatchPct = report?.campaign_match_pct ?? (totalCampaigns ? (verifiedCampaigns / totalCampaigns) * 100 : 0);
 
-  const totalGam = report?.leak_report.reduce((s, r) => s + r.campaign_revenue_usd, 0) ?? 0;
-  const totalReconciled = report?.leak_report.reduce((s, r) => s + r.reconciled_revenue_usd, 0) ?? 0;
-  const globalLeak = totalGam > 0 ? ((totalGam - totalReconciled) / totalGam) * 100 : 0;
+  const totalGam = report?.total_gam_revenue_usd ?? (report?.leak_report.reduce((s, r) => s + r.campaign_revenue_usd, 0) ?? 0);
+  const totalReconciled = report?.total_reconciled_revenue_usd ?? (report?.leak_report.reduce((s, r) => s + r.reconciled_revenue_usd, 0) ?? 0);
+  const globalLeak = report?.global_leak_percent ?? (totalGam > 0 ? ((totalGam - totalReconciled) / totalGam) * 100 : 0);
 
   // Top leaks
   const topLeaks = [...(report?.leak_report ?? [])]
