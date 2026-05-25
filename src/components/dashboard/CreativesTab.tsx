@@ -621,10 +621,16 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                               <span className="ml-2 italic">[best ROI: {bestRoi.toFixed(1)}% · {decision.reason}]</span>
                             )}
                           </div>
+                          {finalUrls.get(a.campaign_id) && (
+                            <FinalUrlActions url={finalUrls.get(a.campaign_id)} compact className="mt-0.5" />
+                          )}
                         </TableCell>
                         <TableCell className="text-right">{fmtNumber(a.impressions)}</TableCell>
                         <TableCell className="text-right">{fmtNumber(a.clicks)}</TableCell>
                         <TableCell className="text-right">{fmtPercent(a.ctr)}</TableCell>
+                        <TableCell className="text-right">{fmtNumber(Math.round(a.conversions))}</TableCell>
+                        <TableCell className="text-right">{fmtPercent(a.clicks > 0 ? (a.conversions / a.clicks) * 100 : 0)}</TableCell>
+                        <TableCell className="text-right">{a.conversions > 0 ? fmtBRL(a.cost / a.conversions) : "—"}</TableCell>
                         <TableCell className="text-right">{fmtBRL(a.cost)}</TableCell>
                         <TableCell className="text-right">{fmtBRL(a.revenue_brl)}</TableCell>
                         <TableCell className={cn("text-right", profit >= 0 ? "text-success" : "text-danger")}>
