@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { getNetFactor } from "@/lib/revshare";
+import { FinalUrlActions } from "./FinalUrlActions";
 
 interface CreativeRow {
   campaign_id: string;
