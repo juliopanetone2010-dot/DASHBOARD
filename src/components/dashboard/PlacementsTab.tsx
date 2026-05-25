@@ -14,6 +14,8 @@ import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterB
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import type { Campaign, GoogleAccount } from "@/types/domain";
 import { GlobalPlacementCleanup } from "@/components/dashboard/GlobalPlacementCleanup";
+import { AiAssistantButton } from "@/components/ai/AiAssistant";
+
 
 interface AdsPlacementRow {
   id: string;
