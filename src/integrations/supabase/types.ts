@@ -316,6 +316,60 @@ export type Database = {
           },
         ]
       }
+      ai_provider_configs: {
+        Row: {
+          api_key_encrypted: string | null
+          api_key_iv: string | null
+          base_url: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          is_active: boolean
+          last_test_error: string | null
+          last_test_latency_ms: number | null
+          last_test_status: string | null
+          last_tested_at: string | null
+          model: string | null
+          provider: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          api_key_iv?: string | null
+          base_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          last_test_error?: string | null
+          last_test_latency_ms?: number | null
+          last_test_status?: string | null
+          last_tested_at?: string | null
+          model?: string | null
+          provider: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          api_key_iv?: string | null
+          base_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          last_test_error?: string | null
+          last_test_latency_ms?: number | null
+          last_test_status?: string | null
+          last_tested_at?: string | null
+          model?: string | null
+          provider?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_threads: {
         Row: {
           active_tab: string | null
