@@ -851,6 +851,14 @@ const IndexInner = () => {
             </DashboardErrorBoundary>
           </TabsContent>
 
+          <TabsContent value="attribution" className="mt-6">
+            <DashboardErrorBoundary tabName="Attribution Audit">
+              <AttributionAuditTab />
+            </DashboardErrorBoundary>
+          </TabsContent>
+
+
+
           <TabsContent value="countries" className="mt-6">
             <DashboardErrorBoundary tabName="Países">
               <CountriesTab fxUsdBrl={usdBrl} />
