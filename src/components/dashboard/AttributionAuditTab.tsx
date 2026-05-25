@@ -248,7 +248,76 @@ export function AttributionAuditTab() {
             </div>
           </Card>
 
+          {report.aggregate_distribution && (
+            <Card className="p-5">
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <Zap className="h-4 w-4 text-primary" /> Aggregate distribution engine
+                <Badge variant="outline" className="ml-2 text-[10px]">method: {report.aggregate_distribution.allocation_method}</Badge>
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                <Stat label="Aggregate total" value={`$${report.aggregate_distribution.total_aggregate_revenue_usd.toFixed(2)}`} accent="warning" />
+                <Stat
+                  label="Allocated (VERIFIED_ALLOCATED)"
+                  value={`$${report.aggregate_distribution.allocated_revenue_usd.toFixed(2)}`}
+                  accent="success"
+                />
+                <Stat
+                  label="Unresolved"
+                  value={`$${report.aggregate_distribution.unresolved_revenue_usd.toFixed(2)}`}
+                  accent={report.aggregate_distribution.unresolved_revenue_usd > 0 ? "warning" : undefined}
+                />
+                <Stat
+                  label="Buckets matched"
+                  value={`${report.aggregate_distribution.buckets_matched} / ${report.aggregate_distribution.buckets_total}`}
+                />
+                <Stat
+                  label="Buckets sem destino"
+                  value={`${report.aggregate_distribution.buckets_unmatched}`}
+                  accent={report.aggregate_distribution.buckets_unmatched > 0 ? "warning" : undefined}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                <div>
+                  <div className="text-xs text-muted-foreground mb-2">Aggregate por utm_source</div>
+                  <div className="space-y-1">
+                    {Object.entries(report.aggregate_distribution.by_utm_source)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 8)
+                      .map(([src, val]) => (
+                        <div key={src} className="flex justify-between text-xs">
+                          <span className="font-mono">{src}</span>
+                          <span className="tabular-nums">${val.toFixed(2)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-2">Aggregate por site</div>
+                  <div className="space-y-1">
+                    {Object.entries(report.aggregate_distribution.by_site)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 8)
+                      .map(([site, val]) => (
+                        <div key={site} className="flex justify-between text-xs">
+                          <span className="font-mono truncate max-w-[280px]" title={site}>{site}</span>
+                          <span className="tabular-nums">${val.toFixed(2)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground mt-4">
+                Allocated rows recebem <code>allocation_status='verified_allocated'</code>. Cleanup automático
+                continua usando <strong>somente</strong> <code>reconciliation_method='exact_utm_placement'</code> —
+                allocated não autoriza exclusão.
+              </p>
+            </Card>
+          )}
+
           <Card className="p-5">
+
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <AlertOctagon className="h-4 w-4 text-destructive" /> Top unreconciled rows
             </h3>
