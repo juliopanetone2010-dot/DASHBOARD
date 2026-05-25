@@ -42,14 +42,25 @@ const CAMPAIGN_ID_RE = /^[0-9]{6,15}$/;
 
 export function normalizePlacement(input: string | null | undefined): string {
   if (!input) return "";
-  let s = String(input).trim().toLowerCase();
+  let s = String(input).trim();
   if (!s) return "";
+  // decode percent-encoded chars
+  try { s = decodeURIComponent(s); } catch { /* keep as-is */ }
+  s = s.toLowerCase();
   // strip protocol
   s = s.replace(/^https?:\/\//, "");
-  // strip path/query
-  s = s.split("/")[0].split("?")[0];
+  // strip anchors
+  s = s.split("#")[0];
+  // strip query
+  s = s.split("?")[0];
+  // strip path (host only — canonical-key compat)
+  s = s.split("/")[0];
+  // collapse whitespace
+  s = s.replace(/\s+/g, "");
   // strip leading www.
   s = s.replace(/^www\./, "");
+  // strip trailing dots
+  s = s.replace(/\.+$/, "");
   return s;
 }
 
