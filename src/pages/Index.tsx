@@ -43,6 +43,7 @@ import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminAcl } from "@/hooks/useAdminAcl";
+import { buildFinalUrlMap } from "@/lib/final-url-map";
 
 const Index = () => {
   return (
@@ -81,6 +82,7 @@ const IndexInner = () => {
     await Promise.all([
       data.refresh(),
       queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
+      queryClient.invalidateQueries({ queryKey: ["campaign-final-urls-v2"] }),
     ]);
   }, [data, queryClient]);
 
@@ -320,26 +322,7 @@ const IndexInner = () => {
         .limit(10000);
       if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
       const { data: rows } = await q;
-      const map = new Map<string, {
-        url: string | null;
-        source: string;
-        trackingTemplate: string | null;
-        finalUrlSuffix: string | null;
-        mobileUrl: string | null;
-      }>();
-      for (const r of rows ?? []) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || map.has(cid)) continue;
-        const url = (r as any).final_url ?? null;
-        map.set(cid, {
-          url,
-          source: url ? String((r as any).source ?? "ad.final_urls") : "unknown",
-          trackingTemplate: (r as any).tracking_template ?? null,
-          finalUrlSuffix: (r as any).final_url_suffix ?? null,
-          mobileUrl: (r as any).mobile_url ?? null,
-        });
-      }
-      return map;
+      return buildFinalUrlMap(rows as any[]);
     },
     staleTime: 5 * 60_000,
   });
@@ -888,36 +871,9 @@ const IndexInner = () => {
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Campanhas
                 </h2>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      if (!confirm("Aplicar UTM canônico\n\nutm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}\n\nno Final URL Suffix de TODAS as campanhas filtradas?")) return;
-                      const tid = toast({ title: "Aplicando UTM…", description: "Atualizando campanhas no Google Ads." });
-                      const { data: r, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
-                        body: filters.googleAccountIds.length ? { account_ids: filters.googleAccountIds } : {},
-                      });
-                      if (error || (r as any)?.error) {
-                        toast({ title: "Erro ao aplicar UTM", description: error?.message ?? (r as any)?.error, variant: "destructive" });
-                        return;
-                      }
-                      toast({
-                        title: "UTM aplicado",
-                        description: `${(r as any)?.success ?? 0}/${(r as any)?.total ?? 0} campanhas atualizadas${(r as any)?.failed ? ` (${(r as any).failed} falha(s))` : ""}. Resincronizando…`,
-                      });
-                      await supabase.functions.invoke("google-ads-sync-campaigns", { body: {} });
-                      await syncRevenueAndRebuild(filters);
-                      await refreshUiData();
-                    }}
-                  >
-                    <Target className="h-3.5 w-3.5 mr-1" />
-                    Aplicar UTM canônico
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {engine?.aggregates.length ?? 0} resultado(s)
-                  </span>
-                </div>
+                <span className="text-xs text-muted-foreground">
+                  {engine?.aggregates.length ?? 0} resultado(s)
+                </span>
               </div>
 
               <CampaignsTable
@@ -930,7 +886,7 @@ const IndexInner = () => {
                 finalUrlMap={finalUrlQuery.data}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
-                onRefresh={data.refresh}
+                onRefresh={refreshUiData}
               />
             </section>
             </DashboardErrorBoundary>
