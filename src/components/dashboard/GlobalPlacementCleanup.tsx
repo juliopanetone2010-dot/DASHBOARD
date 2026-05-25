@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AiAssistantButton, type AiContext } from "@/components/ai/AiAssistant";
 
 interface PreviewCampaign {
   campaign_id: string;
@@ -116,6 +117,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [estimateOrphan, setEstimateOrphan] = useState(true);
   // limite de tolerância: campanha é "100% atribuída" se órfã ≤ 5% do custo
   const ORPHAN_TOLERANCE = 0.05;
+  const [cleanupSnapshot, setCleanupSnapshot] = useState<NonNullable<AiContext["cleanup_snapshot"]> | null>(null);
 
   // carrega config persistida
   useEffect(() => {
@@ -226,6 +228,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
+      const campaignIds = Array.from(new Set(list.flatMap((i) => i.campaigns.map((c) => c.campaign_id))));
+      setCleanupSnapshot({
+        ran_at: new Date().toISOString(),
+        mode: "preview",
+        period: { from: effectiveRange.from, to: effectiveRange.to },
+        campaign_ids: campaignIds,
+        stats: (data?.stats ?? {}) as Record<string, unknown>,
+      });
       // persiste filtros
       await persistConfig({
         placement_cleanup_min_days: minDays,
@@ -331,6 +341,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         console.warn("[safety] placements rejeitados pela re-verificação:", rejected);
       }
 
+      setCleanupSnapshot((prev) => ({
+        ran_at: new Date().toISOString(),
+        mode: "apply",
+        period: prev?.period ?? { from: effectiveRange.from, to: effectiveRange.to },
+        campaign_ids: prev?.campaign_ids ?? Array.from(new Set(payload.flatMap((p) => p.campaigns.map((c) => c.campaign_id)))),
+        campaigns: prev?.campaigns,
+        stats: prev?.stats,
+        applied: data?.applied ?? 0,
+        failed: data?.failed ?? 0,
+      }));
       setOpen(false);
     } finally {
       setApplying(false);
@@ -475,6 +495,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
           Executar limpeza agora
         </Button>
+        {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
+          <AiAssistantButton
+            label={`Auditar com AI (${cleanupSnapshot.campaign_ids.length} camp.)`}
+            context={{
+              active_tab: "placements_cleanup",
+              current_site: filters.siteId && filters.siteId !== "all" ? filters.siteId : null,
+              range: cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to },
+              filters: { account_ids: filters.googleAccountIds, min_days: minDays, max_roi_pct: maxRoi, min_cost_brl: minCost },
+              cleanup_snapshot: cleanupSnapshot,
+            }}
+            suggestions={[
+              "Faça uma varredura profunda nessas campanhas e me diga se tudo está batendo (custo, receita, ROI, GAM).",
+              "Tem receita órfã ou placement sem match nessas campanhas?",
+              "O NET_FACTOR e o revshare foram aplicados certo em todas?",
+              "Algum placement está com revenue inflada ou cross-site leak?",
+              "Recheca tudo e, se não bater, rode de novo as tools até bater ou me mostrar o bug real.",
+            ]}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
