@@ -859,12 +859,48 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </TableBody>
             </Table>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" disabled={applying || selected.size === 0} onClick={runApply}>
-              {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Aplicar exclusão ({selected.size})
-            </Button>
+          <DialogFooter className="gap-2 items-center">
+            {(() => {
+              const auditList = Object.values(audits);
+              const verified = auditList.filter((a) => a.audit_status === "verified").length;
+              const partial = auditList.filter((a) => a.audit_status === "partial").length;
+              const leak = auditList.filter((a) => a.audit_status === "leak_detected").length;
+              const unreliable = auditList.filter((a) => a.audit_status === "unreliable").length;
+              const minConf = paranoidMode ? PARANOID_MIN_CONFIDENCE : STANDARD_MIN_CONFIDENCE;
+              const maxLeak = paranoidMode ? PARANOID_MAX_LEAK_PCT : 10;
+              const selCids = new Set(items.filter((i) => selected.has(itemKey(i))).flatMap((i) => i.campaigns.map((c) => c.campaign_id)));
+              const blocking = [...selCids].map((cid) => audits[cid]).filter(Boolean).filter((a) => a.confidence < minConf || Math.abs(a.leak_percent) > maxLeak);
+              const missingAudit = paranoidMode && [...selCids].some((cid) => !audits[cid]);
+              const blocked = blocking.length > 0 || missingAudit;
+              return (
+                <>
+                  <div className="mr-auto flex flex-wrap items-center gap-2 text-xs">
+                    {auditing && <Badge variant="outline"><Loader2 className="h-3 w-3 mr-1 animate-spin" />reconciliando…</Badge>}
+                    {verified > 0 && <Badge variant="outline" className="border-success text-success">✅ {verified} VERIFIED</Badge>}
+                    {partial > 0 && <Badge variant="outline" className="border-warning text-warning">◐ {partial} PARTIAL</Badge>}
+                    {leak > 0 && <Badge variant="outline" className="border-danger text-danger">⚠️ {leak} LEAK</Badge>}
+                    {unreliable > 0 && <Badge variant="destructive">🛑 {unreliable} UNRELIABLE</Badge>}
+                    {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={auditing}
+                        onClick={() => runReconciliation(cleanupSnapshot.campaign_ids, cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to }, true)}>
+                        Rebuild & recheck
+                      </Button>
+                    )}
+                    <label className="inline-flex items-center gap-1 ml-2 cursor-pointer" title={`Só permite excluir se confidence ≥ ${PARANOID_MIN_CONFIDENCE} e |leak| ≤ ${PARANOID_MAX_LEAK_PCT}%`}>
+                      <input type="checkbox" checked={paranoidMode} onChange={(e) => setParanoidMode(e.target.checked)} />
+                      <span className="font-medium">PARANOID</span>
+                    </label>
+                    {blocked && selected.size > 0 && <Badge variant="destructive" className="ml-1">🚫 receita não confiável</Badge>}
+                  </div>
+                  <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                  <Button variant="destructive" disabled={applying || selected.size === 0 || blocked} onClick={runApply}
+                    title={blocked ? `${blocking.length} campanha(s) com receita não confiável${missingAudit ? " · auditoria pendente" : ""}` : undefined}>
+                    {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                    Aplicar exclusão ({selected.size})
+                  </Button>
+                </>
+              );
+            })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>
