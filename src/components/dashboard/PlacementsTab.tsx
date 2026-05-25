@@ -133,10 +133,9 @@ async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string
   const all: GamRevRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
     let q = supabase
-      .from("gam_placement_revenue")
-      .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
+      .from("placement_revenue_reconciled")
+      .select("placement, normalized_placement, revenue_usd, impressions, date, reconciliation_method, confidence, broken_tracking")
       .eq("campaign_id", cid)
-      .eq("utm_source", "google")
       .gte("date", from)
       .lte("date", to);
     if (siteId) q = q.eq("site_id", siteId);
