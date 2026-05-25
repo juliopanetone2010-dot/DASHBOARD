@@ -119,9 +119,10 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds },
-      authHeader,
+      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
+      internalAuthHeader,
     );
+
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
     if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
 
