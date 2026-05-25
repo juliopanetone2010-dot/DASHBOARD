@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
+import { AttributionAuditTab } from "@/components/dashboard/AttributionAuditTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
@@ -557,6 +558,11 @@ const IndexInner = () => {
                 <MapPin className="h-3.5 w-3.5" /> Placements
               </TabsTrigger>
             )}
+            {acl.can("can_use_placements_cleanup") && (
+              <TabsTrigger value="attribution" className="gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" /> Attribution Audit
+              </TabsTrigger>
+            )}
             {acl.can("can_use_funil") && (
               <TabsTrigger value="funnel" className="gap-1.5">
                 <BarChart3 className="h-3.5 w-3.5" /> Funil
@@ -844,6 +850,14 @@ const IndexInner = () => {
               <PlacementFunnelTab fxUsdBrl={usdBrl} />
             </DashboardErrorBoundary>
           </TabsContent>
+
+          <TabsContent value="attribution" className="mt-6">
+            <DashboardErrorBoundary tabName="Attribution Audit">
+              <AttributionAuditTab />
+            </DashboardErrorBoundary>
+          </TabsContent>
+
+
 
           <TabsContent value="countries" className="mt-6">
             <DashboardErrorBoundary tabName="Países">
