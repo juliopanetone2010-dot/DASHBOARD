@@ -162,17 +162,37 @@ Deno.serve(async (req) => {
     upserted += slice.length;
   }
 
-  // 4) leak check por campanha vs gam_campaign_source_revenue
-  let cq = admin.from("gam_campaign_source_revenue")
-    .select("campaign_id, revenue_usd, site_id, date")
-    .eq("user_id", userId)
-    .gte("date", periodStart).lte("date", periodEnd);
-  if (body.site_id) cq = cq.eq("site_id", body.site_id);
-  if (body.campaign_ids?.length) cq = cq.in("campaign_id", body.campaign_ids);
-  const { data: campRev } = await cq;
+  // 4) leak check por campanha vs gam_campaign_source_revenue (PAGINADO)
+  const campRev: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let cq = admin.from("gam_campaign_source_revenue")
+      .select("campaign_id, revenue_usd, site_id, date")
+      .eq("user_id", userId)
+      .gte("date", periodStart).lte("date", periodEnd)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (body.site_id) cq = cq.eq("site_id", body.site_id);
+    if (body.campaign_ids?.length) cq = cq.in("campaign_id", body.campaign_ids);
+    const { data: page, error: cErr } = await cq;
+    if (cErr) return jerr(`camp rev: ${cErr.message}`);
+    if (!page?.length) break;
+    campRev.push(...page);
+    if (page.length < PAGE) break;
+    if (campRev.length > 500_000) break;
+  }
 
+  // ignora rows sem campaign_id (totais agregados do GAM sem dimensão de campanha — não-reconciliáveis)
   const campTotals = new Map<string, number>();
-  for (const r of campRev ?? []) campTotals.set(String(r.campaign_id), (campTotals.get(String(r.campaign_id)) ?? 0) + num(r.revenue_usd));
+  let aggregateOrphanRevenue = 0;
+  for (const r of campRev) {
+    const cid = r.campaign_id ? String(r.campaign_id).trim() : "";
+    if (!cid || cid === "__aggregate__" || cid === "0") {
+      aggregateOrphanRevenue += num(r.revenue_usd);
+      continue;
+    }
+    campTotals.set(cid, (campTotals.get(cid) ?? 0) + num(r.revenue_usd));
+  }
+
 
   const reconciledByCampaign = new Map<string, { exact: number; other: number }>();
   for (const v of reconciled.values()) {
