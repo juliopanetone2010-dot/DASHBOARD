@@ -790,7 +790,7 @@ export type Database = {
       campaign_final_urls: {
         Row: {
           ad_group_id: string | null
-          ad_id: string | null
+          ad_id: string
           ad_status: string | null
           campaign_id: string
           created_at: string
@@ -806,7 +806,7 @@ export type Database = {
         }
         Insert: {
           ad_group_id?: string | null
-          ad_id?: string | null
+          ad_id?: string
           ad_status?: string | null
           campaign_id: string
           created_at?: string
@@ -822,7 +822,7 @@ export type Database = {
         }
         Update: {
           ad_group_id?: string | null
-          ad_id?: string | null
+          ad_id?: string
           ad_status?: string | null
           campaign_id?: string
           created_at?: string
