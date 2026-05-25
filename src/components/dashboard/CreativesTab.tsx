@@ -98,6 +98,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
   const [netFactor, setNetFactor] = useState(1);
+  const [finalUrls, setFinalUrls] = useState<Map<string, string>>(new Map());
 
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
