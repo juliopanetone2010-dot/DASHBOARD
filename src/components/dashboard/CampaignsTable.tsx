@@ -172,6 +172,9 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
+                    {finalUrlMap?.get(c.campaign_id) && (
+                      <FinalUrlActions url={finalUrlMap.get(c.campaign_id)} compact className="mt-0.5" />
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
