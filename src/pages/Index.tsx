@@ -63,6 +63,7 @@ const IndexInner = () => {
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
   const [syncingCampaigns, setSyncingCampaigns] = useState(false);
+  const lastAutoUrlSyncRef = useRef<string | null>(null);
 
   const getSyncRange = useCallback((nextFilters: DashboardFilters) => {
     const defaultRange = (() => {
@@ -114,11 +115,8 @@ const IndexInner = () => {
       });
       if (error) throw error;
       const total = (r as any)?.campaigns_upserted ?? (r as any)?.upserted ?? (r as any)?.rows ?? 0;
-      // Sincroniza URLs finais REAIS direto da API do Google Ads (não bloqueia a UI).
-      void supabase.functions.invoke("google-ads-sync-final-urls", { body: {} }).then(({ data: u, error: ue }) => {
-        if (ue) console.warn("[sync-final-urls]", ue);
-        else console.info("[sync-final-urls]", u);
-      });
+      const { error: finalUrlError } = await supabase.functions.invoke("google-ads-sync-final-urls", { body: {} });
+      if (finalUrlError) console.warn("[sync-final-urls]", finalUrlError);
       await syncRevenueAndRebuild(filters);
       toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s) com ganhos recalculados.` });
       await refreshUiData();
@@ -443,6 +441,36 @@ const IndexInner = () => {
       setSyncing(false);
     }
   }, [allSites, getSyncRange, refreshUiData, syncRevenueAndRebuild]);
+
+  useEffect(() => {
+    if (!user || syncingCampaigns || finalUrlQuery.isFetching) return;
+
+    const aggregates = engine?.aggregates ?? [];
+    if (aggregates.length === 0) return;
+
+    const missingCampaigns = aggregates.filter((campaign) => !finalUrlQuery.data?.get(campaign.campaign_id)?.url);
+    if (missingCampaigns.length === 0) return;
+
+    const accountIds = Array.from(new Set(
+      missingCampaigns
+        .map((campaign) => campaign.google_account_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ));
+
+    const syncKey = `${filters.siteId}|${filters.googleAccountIds.join(",")}|${accountIds.join(",")}|${missingCampaigns.map((campaign) => campaign.campaign_id).sort().join(",")}`;
+    if (lastAutoUrlSyncRef.current === syncKey) return;
+    lastAutoUrlSyncRef.current = syncKey;
+
+    void supabase.functions.invoke("google-ads-sync-final-urls", {
+      body: accountIds.length ? { account_ids: accountIds } : {},
+    }).then(async ({ data: result, error }) => {
+      if (error || (result as any)?.error) {
+        console.warn("[auto-sync-final-urls]", error?.message ?? (result as any)?.error ?? "unknown error");
+        return;
+      }
+      await refreshUiData();
+    });
+  }, [user, syncingCampaigns, finalUrlQuery.isFetching, finalUrlQuery.data, engine?.aggregates, filters.siteId, filters.googleAccountIds, refreshUiData]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
