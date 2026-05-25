@@ -126,6 +126,20 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
     if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
 
+    // 1b. Aplica UTM canônico nas campanhas que ainda não têm o suffix padrão.
+    // Idempotente (only_missing=true), então roda barato a cada auto-sync.
+    // Sem isso, campanhas novas ficam sem utm_campaign/utm_placement e a receita
+    // GAM cai no bucket __aggregate__ porque a engine não consegue reconciliar.
+    if (hasBudget(15_000)) {
+      const utm = await callFn(
+        "google-ads-apply-utm-bulk",
+        { account_ids: accountIds, user_id: userId, only_missing: true },
+        internalAuthHeader,
+      );
+      console.log("[auto-onboard] utm bulk", { siteId, status: utm.status, body: typeof utm.body === "object" ? { ok: (utm.body as any)?.ok, success: (utm.body as any)?.success, skipped: (utm.body as any)?.skipped, failed: (utm.body as any)?.failed } : utm.body });
+      if (!utm.ok) syncLog.errors.push(`utm bulk ${utm.status}: ${JSON.stringify(utm.body).slice(0, 200)}`);
+    }
+
     // 2. receita GAM em chunks pequenos e aguardando concluir.
     // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
