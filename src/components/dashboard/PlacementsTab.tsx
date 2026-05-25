@@ -451,9 +451,32 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     else { setSortKey(k); setSortDir(k === "roi" ? "asc" : "desc"); }
   };
 
+  const selectedCampaign = campaigns.find((c) => c.campaign_id === campaignId) ?? null;
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end -mb-2">
+        <AiAssistantButton
+          context={{
+            active_tab: "placements",
+            current_site: globalFilters.siteId && globalFilters.siteId !== "all" ? globalFilters.siteId : null,
+            range: { from: range.from, to: range.to },
+            filters: { account_ids: accountIds, search, preset },
+            selected_campaign: selectedCampaign ? { campaign_id: selectedCampaign.campaign_id, name: selectedCampaign.name } : null,
+            loaded_data: { rows_count: rows.length, gam_rows_count: gamRows.length },
+          }}
+          suggestions={[
+            "Os placements desta campanha estão calculando a receita certo?",
+            "Tem placement sem revenue match?",
+            "Qual placement está mais suspeito?",
+            "O ROI bate com o GAM?",
+            "Tem placement misturado entre sites?",
+            "O NET_FACTOR foi aplicado corretamente?",
+          ]}
+        />
+      </div>
       {/* Filtros */}
+
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
