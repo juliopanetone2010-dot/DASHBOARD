@@ -846,14 +846,41 @@ const IndexInner = () => {
 
             {/* Tabela de campanhas */}
             <section className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Campanhas
                 </h2>
-                <span className="text-xs text-muted-foreground">
-                  {engine?.aggregates.length ?? 0} resultado(s)
-                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      if (!confirm("Aplicar UTM canônico\n\nutm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}\n\nno Final URL Suffix de TODAS as campanhas filtradas?")) return;
+                      const tid = toast({ title: "Aplicando UTM…", description: "Atualizando campanhas no Google Ads." });
+                      const { data: r, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
+                        body: filters.googleAccountIds.length ? { account_ids: filters.googleAccountIds } : {},
+                      });
+                      if (error || (r as any)?.error) {
+                        toast({ title: "Erro ao aplicar UTM", description: error?.message ?? (r as any)?.error, variant: "destructive" });
+                        return;
+                      }
+                      toast({
+                        title: "UTM aplicado",
+                        description: `${(r as any)?.success ?? 0}/${(r as any)?.total ?? 0} campanhas atualizadas${(r as any)?.failed ? ` (${(r as any).failed} falha(s))` : ""}. Resincronizando…`,
+                      });
+                      await supabase.functions.invoke("google-ads-sync-campaigns", { body: {} });
+                      await data.refresh();
+                    }}
+                  >
+                    <Target className="h-3.5 w-3.5 mr-1" />
+                    Aplicar UTM canônico
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {engine?.aggregates.length ?? 0} resultado(s)
+                  </span>
+                </div>
               </div>
+
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
                 downAccountIds={new Set(
