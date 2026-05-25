@@ -495,6 +495,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
           Executar limpeza agora
         </Button>
+        {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
+          <AiAssistantButton
+            label={`Auditar com AI (${cleanupSnapshot.campaign_ids.length} camp.)`}
+            context={{
+              active_tab: "placements_cleanup",
+              current_site: filters.siteId && filters.siteId !== "all" ? filters.siteId : null,
+              range: cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to },
+              filters: { account_ids: filters.googleAccountIds, min_days: minDays, max_roi_pct: maxRoi, min_cost_brl: minCost },
+              cleanup_snapshot: cleanupSnapshot,
+            }}
+            suggestions={[
+              "Faça uma varredura profunda nessas campanhas e me diga se tudo está batendo (custo, receita, ROI, GAM).",
+              "Tem receita órfã ou placement sem match nessas campanhas?",
+              "O NET_FACTOR e o revshare foram aplicados certo em todas?",
+              "Algum placement está com revenue inflada ou cross-site leak?",
+              "Recheca tudo e, se não bater, rode de novo as tools até bater ou me mostrar o bug real.",
+            ]}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
