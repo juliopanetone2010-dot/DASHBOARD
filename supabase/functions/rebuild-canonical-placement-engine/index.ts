@@ -60,16 +60,26 @@ Deno.serve(async (req) => {
   const periodEnd = body.period_end ?? defEnd;
   const tol = Number.isFinite(body.tolerance_pct) ? Number(body.tolerance_pct) : 3;
 
-  // 1) puxa rows de GAM (gam_placement_revenue)
-  let q = admin.from("gam_placement_revenue")
-    .select("user_id, site_id, campaign_id, placement, date, revenue_usd, impressions, raw_utm, utm_source")
-    .eq("user_id", userId)
-    .gte("date", periodStart).lte("date", periodEnd);
-  if (body.site_id) q = q.eq("site_id", body.site_id);
-  if (body.campaign_ids?.length) q = q.in("campaign_id", body.campaign_ids);
+  // 1) puxa rows de GAM (gam_placement_revenue) — PAGINADO (Supabase limita 1000/req)
+  const PAGE = 1000;
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let q = admin.from("gam_placement_revenue")
+      .select("user_id, site_id, campaign_id, placement, date, revenue_usd, impressions, raw_utm, utm_source")
+      .eq("user_id", userId)
+      .gte("date", periodStart).lte("date", periodEnd)
+      .order("date", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (body.site_id) q = q.eq("site_id", body.site_id);
+    if (body.campaign_ids?.length) q = q.in("campaign_id", body.campaign_ids);
+    const { data: page, error } = await q;
+    if (error) return jerr(error.message);
+    if (!page?.length) break;
+    rows.push(...page);
+    if (page.length < PAGE) break;
+    if (rows.length > 500_000) break; // safety
+  }
 
-  const { data: rows, error } = await q;
-  if (error) return jerr(error.message);
 
   const reconciled = new Map<string, {
     canon: CanonicalPlacement;
