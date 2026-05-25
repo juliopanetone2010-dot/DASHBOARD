@@ -1179,6 +1179,66 @@ export type Database = {
           },
         ]
       }
+      canonical_attribution_audit_reports: {
+        Row: {
+          aggregate_revenue_usd: number
+          campaign_match_pct: number
+          created_at: string
+          exact_utm_placement_pct: number
+          id: string
+          leak_amount_usd: number
+          leak_percent: number
+          period_end: string
+          period_start: string
+          raw_samples: Json
+          reconciled_revenue_usd: number
+          report: Json
+          revenue_sources: Json
+          site_id: string | null
+          top_unreconciled_rows: Json
+          total_gam_revenue_usd: number
+          user_id: string
+        }
+        Insert: {
+          aggregate_revenue_usd?: number
+          campaign_match_pct?: number
+          created_at?: string
+          exact_utm_placement_pct?: number
+          id?: string
+          leak_amount_usd?: number
+          leak_percent?: number
+          period_end: string
+          period_start: string
+          raw_samples?: Json
+          reconciled_revenue_usd?: number
+          report?: Json
+          revenue_sources?: Json
+          site_id?: string | null
+          top_unreconciled_rows?: Json
+          total_gam_revenue_usd?: number
+          user_id: string
+        }
+        Update: {
+          aggregate_revenue_usd?: number
+          campaign_match_pct?: number
+          created_at?: string
+          exact_utm_placement_pct?: number
+          id?: string
+          leak_amount_usd?: number
+          leak_percent?: number
+          period_end?: string
+          period_start?: string
+          raw_samples?: Json
+          reconciled_revenue_usd?: number
+          report?: Json
+          revenue_sources?: Json
+          site_id?: string | null
+          top_unreconciled_rows?: Json
+          total_gam_revenue_usd?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       creative_metrics: {
         Row: {
           ad_group_id: string
