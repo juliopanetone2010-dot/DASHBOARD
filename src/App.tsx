@@ -32,6 +32,7 @@ const App = () => (
             <Route path="/ai-settings" element={<RequireAuth><AiSettings /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <FloatingAi />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
