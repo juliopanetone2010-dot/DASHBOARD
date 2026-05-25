@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck, MousePointerClick, Target, Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -258,6 +258,30 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
+  // Final URL por campaign_id (extraída de ads_placements, banco local — sem chamar Google Ads)
+  const finalUrlQuery = useQuery({
+    queryKey: ["campaign-final-urls", filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("ads_placements")
+        .select("campaign_id, target_url, date")
+        .not("target_url", "is", null)
+        .order("date", { ascending: false })
+        .limit(5000);
+      if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
+      const { data: rows } = await q;
+      const map = new Map<string, string>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        const url = String((r as any).target_url ?? "");
+        if (!cid || !url) continue;
+        if (!map.has(cid)) map.set(cid, url);
+      }
+      return map;
+    },
+    staleTime: 5 * 60_000,
+  });
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
@@ -444,6 +468,21 @@ const IndexInner = () => {
     roas: totalRoas,
   };
   const profitPositive = totals.profit >= 0;
+
+  // Métricas agregadas adicionais (database-first; vindo do engine sobre dados já sincronizados)
+  const perfTotals = (engine?.aggregates ?? []).reduce(
+    (acc, a) => {
+      acc.impressions += Number(a.impressions) || 0;
+      acc.clicks += Number(a.clicks) || 0;
+      acc.conversions += Number(a.conversions) || 0;
+      acc.spend += Number(a.spend) || 0;
+      return acc;
+    },
+    { impressions: 0, clicks: 0, conversions: 0, spend: 0 },
+  );
+  const avgCtr = perfTotals.impressions > 0 ? (perfTotals.clicks / perfTotals.impressions) * 100 : 0;
+  const avgConvRate = perfTotals.clicks > 0 ? (perfTotals.conversions / perfTotals.clicks) * 100 : 0;
+  const avgCpa = perfTotals.conversions > 0 ? perfTotals.spend / perfTotals.conversions : 0;
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
   const selectedSite = filters.siteId !== "all"
@@ -720,6 +759,28 @@ const IndexInner = () => {
               />
             </section>
 
+            {/* Métricas de performance (CTR / Conversão / CPA) — calculadas a partir do banco */}
+            <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <MetricCard
+                label="CTR médio"
+                value={fmtPercent(avgCtr)}
+                icon={MousePointerClick}
+                hint={`${perfTotals.clicks.toLocaleString("pt-BR")} cliques / ${perfTotals.impressions.toLocaleString("pt-BR")} impr.`}
+              />
+              <MetricCard
+                label="Taxa de conversão média"
+                value={fmtPercent(avgConvRate)}
+                icon={Target}
+                hint={`${Math.round(perfTotals.conversions).toLocaleString("pt-BR")} conversões`}
+              />
+              <MetricCard
+                label="Custo por conversão (CPA)"
+                value={perfTotals.conversions > 0 ? fmtCurrency(avgCpa) : "—"}
+                icon={Receipt}
+                hint={perfTotals.conversions > 0 ? "Gasto / conversões" : "Sem conversões no período"}
+              />
+            </section>
+
             {filters.siteId !== "all" && siteMetricsQuery.data && (
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
@@ -799,6 +860,7 @@ const IndexInner = () => {
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
                     .map((a) => a.id)
                 )}
+                finalUrlMap={finalUrlQuery.data}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
                 onRefresh={data.refresh}
