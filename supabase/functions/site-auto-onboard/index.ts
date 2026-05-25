@@ -181,7 +181,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
-      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to, user_id: userId }, internalAuthHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
       await delay(1_000);
