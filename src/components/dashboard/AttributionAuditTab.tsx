@@ -181,9 +181,19 @@ export function AttributionAuditTab() {
               <Stat label="Reconciled" value={report.reconciled_rows.toLocaleString()} />
               <Stat label="GAM revenue" value={`$${totalGam.toFixed(2)}`} />
               <Stat label="Reconciled rev" value={`$${totalReconciled.toFixed(2)}`} />
+              <Stat label="Reconciled vs total" value={report.reconciled_vs_total ?? `$${totalReconciled.toFixed(2)} / $${totalGam.toFixed(2)}`} accent={Math.abs(globalLeak) <= 3 ? "success" : "warning"} />
+              <Stat label="Aggregate" value={`$${(report.aggregate_orphan_revenue_usd ?? 0).toFixed(2)}`} accent={(report.aggregate_orphan_revenue_usd ?? 0) > 0 ? "warning" : undefined} />
               <Stat label="Exact rows" value={`${(report.method_breakdown.exact_utm_placement ?? 0)}`} accent="success" />
               <Stat label="Inferred/URL" value={`${inferredCount} (${inferredPct.toFixed(1)}%)`} accent="warning" />
             </div>
+
+            {report.report_origin && (
+              <div className="mt-4 rounded border border-warning/30 bg-warning/10 p-3 text-xs text-muted-foreground space-y-1">
+                <div><strong className="text-foreground">Root cause provável:</strong> {report.report_origin.aggregate_root_cause}</div>
+                <div><strong className="text-foreground">Report aggregate:</strong> {report.report_origin.campaign_report}</div>
+                <div><strong className="text-foreground">Report placement:</strong> {report.report_origin.placement_report}</div>
+              </div>
+            )}
 
             {/* Method breakdown bar */}
             <div className="mt-4">
