@@ -36,7 +36,16 @@ interface AdsPlacementRow {
   avg_cpc: number;
 }
 
-interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
+interface GamRevRow {
+  placement: string;
+  revenue_usd: number;
+  impressions: number;
+  date: string;
+  reconciliation_method?: string | null;
+  confidence?: number | null;
+  broken_tracking?: boolean | null;
+  normalized_placement?: string | null;
+}
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
 interface ApplyUtmResult { error?: string; success?: number; total?: number; failed?: number; }
 interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
@@ -59,6 +68,9 @@ interface AggRow {
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
+  reconciliationMethod: string | null;
+  confidence: number;          // 0..100 (0 = sem match)
+  brokenTracking: boolean;
 }
 
 type SortKey = "roi" | "costBrl" | "conversions" | "ctr" | "impressions";
@@ -121,10 +133,9 @@ async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string
   const all: GamRevRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
     let q = supabase
-      .from("gam_placement_revenue")
-      .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
+      .from("placement_revenue_reconciled")
+      .select("placement, normalized_placement, revenue_usd, impressions, date, reconciliation_method, confidence, broken_tracking")
       .eq("campaign_id", cid)
-      .eq("utm_source", "google")
       .gte("date", from)
       .lte("date", to);
     if (siteId) q = q.eq("site_id", siteId);
@@ -296,13 +307,22 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     return last2;
   };
 
-  // Receita GAM por placement (já agrupada via UTM no backend)
+  // Receita GAM por placement (canonical engine — placement_revenue_reconciled)
   const gamRevenueByPlacement = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { revenue: number; method: string | null; confidence: number; broken: boolean }>();
     for (const g of gamRows) {
-      const key = normalizePlacementKey(g.placement || "");
+      const key = normalizePlacementKey(g.normalized_placement || g.placement || "");
       if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
+      const cur = map.get(key) ?? { revenue: 0, method: null, confidence: 0, broken: false };
+      cur.revenue += Number(g.revenue_usd ?? 0);
+      // Mantém o método com maior confidence
+      const conf = Number(g.confidence ?? 0);
+      if (conf >= cur.confidence) {
+        cur.confidence = conf;
+        cur.method = g.reconciliation_method ?? cur.method;
+      }
+      if (g.broken_tracking) cur.broken = true;
+      map.set(key, cur);
     }
     return map;
   }, [gamRows]);
@@ -311,8 +331,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     const map = new Map<string, AggRow>();
     for (const r of rows) {
       const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
-      // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
-      // O root domain é guardado para fallback de match de receita via UTM.
       const key = rawPlacement;
       const root = rootDomain(rawPlacement);
       let agg = map.get(key);
@@ -325,19 +343,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
           revenueUsd: 0, revenueUsdNet: 0, revenueBrl: 0, profitBrl: 0, roi: 0,
           revenueSource: "none", matchedUtm: null, ctr: 0, cpcBrl: 0,
+          reconciliationMethod: null, confidence: 0, brokenTracking: false,
         };
         map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
       agg.clicks += Number(r.clicks);
-      agg.costBrl += Number(r.cost); // custo NATIVO (BRL na conta BR)
+      agg.costBrl += Number(r.cost);
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
     for (const a of values) {
-      // Match estrito: só placement completo normalizado. Sem root/prefixo/fallback.
-      let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
+      const match = gamRevenueByPlacement.get(a.placement);
+      const usd = match?.revenue ?? 0;
       let source: AggRow["revenueSource"] = "none";
       let matchedKey: string | null = null;
       if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
@@ -352,6 +371,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.matchedUtm = matchedKey;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
       a.cpcBrl = a.clicks > 0 ? a.costBrl / a.clicks : 0;
+      a.reconciliationMethod = match?.method ?? null;
+      a.confidence = match?.confidence ?? 0;
+      a.brokenTracking = match?.broken ?? false;
     }
     return values;
   }, [rows, gamRevenueByPlacement, fxUsdBrl]);
@@ -712,13 +734,25 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.costBrl > 100 && r.conversions === 0;
                     const action = actions[r.placement];
+                    const isVerified = matched && r.reconciliationMethod === "exact_utm_placement" && r.confidence >= 95;
+                    const isInferred = matched && !isVerified && !r.brokenTracking;
+                    const isBroken = r.brokenTracking === true;
+                    const isLeak = !matched && r.costBrl > 0; // gastou e nada veio do GAM
+                    // Trava: só permite blacklist se a receita é VERIFIED OU se realmente não há receita (leak).
+                    const canBlacklist = isVerified || (!matched && r.costBrl >= 100);
+                    const blacklistTitle = canBlacklist
+                      ? "Excluir no Google Ads (negative placement)"
+                      : "Bloqueado: tracking não verificado (confidence < 95 ou método não exact_utm_placement)";
                     return (
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
-                            {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
+                            {isVerified && <Badge className="text-[9px] bg-success/15 text-success border border-success/30" title={`exact_utm_placement · confidence ${r.confidence}`}>VERIFIED</Badge>}
+                            {isInferred && <Badge className="text-[9px] bg-warning/15 text-warning border border-warning/30" title={`${r.reconciliationMethod ?? "?"} · confidence ${r.confidence}`}>INFERRED</Badge>}
+                            {isBroken && <Badge variant="destructive" className="text-[9px]">BROKEN</Badge>}
+                            {isLeak && <Badge className="text-[9px] bg-foreground/10 text-foreground border border-border" title="Custo sem receita reconciliada">LEAK</Badge>}
+                            {r.revenueSource === "none" && !isLeak && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
@@ -752,7 +786,14 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir no Google Ads (negative placement)" onClick={() => toggleAction(r.placement, "blacklist", r)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className={cn("h-7 w-7", canBlacklist ? "text-danger" : "text-muted-foreground/40 cursor-not-allowed")}
+                              title={blacklistTitle}
+                              disabled={!canBlacklist}
+                              onClick={() => canBlacklist && toggleAction(r.placement, "blacklist", r)}
+                            >
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -764,6 +805,8 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <div>root: {r.placementRoot}</div>
                             <div>cost_ads: R$ {r.costBrl.toFixed(2)} (BRL)</div>
                             <div>utm_match: {r.matchedUtm ?? "—"} ({r.revenueSource})</div>
+                            <div>method: {r.reconciliationMethod ?? "—"} · conf: {r.confidence}</div>
+                            <div>broken: {String(r.brokenTracking)}</div>
                             <div>rev_usd: ${r.revenueUsd.toFixed(4)} → net ${r.revenueUsdNet.toFixed(4)}</div>
                             <div>fx: {fxUsdBrl} → rev_brl: R$ {r.revenueBrl.toFixed(2)}</div>
                             <div>roi: {r.roi.toFixed(2)}%</div>

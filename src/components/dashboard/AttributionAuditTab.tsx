@@ -126,7 +126,7 @@ export function AttributionAuditTab() {
             <Activity className="h-5 w-5" /> Attribution Audit
           </h2>
           <p className="text-sm text-muted-foreground">
-            Reconcilia <code className="text-xs">gam_placement_revenue</code> usando <code className="text-xs">utm_placement={'{'}campaignid{'}_{'}placement{'}'}</code> como source of truth.
+            Reconcilia <code className="text-xs">gam_placement_revenue</code> → <code className="text-xs">placement_revenue_reconciled</code> usando <code className="text-xs">utm_placement={'{'}campaignid{'}_{'}placement{'}'}</code> como única source of truth. Auto-rebuild a cada 30 min.
           </p>
         </div>
         <div className="flex items-center gap-3">
