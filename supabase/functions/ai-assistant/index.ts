@@ -521,7 +521,13 @@ Deno.serve(async (req) => {
       content: final, parts: lastAssistant?.tool_calls ? { tool_calls: lastAssistant.tool_calls } : null,
     });
 
-    return json({ thread_id: threadId, content: final, tool_events: toolEvents });
+    return json({
+      thread_id: threadId,
+      content: final,
+      tool_events: toolEvents,
+      provider: route.kind === "external" ? route.provider : "lovable",
+      model: route.model,
+    });
   } catch (e) {
     console.error("[ai-assistant] error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
