@@ -541,6 +541,9 @@ export function CreativesTab({ fxUsdBrl }: Props) {
               <TableHead className="text-right">Impr.</TableHead>
               <TableHead className="text-right">Cliques</TableHead>
               <TableHead className="text-right">CTR</TableHead>
+              <TableHead className="text-right">Conv.</TableHead>
+              <TableHead className="text-right">Tx. Conv.</TableHead>
+              <TableHead className="text-right">CPA</TableHead>
               <TableHead className="text-right">Custo</TableHead>
               <TableHead className="text-right">Receita</TableHead>
               <TableHead className="text-right">Lucro</TableHead>
@@ -551,9 +554,9 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={11} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={14} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
             ) : visibleCampaigns.length === 0 ? (
-              <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
+              <TableRow><TableCell colSpan={14} className="text-center py-10 text-muted-foreground text-sm">
                 {onlyNew ? "Nenhum criativo novo nos últimos 3 dias." : <>Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.</>}
               </TableCell></TableRow>
             ) : visibleCampaigns.map((c) => {
