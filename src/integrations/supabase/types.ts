@@ -2808,6 +2808,18 @@ export type Database = {
         Args: { _site: string; _uid: string }
         Returns: boolean
       }
+      can_access_account: {
+        Args: { _account_id: string; _uid: string }
+        Returns: boolean
+      }
+      can_access_campaign: {
+        Args: { _campaign_id: string; _uid: string }
+        Returns: boolean
+      }
+      can_access_site: {
+        Args: { _site_id: string; _uid: string }
+        Returns: boolean
+      }
       is_super_admin: { Args: { _uid: string }; Returns: boolean }
     }
     Enums: {
