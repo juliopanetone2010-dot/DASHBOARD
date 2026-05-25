@@ -468,6 +468,21 @@ const IndexInner = () => {
     roas: totalRoas,
   };
   const profitPositive = totals.profit >= 0;
+
+  // Métricas agregadas adicionais (database-first; vindo do engine sobre dados já sincronizados)
+  const perfTotals = (engine?.aggregates ?? []).reduce(
+    (acc, a) => {
+      acc.impressions += Number(a.impressions) || 0;
+      acc.clicks += Number(a.clicks) || 0;
+      acc.conversions += Number(a.conversions) || 0;
+      acc.spend += Number(a.spend) || 0;
+      return acc;
+    },
+    { impressions: 0, clicks: 0, conversions: 0, spend: 0 },
+  );
+  const avgCtr = perfTotals.impressions > 0 ? (perfTotals.clicks / perfTotals.impressions) * 100 : 0;
+  const avgConvRate = perfTotals.clicks > 0 ? (perfTotals.conversions / perfTotals.clicks) * 100 : 0;
+  const avgCpa = perfTotals.conversions > 0 ? perfTotals.spend / perfTotals.conversions : 0;
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
   const selectedSite = filters.siteId !== "all"
