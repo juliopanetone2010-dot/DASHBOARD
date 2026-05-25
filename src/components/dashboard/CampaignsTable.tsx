@@ -175,7 +175,16 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                     </div>
                     {(() => {
                       const info = finalUrlMap?.get(c.campaign_id);
-                      return <FinalUrlActions {...(info ?? { url: null, source: "unknown" })} compact className="mt-0.5" />;
+                      return (
+                        <FinalUrlActions
+                          {...(info ?? { url: null, source: "unknown" })}
+                          compact
+                          className="mt-0.5"
+                          campaignId={c.campaign_id}
+                          googleAccountId={c.google_account_id ?? null}
+                          onRefresh={onRefresh}
+                        />
+                      );
                     })()}
 
                   </TableCell>
