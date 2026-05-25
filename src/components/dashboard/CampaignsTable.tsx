@@ -34,7 +34,7 @@ const ctrOf = (c: CampaignAggregate) => (c.impressions > 0 ? (c.clicks / c.impre
 const convRateOf = (c: CampaignAggregate) => (c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0);
 const cpaOf = (c: CampaignAggregate) => (c.conversions > 0 ? c.spend / c.conversions : 0);
 
-export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
@@ -52,9 +52,16 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
     if (!sort) return campaigns;
     const arr = [...campaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
+    const getVal = (c: CampaignAggregate): number => {
+      switch (sort.key) {
+        case "ctr": return ctrOf(c);
+        case "conv_rate": return convRateOf(c);
+        case "cost_per_conv": return cpaOf(c);
+        default: return Number(c[sort.key as keyof CampaignAggregate] ?? 0);
+      }
+    };
     arr.sort((a, b) => {
-      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
-      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
+      const av = getVal(a); const bv = getVal(b);
       if (av === bv) return 0;
       return av < bv ? -1 * mult : 1 * mult;
     });
