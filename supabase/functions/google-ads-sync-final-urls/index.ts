@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
 
         const res = await fetch(
           `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
-          { method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }) },
+          { method: "POST", headers, body: JSON.stringify({ query }) },
         );
         const j = await res.json();
         if (!res.ok) {
