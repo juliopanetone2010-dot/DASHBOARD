@@ -1181,7 +1181,10 @@ export type Database = {
       }
       canonical_attribution_audit_reports: {
         Row: {
+          aggregate_allocated_revenue_usd: number
+          aggregate_distribution: Json
           aggregate_revenue_usd: number
+          aggregate_unresolved_revenue_usd: number
           campaign_match_pct: number
           created_at: string
           exact_utm_placement_pct: number
@@ -1200,7 +1203,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          aggregate_allocated_revenue_usd?: number
+          aggregate_distribution?: Json
           aggregate_revenue_usd?: number
+          aggregate_unresolved_revenue_usd?: number
           campaign_match_pct?: number
           created_at?: string
           exact_utm_placement_pct?: number
@@ -1219,7 +1225,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          aggregate_allocated_revenue_usd?: number
+          aggregate_distribution?: Json
           aggregate_revenue_usd?: number
+          aggregate_unresolved_revenue_usd?: number
           campaign_match_pct?: number
           created_at?: string
           exact_utm_placement_pct?: number
@@ -2034,6 +2043,9 @@ export type Database = {
       }
       placement_revenue_reconciled: {
         Row: {
+          aggregate_allocated_revenue_usd: number
+          allocation_method: string | null
+          allocation_status: string
           broken_tracking: boolean
           campaign_id: string
           canonical_key: string
@@ -2055,6 +2067,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          aggregate_allocated_revenue_usd?: number
+          allocation_method?: string | null
+          allocation_status?: string
           broken_tracking?: boolean
           campaign_id: string
           canonical_key: string
@@ -2076,6 +2091,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          aggregate_allocated_revenue_usd?: number
+          allocation_method?: string | null
+          allocation_status?: string
           broken_tracking?: boolean
           campaign_id?: string
           canonical_key?: string
