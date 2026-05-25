@@ -353,6 +353,75 @@ const tools: Record<string, { def: any; run: ToolFn }> = {
       return { suspects: suspects.sort((a, b) => (b.gross_revenue_usd + b.cost_usd) - (a.gross_revenue_usd + a.cost_usd)).slice(0, 30) };
     },
   },
+
+  reconcile_placement_revenue: {
+    def: {
+      type: "function",
+      function: {
+        name: "reconcile_placement_revenue",
+        description: "Roda a reconciliação OFICIAL entre gam_campaign_source_revenue (verdade) e gam_placement_revenue para detectar leak de atribuição. Retorna leak_amount, leak_percent, confidence (0-100) e audit_status (verified/partial/leak_detected/unreliable/unknown). Use SEMPRE antes de declarar 'a receita está confiável'. Use rebuild=true se confidence < 95 para tentar refazer parsing/match e re-medir.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            from: { type: "string", description: "YYYY-MM-DD" },
+            to: { type: "string", description: "YYYY-MM-DD" },
+            site_id: { type: "string" },
+            rebuild: { type: "boolean", description: "se true, força gam-sync-revenue antes de medir" },
+            tolerance_pct: { type: "number", description: "default 3" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    run: async (a, { userId, admin: _admin }) => {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/reconcile-placement-revenue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+        body: JSON.stringify({
+          mode: a.rebuild ? "rebuild" : "audit",
+          user_id: userId,
+          site_id: a.site_id ?? null,
+          campaign_ids: a.campaign_ids ?? [],
+          period_start: a.from, period_end: a.to,
+          tolerance_pct: a.tolerance_pct,
+        }),
+      });
+      const data = await r.json().catch(() => ({ error: `http ${r.status}` }));
+      return data;
+    },
+  },
+
+  get_revenue_audit: {
+    def: {
+      type: "function",
+      function: {
+        name: "get_revenue_audit",
+        description: "Retorna a última auditoria de receita já gravada em placement_revenue_audit para uma ou mais campanhas. Use para responder rápido 'essa receita está confiável?' sem rodar reconciliação nova.",
+        parameters: {
+          type: "object",
+          properties: {
+            campaign_ids: { type: "array", items: { type: "string" } },
+            site_id: { type: "string" },
+            since: { type: "string", description: "YYYY-MM-DD — só auditorias criadas depois dessa data" },
+          },
+        },
+      },
+    },
+    run: async (a, { userId, admin }) => {
+      let q = admin.from("placement_revenue_audit")
+        .select("campaign_id, campaign_name, period_start, period_end, campaign_revenue_usd, placements_revenue_usd, leak_amount_usd, leak_percent, confidence, audit_status, parser_success_pct, match_success_pct, site_match_pct, period_match_pct, findings, rebuilt, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (a.campaign_ids?.length) q = q.in("campaign_id", a.campaign_ids);
+      if (a.site_id) q = q.eq("site_id", a.site_id);
+      if (a.since) q = q.gte("created_at", a.since);
+      const { data, error } = await q;
+      if (error) return { error: error.message };
+      return { audits: data ?? [], count: (data ?? []).length };
+    },
+  },
 };
 
 function round(n: number, d = 2) { return Math.round(n * 10 ** d) / 10 ** d; }
