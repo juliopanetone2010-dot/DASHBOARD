@@ -787,6 +787,57 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_final_urls: {
+        Row: {
+          ad_group_id: string | null
+          ad_id: string | null
+          ad_status: string | null
+          campaign_id: string
+          created_at: string
+          final_url: string | null
+          final_url_suffix: string | null
+          google_account_id: string | null
+          id: string
+          mobile_url: string | null
+          source: string
+          tracking_template: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_group_id?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          campaign_id: string
+          created_at?: string
+          final_url?: string | null
+          final_url_suffix?: string | null
+          google_account_id?: string | null
+          id?: string
+          mobile_url?: string | null
+          source?: string
+          tracking_template?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_group_id?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          campaign_id?: string
+          created_at?: string
+          final_url?: string | null
+          final_url_suffix?: string | null
+          google_account_id?: string | null
+          id?: string
+          mobile_url?: string | null
+          source?: string
+          tracking_template?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_funnel: {
         Row: {
           advanced_scaling_started_at: string | null

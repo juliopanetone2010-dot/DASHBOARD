@@ -16,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
-import { FinalUrlActions } from "./FinalUrlActions";
+import { FinalUrlActions, type FinalUrlInfo } from "./FinalUrlActions";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "conv_rate" | "cost_per_conv";
 type SortDir = "desc" | "asc";
@@ -24,11 +24,12 @@ type SortDir = "desc" | "asc";
 interface Props {
   campaigns: CampaignAggregate[];
   downAccountIds?: Set<string>;
-  finalUrlMap?: Map<string, string>;
+  finalUrlMap?: Map<string, FinalUrlInfo>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
+
 
 const ctrOf = (c: CampaignAggregate) => (c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0);
 const convRateOf = (c: CampaignAggregate) => (c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0);
@@ -172,9 +173,11 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
-                    {finalUrlMap?.get(c.campaign_id) && (
-                      <FinalUrlActions url={finalUrlMap.get(c.campaign_id)} compact className="mt-0.5" />
-                    )}
+                    {(() => {
+                      const info = finalUrlMap?.get(c.campaign_id);
+                      return <FinalUrlActions {...(info ?? { url: null, source: "unknown" })} compact className="mt-0.5" />;
+                    })()}
+
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
