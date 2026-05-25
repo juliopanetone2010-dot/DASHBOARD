@@ -13,8 +13,8 @@ export function FloatingAi() {
   if (location.pathname === "/auth") return null;
 
   const context: AiContext = {
-    active_tab: "global",
-    page: location.pathname,
+    active_tab: location.pathname === "/" ? "dashboard" : location.pathname.replace("/", "") || "global",
+    filters: { route: location.pathname },
   };
 
   return (
