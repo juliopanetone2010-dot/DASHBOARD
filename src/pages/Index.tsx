@@ -558,6 +558,11 @@ const IndexInner = () => {
                 <MapPin className="h-3.5 w-3.5" /> Placements
               </TabsTrigger>
             )}
+            {acl.can("can_use_placements_cleanup") && (
+              <TabsTrigger value="attribution" className="gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" /> Attribution Audit
+              </TabsTrigger>
+            )}
             {acl.can("can_use_funil") && (
               <TabsTrigger value="funnel" className="gap-1.5">
                 <BarChart3 className="h-3.5 w-3.5" /> Funil
