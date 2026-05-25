@@ -207,7 +207,7 @@ Deno.serve(async (req) => {
   const campRev: any[] = [];
   for (let offset = 0; ; offset += PAGE) {
     let cq = admin.from("gam_campaign_source_revenue")
-      .select("campaign_id, revenue_usd, site_id, date")
+      .select("campaign_id, revenue_usd, site_id, date, utm_source")
       .eq("user_id", userId)
       .gte("date", periodStart).lte("date", periodEnd)
       .order("date", { ascending: true })
