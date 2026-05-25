@@ -98,7 +98,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
   const [netFactor, setNetFactor] = useState(1);
-  const [finalUrls, setFinalUrls] = useState<Map<string, string>>(new Map());
+  const [finalUrls, setFinalUrls] = useState<Map<string, import("./FinalUrlActions").FinalUrlInfo>>(new Map());
 
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -182,26 +182,31 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       }
       setRows(list);
 
-      // Final URL por campanha (banco local — sem chamar Google Ads)
+      // Final URL REAL por campanha — vinda da API do Google Ads (campaign_final_urls).
       try {
         let uq = supabase
-          .from("ads_placements")
-          .select("campaign_id, target_url, date")
-          .not("target_url", "is", null)
-          .gte("date", range.from)
-          .lte("date", range.to)
-          .order("date", { ascending: false })
-          .limit(5000);
+          .from("campaign_final_urls")
+          .select("campaign_id, final_url, mobile_url, tracking_template, final_url_suffix, source, updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(10000);
         if (effectiveAccountIds.length > 0) uq = uq.in("google_account_id", effectiveAccountIds);
         const { data: urlRows } = await uq;
-        const m = new Map<string, string>();
+        const m = new Map<string, import("./FinalUrlActions").FinalUrlInfo>();
         for (const r of urlRows ?? []) {
           const cid = String((r as any).campaign_id ?? "");
-          const u = String((r as any).target_url ?? "");
-          if (cid && u && !m.has(cid)) m.set(cid, u);
+          if (!cid || m.has(cid)) continue;
+          const url = (r as any).final_url ?? null;
+          m.set(cid, {
+            url,
+            source: url ? String((r as any).source ?? "ad.final_urls") : "unknown",
+            trackingTemplate: (r as any).tracking_template ?? null,
+            finalUrlSuffix: (r as any).final_url_suffix ?? null,
+            mobileUrl: (r as any).mobile_url ?? null,
+          });
         }
         setFinalUrls(m);
       } catch { /* ignore */ }
+
     } finally { setLoading(false); }
   };
 
@@ -573,9 +578,8 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                       <div>{c.campaign_name}
                         <span className="ml-2 text-xs text-muted-foreground">({c.ads.length} criativos)</span>
                       </div>
-                      {finalUrls.get(c.campaign_id) && (
-                        <FinalUrlActions url={finalUrls.get(c.campaign_id)} compact className="mt-0.5" />
-                      )}
+                      <FinalUrlActions {...(finalUrls.get(c.campaign_id) ?? { url: null, source: "unknown" })} compact className="mt-0.5" />
+
                     </TableCell>
                     <TableCell className="text-right">{fmtNumber(c.impressions)}</TableCell>
                     <TableCell className="text-right">{fmtNumber(c.clicks)}</TableCell>
@@ -621,9 +625,8 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                               <span className="ml-2 italic">[best ROI: {bestRoi.toFixed(1)}% · {decision.reason}]</span>
                             )}
                           </div>
-                          {finalUrls.get(a.campaign_id) && (
-                            <FinalUrlActions url={finalUrls.get(a.campaign_id)} compact className="mt-0.5" />
-                          )}
+                          <FinalUrlActions {...(finalUrls.get(a.campaign_id) ?? { url: null, source: "unknown" })} compact className="mt-0.5" />
+
                         </TableCell>
                         <TableCell className="text-right">{fmtNumber(a.impressions)}</TableCell>
                         <TableCell className="text-right">{fmtNumber(a.clicks)}</TableCell>
