@@ -289,6 +289,7 @@ Deno.serve(async (req) => {
     gam_rows_inferred: { rows: totalRows - (methodCounts.exact_utm_placement ?? 0), revenue_usd: round(inferredRevenue) },
     gam_rows_broken: { rows: brokenCount, revenue_usd: round(brokenRevenue) },
     gam_rows_without_utm: { revenue_usd: round(withoutUtmRevenue) },
+    campaign_id_mismatch: { rows: campaignIdMismatchRows, revenue_usd: round(campaignIdMismatchRevenue), explanation: "utm_placement campaignid diverge da coluna campaign_id em gam_placement_revenue" },
   };
 
   const fullReport = {
