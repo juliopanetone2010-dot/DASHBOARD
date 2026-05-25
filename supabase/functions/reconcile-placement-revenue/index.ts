@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
     // pega todas as campanhas com receita GAM nesse user/site/período
     let q = admin.from("gam_campaign_source_revenue")
       .select("campaign_id")
-      .eq("user_id", body.user_id)
+      .eq("user_id", userId)
       .gte("date", periodStart).lte("date", periodEnd);
     if (body.site_id) q = q.eq("site_id", body.site_id);
     const { data, error } = await q;
@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
   const results: any[] = [];
   for (const cid of campaignIds) {
     const r = await auditOne(admin, {
-      user_id: body.user_id, site_id: body.site_id ?? null, campaign_id: cid,
+      user_id: userId, site_id: body.site_id ?? null, campaign_id: cid,
       period_start: periodStart, period_end: periodEnd, tol, rebuildThreshold,
       rebuild_if_needed: mode === "rebuild",
       SUPABASE_URL, SR,
