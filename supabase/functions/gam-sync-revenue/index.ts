@@ -1177,6 +1177,17 @@ function buildPushKeyValueFilters() {
 }
 
 // Fallback alternativo caso CHANNEL seja rejeitado em alguma network
+function buildPushKeyValueFiltersFallback() {
+  const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
+  return [{
+    fieldFilter: {
+      field: { dimension: "KEY_VALUES_NAME" },
+      operation: "IN",
+      values,
+    },
+  }];
+}
+
 function buildGoogleKeyValueFilters() {
   const values = ["utm_source=google"].map((stringValue) => ({ stringValue }));
   return [{
