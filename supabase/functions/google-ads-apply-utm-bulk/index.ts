@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
       error: errors.length ? JSON.stringify(errors).slice(0, 1000) : null,
     });
 
-    return json({ ok: true, total: campaigns.length, success: totalOk, failed: totalFail, suffix: SUFFIX, errors });
+    return json({ ok: true, total: campaigns.length, success: totalOk, failed: totalFail, skipped, suffix: SUFFIX, errors });
   } catch (e) {
     console.error("[apply-utm-bulk] uncaught", e);
     return json({ error: String(e) });
