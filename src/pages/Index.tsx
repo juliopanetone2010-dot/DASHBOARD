@@ -258,29 +258,42 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
-  // Final URL por campaign_id (extraída de ads_placements, banco local — sem chamar Google Ads)
+  // Final URL por campaign_id — REAL, vinda da API do Google Ads (tabela campaign_final_urls).
+  // Hierarquia: ad.final_urls (mais recente) → fallback null = UNKNOWN URL.
   const finalUrlQuery = useQuery({
-    queryKey: ["campaign-final-urls", filters.googleAccountIds.join("|")],
+    queryKey: ["campaign-final-urls-v2", filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let q = supabase
-        .from("ads_placements")
-        .select("campaign_id, target_url, date")
-        .not("target_url", "is", null)
-        .order("date", { ascending: false })
-        .limit(5000);
+        .from("campaign_final_urls")
+        .select("campaign_id, final_url, mobile_url, tracking_template, final_url_suffix, source, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(10000);
       if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
       const { data: rows } = await q;
-      const map = new Map<string, string>();
+      const map = new Map<string, {
+        url: string | null;
+        source: string;
+        trackingTemplate: string | null;
+        finalUrlSuffix: string | null;
+        mobileUrl: string | null;
+      }>();
       for (const r of rows ?? []) {
         const cid = String((r as any).campaign_id ?? "");
-        const url = String((r as any).target_url ?? "");
-        if (!cid || !url) continue;
-        if (!map.has(cid)) map.set(cid, url);
+        if (!cid || map.has(cid)) continue;
+        const url = (r as any).final_url ?? null;
+        map.set(cid, {
+          url,
+          source: url ? String((r as any).source ?? "ad.final_urls") : "unknown",
+          trackingTemplate: (r as any).tracking_template ?? null,
+          finalUrlSuffix: (r as any).final_url_suffix ?? null,
+          mobileUrl: (r as any).mobile_url ?? null,
+        });
       }
       return map;
     },
     staleTime: 5 * 60_000,
   });
+
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
