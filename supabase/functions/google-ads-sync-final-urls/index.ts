@@ -90,7 +90,8 @@ Deno.serve(async (req) => {
         );
         const j = await res.json();
         if (!res.ok) {
-          accountSummaries.push({ customer_id: acc.customer_id, error: j?.error?.message ?? JSON.stringify(j) });
+          const detail = Array.isArray(j?.error?.details) ? JSON.stringify(j.error.details) : "";
+          accountSummaries.push({ customer_id: acc.customer_id, error: j?.error?.message ?? JSON.stringify(j), detail });
           continue;
         }
 
