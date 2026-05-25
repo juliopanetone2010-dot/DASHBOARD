@@ -907,7 +907,8 @@ const IndexInner = () => {
                         description: `${(r as any)?.success ?? 0}/${(r as any)?.total ?? 0} campanhas atualizadas${(r as any)?.failed ? ` (${(r as any).failed} falha(s))` : ""}. Resincronizando…`,
                       });
                       await supabase.functions.invoke("google-ads-sync-campaigns", { body: {} });
-                      await data.refresh();
+                      await syncRevenueAndRebuild(filters);
+                      await refreshUiData();
                     }}
                   >
                     <Target className="h-3.5 w-3.5 mr-1" />
