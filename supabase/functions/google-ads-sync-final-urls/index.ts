@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
             google_account_id: acc.id,
             campaign_id: String(r.campaign?.id ?? ""),
             ad_group_id: String(r.adGroup?.id ?? "") || null,
-            ad_id: String(r.adGroupAd?.ad?.id ?? "") || null,
+            ad_id: String(r.adGroupAd?.ad?.id ?? ""),
             final_url: finalUrl,
             mobile_url: adMobileUrls[0] ?? null,
             tracking_template: adTracking ?? campTracking,
