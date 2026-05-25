@@ -22,6 +22,19 @@ interface LeakRow {
   status: "verified" | "partial" | "leak_detected" | "unreliable" | "broken";
 }
 
+interface AggregateDistribution {
+  total_aggregate_revenue_usd: number;
+  allocated_revenue_usd: number;
+  unresolved_revenue_usd: number;
+  allocation_method: string;
+  buckets_total: number;
+  buckets_matched: number;
+  buckets_unmatched: number;
+  by_utm_source: Record<string, number>;
+  by_site: Record<string, number>;
+  sample_buckets: Array<{ bucket: string; revenue: number; allocated_to_entries: number; method: string; matched: boolean }>;
+}
+
 interface RebuildReport {
   ok: boolean;
   period: { from: string; to: string };
@@ -31,6 +44,9 @@ interface RebuildReport {
   exact_utm_placement_pct: number;
   broken_tracking_rows: number;
   aggregate_orphan_revenue_usd?: number;
+  aggregate_allocated_revenue_usd?: number;
+  aggregate_unresolved_revenue_usd?: number;
+  aggregate_distribution?: AggregateDistribution;
   revenue_sources?: Record<string, any>;
   reconciled_vs_total?: string;
   total_gam_revenue_usd?: number;
@@ -43,6 +59,7 @@ interface RebuildReport {
   leak_report: LeakRow[];
   summary: Record<string, number>;
 }
+
 
 const STATUS_BADGE: Record<LeakRow["status"], { label: string; cls: string }> = {
   verified: { label: "VERIFIED", cls: "bg-success/15 text-success border-success/30" },
