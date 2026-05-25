@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck, MousePointerClick, Target, Receipt,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck, MousePointerClick, Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,7 @@ import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminAcl } from "@/hooks/useAdminAcl";
+import { buildFinalUrlMap } from "@/lib/final-url-map";
 
 const Index = () => {
   return (
@@ -62,6 +63,7 @@ const IndexInner = () => {
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
   const [syncingCampaigns, setSyncingCampaigns] = useState(false);
+  const lastAutoUrlSyncRef = useRef<string | null>(null);
 
   const getSyncRange = useCallback((nextFilters: DashboardFilters) => {
     const defaultRange = (() => {
@@ -81,6 +83,7 @@ const IndexInner = () => {
     await Promise.all([
       data.refresh(),
       queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
+      queryClient.invalidateQueries({ queryKey: ["campaign-final-urls-v2"] }),
     ]);
   }, [data, queryClient]);
 
@@ -112,11 +115,8 @@ const IndexInner = () => {
       });
       if (error) throw error;
       const total = (r as any)?.campaigns_upserted ?? (r as any)?.upserted ?? (r as any)?.rows ?? 0;
-      // Sincroniza URLs finais REAIS direto da API do Google Ads (não bloqueia a UI).
-      void supabase.functions.invoke("google-ads-sync-final-urls", { body: {} }).then(({ data: u, error: ue }) => {
-        if (ue) console.warn("[sync-final-urls]", ue);
-        else console.info("[sync-final-urls]", u);
-      });
+      const { error: finalUrlError } = await supabase.functions.invoke("google-ads-sync-final-urls", { body: {} });
+      if (finalUrlError) console.warn("[sync-final-urls]", finalUrlError);
       await syncRevenueAndRebuild(filters);
       toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s) com ganhos recalculados.` });
       await refreshUiData();
@@ -320,26 +320,7 @@ const IndexInner = () => {
         .limit(10000);
       if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
       const { data: rows } = await q;
-      const map = new Map<string, {
-        url: string | null;
-        source: string;
-        trackingTemplate: string | null;
-        finalUrlSuffix: string | null;
-        mobileUrl: string | null;
-      }>();
-      for (const r of rows ?? []) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || map.has(cid)) continue;
-        const url = (r as any).final_url ?? null;
-        map.set(cid, {
-          url,
-          source: url ? String((r as any).source ?? "ad.final_urls") : "unknown",
-          trackingTemplate: (r as any).tracking_template ?? null,
-          finalUrlSuffix: (r as any).final_url_suffix ?? null,
-          mobileUrl: (r as any).mobile_url ?? null,
-        });
-      }
-      return map;
+      return buildFinalUrlMap(rows as any[]);
     },
     staleTime: 5 * 60_000,
   });
@@ -460,6 +441,36 @@ const IndexInner = () => {
       setSyncing(false);
     }
   }, [allSites, getSyncRange, refreshUiData, syncRevenueAndRebuild]);
+
+  useEffect(() => {
+    if (!user || syncing || syncingCampaigns || finalUrlQuery.isFetching) return;
+
+    const aggregates = engine?.aggregates ?? [];
+    if (aggregates.length === 0) return;
+
+    const missingCampaigns = aggregates.filter((campaign) => !finalUrlQuery.data?.get(campaign.campaign_id)?.url);
+    if (missingCampaigns.length === 0) return;
+
+    const accountIds = Array.from(new Set(
+      missingCampaigns
+        .map((campaign) => campaign.google_account_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ));
+
+    const syncKey = `${filters.siteId}|${filters.googleAccountIds.join(",")}|${accountIds.join(",")}|${missingCampaigns.map((campaign) => campaign.campaign_id).sort().join(",")}`;
+    if (lastAutoUrlSyncRef.current === syncKey) return;
+    lastAutoUrlSyncRef.current = syncKey;
+
+    void supabase.functions.invoke("google-ads-sync-final-urls", {
+      body: accountIds.length ? { account_ids: accountIds } : {},
+    }).then(async ({ data: result, error }) => {
+      if (error || (result as any)?.error) {
+        console.warn("[auto-sync-final-urls]", error?.message ?? (result as any)?.error ?? "unknown error");
+        return;
+      }
+      await refreshUiData();
+    });
+  }, [user, syncing, syncingCampaigns, finalUrlQuery.isFetching, finalUrlQuery.data, engine?.aggregates, filters.siteId, filters.googleAccountIds, refreshUiData]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
@@ -888,36 +899,9 @@ const IndexInner = () => {
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Campanhas
                 </h2>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      if (!confirm("Aplicar UTM canônico\n\nutm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}\n\nno Final URL Suffix de TODAS as campanhas filtradas?")) return;
-                      const tid = toast({ title: "Aplicando UTM…", description: "Atualizando campanhas no Google Ads." });
-                      const { data: r, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
-                        body: filters.googleAccountIds.length ? { account_ids: filters.googleAccountIds } : {},
-                      });
-                      if (error || (r as any)?.error) {
-                        toast({ title: "Erro ao aplicar UTM", description: error?.message ?? (r as any)?.error, variant: "destructive" });
-                        return;
-                      }
-                      toast({
-                        title: "UTM aplicado",
-                        description: `${(r as any)?.success ?? 0}/${(r as any)?.total ?? 0} campanhas atualizadas${(r as any)?.failed ? ` (${(r as any).failed} falha(s))` : ""}. Resincronizando…`,
-                      });
-                      await supabase.functions.invoke("google-ads-sync-campaigns", { body: {} });
-                      await syncRevenueAndRebuild(filters);
-                      await refreshUiData();
-                    }}
-                  >
-                    <Target className="h-3.5 w-3.5 mr-1" />
-                    Aplicar UTM canônico
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {engine?.aggregates.length ?? 0} resultado(s)
-                  </span>
-                </div>
+                <span className="text-xs text-muted-foreground">
+                  {engine?.aggregates.length ?? 0} resultado(s)
+                </span>
               </div>
 
               <CampaignsTable
@@ -930,7 +914,7 @@ const IndexInner = () => {
                 finalUrlMap={finalUrlQuery.data}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
-                onRefresh={data.refresh}
+                onRefresh={refreshUiData}
               />
             </section>
             </DashboardErrorBoundary>

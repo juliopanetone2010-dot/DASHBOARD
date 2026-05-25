@@ -1,10 +1,9 @@
-import { ExternalLink, Copy, Check, AlertCircle, RefreshCw, Target } from "lucide-react";
+import { ExternalLink, Copy, Check, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 export interface FinalUrlInfo {
@@ -45,56 +44,12 @@ const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
 
 export function FinalUrlActions({
   url, source, trackingTemplate, finalUrlSuffix, mobileUrl,
-  className, compact, campaignId, googleAccountId, onRefresh,
+  className, compact,
 }: Props) {
   const [copied, setCopied] = useState(false);
-  const [syncing, setSyncing] = useState<"url" | "utm" | null>(null);
 
   const sourceMeta = SOURCE_LABELS[String(source ?? "unknown")] ?? SOURCE_LABELS.unknown;
   const suffixOk = (finalUrlSuffix ?? "").trim() === CANONICAL_SUFFIX;
-
-  const handleSyncUrl = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setSyncing("url");
-    try {
-      const { data, error } = await supabase.functions.invoke("google-ads-sync-final-urls", {
-        body: googleAccountId ? { account_ids: [googleAccountId] } : {},
-      });
-      if (error || (data as any)?.error) {
-        toast({ title: "Erro ao sincronizar URL", description: error?.message ?? (data as any)?.error, variant: "destructive" });
-      } else {
-        toast({ title: "URLs sincronizadas", description: `${(data as any)?.upserted ?? 0} linha(s) atualizadas.` });
-        await onRefresh?.();
-      }
-    } finally {
-      setSyncing(null);
-    }
-  };
-
-  const handleApplyUtm = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (!campaignId) return;
-    setSyncing("utm");
-    try {
-      const { data, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
-        body: { campaign_ids: [campaignId] },
-      });
-      if (error || (data as any)?.error) {
-        toast({ title: "Erro ao aplicar UTM", description: error?.message ?? (data as any)?.error, variant: "destructive" });
-      } else {
-        toast({ title: "UTM canônico aplicado", description: `${(data as any)?.success ?? 0}/${(data as any)?.total ?? 0} campanha(s).` });
-        // Re-sync URLs to pick up the new suffix from the API
-        await supabase.functions.invoke("google-ads-sync-final-urls", {
-          body: googleAccountId ? { account_ids: [googleAccountId] } : {},
-        });
-        await onRefresh?.();
-      }
-    } finally {
-      setSyncing(null);
-    }
-  };
 
   if (!url) {
     return (
@@ -111,33 +66,9 @@ export function FinalUrlActions({
               <div className="font-semibold">Sem URL confiável da API do Google Ads.</div>
               {trackingTemplate && <div className="mt-1">tracking_template: <span className="font-mono break-all">{trackingTemplate}</span></div>}
               {finalUrlSuffix && <div>final_url_suffix: <span className="font-mono break-all">{finalUrlSuffix}</span></div>}
-              {!trackingTemplate && !finalUrlSuffix && <div className="text-muted-foreground">Clique em "Sincronizar URL" para puxar da API.</div>}
+              {!trackingTemplate && !finalUrlSuffix && <div className="text-muted-foreground">A URL vai aparecer automaticamente na próxima sincronização.</div>}
             </TooltipContent>
           </Tooltip>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-5 px-1.5 text-[10px] gap-1"
-            disabled={syncing !== null}
-            onClick={handleSyncUrl}
-            title="Sincronizar URL do Google Ads"
-          >
-            <RefreshCw className={cn("h-2.5 w-2.5", syncing === "url" && "animate-spin")} />
-            Sincronizar URL
-          </Button>
-          {campaignId && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-5 px-1.5 text-[10px] gap-1"
-              disabled={syncing !== null}
-              onClick={handleApplyUtm}
-              title="Aplicar UTM canônico nesta campanha"
-            >
-              <Target className={cn("h-2.5 w-2.5", syncing === "utm" && "animate-spin")} />
-              Aplicar UTM
-            </Button>
-          )}
         </div>
       </TooltipProvider>
     );
@@ -203,19 +134,7 @@ export function FinalUrlActions({
           {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
         </Button>
         <Badge variant="outline" className={cn("h-4 px-1 text-[9px] shrink-0", sourceMeta.cls)}>{sourceMeta.label}</Badge>
-        {!suffixOk && campaignId && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-5 px-1.5 text-[10px] gap-1 shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
-            disabled={syncing !== null}
-            onClick={handleApplyUtm}
-            title="Final URL Suffix não é o canônico. Clique para aplicar."
-          >
-            <Target className={cn("h-2.5 w-2.5", syncing === "utm" && "animate-spin")} />
-            UTM
-          </Button>
-        )}
+        {!suffixOk && <Badge variant="outline" className="h-4 px-1 text-[9px] shrink-0 bg-destructive/15 text-destructive border-destructive/30">UTM</Badge>}
       </div>
     </TooltipProvider>
   );

@@ -19,6 +19,7 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { getNetFactor } from "@/lib/revshare";
 import { FinalUrlActions } from "./FinalUrlActions";
+import { buildFinalUrlMap } from "@/lib/final-url-map";
 
 interface CreativeRow {
   campaign_id: string;
@@ -191,20 +192,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           .limit(10000);
         if (effectiveAccountIds.length > 0) uq = uq.in("google_account_id", effectiveAccountIds);
         const { data: urlRows } = await uq;
-        const m = new Map<string, import("./FinalUrlActions").FinalUrlInfo>();
-        for (const r of urlRows ?? []) {
-          const cid = String((r as any).campaign_id ?? "");
-          if (!cid || m.has(cid)) continue;
-          const url = (r as any).final_url ?? null;
-          m.set(cid, {
-            url,
-            source: url ? String((r as any).source ?? "ad.final_urls") : "unknown",
-            trackingTemplate: (r as any).tracking_template ?? null,
-            finalUrlSuffix: (r as any).final_url_suffix ?? null,
-            mobileUrl: (r as any).mobile_url ?? null,
-          });
-        }
-        setFinalUrls(m);
+        setFinalUrls(buildFinalUrlMap(urlRows as any[]));
       } catch { /* ignore */ }
 
     } finally { setLoading(false); }
