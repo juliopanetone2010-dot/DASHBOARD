@@ -400,19 +400,15 @@ const IndexInner = () => {
     const metricsRaw = data.metrics.filter(
       (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
-    const reconciledMap = reconciledRevQuery.data;
+    // Receita = GAM exato (utm_source=google + campaign_id), já refletida em daily_metrics.revenue.
+    // Sem override por engine reconciliada (aggregate allocated inflava/deflava demais).
     const metrics: DailyMetric[] = metricsRaw.map((m) => {
       const f = campaignShare(m.campaign_id);
-      // Override: receita real do GAM via engine canônica (cobre allocated aggregate revenue
-      // que gam_campaign_source_revenue ignora). Cai pra daily_metrics.revenue se não houver
-      // reconciliação ainda (engine roda a cada 30min).
-      const reconciled = reconciledMap?.get(m.campaign_id)?.get(m.date);
-      const baseRevenue = reconciled !== undefined ? reconciled : Number(m.revenue);
-      if (f === 1 && reconciled === undefined) return m;
+      if (f === 1) return m;
       return {
         ...m,
         spend: Number(m.spend) * f,
-        revenue: baseRevenue * f,
+        revenue: Number(m.revenue) * f,
         profit: Number(m.profit) * f,
         clicks: Math.round(Number(m.clicks) * f),
         conversions: Number(m.conversions) * f,
