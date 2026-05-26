@@ -501,10 +501,12 @@ Deno.serve(async (req) => {
             .lte("date", to)
             .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
             .limit(5000);
-          const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          let costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          let costSource: "placement" | "prorated_campaign" | "none" = (costRows ?? []).length > 0 ? "placement" : "none";
+
           let gamQ = admin
             .from("gam_placement_revenue")
-            .select("revenue_usd, placement")
+            .select("revenue_usd, impressions, placement")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
@@ -513,11 +515,54 @@ Deno.serve(async (req) => {
           if (siteId) gamQ = gamQ.eq("site_id", siteId);
           const { data: revRows } = await gamQ.limit(5000);
           const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
+          const placementImpr = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.impressions) || 0), 0);
+
+          // FALLBACK: sem cobertura em ads_placements para esse placement+campanha.
+          // Rateia o custo total da campanha (daily_metrics) pela fatia de impressões
+          // GAM deste placement vs total de impressões GAM da campanha no período.
+          if (costBrl === 0) {
+            const { data: dmRows } = await admin
+              .from("daily_metrics")
+              .select("spend")
+              .eq("user_id", userId)
+              .eq("campaign_id", c.campaign_id)
+              .gte("date", from)
+              .lte("date", to);
+            const campaignSpend = (dmRows ?? []).reduce((a: number, r: any) => a + (Number(r.spend) || 0), 0);
+
+            if (campaignSpend > 0 && placementImpr > 0) {
+              let totalImprQ = admin
+                .from("gam_placement_revenue")
+                .select("impressions")
+                .eq("user_id", userId)
+                .eq("campaign_id", c.campaign_id)
+                .gte("date", from)
+                .lte("date", to);
+              if (siteId) totalImprQ = totalImprQ.eq("site_id", siteId);
+              const { data: totImprRows } = await totalImprQ.limit(10000);
+              const totalImpr = (totImprRows ?? []).reduce((a: number, r: any) => a + (Number(r.impressions) || 0), 0);
+              if (totalImpr > 0) {
+                const share = placementImpr / totalImpr;
+                costBrl = campaignSpend * share;
+                costSource = "prorated_campaign";
+              }
+            }
+          }
+
           const revBrl = revUsd * NET_FACTOR * fxUsdBrl;
           const profit = revBrl - costBrl;
           const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
-          const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
-          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
+          // ok=true => bloqueio é mantido. Critérios:
+          //   1) custo confirmado (direto ou rateado) >= minCostBrl E ROI <= maxRoiPct, OU
+          //   2) sem nenhum dado de custo (nem direto nem rateado) → confiamos na análise
+          //      original e mantemos o bloqueio (não há prova de ROI bom).
+          let ok: boolean;
+          if (costSource === "none") {
+            ok = true;
+          } else {
+            ok = costBrl >= minCostBrl && roi <= maxRoiPct;
+          }
+          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), cost_source: costSource, revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
         }));
         return { it, checks, allOk: checks.every((x) => x.ok) };
       }));
