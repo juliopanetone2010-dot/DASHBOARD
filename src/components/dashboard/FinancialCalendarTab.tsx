@@ -260,7 +260,7 @@ export function FinancialCalendarTab() {
               <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
                 <Download className="h-3.5 w-3.5 mr-1" /> CSV
               </Button>
-              <Button variant="outline" size="sm" onClick={regenerateMonth} disabled={regenerating}>
+              <Button variant="outline" size="sm" onClick={regenerateMonth} disabled={regenerating || filters.siteId === "all"} title={filters.siteId === "all" ? "Selecione um site para regenerar" : ""}>
                 <RefreshCw className={cn("h-3.5 w-3.5 mr-1", regenerating && "animate-spin")} />
                 Regenerar mês
               </Button>
