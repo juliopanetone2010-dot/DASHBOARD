@@ -1,82 +1,77 @@
-# Plano: SaaS multi-tenant com RBAC e isolamento por site
+## Refatorar engine da aba Retenção / Push
 
-Trabalho grande — vou entregar em **5 fases** pra você poder testar e reverter qualquer uma sem quebrar o sistema. Cada fase é independente e funcional.
+Hoje a aba usa `gam_campaign_source_revenue` agregada por campanha, o que mistura aggregate rows e não permite ver URL exata. Vou criar uma engine isolada que puxa do GAM apenas linhas com `utm_source=push`, por URL exata, e bate com o relatório manual.
 
-## Fase 1 — Schema RBAC + Super Admin (backend-only, sem UI)
+### 1. Schema novo — `push_retention_revenue`
 
-Reaproveitar as tabelas que já existem (`admin_profiles`, `admin_permissions`, `admin_site_access`) e completar o que falta:
+Tabela isolada (não reaproveita `gam_url_revenue` que mistura tudo):
 
-**Nova tabela** `admin_google_ads_permissions` — quais contas Google Ads cada admin pode acessar (hoje só existe por site).
+```
+id, site_id, user_id, date, url, normalized_url,
+utm_source, revenue_usd, impressions, ecpm,
+source, raw_gam_row (jsonb), created_at, updated_at
+```
 
-**Nova tabela** `admin_module_permissions` — controle granular por módulo (Dashboard, Placements, Attribution, Funil, Países, Criativos, Push, Automação, Destravar Escala, Migração, Regras, Integrações, AI, Admins).
+Constraint: `UNIQUE(site_id, date, normalized_url)` para idempotência.
+RLS: dono + `can_access_site`. GRANTs explícitos.
 
-**Nova tabela** `admin_action_logs` — auditoria de ações sensíveis (já existe `admin_audit_logs` parecida; vou consolidar nela em vez de duplicar).
+Tabela auxiliar `unattributed_push_revenue` para aggregate rows (`__aggregate__`, URLs vazias):
+```
+id, site_id, date, revenue_usd, impressions, reason, raw_gam_row
+```
 
-**Helpers SQL (SECURITY DEFINER)** novos:
-- `can_access_module(uid, module_name)` — checa se o usuário pode ver/editar um módulo
-- `can_access_google_account(uid, account_id)` — já existe parcial em `can_access_account`, vou expandir
-- `effective_role(uid)` — devolve `super_admin | admin | manager | viewer`
-- `accessible_sites(uid)` → setof uuid — lista de sites permitidos (usada em RLS via `site_id IN (...)`)
+### 2. Edge function `gam-sync-push-retention`
 
-**Roles do enum** `app_role`: adicionar `manager` se não existir (já tem `super_admin`, `admin`, `viewer`).
+Nova função dedicada, não toca em `gam-sync-revenue` (que continua servindo o dashboard).
 
-**RLS revisada** em **todas** as tabelas que têm `site_id` ou `google_account_id`: as policies já cobrem o caso single-user (`auth.uid() = user_id`) e admin (`can_access_site`/`can_access_account`). Vou adicionar policies de UPDATE/DELETE/INSERT pra admins seguindo o RBAC (hoje só leitura está liberada).
+Fluxo:
+1. RBAC: `requireUser` + `requireSiteAccess`
+2. Query GAM Network Report: dimensões `[AD_UNIT_NAME, CUSTOM_CRITERIA, URL]` com filtro `CUSTOM_TARGETING_VALUE_ID = utm_source=push` (ou via custom field do site)
+3. Para cada linha:
+   - Pular se `utm_source !== 'push'` (match exato, sem fuzzy)
+   - Se URL é aggregate (`__aggregate__`, vazia, `(not set)`) → `unattributed_push_revenue`
+   - Senão: `normalizePushUrl()` e upsert em `push_retention_revenue`
+4. `ecpm = (revenue_usd / impressions) * 1000` calculado no insert (nunca estimado)
+5. Retornar relatório de debug: `{matched, ignored, aggregate, duplicates, anomalies}`
 
-## Fase 2 — Edge function guards
+### 3. Helper `normalizePushUrl()`
 
-Criar `supabase/functions/_shared/rbac.ts` com:
-- `requireUser(req)` — valida JWT e devolve userId
-- `requireSiteAccess(userId, siteId)` — 403 se não pode
-- `requireAccountAccess(userId, accountId)` — 403 se não pode
-- `requireModule(userId, module, action)` — 403 se sem permissão
-- `requireSuperAdmin(userId)` — gates globais
+Em `supabase/functions/_shared/normalize_url.ts` (reusável front+back via cópia em `src/lib/`):
 
-Aplicar em **todas** as 30+ edge functions críticas: `gam-sync-revenue`, `google-ads-sync-*`, `placements-cleanup`, `automation-run`, `funnel-smart-run`, `migration-execute`, `geo-cleanup`, `scale-unlock-run`, `campaign-restart`, `placements-undo`, `automation-revert`, etc.
+```ts
+- decodeURIComponent
+- lowercase
+- remove protocol (http://, https://)
+- remove www.
+- remove trailing slash
+- remove query params (manter slug puro)
+- collapse múltiplos //
+```
 
-## Fase 3 — Site Selector como source-of-truth global
+### 4. UI — refatorar `RetentionTab.tsx`
 
-Hoje o `GlobalSiteSelector` + `FilterContext` já existem mas não são respeitados consistentemente. Vou:
-- Garantir que **toda** chamada de hook (`useDashboardData`, `useSiteOnboarding`, etc.) passe `siteId` ativo
-- Toda invocação de edge function recebe `site_id` no body e a função valida acesso
-- AI Assistant (`ai_threads.context`) grava o `site_id` ativo e o prompt do sistema injeta apenas dados desse site
-- Adicionar guard no `RequireAuth` que bloqueia rotas se nenhum site selecionado (exceto super admin)
+Substituir query atual:
+- Card "Receita Push Total": `SUM(revenue_usd) WHERE utm_source='push'` da nova tabela
+- Card "Não atribuído" (aggregate): da `unattributed_push_revenue` — mostrado separadamente
+- Tabela inferior: URL real | Receita | Impressões | eCPM (calculado) | utm | data
+- Botão "Sincronizar Push" chama `gam-sync-push-retention`
+- Badge `VERIFIED` por linha se `raw_gam_row` confere com os campos calculados
+- Painel debug colapsável: matched / ignored / aggregate / duplicates / anomalies (linhas com eCPM > 1000 ou < 0.01)
 
-## Fase 4 — Página Admins (`/admin`)
+### 5. Pontos técnicos
 
-Nova rota `/admin` (visível só pra `super_admin` e `admin` com `can_manage_users`):
-- Lista de usuários com role, status, último login
-- Criar usuário (envia magic link ou senha temporária via `admin.inviteUserByEmail`)
-- Editar role, ativar/desativar
-- Matriz de permissões: sites × can_view/edit/sync/delete/automate
-- Matriz de contas Google Ads acessíveis
-- Matriz de módulos com toggle can_access/can_edit
-- Resetar senha (envia recovery email)
-- Aba "Logs de acesso" lendo `admin_audit_logs`
+- A tabela atual `gam_campaign_source_revenue` é mantida (alimenta o dashboard principal e as outras abas)
+- Migração não destrói nada — apenas adiciona 2 tabelas
+- Sync inicial: usuário roda manualmente ao abrir a aba (sem cron por enquanto)
+- Match URL: case-insensitive, mas comparação por `normalized_url` exato (sem `LIKE %`)
+- Aggregate contamination = 0 garantido porque agregadas vão pra outra tabela física
 
-UI: tabela shadcn + dialogs pra editar, badges coloridos por role.
+### Arquivos
 
-## Fase 5 — UX final + segurança
+- `supabase/migrations/<ts>_push_retention.sql` (novo)
+- `supabase/functions/_shared/normalize_url.ts` (novo)
+- `supabase/functions/gam-sync-push-retention/index.ts` (novo)
+- `src/lib/normalizePushUrl.ts` (novo, espelho do shared)
+- `src/components/dashboard/RetentionTab.tsx` (refatorado)
 
-- Badge de role no header (`Super Admin` / `Admin` / `Manager` / `Viewer`) com cor
-- Avatar + dropdown perfil → `/perfil`
-- Página `/perfil` com nome, avatar, troca de senha
-- Troca rápida de site no header (já existe, melhorar UX com busca)
-- Ocultar abas/botões que o usuário não tem permissão (UI guard — backend já bloqueia)
-- HIBP check ativado nas senhas (`configure_auth`)
-- Audit log automático em mutations sensíveis (delete placement, pausar campanha, mudar budget) via trigger SQL
-
-## O que NÃO entra neste plano
-
-- **Rate limiting / brute force**: o backend não tem primitivas nativas pra isso ainda — vou pular conforme política da plataforma. Supabase Auth já tem proteção básica contra brute force em login.
-- **Billing**: você mencionou "billing futuro" — fica pra depois, não bloqueia nada.
-- **Refresh token customizado**: o Supabase já gerencia refresh tokens automaticamente; não precisa reinventar.
-
-## Notas técnicas
-
-**Reutilização vs criação**: já existem `admin_profiles`, `admin_permissions`, `admin_site_access`, `admin_audit_logs`, `is_super_admin()`, `admin_has_permission()`, `can_access_site()`, `can_access_account()`, `can_access_campaign()`. Vou **estender** isso em vez de criar tabelas paralelas — assim seu usuário super_admin atual continua válido sem migração de dados.
-
-**Risco**: cada fase mexe em RLS. Vou rodar `supabase--linter` depois de cada migration pra garantir que nada quebrou pra usuários comuns. Se algo travar, dá pra reverter via histórico do Lovable.
-
-## Como você prefere começar?
-
-Posso começar pela **Fase 1 + 2** juntas (backend RBAC completo, invisível na UI mas já protegido) — esse é o pulo de qualidade que destrava todo o resto. Confirma que eu sigo, ou prefere começar pela Fase 4 (página de Admins) primeiro pra você já conseguir convidar gente?
+Quer que eu prossiga com a migração + edge function + UI?
