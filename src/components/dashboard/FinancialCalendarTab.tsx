@@ -77,7 +77,7 @@ export function FinancialCalendarTab() {
   //   lucroLiq    = netBrl - spend
   // Assim o ROI/lucro batem 1:1 com os cards do dashboard.
   const snapshotsQuery = useQuery({
-    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd, dash.fetchedAt],
+    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd, dash.metrics.length],
     enabled: !dash.loading,
     queryFn: async () => {
       if (filters.siteId !== "all") {
