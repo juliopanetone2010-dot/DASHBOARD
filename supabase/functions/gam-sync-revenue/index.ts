@@ -891,6 +891,82 @@ async function runUrlNameCandidate(
   }
 }
 
+
+// =========================================================================
+// URL-based fallback: quando uma campanha não tem utm_placement configurado,
+// usamos a URL da página (dimensão URL_NAME do GAM) e casamos com
+// campaign_final_urls para atribuir a receita real ao campaign_id correto.
+// =========================================================================
+function normalizeUrlForMatch(raw: string): string {
+  if (!raw) return "";
+  let t = safeDecode(String(raw)).toLowerCase().trim();
+  t = t.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  t = t.split("?")[0].split("#")[0];
+  t = t.replace(/\/+$/, "");
+  return t;
+}
+
+async function buildFinalUrlMap(
+  admin: any,
+  userId: string,
+  accountIds: string[],
+  debug: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!accountIds || accountIds.length === 0) return map;
+  const { data, error } = await admin
+    .from("campaign_final_urls")
+    .select("campaign_id, final_url")
+    .eq("user_id", userId)
+    .in("google_account_id", accountIds);
+  if (error) {
+    debug.push(`[URL_FALLBACK/map] erro=${String(error.message ?? error).slice(0, 300)}`);
+    return map;
+  }
+  for (const row of (data ?? []) as any[]) {
+    const key = normalizeUrlForMatch(String(row.final_url ?? ""));
+    if (!key) continue;
+    // primeira ocorrência ganha (final_url canonical → cid)
+    if (!map.has(key)) map.set(key, String(row.campaign_id));
+  }
+  debug.push(`[URL_FALLBACK/map] urls_indexadas=${map.size} (accounts=${accountIds.length})`);
+  return map;
+}
+
+async function collectUrlAttribution(args: {
+  networkCode: string; accessToken: string; ranges: GamRange[];
+  finalUrlMap: Map<string, string>; debug: string[]; deadlineAt?: number;
+}): Promise<AttributedRow[]> {
+  const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
+  const out: AttributedRow[] = [];
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
+    ))).flat();
+    let matched = 0;
+    for (const r of reportRows) {
+      const rawUrl = r.dims[1] || r.dims[0] || "";
+      const key = normalizeUrlForMatch(rawUrl);
+      const cid = finalUrlMap.get(key);
+      if (!cid) continue;
+      matched++;
+      out.push({
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid,
+        placement: key,
+        raw: `URL_NAME_FALLBACK|url=${rawUrl}|cid=${cid}`,
+      });
+    }
+    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
+  }
+  return out;
+}
+
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
