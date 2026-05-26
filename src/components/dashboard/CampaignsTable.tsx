@@ -424,5 +424,6 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
         </Table>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
