@@ -304,10 +304,22 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                     {fmtUSD(Number(c.ecpm) || 0)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtNumber(c.impressions)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(d?.ctr ?? 0).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(Math.round(c.conversions))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(d?.convRate ?? 0).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
                   </TableCell>
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">
