@@ -103,13 +103,15 @@ export function FinancialCalendarTab() {
         }
         return m;
       };
-      // 1) Spend BRL + cliques/conversões/impressões de Google Ads (daily_metrics)
+      // 1) Spend BRL + cliques/conv/impressões + RECEITA (USD-equivalente) — mesma fonte do dashboard
+      //    daily_metrics.revenue já vem normalizado em USD (BRL nativo dividido pelo FX na ingestão).
+      //    Usamos isso pra garantir que o ROI do calendário bata 1:1 com o do dashboard.
       let offset = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from("daily_metrics")
-          .select("date, spend, clicks, conversions, impressions")
+          .select("date, spend, clicks, conversions, impressions, revenue")
           .gte("date", monthStart)
           .lte("date", monthEnd)
           .range(offset, offset + PAGE - 1);
@@ -117,50 +119,22 @@ export function FinancialCalendarTab() {
         if (!data || data.length === 0) break;
         for (const r of data) {
           const m = ensure(r.date as string);
-          m.google_ads_cost += Number(r.spend) || 0;
-          m.total_cost += Number(r.spend) || 0;
+          const spend = Number(r.spend) || 0;
+          const revUsd = Number(r.revenue) || 0;
+          const revBrl = revUsd * usdBrl; // bruto BRL
+          m.google_ads_cost += spend;
+          m.total_cost += spend;
           m.clicks += Number(r.clicks) || 0;
           m.conversions += Number(r.conversions) || 0;
           m.impressions += Number(r.impressions) || 0;
+          m.gross_revenue += revBrl;
+          m.net_revenue += revBrl * NET_FACTOR;
+          m.revenue_after_revshare += revBrl * NET_FACTOR;
         }
         if (data.length < PAGE) break;
         offset += PAGE;
       }
-      // 2) Receita GAM exato (utm_source=google). ATENÇÃO: apesar do nome `revenue_usd`,
-      //    o valor é armazenado em MOEDA NATIVA do site (BRL pra sites BRL, USD pra USD).
-      //    Buscamos a moeda de cada site e só convertemos via FX quando for USD.
-      const { data: siteRows } = await supabase
-        .from("sites")
-        .select("id, gam_currency");
-      const curBySite = new Map<string, string>();
-      for (const s of siteRows ?? []) curBySite.set(String((s as any).id), String((s as any).gam_currency ?? "USD").toUpperCase());
-
-      offset = 0;
-      while (true) {
-        const { data, error } = await supabase
-          .from("gam_campaign_source_revenue")
-          .select("date, revenue_usd, site_id")
-          .eq("utm_source", "google")
-          .gte("date", monthStart)
-          .lte("date", monthEnd)
-          .range(offset, offset + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const r of data) {
-          const m = ensure(r.date as string);
-          const native = Number((r as any).revenue_usd) || 0;
-          const sid = (r as any).site_id ? String((r as any).site_id) : null;
-          const cur = sid ? (curBySite.get(sid) ?? "USD") : "USD";
-          // BRL nativo: usa direto. USD nativo: converte pra BRL via FX.
-          const brl = cur === "BRL" ? native : native * usdBrl;
-          m.gross_revenue += brl;
-          m.net_revenue += brl * NET_FACTOR;
-          m.revenue_after_revshare += brl * NET_FACTOR;
-        }
-        if (data.length < PAGE) break;
-        offset += PAGE;
-      }
-      // 3) Lucro / margem coerentes
+      // 2) Lucro / margem / eCPM coerentes
       for (const m of byDate.values()) {
         m.liquid_profit = m.net_revenue - m.total_cost;
         m.profit_margin_pct = m.net_revenue > 0 ? (m.liquid_profit / m.net_revenue) * 100 : 0;
