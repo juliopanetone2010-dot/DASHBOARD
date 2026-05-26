@@ -7,8 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CalendarDays, RefreshCw, TrendingUp, TrendingDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
-import { useDashboardData } from "@/hooks/useDashboardData";
-import { NET_FACTOR } from "@/engine/rules";
 import { fmtCurrency, fmtPercent, fmtNumber, fmtUSD, fmtBRL } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -41,7 +39,6 @@ const MONTHS_PT = [
 
 export function FinancialCalendarTab() {
   const { filters } = useDashboardFilters();
-  const dash = useDashboardData(); // MESMA fonte do dashboard (RLS, filtros, escopo)
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
@@ -53,88 +50,62 @@ export function FinancialCalendarTab() {
     return d.toISOString().slice(0, 10);
   }, [year, month]);
 
-  // FX só pra exibir labels USD quando preciso
-  const fxQuery = useQuery({
-    queryKey: ["fx-usd-brl-calendar"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("exchange_rates")
-        .select("rate")
-        .eq("from_currency", "USD")
-        .eq("to_currency", "BRL")
-        .maybeSingle();
-      return Number((data as any)?.rate) || 5;
-    },
-    staleTime: 5 * 60_000,
-  });
-  const usdBrl = fxQuery.data ?? 5;
+  const usdBrl = 5; // não utilizado no fluxo simples; mantido pra compatibilidade
 
-  // === FONTE ÚNICA ===
-  // Quando "Todos os sites": agrega data.metrics (já filtrado pelo dashboard) por dia.
-  // Aplicamos a MESMA fórmula do engine (rules.ts):
-  //   grossRevBrl = profit + spend  (BRL nativo)
-  //   netBrl      = grossRevBrl * NET_FACTOR (0,935 = rev share 6,5%)
-  //   lucroLiq    = netBrl - spend
-  // Assim o ROI/lucro batem 1:1 com os cards do dashboard.
+  // Fonte: daily_financial_snapshots (comportamento original).
+  // - Site específico: filtra por site_id
+  // - "Todos os sites": agrega as snapshots de todos os sites por data
   const snapshotsQuery = useQuery({
-    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd, dash.metrics.length],
-    enabled: !dash.loading,
+    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd],
     queryFn: async () => {
-      if (filters.siteId !== "all") {
-        const { data, error } = await supabase
-          .from("daily_financial_snapshots")
-          .select("*")
-          .eq("site_id", filters.siteId)
-          .gte("date", monthStart)
-          .lte("date", monthEnd)
-          .order("date", { ascending: true })
-          .limit(5000);
-        if (error) throw error;
-        return (data ?? []) as unknown as Snapshot[];
-      }
+      let q = supabase
+        .from("daily_financial_snapshots")
+        .select("*")
+        .gte("date", monthStart)
+        .lte("date", monthEnd)
+        .order("date", { ascending: true })
+        .limit(10000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Snapshot[];
+      if (filters.siteId !== "all") return rows;
 
-      // === ALL SITES === reusa data.metrics do dashboard
+      // Agrega por data quando "Todos os sites"
       const byDate = new Map<string, Snapshot>();
-      const ensure = (date: string): Snapshot => {
-        let m = byDate.get(date);
+      for (const r of rows) {
+        let m = byDate.get(r.date);
         if (!m) {
           m = {
-            id: date, site_id: "all", date,
+            id: r.date, site_id: "all", date: r.date,
             google_ads_cost: 0, facebook_ads_cost: 0, other_cost: 0, total_cost: 0,
             gross_revenue: 0, net_revenue: 0, revenue_after_revshare: 0,
             liquid_profit: 0, profit_margin_pct: 0,
             ecpm: 0, viewability: 0, impressions: 0, clicks: 0, conversions: 0,
             revenue_currency: "BRL",
           };
-          byDate.set(date, m);
+          byDate.set(r.date, m);
         }
-        return m;
-      };
-
-      for (const r of dash.metrics) {
-        const date = String(r.date);
-        if (date < monthStart || date > monthEnd) continue;
-        const spend = Number(r.spend) || 0;
-        const profit = Number(r.profit) || 0;
-        const grossBrl = profit + spend; // BRL nativo, igual engine
-        const m = ensure(date);
-        m.google_ads_cost += spend;
-        m.total_cost += spend;
+        m.google_ads_cost += Number(r.google_ads_cost) || 0;
+        m.facebook_ads_cost += Number(r.facebook_ads_cost) || 0;
+        m.other_cost += Number(r.other_cost) || 0;
+        m.total_cost += Number(r.total_cost) || 0;
+        m.gross_revenue += Number(r.gross_revenue) || 0;
+        m.net_revenue += Number(r.net_revenue) || 0;
+        m.revenue_after_revshare += Number(r.revenue_after_revshare) || 0;
+        m.liquid_profit += Number(r.liquid_profit) || 0;
+        m.impressions += Number(r.impressions) || 0;
         m.clicks += Number(r.clicks) || 0;
         m.conversions += Number(r.conversions) || 0;
-        m.impressions += Number(r.impressions) || 0;
-        m.gross_revenue += grossBrl;
-        m.net_revenue += grossBrl * NET_FACTOR;
-        m.revenue_after_revshare += grossBrl * NET_FACTOR;
       }
       for (const m of byDate.values()) {
-        m.liquid_profit = m.net_revenue - m.total_cost;
         m.profit_margin_pct = m.net_revenue > 0 ? (m.liquid_profit / m.net_revenue) * 100 : 0;
         m.ecpm = m.impressions > 0 ? (m.net_revenue / m.impressions) * 1000 : 0;
       }
       return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
     },
   });
+
 
 
 
