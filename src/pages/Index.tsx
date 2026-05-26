@@ -426,7 +426,7 @@ const IndexInner = () => {
     });
 
     return { campaigns, metrics, placements };
-  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data]);
+  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data, reconciledRevQuery.data]);
 
   const engine = useMemo(() => {
     if (!data.rules) return null;
