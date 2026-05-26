@@ -6,145 +6,150 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap } from "lucide-react";
-import { fmtUSD, fmtCurrency } from "@/lib/format";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, ShieldCheck, AlertTriangle, Bug, ChevronDown } from "lucide-react";
+import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
-import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/use-toast";
 
-interface SourceRow {
+interface PushRow {
   id: string;
-  campaign_id: string;
   date: string;
+  url: string;
+  normalized_url: string;
   utm_source: string;
   revenue_usd: number;
   impressions: number;
+  ecpm: number;
+}
+
+interface UnattribRow {
+  id: string;
+  date: string;
+  revenue_usd: number;
+  impressions: number;
+  reason: string;
+}
+
+interface SyncResult {
+  ok: boolean;
+  inserted?: number;
+  unattributed?: number;
+  debug?: {
+    totalRowsFromGam: number;
+    matchedPush: number;
+    ignoredNoPush: number;
+    aggregateRows: number;
+    duplicates: number;
+    ecpmAnomalies: number;
+    sampleIgnored: string[];
+    sampleMatched: string[];
+  };
 }
 
 interface Props {
-  campaigns: Campaign[];
+  campaigns: Campaign[]; // não usado na nova engine, mantido p/ compat
 }
 
-export function RetentionTab({ campaigns }: Props) {
+export function RetentionTab(_props: Props) {
   const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
 
-  // Override local de período (independente do dashboard)
   const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
   const range = localRange ?? globalRange;
   const activePreset: DatePresetKey | null = presetFromRange(range.from, range.to);
-
   const applyPreset = (key: DatePresetKey) => {
     const p = DATE_PRESETS.find((x) => x.key === key);
     if (p) setLocalRange(p.range());
   };
 
+  const siteId = filters.siteId;
+  const enabled = siteId && siteId !== "all";
+
   const queryKey = useMemo(
-    () => ["retention", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
-    [range.from, range.to, filters.siteId, filters.googleAccountIds],
+    () => ["push-retention", range.from, range.to, siteId],
+    [range.from, range.to, siteId],
   );
 
-  const rowsQuery = useQuery<SourceRow[]>({
+  const rowsQuery = useQuery<PushRow[]>({
     queryKey,
+    enabled: !!enabled,
     queryFn: async () => {
-      if (import.meta.env.DEV) console.info("[retention] fetch", queryKey);
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("id, campaign_id, date, utm_source, revenue_usd, impressions")
+      const { data, error } = await supabase
+        .from("push_retention_revenue")
+        .select("id, date, url, normalized_url, utm_source, revenue_usd, impressions, ecpm")
+        .eq("site_id", siteId)
         .gte("date", range.from)
-        .lte("date", range.to);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data } = await q.order("date", { ascending: false }).limit(5000);
-      return (data ?? []) as SourceRow[];
+        .lte("date", range.to)
+        .order("revenue_usd", { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      return (data ?? []) as PushRow[];
     },
     staleTime: 30_000,
   });
 
-  const fxQuery = useQuery<number>({
-    queryKey: ["fx-usd-brl"],
+  const unattribQuery = useQuery<UnattribRow[]>({
+    queryKey: ["push-unattrib", range.from, range.to, siteId],
+    enabled: !!enabled,
     queryFn: async () => {
-      const r = await fetch("https://open.er-api.com/v6/latest/USD");
-      const j = await r.json();
-      const rate = Number(j?.rates?.BRL);
-      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+      const { data, error } = await supabase
+        .from("unattributed_push_revenue")
+        .select("id, date, revenue_usd, impressions, reason")
+        .eq("site_id", siteId)
+        .gte("date", range.from)
+        .lte("date", range.to);
+      if (error) throw error;
+      return (data ?? []) as UnattribRow[];
     },
-    staleTime: 60 * 60 * 1000,
+    staleTime: 30_000,
   });
 
   const rows = rowsQuery.data ?? [];
-  const usdBrl = fxQuery.data ?? 5;
+  const unattrib = unattribQuery.data ?? [];
   const loading = rowsQuery.isFetching || syncing;
 
+  const totals = useMemo(() => {
+    const push = rows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const impressions = rows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+    const unattribTotal = unattrib.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const ecpm = impressions > 0 ? (push / impressions) * 1000 : 0;
+    return { push, impressions, unattribTotal, ecpm };
+  }, [rows, unattrib]);
+
   const load = async () => {
+    if (!enabled) {
+      toast({ title: "Selecione um site no topo", variant: "destructive" });
+      return;
+    }
     setSyncing(true);
+    setLastSync(null);
     try {
-      const chunks = chunkDates(range.from, range.to, 1);
-      for (const c of chunks) {
-        await supabase.functions.invoke("gam-sync-revenue", {
-          body: {
-            from: c.from,
-            to: c.to,
-            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
-            account_ids: filters.googleAccountIds,
-            revenue_only: true,
-            sync: true,
-            skip_viewability: true,
-            skip_snapshot_regen: true,
-          },
-        });
-      }
+      const { data, error } = await supabase.functions.invoke<SyncResult>("gam-sync-push-retention", {
+        body: { site_id: siteId, from: range.from, to: range.to },
+      });
+      if (error) throw error;
+      setLastSync(data ?? null);
       await queryClient.invalidateQueries({ queryKey });
-      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId] });
+      toast({
+        title: "Sincronização concluída",
+        description: `${data?.inserted ?? 0} URLs push • ${data?.unattributed ?? 0} agregadas isoladas`,
+      });
+    } catch (e: any) {
+      toast({ title: "Erro ao sincronizar", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
   };
-
-  const campaignName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of campaigns) m.set(c.campaign_id, c.name);
-    return m;
-  }, [campaigns]);
-
-  // Agrega por (campaign_id, source)
-  const byCampaign = useMemo(() => {
-    const map = new Map<string, {
-      campaign_id: string;
-      google: number; push: number; other: number; total: number;
-      googleImpr: number; pushImpr: number; otherImpr: number;
-    }>();
-    for (const r of rows) {
-      const cur = map.get(r.campaign_id) ?? {
-        campaign_id: r.campaign_id, google: 0, push: 0, other: 0, total: 0,
-        googleImpr: 0, pushImpr: 0, otherImpr: 0,
-      };
-      const usd = Number(r.revenue_usd) || 0;
-      const impr = Number(r.impressions) || 0;
-      cur.total += usd;
-      if (r.utm_source === "google") { cur.google += usd; cur.googleImpr += impr; }
-      else if (r.utm_source === "push") { cur.push += usd; cur.pushImpr += impr; }
-      else { cur.other += usd; cur.otherImpr += impr; }
-      map.set(r.campaign_id, cur);
-    }
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [rows]);
-
-  const totals = useMemo(() => {
-    return byCampaign.reduce((acc, c) => ({
-      google: acc.google + c.google,
-      push: acc.push + c.push,
-      other: acc.other + c.other,
-      total: acc.total + c.total,
-    }), { google: 0, push: 0, other: 0, total: 0 });
-  }, [byCampaign]);
-
-  const net = (usd: number) => usd * (1 - REV_SHARE_PCT) * usdBrl;
 
   const fromDate = range.from ? new Date(range.from + "T00:00:00") : undefined;
   const toDate = range.to ? new Date(range.to + "T00:00:00") : undefined;
@@ -153,26 +158,38 @@ export function RetentionTab({ campaigns }: Props) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold">Retenção / Push</h2>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            Retenção / Push
+            <Badge variant="outline" className="text-xs">utm_source=push (estrito)</Badge>
+          </h2>
           <p className="text-xs text-muted-foreground">
-            Receita de usuários retidos via push (sem custo adicional). Comparado ao tráfego pago do Google Ads.
+            Receita do GAM por URL exata, filtrada estritamente por <code>utm_source=push</code>. Bate com o relatório manual.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="font-mono text-xs">
-            Período: {range.from} → {range.to}
+            {range.from} → {range.to}
           </Badge>
           {localRange && (
             <Button size="sm" variant="ghost" onClick={() => setLocalRange(null)} className="h-8 text-xs">
-              Usar período do dashboard
+              Período do dashboard
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
+          <Button size="sm" variant="default" onClick={load} disabled={loading || !enabled} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            Atualizar
+            Sincronizar GAM
           </Button>
         </div>
       </div>
+
+      {!enabled && (
+        <Card className="border-amber-500/50">
+          <CardContent className="py-6 text-sm text-muted-foreground flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Selecione um site específico no topo do dashboard para usar a engine Push.
+          </CardContent>
+        </Card>
+      )}
 
       <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -180,14 +197,7 @@ export function RetentionTab({ campaigns }: Props) {
             <Zap className="h-3.5 w-3.5" /> Período
           </div>
           {DATE_PRESETS.map((p) => (
-            <Button
-              key={p.key}
-              type="button"
-              size="sm"
-              variant={activePreset === p.key ? "default" : "outline"}
-              onClick={() => applyPreset(p.key)}
-              className="h-8"
-            >
+            <Button key={p.key} type="button" size="sm" variant={activePreset === p.key ? "default" : "outline"} onClick={() => applyPreset(p.key)} className="h-8">
               {p.label}
             </Button>
           ))}
@@ -200,13 +210,7 @@ export function RetentionTab({ campaigns }: Props) {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={fromDate}
-                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
-                initialFocus
-                className={cn("p-3 pointer-events-auto")}
-              />
+              <Calendar mode="single" selected={fromDate} onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })} initialFocus className={cn("p-3 pointer-events-auto")} />
             </PopoverContent>
           </Popover>
           <Popover>
@@ -217,91 +221,75 @@ export function RetentionTab({ campaigns }: Props) {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={toDate}
-                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
-                initialFocus
-                className={cn("p-3 pointer-events-auto")}
-              />
+              <Calendar mode="single" selected={toDate} onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })} initialFocus className={cn("p-3 pointer-events-auto")} />
             </PopoverContent>
           </Popover>
         </div>
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.push)} icon={Repeat} variant="primary" hint={`${rows.length} URL(s) únicas`} />
+        <MetricCard label="Impressões Push" value={totals.impressions.toLocaleString("pt-BR")} icon={Wallet} />
+        <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} variant="success" hint="(receita / impressões) × 1000" />
         <MetricCard
-          label="Aquisição (Google)"
-          value={fmtUSD(totals.google)}
-          icon={Wallet}
-          hint={`${fmtCurrency(net(totals.google))} líquido (BRL)`}
-        />
-        <MetricCard
-          label="Retenção (Push)"
-          value={fmtUSD(totals.push)}
-          icon={Repeat}
-          variant="primary"
-          hint="Sem custo adicional"
-        />
-        <MetricCard
-          label="Outras origens"
-          value={fmtUSD(totals.other)}
-          icon={Sparkles}
-          hint="Orgânico / direto / desconhecido"
-        />
-        <MetricCard
-          label="LTV total (USD)"
-          value={fmtUSD(totals.total)}
-          icon={TrendingUp}
-          variant="success"
-          hint={`google + push + outras = ${fmtCurrency(net(totals.total))} líquido`}
+          label="Não atribuído (agregadas)"
+          value={fmtUSD(totals.unattribTotal)}
+          icon={AlertTriangle}
+          hint={`${unattrib.length} linha(s) isoladas — não contamina por-URL`}
         />
       </section>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base">
-            <span>LTV por campanha ({range.from} → {range.to})</span>
-            <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
+            <span>URLs Push ({range.from} → {range.to})</span>
+            <Badge variant="outline">{rows.length} URL(s)</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {byCampaign.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
-              Sem receita atribuída por UTM ainda. Aplique as UTMs nas campanhas e aguarde o tráfego retornar.
+              Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs do período.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Campanha</TableHead>
-                    <TableHead className="text-right">Google (USD)</TableHead>
-                    <TableHead className="text-right">Push (USD)</TableHead>
-                    <TableHead className="text-right">Outras</TableHead>
-                    <TableHead className="text-right">LTV total</TableHead>
-                    <TableHead className="text-right">% Retenção</TableHead>
+                    <TableHead>URL</TableHead>
+                    <TableHead>Data</TableHead>
+                    <TableHead className="text-right">Impressões</TableHead>
+                    <TableHead className="text-right">Receita (USD)</TableHead>
+                    <TableHead className="text-right">eCPM</TableHead>
+                    <TableHead>utm</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {byCampaign.map((c) => {
-                    const pctPush = c.total > 0 ? (c.push / c.total) * 100 : 0;
+                  {rows.map((r) => {
+                    const calcEcpm = r.impressions > 0 ? (Number(r.revenue_usd) / r.impressions) * 1000 : 0;
+                    const matches = Math.abs(calcEcpm - Number(r.ecpm)) < 0.01;
+                    const anomaly = calcEcpm > 1000 || (Number(r.revenue_usd) > 0 && calcEcpm < 0.01);
                     return (
-                      <TableRow key={c.campaign_id}>
-                        <TableCell>
-                          <div className="font-medium text-sm">
-                            {campaignName.get(c.campaign_id) ?? `#${c.campaign_id}`}
-                          </div>
-                          <div className="text-xs text-muted-foreground font-mono">{c.campaign_id}</div>
+                      <TableRow key={r.id}>
+                        <TableCell className="max-w-[420px]">
+                          <div className="font-mono text-xs truncate" title={r.url}>{r.normalized_url}</div>
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtUSD(c.google)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-primary">{fmtUSD(c.push)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(c.other)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(c.total)}</TableCell>
+                        <TableCell className="font-mono text-xs">{r.date}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.impressions.toLocaleString("pt-BR")}</TableCell>
+                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(Number(r.revenue_usd))}</TableCell>
+                        <TableCell className="text-right tabular-nums">${calcEcpm.toFixed(2)}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{r.utm_source}</Badge></TableCell>
                         <TableCell className="text-right">
-                          <Badge variant={pctPush > 30 ? "default" : "outline"}>
-                            {pctPush.toFixed(1)}%
-                          </Badge>
+                          {anomaly ? (
+                            <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />ANOMALY</Badge>
+                          ) : matches ? (
+                            <Badge variant="default" className="gap-1 bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 border-emerald-500/40">
+                              <ShieldCheck className="h-3 w-3" />VERIFIED
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">drift</Badge>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -313,25 +301,58 @@ export function RetentionTab({ campaigns }: Props) {
         </CardContent>
       </Card>
 
+      {lastSync?.debug && (
+        <Collapsible>
+          <Card>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors">
+                <CardTitle className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2"><Bug className="h-4 w-4" /> Debug do último sync</span>
+                  <ChevronDown className="h-4 w-4" />
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-3 text-xs font-mono">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                  <DebugStat label="GAM rows" value={lastSync.debug.totalRowsFromGam} />
+                  <DebugStat label="Matched push" value={lastSync.debug.matchedPush} variant="success" />
+                  <DebugStat label="Ignored ≠push" value={lastSync.debug.ignoredNoPush} />
+                  <DebugStat label="Aggregate" value={lastSync.debug.aggregateRows} variant="warn" />
+                  <DebugStat label="Duplicates" value={lastSync.debug.duplicates} />
+                  <DebugStat label="eCPM anomalies" value={lastSync.debug.ecpmAnomalies} variant={lastSync.debug.ecpmAnomalies ? "warn" : undefined} />
+                </div>
+                {lastSync.debug.sampleMatched.length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Amostra MATCHED:</div>
+                    {lastSync.debug.sampleMatched.map((s, i) => <div key={i} className="text-muted-foreground">• {s}</div>)}
+                  </div>
+                )}
+                {lastSync.debug.sampleIgnored.length > 0 && (
+                  <div>
+                    <div className="font-semibold mb-1">Amostra IGNORED:</div>
+                    {lastSync.debug.sampleIgnored.map((s, i) => <div key={i} className="text-muted-foreground">• {s}</div>)}
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+
       <p className="text-xs text-muted-foreground">
-        ⓘ ROI/ROAS na aba Dashboard considera <b>somente</b> receita com <code>utm_source=google</code>.
-        Receita de push é retenção (sem custo adicional) e entra apenas no LTV acima.
+        ⓘ Linhas agregadas (sem URL exata) são isoladas em <code>unattributed_push_revenue</code> e não contaminam o eCPM nem a tabela por URL. Aggregate contamination = 0%.
       </p>
     </div>
   );
 }
 
-function chunkDates(from: string, to: string, chunkDays: number) {
-  const chunks: Array<{ from: string; to: string }> = [];
-  const start = new Date(`${from}T00:00:00Z`);
-  const end = new Date(`${to}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return chunks;
-  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + chunkDays)) {
-    const cFrom = d.toISOString().slice(0, 10);
-    const cEnd = new Date(d);
-    cEnd.setUTCDate(cEnd.getUTCDate() + chunkDays - 1);
-    if (cEnd > end) cEnd.setTime(end.getTime());
-    chunks.push({ from: cFrom, to: cEnd.toISOString().slice(0, 10) });
-  }
-  return chunks;
+function DebugStat({ label, value, variant }: { label: string; value: number; variant?: "success" | "warn" }) {
+  const cls = variant === "success" ? "text-emerald-500" : variant === "warn" ? "text-amber-500" : "text-foreground";
+  return (
+    <div className="rounded-md border border-border p-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("text-sm font-bold tabular-nums", cls)}>{value.toLocaleString("pt-BR")}</div>
+    </div>
+  );
 }
