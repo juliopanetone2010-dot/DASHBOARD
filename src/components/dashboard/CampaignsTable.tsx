@@ -176,6 +176,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
   };
 
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
       <div className="overflow-x-auto">
         <Table>
@@ -183,21 +184,26 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
+              <TableHead className="w-[220px]">Final URL</TableHead>
               <SortHead k="spend" label="Gasto" />
               <SortHead k="revenue" label="Receita" />
               <SortHead k="profit" label="Lucro" />
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
               <SortHead k="ecpm" label="eCPM" />
+              <SortHead k="impressions" label="Impr." />
               <SortHead k="clicks" label="Cliques" />
+              <SortHead k="ctr" label="CTR" />
               <SortHead k="conversions" label="Conv." />
+              <SortHead k="convRate" label="Tx. Conv." />
+              <SortHead k="cpa" label="CPA" />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={16} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
