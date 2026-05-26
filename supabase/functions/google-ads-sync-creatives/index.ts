@@ -89,9 +89,14 @@ Deno.serve(async (req) => {
       };
       if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
 
-      for (const chunk of chunkArr(ids, 50)) {
-        const idList = chunk.map((id) => id.replace(/\D/g, "")).filter(Boolean).join(",");
-        if (!idList) continue;
+      const allowedIds = new Set(ids.map((id) => String(id).replace(/\D/g, "")).filter(Boolean));
+      // Para contas grandes (>200 camps) faz UMA query account-wide e filtra localmente
+      // — evita milhares de chunks IN(...) que estouravam o timeout e abortavam a sync.
+      const useAccountWide = allowedIds.size > 200;
+      const chunks: string[][] = useAccountWide ? [[]] : chunkArr([...allowedIds], 50);
+
+      for (const chunk of chunks) {
+        const idList = chunk.join(",");
         const query = `
           SELECT campaign.id, ad_group.id, ad_group.name,
                  ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, ad_group_ad.status,
@@ -102,44 +107,51 @@ Deno.serve(async (req) => {
                  metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
           FROM ad_group_ad
           WHERE segments.date BETWEEN '${from}' AND '${to}'
-            AND campaign.id IN (${idList})
+            ${idList ? `AND campaign.id IN (${idList})` : ""}
             AND ad_group_ad.status != 'REMOVED'
+            AND metrics.impressions > 0
         `;
         let pageToken: string | undefined;
-        do {
-          const r = await fetch(
-            `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
-            { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
-          );
-          const j = await r.json();
-          if (!r.ok) {
-            console.error("[sync-creatives] gaql error", JSON.stringify(j));
-            return json({ error: j?.error?.message ?? "Erro Google Ads" });
-          }
-          for (const row of j.results ?? []) {
-            const ad = row.adGroupAd?.ad ?? {};
-            const headlines = ad.responsiveDisplayAd?.headlines as Array<{ text?: string }> | undefined;
-            const longHeadline = ad.responsiveDisplayAd?.longHeadline?.text as string | undefined;
-            const imageName = ad.imageAd?.name as string | undefined;
-            const headlineText = headlines?.map((h) => h.text).filter(Boolean).slice(0, 3).join(" | ");
-            const adName = ad.name || headlineText || longHeadline || imageName || `Ad ${ad.id}`;
-            all.push({
-              campaign_id: String(row.campaign?.id ?? ""),
-              ad_group_id: String(row.adGroup?.id ?? ""),
-              ad_group_name: String(row.adGroup?.name ?? ""),
-              ad_id: String(ad.id ?? ""),
-              ad_name: String(adName ?? ""),
-              ad_type: String(ad.type ?? ""),
-              ad_status: String(row.adGroupAd?.status ?? ""),
-              date: String(row.segments?.date ?? ""),
-              cost: Number(row.metrics?.costMicros ?? 0) / 1_000_000,
-              clicks: Number(row.metrics?.clicks ?? 0),
-              impressions: Number(row.metrics?.impressions ?? 0),
-              conversions: Number(row.metrics?.conversions ?? 0),
-            });
-          }
-          pageToken = j.nextPageToken || undefined;
-        } while (pageToken);
+        try {
+          do {
+            const r = await fetch(
+              `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+              { method: "POST", headers, body: JSON.stringify({ query, pageToken, pageSize: 10000 }) },
+            );
+            const j = await r.json();
+            if (!r.ok) {
+              console.error("[sync-creatives] gaql error", acc.customer_id, JSON.stringify(j).slice(0, 500));
+              break; // não aborta a função inteira; segue para próximo chunk/conta
+            }
+            for (const row of j.results ?? []) {
+              const campId = String(row.campaign?.id ?? "");
+              if (useAccountWide && !allowedIds.has(campId)) continue;
+              const ad = row.adGroupAd?.ad ?? {};
+              const headlines = ad.responsiveDisplayAd?.headlines as Array<{ text?: string }> | undefined;
+              const longHeadline = ad.responsiveDisplayAd?.longHeadline?.text as string | undefined;
+              const imageName = ad.imageAd?.name as string | undefined;
+              const headlineText = headlines?.map((h) => h.text).filter(Boolean).slice(0, 3).join(" | ");
+              const adName = ad.name || headlineText || longHeadline || imageName || `Ad ${ad.id}`;
+              all.push({
+                campaign_id: campId,
+                ad_group_id: String(row.adGroup?.id ?? ""),
+                ad_group_name: String(row.adGroup?.name ?? ""),
+                ad_id: String(ad.id ?? ""),
+                ad_name: String(adName ?? ""),
+                ad_type: String(ad.type ?? ""),
+                ad_status: String(row.adGroupAd?.status ?? ""),
+                date: String(row.segments?.date ?? ""),
+                cost: Number(row.metrics?.costMicros ?? 0) / 1_000_000,
+                clicks: Number(row.metrics?.clicks ?? 0),
+                impressions: Number(row.metrics?.impressions ?? 0),
+                conversions: Number(row.metrics?.conversions ?? 0),
+              });
+            }
+            pageToken = j.nextPageToken || undefined;
+          } while (pageToken);
+        } catch (e) {
+          console.error("[sync-creatives] fetch failed", acc.customer_id, String(e));
+        }
       }
     }
 
