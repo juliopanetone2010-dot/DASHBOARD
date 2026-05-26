@@ -223,13 +223,17 @@ async function runSync(req: Request): Promise<Response> {
             .from("account_site_links").select("google_account_id")
             .eq("user_id", userId).eq("site_id", siteIdForNet) : { data: [] };
           const accountIds = ((linkRows ?? []) as any[]).map((l) => l.google_account_id).filter(Boolean);
+          console.log(`[URL_FALLBACK] site=${siteIdForNet} accounts=${accountIds.length}`);
           const finalUrlMap = await buildFinalUrlMap(admin, userId, accountIds, debug);
+          console.log(`[URL_FALLBACK] finalUrlMap.size=${finalUrlMap.size}`);
           if (finalUrlMap.size > 0) {
             const urlFallback = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+            console.log(`[URL_FALLBACK] urlFallback.rows=${urlFallback.length} totalRev=${urlFallback.reduce((s, r) => s + r.revenue, 0).toFixed(4)}`);
             const utmCovered = new Set(
               googleCampaignRows.filter((r) => r.cid && r.revenue > 0).map((r) => `${r.date}|${r.cid}`),
             );
             const fallbackUse = urlFallback.filter((r) => r.cid && !utmCovered.has(`${r.date}|${r.cid}`));
+            console.log(`[URL_FALLBACK] fallbackUse.rows=${fallbackUse.length} (após excluir cids cobertos por UTM=${utmCovered.size})`);
             if (fallbackUse.length > 0) {
               googleCampaignRows = [...googleCampaignRows, ...fallbackUse];
               googlePlacementRows = [...googlePlacementRows, ...fallbackUse];
@@ -237,6 +241,7 @@ async function runSync(req: Request): Promise<Response> {
             }
           }
         } catch (e) {
+          console.error(`[URL_FALLBACK] erro`, e);
           debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
         }
         const totals = googleCampaignRows.reduce(
@@ -939,13 +944,19 @@ async function collectUrlAttribution(args: {
 }): Promise<AttributedRow[]> {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
   const out: AttributedRow[] = [];
+  // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
+  // Mantemos o helper como no-op até trocarmos para a dimensão correta (REFERRER_URL/TARGETING_URL).
+  return out;
+  // eslint-disable-next-line no-unreachable
   try {
     const reportRows = (await Promise.all(ranges.map((range) =>
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
     ))).flat();
     let matched = 0;
+    const sampleUrls: string[] = [];
     for (const r of reportRows) {
       const rawUrl = r.dims[1] || r.dims[0] || "";
+      if (sampleUrls.length < 5 && rawUrl) sampleUrls.push(rawUrl);
       const key = normalizeUrlForMatch(rawUrl);
       const cid = finalUrlMap.get(key);
       if (!cid) continue;
@@ -960,8 +971,10 @@ async function collectUrlAttribution(args: {
         raw: `URL_NAME_FALLBACK|url=${rawUrl}|cid=${cid}`,
       });
     }
-    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}`);
+    console.log(`[URL_FALLBACK/collect] net=${networkCode} url_rows=${reportRows.length} matched=${matched} sample=${JSON.stringify(sampleUrls)} mapSample=${JSON.stringify([...finalUrlMap.keys()].slice(0, 5))}`);
+    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}; sample_urls=${JSON.stringify(sampleUrls)}`);
   } catch (e) {
+    console.error(`[URL_FALLBACK/collect] erro net=${networkCode}`, e);
     debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
   }
   return out;
