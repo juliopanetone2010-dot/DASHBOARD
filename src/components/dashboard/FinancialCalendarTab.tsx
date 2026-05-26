@@ -311,8 +311,8 @@ export function FinancialCalendarTab() {
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.google_ads_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono font-medium">{fmtCurrency(Number(r.total_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.gross_revenue))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.net_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{filters.siteId === "all" ? fmtBRL(Number(r.gross_revenue)) : (String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.gross_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{filters.siteId === "all" ? fmtBRL(Number(r.net_revenue)) : (String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.net_revenue))}</td>
                         <td className={cn(
                           "px-2 py-1.5 text-right font-mono font-bold",
                           positive ? "text-success" : "text-destructive",
