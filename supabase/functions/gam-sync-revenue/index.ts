@@ -209,8 +209,36 @@ async function runSync(req: Request): Promise<Response> {
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         const utmRows = attribution.retentionRows;
-        const googleCampaignRows = attribution.googleCampaignRows;
-        const googlePlacementRows = attribution.googlePlacementRows;
+        let googleCampaignRows = attribution.googleCampaignRows;
+        let googlePlacementRows = attribution.googlePlacementRows;
+
+        // Fallback URL-based: para campanhas SEM utm_placement/utm_campaign configurado,
+        // tentamos casar a URL da página (URL_NAME) com campaign_final_urls. Isso recupera
+        // a receita real do GAM (ex.: .../cursos-senai-brasil → cid 23867649336).
+        // Só usamos o fallback para (date, cid) que NÃO já tem atribuição via UTM, para
+        // evitar dupla contagem.
+        try {
+          const siteIdForNet = networkSites[0]?.id;
+          const { data: linkRows } = siteIdForNet ? await admin
+            .from("account_site_links").select("google_account_id")
+            .eq("user_id", userId).eq("site_id", siteIdForNet) : { data: [] };
+          const accountIds = ((linkRows ?? []) as any[]).map((l) => l.google_account_id).filter(Boolean);
+          const finalUrlMap = await buildFinalUrlMap(admin, userId, accountIds, debug);
+          if (finalUrlMap.size > 0) {
+            const urlFallback = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+            const utmCovered = new Set(
+              googleCampaignRows.filter((r) => r.cid && r.revenue > 0).map((r) => `${r.date}|${r.cid}`),
+            );
+            const fallbackUse = urlFallback.filter((r) => r.cid && !utmCovered.has(`${r.date}|${r.cid}`));
+            if (fallbackUse.length > 0) {
+              googleCampaignRows = [...googleCampaignRows, ...fallbackUse];
+              googlePlacementRows = [...googlePlacementRows, ...fallbackUse];
+              debug.push(`[${networkCode}/URL_FALLBACK] adicionadas ${fallbackUse.length} linhas (cids ausentes do UTM atribuídos via final_url)`);
+            }
+          }
+        } catch (e) {
+          debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
+        }
         const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
