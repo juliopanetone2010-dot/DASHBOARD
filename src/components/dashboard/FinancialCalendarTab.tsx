@@ -46,70 +46,25 @@ export function FinancialCalendarTab() {
 
   const monthStart = useMemo(() => `${year}-${String(month).padStart(2, "0")}-01`, [year, month]);
   const monthEnd = useMemo(() => {
-    const d = new Date(year, month, 0);
+    const d = new Date(year, month, 0); // último dia do mês
     return d.toISOString().slice(0, 10);
   }, [year, month]);
 
-  const usdBrl = 5; // não utilizado no fluxo simples; mantido pra compatibilidade
-
-  // Fonte: daily_financial_snapshots (comportamento original).
-  // - Site específico: filtra por site_id
-  // - "Todos os sites": agrega as snapshots de todos os sites por data
   const snapshotsQuery = useQuery({
-    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd],
+    queryKey: ["dfs", filters.siteId, monthStart, monthEnd],
+    enabled: filters.siteId !== "all",
     queryFn: async () => {
-      let q = supabase
+      const { data, error } = await supabase
         .from("daily_financial_snapshots")
         .select("*")
+        .eq("site_id", filters.siteId)
         .gte("date", monthStart)
         .lte("date", monthEnd)
-        .order("date", { ascending: true })
-        .limit(10000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data, error } = await q;
+        .order("date", { ascending: true });
       if (error) throw error;
-      const rows = (data ?? []) as unknown as Snapshot[];
-      if (filters.siteId !== "all") return rows;
-
-      // Agrega por data quando "Todos os sites"
-      const byDate = new Map<string, Snapshot>();
-      for (const r of rows) {
-        let m = byDate.get(r.date);
-        if (!m) {
-          m = {
-            id: r.date, site_id: "all", date: r.date,
-            google_ads_cost: 0, facebook_ads_cost: 0, other_cost: 0, total_cost: 0,
-            gross_revenue: 0, net_revenue: 0, revenue_after_revshare: 0,
-            liquid_profit: 0, profit_margin_pct: 0,
-            ecpm: 0, viewability: 0, impressions: 0, clicks: 0, conversions: 0,
-            revenue_currency: "BRL",
-          };
-          byDate.set(r.date, m);
-        }
-        m.google_ads_cost += Number(r.google_ads_cost) || 0;
-        m.facebook_ads_cost += Number(r.facebook_ads_cost) || 0;
-        m.other_cost += Number(r.other_cost) || 0;
-        m.total_cost += Number(r.total_cost) || 0;
-        m.gross_revenue += Number(r.gross_revenue) || 0;
-        m.net_revenue += Number(r.net_revenue) || 0;
-        m.revenue_after_revshare += Number(r.revenue_after_revshare) || 0;
-        m.liquid_profit += Number(r.liquid_profit) || 0;
-        m.impressions += Number(r.impressions) || 0;
-        m.clicks += Number(r.clicks) || 0;
-        m.conversions += Number(r.conversions) || 0;
-      }
-      for (const m of byDate.values()) {
-        m.profit_margin_pct = m.net_revenue > 0 ? (m.liquid_profit / m.net_revenue) * 100 : 0;
-        m.ecpm = m.impressions > 0 ? (m.net_revenue / m.impressions) * 1000 : 0;
-      }
-      return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+      return (data ?? []) as unknown as Snapshot[];
     },
   });
-
-
-
-
-
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const rows = (snapshotsQuery.data ?? []).filter((r) => r.date < todayStr);
@@ -208,13 +163,15 @@ export function FinancialCalendarTab() {
   }, [year]);
 
   if (filters.siteId === "all") {
-    // permitido: aba consolida todos os sites em BRL
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          <CalendarDays className="h-10 w-10 mx-auto mb-3 opacity-50" />
+          Selecione um site no topo para ver o calendário financeiro.
+        </CardContent>
+      </Card>
+    );
   }
-
-  // currency display: forçamos BRL quando "todos os sites" (consolidação)
-  const revCurrencyDisplay = filters.siteId === "all" ? "BRL" : revCurrency;
-  const fmtRevDisplay = (v: number) => (revCurrencyDisplay === "USD" ? fmtUSD(v) : fmtBRL(v));
-
 
   return (
     <div className="space-y-4">
@@ -245,7 +202,7 @@ export function FinancialCalendarTab() {
               <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
                 <Download className="h-3.5 w-3.5 mr-1" /> CSV
               </Button>
-              <Button variant="outline" size="sm" onClick={regenerateMonth} disabled={regenerating || filters.siteId === "all"} title={filters.siteId === "all" ? "Selecione um site para regenerar" : ""}>
+              <Button variant="outline" size="sm" onClick={regenerateMonth} disabled={regenerating}>
                 <RefreshCw className={cn("h-3.5 w-3.5 mr-1", regenerating && "animate-spin")} />
                 Regenerar mês
               </Button>
@@ -296,8 +253,8 @@ export function FinancialCalendarTab() {
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{fmtCurrency(Number(r.google_ads_cost))}</td>
                         <td className="px-2 py-1.5 text-right font-mono font-medium">{fmtCurrency(Number(r.total_cost))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{filters.siteId === "all" ? fmtBRL(Number(r.gross_revenue)) : (String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.gross_revenue))}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{filters.siteId === "all" ? fmtBRL(Number(r.net_revenue)) : (String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.net_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.gross_revenue))}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{(String(r.revenue_currency ?? "BRL").toUpperCase() === "USD" ? fmtUSD : fmtBRL)(Number(r.net_revenue))}</td>
                         <td className={cn(
                           "px-2 py-1.5 text-right font-mono font-bold",
                           positive ? "text-success" : "text-destructive",
@@ -316,9 +273,9 @@ export function FinancialCalendarTab() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            disabled={regenerating || filters.siteId === "all"}
+                            disabled={regenerating}
                             onClick={() => regenerate(r.date)}
-                            title={filters.siteId === "all" ? "Selecione um site para regenerar" : "Regenerar este dia"}
+                            title="Regenerar este dia"
                           >
                             <RefreshCw className="h-3 w-3" />
                           </Button>
@@ -332,8 +289,8 @@ export function FinancialCalendarTab() {
                     <td className="px-2 py-2 uppercase text-xs">Total {MONTHS_PT[month - 1]}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.google)}</td>
                     <td className="px-2 py-2 text-right font-mono">{fmtCurrency(totals.cost)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtRevDisplay(totals.gross)}</td>
-                    <td className="px-2 py-2 text-right font-mono">{fmtRevDisplay(totals.net)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.gross)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{fmtRev(totals.net)}</td>
                     <td className={cn(
                       "px-2 py-2 text-right font-mono font-bold",
                       totals.profit >= 0 ? "text-success" : "text-destructive",

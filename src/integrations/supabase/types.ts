@@ -38,174 +38,6 @@ export type Database = {
         }
         Relationships: []
       }
-      admin_audit_logs: {
-        Row: {
-          action: string
-          after: Json | null
-          before: Json | null
-          campaign_id: string | null
-          created_at: string
-          id: string
-          ip: string | null
-          resource_id: string | null
-          resource_type: string | null
-          site_id: string | null
-          user_agent: string | null
-          user_email: string | null
-          user_id: string
-        }
-        Insert: {
-          action: string
-          after?: Json | null
-          before?: Json | null
-          campaign_id?: string | null
-          created_at?: string
-          id?: string
-          ip?: string | null
-          resource_id?: string | null
-          resource_type?: string | null
-          site_id?: string | null
-          user_agent?: string | null
-          user_email?: string | null
-          user_id: string
-        }
-        Update: {
-          action?: string
-          after?: Json | null
-          before?: Json | null
-          campaign_id?: string | null
-          created_at?: string
-          id?: string
-          ip?: string | null
-          resource_id?: string | null
-          resource_type?: string | null
-          site_id?: string | null
-          user_agent?: string | null
-          user_email?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
-      admin_permissions: {
-        Row: {
-          can_edit_budgets: boolean
-          can_edit_cpa: boolean
-          can_edit_rules: boolean
-          can_manage_push: boolean
-          can_manage_users: boolean
-          can_pause_campaigns: boolean
-          can_run_automation: boolean
-          can_scale_campaigns: boolean
-          can_sync: boolean
-          can_use_funil: boolean
-          can_use_geo_expansion: boolean
-          can_use_migration: boolean
-          can_use_placements_cleanup: boolean
-          can_view_dashboard: boolean
-          can_view_logs: boolean
-          can_view_profit: boolean
-          can_view_revenue: boolean
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          can_edit_budgets?: boolean
-          can_edit_cpa?: boolean
-          can_edit_rules?: boolean
-          can_manage_push?: boolean
-          can_manage_users?: boolean
-          can_pause_campaigns?: boolean
-          can_run_automation?: boolean
-          can_scale_campaigns?: boolean
-          can_sync?: boolean
-          can_use_funil?: boolean
-          can_use_geo_expansion?: boolean
-          can_use_migration?: boolean
-          can_use_placements_cleanup?: boolean
-          can_view_dashboard?: boolean
-          can_view_logs?: boolean
-          can_view_profit?: boolean
-          can_view_revenue?: boolean
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          can_edit_budgets?: boolean
-          can_edit_cpa?: boolean
-          can_edit_rules?: boolean
-          can_manage_push?: boolean
-          can_manage_users?: boolean
-          can_pause_campaigns?: boolean
-          can_run_automation?: boolean
-          can_scale_campaigns?: boolean
-          can_sync?: boolean
-          can_use_funil?: boolean
-          can_use_geo_expansion?: boolean
-          can_use_migration?: boolean
-          can_use_placements_cleanup?: boolean
-          can_view_dashboard?: boolean
-          can_view_logs?: boolean
-          can_view_profit?: boolean
-          can_view_revenue?: boolean
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      admin_profiles: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          is_active: boolean
-          last_login_at: string | null
-          name: string | null
-          role: Database["public"]["Enums"]["app_role"]
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          is_active?: boolean
-          last_login_at?: string | null
-          name?: string | null
-          role?: Database["public"]["Enums"]["app_role"]
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          is_active?: boolean
-          last_login_at?: string | null
-          name?: string | null
-          role?: Database["public"]["Enums"]["app_role"]
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      admin_site_access: {
-        Row: {
-          created_at: string
-          id: string
-          site_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          site_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          site_id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       ads_placements: {
         Row: {
           ad_group_id: string | null
@@ -273,128 +105,6 @@ export type Database = {
           placement_clean?: string | null
           placement_type?: string | null
           target_url?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      ai_messages: {
-        Row: {
-          content: string | null
-          created_at: string
-          id: string
-          parts: Json | null
-          role: string
-          thread_id: string
-          user_id: string
-        }
-        Insert: {
-          content?: string | null
-          created_at?: string
-          id?: string
-          parts?: Json | null
-          role: string
-          thread_id: string
-          user_id: string
-        }
-        Update: {
-          content?: string | null
-          created_at?: string
-          id?: string
-          parts?: Json | null
-          role?: string
-          thread_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_messages_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "ai_threads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ai_provider_configs: {
-        Row: {
-          api_key_encrypted: string | null
-          api_key_iv: string | null
-          base_url: string | null
-          created_at: string
-          enabled: boolean
-          id: string
-          is_active: boolean
-          last_test_error: string | null
-          last_test_latency_ms: number | null
-          last_test_status: string | null
-          last_tested_at: string | null
-          model: string | null
-          provider: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          api_key_encrypted?: string | null
-          api_key_iv?: string | null
-          base_url?: string | null
-          created_at?: string
-          enabled?: boolean
-          id?: string
-          is_active?: boolean
-          last_test_error?: string | null
-          last_test_latency_ms?: number | null
-          last_test_status?: string | null
-          last_tested_at?: string | null
-          model?: string | null
-          provider: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          api_key_encrypted?: string | null
-          api_key_iv?: string | null
-          base_url?: string | null
-          created_at?: string
-          enabled?: boolean
-          id?: string
-          is_active?: boolean
-          last_test_error?: string | null
-          last_test_latency_ms?: number | null
-          last_test_status?: string | null
-          last_tested_at?: string | null
-          model?: string | null
-          provider?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      ai_threads: {
-        Row: {
-          active_tab: string | null
-          context: Json
-          created_at: string
-          id: string
-          title: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          active_tab?: string | null
-          context?: Json
-          created_at?: string
-          id?: string
-          title?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          active_tab?: string | null
-          context?: Json
-          created_at?: string
-          id?: string
-          title?: string
           updated_at?: string
           user_id?: string
         }
@@ -783,57 +493,6 @@ export type Database = {
           roi_pct?: number | null
           site_id?: string | null
           status?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      campaign_final_urls: {
-        Row: {
-          ad_group_id: string | null
-          ad_id: string
-          ad_status: string | null
-          campaign_id: string
-          created_at: string
-          final_url: string | null
-          final_url_suffix: string | null
-          google_account_id: string | null
-          id: string
-          mobile_url: string | null
-          source: string
-          tracking_template: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          ad_group_id?: string | null
-          ad_id?: string
-          ad_status?: string | null
-          campaign_id: string
-          created_at?: string
-          final_url?: string | null
-          final_url_suffix?: string | null
-          google_account_id?: string | null
-          id?: string
-          mobile_url?: string | null
-          source?: string
-          tracking_template?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          ad_group_id?: string | null
-          ad_id?: string
-          ad_status?: string | null
-          campaign_id?: string
-          created_at?: string
-          final_url?: string | null
-          final_url_suffix?: string | null
-          google_account_id?: string | null
-          id?: string
-          mobile_url?: string | null
-          source?: string
-          tracking_template?: string | null
-          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1230,75 +889,6 @@ export type Database = {
           },
         ]
       }
-      canonical_attribution_audit_reports: {
-        Row: {
-          aggregate_allocated_revenue_usd: number
-          aggregate_distribution: Json
-          aggregate_revenue_usd: number
-          aggregate_unresolved_revenue_usd: number
-          campaign_match_pct: number
-          created_at: string
-          exact_utm_placement_pct: number
-          id: string
-          leak_amount_usd: number
-          leak_percent: number
-          period_end: string
-          period_start: string
-          raw_samples: Json
-          reconciled_revenue_usd: number
-          report: Json
-          revenue_sources: Json
-          site_id: string | null
-          top_unreconciled_rows: Json
-          total_gam_revenue_usd: number
-          user_id: string
-        }
-        Insert: {
-          aggregate_allocated_revenue_usd?: number
-          aggregate_distribution?: Json
-          aggregate_revenue_usd?: number
-          aggregate_unresolved_revenue_usd?: number
-          campaign_match_pct?: number
-          created_at?: string
-          exact_utm_placement_pct?: number
-          id?: string
-          leak_amount_usd?: number
-          leak_percent?: number
-          period_end: string
-          period_start: string
-          raw_samples?: Json
-          reconciled_revenue_usd?: number
-          report?: Json
-          revenue_sources?: Json
-          site_id?: string | null
-          top_unreconciled_rows?: Json
-          total_gam_revenue_usd?: number
-          user_id: string
-        }
-        Update: {
-          aggregate_allocated_revenue_usd?: number
-          aggregate_distribution?: Json
-          aggregate_revenue_usd?: number
-          aggregate_unresolved_revenue_usd?: number
-          campaign_match_pct?: number
-          created_at?: string
-          exact_utm_placement_pct?: number
-          id?: string
-          leak_amount_usd?: number
-          leak_percent?: number
-          period_end?: string
-          period_start?: string
-          raw_samples?: Json
-          reconciled_revenue_usd?: number
-          report?: Json
-          revenue_sources?: Json
-          site_id?: string | null
-          top_unreconciled_rows?: Json
-          total_gam_revenue_usd?: number
-          user_id?: string
-        }
-        Relationships: []
-      }
       creative_metrics: {
         Row: {
           ad_group_id: string
@@ -1655,42 +1245,6 @@ export type Database = {
         }
         Relationships: []
       }
-      gam_url_revenue: {
-        Row: {
-          created_at: string
-          date: string
-          id: string
-          impressions: number
-          revenue_usd: number
-          site_id: string | null
-          url: string
-          user_id: string
-          utm_source: string | null
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          id?: string
-          impressions?: number
-          revenue_usd?: number
-          site_id?: string | null
-          url: string
-          user_id: string
-          utm_source?: string | null
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          id?: string
-          impressions?: number
-          revenue_usd?: number
-          site_id?: string | null
-          url?: string
-          user_id?: string
-          utm_source?: string | null
-        }
-        Relationships: []
-      }
       geo_cleanup_logs: {
         Row: {
           action: string
@@ -2011,162 +1565,6 @@ export type Database = {
         }
         Relationships: []
       }
-      placement_revenue_audit: {
-        Row: {
-          audit_status: string
-          campaign_id: string
-          campaign_name: string | null
-          campaign_revenue_usd: number
-          confidence: number
-          created_at: string
-          findings: Json
-          google_account_id: string | null
-          id: string
-          leak_amount_usd: number
-          leak_percent: number
-          match_success_pct: number | null
-          orphan_rows: number
-          parser_success_pct: number | null
-          period_end: string
-          period_match_pct: number | null
-          period_start: string
-          placements_revenue_usd: number
-          rebuild_summary: Json | null
-          rebuilt: boolean
-          site_id: string | null
-          site_match_pct: number | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          audit_status?: string
-          campaign_id: string
-          campaign_name?: string | null
-          campaign_revenue_usd?: number
-          confidence?: number
-          created_at?: string
-          findings?: Json
-          google_account_id?: string | null
-          id?: string
-          leak_amount_usd?: number
-          leak_percent?: number
-          match_success_pct?: number | null
-          orphan_rows?: number
-          parser_success_pct?: number | null
-          period_end: string
-          period_match_pct?: number | null
-          period_start: string
-          placements_revenue_usd?: number
-          rebuild_summary?: Json | null
-          rebuilt?: boolean
-          site_id?: string | null
-          site_match_pct?: number | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          audit_status?: string
-          campaign_id?: string
-          campaign_name?: string | null
-          campaign_revenue_usd?: number
-          confidence?: number
-          created_at?: string
-          findings?: Json
-          google_account_id?: string | null
-          id?: string
-          leak_amount_usd?: number
-          leak_percent?: number
-          match_success_pct?: number | null
-          orphan_rows?: number
-          parser_success_pct?: number | null
-          period_end?: string
-          period_match_pct?: number | null
-          period_start?: string
-          placements_revenue_usd?: number
-          rebuild_summary?: Json | null
-          rebuilt?: boolean
-          site_id?: string | null
-          site_match_pct?: number | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      placement_revenue_reconciled: {
-        Row: {
-          aggregate_allocated_revenue_usd: number
-          allocation_method: string | null
-          allocation_status: string
-          broken_tracking: boolean
-          campaign_id: string
-          canonical_key: string
-          clicks: number
-          confidence: number
-          created_at: string
-          date: string
-          ecpm: number | null
-          google_account_id: string | null
-          id: string
-          impressions: number
-          normalized_placement: string
-          placement: string
-          reconciliation_method: string
-          revenue_usd: number
-          site_id: string | null
-          source_row: Json | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          aggregate_allocated_revenue_usd?: number
-          allocation_method?: string | null
-          allocation_status?: string
-          broken_tracking?: boolean
-          campaign_id: string
-          canonical_key: string
-          clicks?: number
-          confidence?: number
-          created_at?: string
-          date: string
-          ecpm?: number | null
-          google_account_id?: string | null
-          id?: string
-          impressions?: number
-          normalized_placement: string
-          placement: string
-          reconciliation_method?: string
-          revenue_usd?: number
-          site_id?: string | null
-          source_row?: Json | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          aggregate_allocated_revenue_usd?: number
-          allocation_method?: string | null
-          allocation_status?: string
-          broken_tracking?: boolean
-          campaign_id?: string
-          canonical_key?: string
-          clicks?: number
-          confidence?: number
-          created_at?: string
-          date?: string
-          ecpm?: number | null
-          google_account_id?: string | null
-          id?: string
-          impressions?: number
-          normalized_placement?: string
-          placement?: string
-          reconciliation_method?: string
-          revenue_usd?: number
-          site_id?: string | null
-          source_row?: Json | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       placement_status: {
         Row: {
           app_id: string | null
@@ -2377,51 +1775,6 @@ export type Database = {
           display_name?: string | null
           id?: string
           updated_at?: string
-        }
-        Relationships: []
-      }
-      push_url_revenue: {
-        Row: {
-          created_at: string
-          date: string
-          ecpm: number
-          id: string
-          impressions: number
-          network_code: string | null
-          page_url: string
-          revenue_usd: number
-          site_id: string | null
-          user_id: string
-          utm_campaign: string
-          utm_source: string
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          ecpm?: number
-          id?: string
-          impressions?: number
-          network_code?: string | null
-          page_url: string
-          revenue_usd?: number
-          site_id?: string | null
-          user_id: string
-          utm_campaign?: string
-          utm_source?: string
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          ecpm?: number
-          id?: string
-          impressions?: number
-          network_code?: string | null
-          page_url?: string
-          revenue_usd?: number
-          site_id?: string | null
-          user_id?: string
-          utm_campaign?: string
-          utm_source?: string
         }
         Relationships: []
       }
@@ -2809,7 +2162,6 @@ export type Database = {
           base_budget: number | null
           base_cpa: number | null
           campaign_id: string
-          campaign_name: string | null
           cooldown_until: string | null
           created_at: string
           current_budget: number | null
@@ -2839,7 +2191,6 @@ export type Database = {
           base_budget?: number | null
           base_cpa?: number | null
           campaign_id: string
-          campaign_name?: string | null
           cooldown_until?: string | null
           created_at?: string
           current_budget?: number | null
@@ -2869,7 +2220,6 @@ export type Database = {
           base_budget?: number | null
           base_cpa?: number | null
           campaign_id?: string
-          campaign_name?: string | null
           cooldown_until?: string | null
           created_at?: string
           current_budget?: number | null
@@ -3198,36 +2548,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      admin_has_permission: {
-        Args: { _perm: string; _uid: string }
-        Returns: boolean
-      }
-      admin_has_site_access: {
-        Args: { _site: string; _uid: string }
-        Returns: boolean
-      }
-      can_access_account: {
-        Args: { _account_id: string; _uid: string }
-        Returns: boolean
-      }
-      can_access_campaign: {
-        Args: { _campaign_id: string; _uid: string }
-        Returns: boolean
-      }
-      can_access_site: {
-        Args: { _site_id: string; _uid: string }
-        Returns: boolean
-      }
-      is_super_admin: { Args: { _uid: string }; Returns: boolean }
+      [_ in never]: never
     }
     Enums: {
-      app_role:
-        | "super_admin"
-        | "admin"
-        | "media_buyer"
-        | "adops"
-        | "viewer"
-        | "site_manager"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3354,15 +2678,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      app_role: [
-        "super_admin",
-        "admin",
-        "media_buyer",
-        "adops",
-        "viewer",
-        "site_manager",
-      ],
-    },
+    Enums: {},
   },
 } as const

@@ -20,10 +20,9 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_name"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute"].includes(action)) {
       return json({ error: "action inválida" });
     }
-    const newName = typeof (body as any)?.name === "string" ? String((body as any).name).trim() : "";
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -52,19 +51,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ACL: valida permissão (pula em modo system/cron)
-    const isSystemCall = token === serviceRoleKey && !!systemUserId;
-    if (!isSystemCall) {
-      const requiredPerm =
-        action === "set_status" || action === "set_ad_status" ? "can_pause_campaigns"
-        : action === "adjust_cpa" || action === "set_target_cpa" ? "can_edit_cpa"
-        : action === "adjust_budget" || action === "set_budget_absolute" ? "can_edit_budgets"
-        : "can_pause_campaigns";
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: requiredPerm });
-      if (!hasPerm) return json({ error: `Permissão negada: ${requiredPerm}` });
-    }
-
-
     // Localiza campanha + conta Ads
     const { data: camp, error: cErr } = await admin
       .from("campaigns")
@@ -82,10 +68,6 @@ Deno.serve(async (req) => {
     if (!resolvedSiteId) return json({ error: "Bloqueado: campanha sem site confirmado" });
     if (requestedSiteId && requestedSiteId !== resolvedSiteId) {
       return json({ error: "Bloqueado: campanha não pertence ao site selecionado" });
-    }
-    if (!isSystemCall) {
-      const { data: hasSite } = await admin.rpc("admin_has_site_access", { _uid: userId, _site: resolvedSiteId });
-      if (!hasSite) return json({ error: "Sem acesso ao site desta campanha" });
     }
 
     const { data: acc, error: aErr } = await admin
@@ -158,33 +140,6 @@ Deno.serve(async (req) => {
       await logAction("executed", mutateBody);
       return json({ ok: true, action, new_status: newStatus });
     }
-
-    if (action === "set_name") {
-      if (!newName || newName.length < 2 || newName.length > 255) {
-        return json({ error: "Nome inválido (2-255 caracteres)" });
-      }
-      const mutateBody = {
-        operations: [{
-          update: {
-            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
-            name: newName,
-          },
-          updateMask: "name",
-        }],
-      };
-      const r = await fetch(`${apiBase}/campaigns:mutate`, {
-        method: "POST", headers, body: JSON.stringify(mutateBody),
-      });
-      const j = await r.json();
-      if (!r.ok) {
-        await logAction("failed", mutateBody, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
-      }
-      await admin.from("campaigns").update({ name: newName }).eq("id", camp.id);
-      await logAction("executed", { new_name: newName, old_name: camp.name });
-      return json({ ok: true, action, name: newName });
-    }
-
 
     // adjust_cpa: busca ad_groups com target_cpa_micros definido e atualiza
     if (action === "adjust_cpa") {
@@ -340,7 +295,6 @@ Deno.serve(async (req) => {
     // 2) Senão => cria critério NEGATIVO (location exclusion)
     if (action === "exclude_country") {
       const countryCriterionId = String((body as any)?.country_criterion_id ?? "").replace(/\D/g, "");
-      const countryCode = String((body as any)?.country_code ?? "").toUpperCase().slice(0, 4);
       if (!countryCriterionId) return json({ error: "country_criterion_id obrigatório" });
 
       const geoRN = `geoTargetConstants/${countryCriterionId}`;
@@ -361,16 +315,12 @@ Deno.serve(async (req) => {
       const existing = sj?.results?.[0]?.campaignCriterion;
 
       let mutateBody: any;
-      let mode: "remove_positive" | "keep_negative" | "create_negative";
+      let mode: "remove" | "create_negative";
 
-      if (existing?.resourceName && existing.negative !== true) {
-        // Remove o critério positivo existente: a campanha deixa de mirar explicitamente nesse país.
-        mode = "remove_positive";
+      if (existing?.resourceName) {
+        // Remove o critério existente (positivo OU negativo já criado antes)
+        mode = "remove";
         mutateBody = { operations: [{ remove: existing.resourceName }] };
-      } else if (existing?.resourceName && existing.negative === true) {
-        mode = "keep_negative";
-        await logAction("executed", { country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
-        return json({ ok: true, action, country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
       } else {
         // Cria como negativo
         mode = "create_negative";
@@ -399,8 +349,8 @@ Deno.serve(async (req) => {
           JSON.stringify(j);
         return json({ error: String(detail) });
       }
-      await logAction("executed", { country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
-      return json({ ok: true, action, country_criterion_id: countryCriterionId, country_code: countryCode || null, mode });
+      await logAction("executed", { country_criterion_id: countryCriterionId, mode });
+      return json({ ok: true, action, country_criterion_id: countryCriterionId, mode });
     }
 
     // set_ad_status: pausa/ativa um ou vários criativos (ad_group_ad)

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, Shield, ShieldCheck, MousePointerClick, Receipt,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +22,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
@@ -35,15 +34,12 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
-import { AttributionAuditTab } from "@/components/dashboard/AttributionAuditTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
-import { useAdminAcl } from "@/hooks/useAdminAcl";
-import { buildFinalUrlMap } from "@/lib/final-url-map";
 
 const Index = () => {
   return (
@@ -55,80 +51,11 @@ const Index = () => {
 
 const IndexInner = () => {
   const { user } = useAuth();
-  const acl = useAdminAcl();
   const data = useDashboardData();
-  const queryClient = useQueryClient();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
-  const [syncingCampaigns, setSyncingCampaigns] = useState(false);
-  const lastAutoUrlSyncRef = useRef<string | null>(null);
-
-  const getSyncRange = useCallback((nextFilters: DashboardFilters) => {
-    const defaultRange = (() => {
-      const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const d = new Date();
-      d.setDate(d.getDate() - 29);
-      return { from: toIso(d), to: toIso(new Date()) };
-    })();
-
-    return {
-      from: nextFilters.fromDate || defaultRange.from,
-      to: nextFilters.toDate || defaultRange.to,
-    };
-  }, []);
-
-  const refreshUiData = useCallback(async () => {
-    await Promise.all([
-      data.refresh(),
-      queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
-      queryClient.invalidateQueries({ queryKey: ["campaign-final-urls-v2"] }),
-      queryClient.invalidateQueries({ queryKey: ["reconciled-rev"] }),
-      queryClient.invalidateQueries({ queryKey: ["site-share"] }),
-    ]);
-  }, [data, queryClient]);
-
-  const syncRevenueAndRebuild = useCallback(async (nextFilters: DashboardFilters) => {
-    const { from, to } = getSyncRange(nextFilters);
-    const siteId = nextFilters.siteId !== "all" ? nextFilters.siteId : undefined;
-    const accountIds = nextFilters.googleAccountIds.length ? nextFilters.googleAccountIds : undefined;
-
-    const { data: gamData, error: gamError } = await supabase.functions.invoke("gam-sync-revenue", {
-      body: { from, to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, wait: true },
-    });
-    if (gamError || (gamData as any)?.error) {
-      throw new Error(gamError?.message ?? (gamData as any)?.error ?? "Falha ao sincronizar ganhos");
-    }
-
-    const { data: rebuildData, error: rebuildError } = await supabase.functions.invoke("rebuild-canonical-placement-engine", {
-      body: { period_start: from, period_end: to, ...(siteId ? { site_id: siteId } : {}) },
-    });
-    if (rebuildError || (rebuildData as any)?.error) {
-      throw new Error(rebuildError?.message ?? (rebuildData as any)?.error ?? "Falha ao recalcular attribution canônica");
-    }
-  }, [getSyncRange]);
-
-  const syncCampaignsNow = async () => {
-    setSyncingCampaigns(true);
-    try {
-      const { data: r, error } = await supabase.functions.invoke("google-ads-sync-campaigns", {
-        body: { date_preset: "LAST_7_DAYS" },
-      });
-      if (error) throw error;
-      const total = (r as any)?.campaigns_upserted ?? (r as any)?.upserted ?? (r as any)?.rows ?? 0;
-      const { error: finalUrlError } = await supabase.functions.invoke("google-ads-sync-final-urls", { body: {} });
-      if (finalUrlError) console.warn("[sync-final-urls]", finalUrlError);
-      await syncRevenueAndRebuild(filters);
-      toast({ title: "Campanhas sincronizadas", description: `${total} campanha(s) atualizada(s) com ganhos recalculados.` });
-      await refreshUiData();
-    } catch (e: any) {
-      toast({ title: "Falha ao sincronizar campanhas", description: String(e?.message ?? e), variant: "destructive" });
-    } finally {
-      setSyncingCampaigns(false);
-    }
-  };
-
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS
   const extraRevQuery = useQuery({
@@ -211,15 +138,13 @@ const IndexInner = () => {
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     enabled: filters.siteId !== "all",
     queryFn: async () => {
-      // Use the user-selected window exactly. The previous version forced a
-      // 7-day minimum lookback "as a fallback when GAM had no recent data",
-      // but that meant Hoje / Ontem / 3-dias all showed the SAME numbers (the
-      // last 7 days), making the period selector useless for viewability /
-      // eCPM. Julio reported this on 2026-05-16. The right behavior is
-      // honour-the-period; if there's no data the card just shows 0/—.
       const todayISO = new Date().toISOString().slice(0, 10);
       const toIncl = range.to >= todayISO ? range.to : todayISO;
-      const fromIncl = range.from;
+      // GAM tem atraso típico de 1-3 dias; se o range for muito curto e ainda não houve sync recente,
+      // ampliamos retroativamente até 7 dias para sempre mostrar a última métrica disponível.
+      const fromDate = new Date(range.from + "T00:00:00Z");
+      const minLookback = new Date(Date.now() - 7 * 86400_000);
+      const fromIncl = (fromDate < minLookback ? range.from : minLookback.toISOString().slice(0, 10));
       const { data, error } = await supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
@@ -278,12 +203,11 @@ const IndexInner = () => {
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
-      // Canonical engine: usa placement_revenue_reconciled (exact_utm_placement only)
       const { data: rows } = await supabase
-        .from("placement_revenue_reconciled")
+        .from("gam_placement_revenue")
         .select("campaign_id, site_id, revenue_usd")
-        .eq("reconciliation_method", "exact_utm_placement")
         .not("site_id", "is", null)
+        .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
         .limit(50000);
       const totalByCamp = new Map<string, number>();
@@ -309,62 +233,6 @@ const IndexInner = () => {
     },
     staleTime: 60_000,
   });
-
-  // Receita canônica reconciliada por (campaign_id, date).
-  // Antes o dashboard lia daily_metrics.revenue, populado a partir de gam_campaign_source_revenue
-  // (só match exato utm_source=google + campaign_id). Isso subdimensionava campanhas onde parte
-  // do tráfego chega na página sem utm_source completo, mas COM utm_placement amarrando ao
-  // campaign_id. A engine canônica `placement_revenue_reconciled` soma:
-  //   - revenue_usd                       → match exato por utm_placement
-  //   - aggregate_allocated_revenue_usd   → impressões agregadas (sem campaign id direto)
-  //                                         distribuídas proporcionalmente entre campanhas
-  //                                         que servem a mesma URL
-  // Esse é o valor real do GAM atribuível a cada campanha. Aqui buscamos e usamos como
-  // override em filtered.metrics — recomputando profit/ROI corretamente.
-  const reconciledRevQuery = useQuery({
-    queryKey: ["reconciled-rev", range.from, range.to, filters.siteId],
-    queryFn: async () => {
-      let q = supabase
-        .from("placement_revenue_reconciled")
-        .select("campaign_id, date, revenue_usd, aggregate_allocated_revenue_usd")
-        .gte("date", range.from).lte("date", range.to)
-        .limit(100000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data: rows, error } = await q;
-      if (error) throw error;
-      const map = new Map<string, Map<string, number>>();
-      for (const r of rows ?? []) {
-        const cid = String((r as any).campaign_id);
-        const d = String((r as any).date);
-        const v = (Number((r as any).revenue_usd) || 0)
-                + (Number((r as any).aggregate_allocated_revenue_usd) || 0);
-        if (v <= 0) continue;
-        const inner = map.get(cid) ?? new Map<string, number>();
-        inner.set(d, (inner.get(d) ?? 0) + v);
-        map.set(cid, inner);
-      }
-      return map;
-    },
-    staleTime: 60_000,
-  });
-
-  // Final URL por campaign_id — REAL, vinda da API do Google Ads (tabela campaign_final_urls).
-  // Hierarquia: ad.final_urls (mais recente) → fallback null = UNKNOWN URL.
-  const finalUrlQuery = useQuery({
-    queryKey: ["campaign-final-urls-v2", filters.googleAccountIds.join("|")],
-    queryFn: async () => {
-      let q = supabase
-        .from("campaign_final_urls")
-        .select("campaign_id, final_url, mobile_url, tracking_template, final_url_suffix, source, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(10000);
-      if (filters.googleAccountIds.length > 0) q = q.in("google_account_id", filters.googleAccountIds);
-      const { data: rows } = await q;
-      return buildFinalUrlMap(rows as any[]);
-    },
-    staleTime: 5 * 60_000,
-  });
-
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
@@ -400,8 +268,6 @@ const IndexInner = () => {
     const metricsRaw = data.metrics.filter(
       (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
-    // Receita = GAM exato (utm_source=google + campaign_id), já refletida em daily_metrics.revenue.
-    // Sem override por engine reconciliada (aggregate allocated inflava/deflava demais).
     const metrics: DailyMetric[] = metricsRaw.map((m) => {
       const f = campaignShare(m.campaign_id);
       if (f === 1) return m;
@@ -456,12 +322,19 @@ const IndexInner = () => {
   const lastSyncRef = useRef<{ key: string; at: number } | null>(null);
 
   const syncDashboardData = useCallback(async (nextFilters: DashboardFilters, opts?: { force?: boolean }) => {
-    const { from, to } = getSyncRange(nextFilters);
+    const defaultRange = (() => {
+      const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      return { from: toIso(d), to: toIso(new Date()) };
+    })();
+    const from = nextFilters.fromDate || defaultRange.from;
+    const to = nextFilters.toDate || defaultRange.to;
     const cacheKey = `${nextFilters.siteId}|${from}|${to}|${(nextFilters.googleAccountIds ?? []).join(",")}`;
     const now = Date.now();
     if (!opts?.force && lastSyncRef.current && lastSyncRef.current.key === cacheKey && (now - lastSyncRef.current.at) < SYNC_CACHE_MS) {
       // Cache hit — usa só dados do banco (refresh leve), sem chamar GAM/Ads.
-      void refreshUiData();
+      void data.refresh();
       return;
     }
 
@@ -469,50 +342,18 @@ const IndexInner = () => {
     try {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true);
-        toast({ title: "Sincronização em fila", description: "Campanhas e sites estão atualizando em segundo plano; os ganhos podem demorar um pouco mais para fechar." });
       } else {
         await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
-        await syncRevenueAndRebuild(nextFilters);
-        toast({ title: "Ganhos atualizados", description: "Receita GAM e attribution canônica recalculadas com os filtros atuais." });
+        toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
-      await refreshUiData();
+      await data.refresh();
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
-  }, [allSites, getSyncRange, refreshUiData, syncRevenueAndRebuild]);
-
-  useEffect(() => {
-    if (!user || syncing || syncingCampaigns || finalUrlQuery.isFetching) return;
-
-    const aggregates = engine?.aggregates ?? [];
-    if (aggregates.length === 0) return;
-
-    const missingCampaigns = aggregates.filter((campaign) => !finalUrlQuery.data?.get(campaign.campaign_id)?.url);
-    if (missingCampaigns.length === 0) return;
-
-    const accountIds = Array.from(new Set(
-      missingCampaigns
-        .map((campaign) => campaign.google_account_id)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
-    ));
-
-    const syncKey = `${filters.siteId}|${filters.googleAccountIds.join(",")}|${accountIds.join(",")}|${missingCampaigns.map((campaign) => campaign.campaign_id).sort().join(",")}`;
-    if (lastAutoUrlSyncRef.current === syncKey) return;
-    lastAutoUrlSyncRef.current = syncKey;
-
-    void supabase.functions.invoke("google-ads-sync-final-urls", {
-      body: accountIds.length ? { account_ids: accountIds } : {},
-    }).then(async ({ data: result, error }) => {
-      if (error || (result as any)?.error) {
-        console.warn("[auto-sync-final-urls]", error?.message ?? (result as any)?.error ?? "unknown error");
-        return;
-      }
-      await refreshUiData();
-    });
-  }, [user, syncing, syncingCampaigns, finalUrlQuery.isFetching, finalUrlQuery.data, engine?.aggregates, filters.siteId, filters.googleAccountIds, refreshUiData]);
+  }, [allSites, data]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
@@ -549,10 +390,26 @@ const IndexInner = () => {
   const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
   const extraNetBrl = extraNetUsd * usdBrl;
 
-  // Fonte única da verdade: GAM exato (utm_source=google + campaign_id) já líquido (rev share 6.5%)
-  // agregado pelo engine a partir de daily_metrics. Sem override de site_metrics_daily.
-  const totalProfitBrl = baseTotals.profit;
-  const totalRevenueUsd = baseTotals.revenue;
+  // Receita REAL do GAM em BRL (independe do display). Inclui impressões SEM UTM.
+  // Quando disponível, vira a base do ROI/lucro — assim o ROI reflete a verdade do Ad Manager.
+  const realGamRevenueBrl = (() => {
+    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
+    let total = 0;
+    for (const [cur, val] of Object.entries(byCur)) {
+      if (cur === "BRL") total += val;
+      else total += val * usdBrl; // USD ou fallback
+    }
+    return total;
+  })();
+  const hasRealGam = realGamRevenueBrl > 0;
+  // Se temos receita real do GAM, usamos ela (líquida) como base do ROI.
+  // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
+  const totalProfitBrl = hasRealGam
+    ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
+    : baseTotals.profit + extraNetBrl;
+  const totalRevenueUsd = hasRealGam
+    ? (realGamRevenueBrl * NET_FACTOR) / usdBrl
+    : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
   const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
   const totals = {
@@ -563,21 +420,6 @@ const IndexInner = () => {
     roas: totalRoas,
   };
   const profitPositive = totals.profit >= 0;
-
-  // Métricas agregadas adicionais (database-first; vindo do engine sobre dados já sincronizados)
-  const perfTotals = (engine?.aggregates ?? []).reduce(
-    (acc, a) => {
-      acc.impressions += Number(a.impressions) || 0;
-      acc.clicks += Number(a.clicks) || 0;
-      acc.conversions += Number(a.conversions) || 0;
-      acc.spend += Number(a.spend) || 0;
-      return acc;
-    },
-    { impressions: 0, clicks: 0, conversions: 0, spend: 0 },
-  );
-  const avgCtr = perfTotals.impressions > 0 ? (perfTotals.clicks / perfTotals.impressions) * 100 : 0;
-  const avgConvRate = perfTotals.clicks > 0 ? (perfTotals.conversions / perfTotals.clicks) * 100 : 0;
-  const avgCpa = perfTotals.conversions > 0 ? perfTotals.spend / perfTotals.conversions : 0;
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
   const selectedSite = filters.siteId !== "all"
@@ -592,19 +434,11 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita do card = total REAL do GAM (site_metrics_daily) líquido de rev share (6.5%).
-  // Antes o card usava só a parte atribuída a campanhas (engine.totals.revenue) — o que
-  // sub-dimensionava o valor versus o que aparece no painel do Ad Manager. Agora batemos
-  // 1:1 com o GAM.
-  const realRevByCurrency = siteRealRevenueQuery.data?.byCurrency ?? {};
-  const realGamUsdNative = Number(realRevByCurrency.USD ?? 0);
-  const realGamBrlNative = Number(realRevByCurrency.BRL ?? 0);
-  // Receita bruta total do GAM, convertida pra moeda de exibição
-  const realGamGrossDisplay = isBrlSite
-    ? realGamBrlNative + realGamUsdNative * usdBrl
-    : realGamUsdNative + (usdBrl > 0 ? realGamBrlNative / usdBrl : 0);
-  // Aplica rev share 6.5% pra bater com "Receita líquida"
-  const realGamRevenueDisplay = realGamGrossDisplay * NET_FACTOR;
+  // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
+  // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
+  // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
+  const realGamRevenueDisplay = (isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl) * NET_FACTOR;
+  // Receita "atribuída" antiga = só Google UTM + push/outras (sem impressões sem tag)
   const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
   const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
   const attributionPct = realGamRevenueDisplay > 0
@@ -643,11 +477,6 @@ const IndexInner = () => {
             <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
               <Plus className="h-4 w-4" /> Dados de teste
             </Button>
-            {(acl.isSuperAdmin || acl.can("can_manage_users")) && (
-              <Button asChild variant="outline" size="sm" className="gap-2" title="Admins / Controle de Acesso">
-                <Link to="/admins"><Shield className="h-4 w-4" /> Admins</Link>
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -664,10 +493,6 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={syncCampaignsNow} disabled={syncingCampaigns} className="gap-2" title="Busca campanhas novas no Google Ads e atualiza a lista">
-              <RefreshCw className={syncingCampaigns ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {syncingCampaigns ? "Sincronizando campanhas…" : "Sincronizar campanhas"}
-            </Button>
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
               <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               {syncing ? "Sincronizando…" : "Atualizar"}
@@ -680,71 +505,42 @@ const IndexInner = () => {
       <main className="container py-6 space-y-6">
         <Tabs defaultValue="dashboard">
           <TabsList>
-            {acl.can("can_view_dashboard") && (
-              <TabsTrigger value="dashboard" className="gap-1.5">
-                <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
-              </TabsTrigger>
-            )}
-            {acl.can("can_view_revenue") && (
-              <TabsTrigger value="calendar" className="gap-1.5">
-                <CalendarDays className="h-3.5 w-3.5" /> Calendário
-              </TabsTrigger>
-            )}
-            {(acl.isSuperAdmin || acl.can("can_manage_users")) && (
-              <TabsTrigger value="integrations" className="gap-1.5">
-                <Plug className="h-3.5 w-3.5" /> Integrações
-              </TabsTrigger>
-            )}
-            {acl.can("can_use_placements_cleanup") && (
-              <TabsTrigger value="placements" className="gap-1.5">
-                <MapPin className="h-3.5 w-3.5" /> Placements
-              </TabsTrigger>
-            )}
-            {acl.can("can_use_placements_cleanup") && (
-              <TabsTrigger value="attribution" className="gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5" /> Attribution Audit
-              </TabsTrigger>
-            )}
-            {acl.can("can_use_funil") && (
-              <TabsTrigger value="funnel" className="gap-1.5">
-                <BarChart3 className="h-3.5 w-3.5" /> Funil
-              </TabsTrigger>
-            )}
-            {acl.can("can_view_dashboard") && (
-              <TabsTrigger value="countries" className="gap-1.5">
-                <Globe className="h-3.5 w-3.5" /> Países
-              </TabsTrigger>
-            )}
-            {acl.can("can_view_dashboard") && (
-              <TabsTrigger value="creatives" className="gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" /> Criativos
-              </TabsTrigger>
-            )}
-            {acl.can("can_manage_push") && (
-              <TabsTrigger value="retention" className="gap-1.5">
-                <Repeat className="h-3.5 w-3.5" /> Retenção / Push
-              </TabsTrigger>
-            )}
-            {acl.can("can_run_automation") && (
-              <TabsTrigger value="automation" className="gap-1.5">
-                <Bot className="h-3.5 w-3.5" /> Automação
-              </TabsTrigger>
-            )}
-            {acl.can("can_scale_campaigns") && (
-              <TabsTrigger value="scale-unlock" className="gap-1.5">
-                <Rocket className="h-3.5 w-3.5" /> Destravar Escala
-              </TabsTrigger>
-            )}
-            {acl.can("can_use_migration") && (
-              <TabsTrigger value="migration" className="gap-1.5">
-                <Repeat className="h-3.5 w-3.5" /> Migração
-              </TabsTrigger>
-            )}
-            {acl.can("can_edit_rules") && (
-              <TabsTrigger value="rules" className="gap-1.5">
-                <Settings className="h-3.5 w-3.5" /> Regras
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="dashboard" className="gap-1.5">
+              <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" /> Calendário
+            </TabsTrigger>
+            <TabsTrigger value="integrations" className="gap-1.5">
+              <Plug className="h-3.5 w-3.5" /> Integrações
+            </TabsTrigger>
+            <TabsTrigger value="placements" className="gap-1.5">
+              <MapPin className="h-3.5 w-3.5" /> Placements
+            </TabsTrigger>
+            <TabsTrigger value="funnel" className="gap-1.5">
+              <BarChart3 className="h-3.5 w-3.5" /> Funil
+            </TabsTrigger>
+            <TabsTrigger value="countries" className="gap-1.5">
+              <Globe className="h-3.5 w-3.5" /> Países
+            </TabsTrigger>
+            <TabsTrigger value="creatives" className="gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" /> Criativos
+            </TabsTrigger>
+            <TabsTrigger value="retention" className="gap-1.5">
+              <Repeat className="h-3.5 w-3.5" /> Retenção / Push
+            </TabsTrigger>
+            <TabsTrigger value="automation" className="gap-1.5">
+              <Bot className="h-3.5 w-3.5" /> Automação
+            </TabsTrigger>
+            <TabsTrigger value="scale-unlock" className="gap-1.5">
+              <Rocket className="h-3.5 w-3.5" /> Destravar Escala
+            </TabsTrigger>
+            <TabsTrigger value="migration" className="gap-1.5">
+              <Repeat className="h-3.5 w-3.5" /> Migração
+            </TabsTrigger>
+            <TabsTrigger value="rules" className="gap-1.5">
+              <Settings className="h-3.5 w-3.5" /> Regras
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
@@ -782,13 +578,6 @@ const IndexInner = () => {
                       {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
-                  </div>
-                  {/* Visible signal that the background cron is feeding fresh
-                      data every ~20 min, so the operator knows they don't
-                      need to keep clicking "Atualizar". */}
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Auto-sincronização ativa (~20 min)</span>
                   </div>
                 </div>
               );
@@ -862,9 +651,6 @@ const IndexInner = () => {
               />
             </section>
 
-            {/* Métricas de performance (CTR / Conv / CPA) agora estão na própria tabela de campanhas. */}
-
-
             {filters.siteId !== "all" && siteMetricsQuery.data && (
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
@@ -929,7 +715,7 @@ const IndexInner = () => {
 
             {/* Tabela de campanhas */}
             <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Campanhas
                 </h2>
@@ -937,7 +723,6 @@ const IndexInner = () => {
                   {engine?.aggregates.length ?? 0} resultado(s)
                 </span>
               </div>
-
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
                 downAccountIds={new Set(
@@ -945,10 +730,9 @@ const IndexInner = () => {
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
                     .map((a) => a.id)
                 )}
-                finalUrlMap={finalUrlQuery.data}
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
-                onRefresh={refreshUiData}
+                onRefresh={data.refresh}
               />
             </section>
             </DashboardErrorBoundary>
@@ -997,14 +781,6 @@ const IndexInner = () => {
               <PlacementFunnelTab fxUsdBrl={usdBrl} />
             </DashboardErrorBoundary>
           </TabsContent>
-
-          <TabsContent value="attribution" className="mt-6">
-            <DashboardErrorBoundary tabName="Attribution Audit">
-              <AttributionAuditTab />
-            </DashboardErrorBoundary>
-          </TabsContent>
-
-
 
           <TabsContent value="countries" className="mt-6">
             <DashboardErrorBoundary tabName="Países">

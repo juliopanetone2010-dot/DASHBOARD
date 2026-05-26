@@ -61,7 +61,6 @@ Deno.serve(async (req) => {
     const accountIds: string[] = Array.isArray(body?.google_account_ids)
       ? body.google_account_ids.map((x: unknown) => String(x)).filter(Boolean)
       : [];
-    const includeProtected = Boolean(body?.include_protected);
 
     // Quando vier do client (não do cron interno), exigimos site_id para evitar afetar outros sites.
     const isCron = isService && !!targetUserId;
@@ -88,13 +87,6 @@ Deno.serve(async (req) => {
       if (!userId) return json({ error: "Token inválido" });
     }
 
-    // ACL: usuário precisa de can_use_placements_cleanup (cron passa)
-    if (!isCron && userId) {
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_use_placements_cleanup" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_use_placements_cleanup" });
-    }
-
-
     // Revshare configurável por usuário (rules_config.revenue_share_pct, default 6.5).
     const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
     const NET_FACTOR = 1 - REV_SHARE_PCT;
@@ -111,9 +103,6 @@ Deno.serve(async (req) => {
       from = fromOverride;
       // Garante "até ontem" no máximo (Google Ads não tem dia atual fechado)
       to = toOverride > iso(yesterday) ? iso(yesterday) : toOverride;
-      // Se o range do dashboard incluía só hoje, o cap acima deixa from > to.
-      // Recuamos o from para casar com to (analisa pelo menos 1 dia válido).
-      if (from > to) from = to;
     } else {
       to = iso(yesterday);
       from = iso(new Date(today.getTime() - lookbackDays * 86400_000));
@@ -269,9 +258,6 @@ Deno.serve(async (req) => {
     let totalGamUsd = 0;
     let attributedGamUsd = 0;
     const campaignRevenueTotals = new Map<string, number>();
-    // Atribuição ESTRITA: cada placement só recebe receita GAM com match EXATO do host.
-    // Sem root, sem prefixo, sem rateio de receita "órfã" por custo — isso inflava
-    // placements que não têm nenhuma receita real registrada no GAM.
     for (const [cid, revenues] of revByCampaign) {
       const ads = adsByCampaign.get(cid) ?? [];
       let campaignGamUsd = 0;
@@ -282,18 +268,34 @@ Deno.serve(async (req) => {
       campaignRevenueTotals.set(cid, campaignGamUsd);
       if (ads.length === 0) continue;
       const indexes = buildPlacementIndexes(ads);
-
+      const claimed = new Set<string>();
+      let unmatchedUsd = 0;
       for (const [rawPlacement, usd] of revenues) {
         if (usd <= 0) continue;
-        const norm = normalize(rawPlacement);
-        const exactMatches = indexes.byExact.get(norm);
-        if (!exactMatches || exactMatches.length === 0) continue; // sem match exato → receita não é atribuída a ninguém
-        const totalCost = exactMatches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-        const totalClicks = exactMatches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-        const equalShare = usd / exactMatches.length;
-        for (const a of exactMatches) {
+        const matches = findPlacementMatches(normalize(rawPlacement), indexes).filter((a) => !claimed.has(a.placement));
+        if (matches.length === 0) { unmatchedUsd += usd; continue; }
+        const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = matches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = usd / matches.length;
+        for (const a of matches) {
           const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
           const share = weight > 0 ? usd * weight : equalShare;
+          const key = cpKey(cid, a.placement);
+          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+          attributedGamUsd += share;
+          claimed.add(a.placement);
+        }
+      }
+      if (unmatchedUsd > 0) {
+        // Fallback: distribui proporcional ao custo entre placements ainda sem match
+        const targets = ads.filter((a) => !claimed.has(a.placement));
+        const fallback = targets.length > 0 ? targets : ads;
+        const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+        const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+        const equalShare = unmatchedUsd / fallback.length;
+        for (const a of fallback) {
+          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+          const share = weight > 0 ? unmatchedUsd * weight : equalShare;
           const key = cpKey(cid, a.placement);
           revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
           attributedGamUsd += share;
@@ -301,27 +303,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // TRAVA DE SEGURANÇA POR PLACEMENT (cirúrgica):
-    // Calcula a receita "órfã" da campanha (GAM total − atribuída exato).
-    // Se, no pior caso, TODA essa receita órfã pertencesse a este placement,
-    // o ROI dele subiria acima do limite (passaria a ser "bom")? Então protege.
-    // Isso evita apagar um placement que pode ser o dono da receita órfã.
-    const orphanUsdByCampaign = new Map<string, number>();
-    const attributedByCampaign = new Map<string, number>();
-    for (const [key, usd] of revenueUsdByCp) {
-      const cid = key.split(KEY_SEP)[0];
-      attributedByCampaign.set(cid, (attributedByCampaign.get(cid) ?? 0) + usd);
-    }
-    for (const [cid, totalUsd] of campaignRevenueTotals) {
-      const attributed = attributedByCampaign.get(cid) ?? 0;
-      const orphan = Math.max(0, totalUsd - attributed);
-      if (orphan > 0) orphanUsdByCampaign.set(cid, orphan);
-    }
-
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
-    let skippedUnsafeCampaign = 0;
     let withMatch = 0, withoutMatch = 0;
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
@@ -333,6 +317,7 @@ Deno.serve(async (req) => {
       if (v.cost < minCostBrl) { skippedSafety++; continue; }
 
       const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
+      // "matched" = teve algum match real (exato/root/prefixo) — checa se houve receita direta
       const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
       const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
       const matched = directUsd > 0 || rootUsd > 0 || revenueUsd > 0;
@@ -341,48 +326,6 @@ Deno.serve(async (req) => {
       const profitBrl = revenueBrl - v.cost;
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
       if (roi > maxRoiPct) continue;
-
-      // Pior caso: este placement recebe TODA a receita órfã da campanha.
-      const orphanUsd = orphanUsdByCampaign.get(v.campaign_id) ?? 0;
-      if (orphanUsd > 0 && v.cost > 0) {
-        const worstCaseRevBrl = (revenueUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
-        const worstCaseRoi = ((worstCaseRevBrl - v.cost) / v.cost) * 100;
-        if (worstCaseRoi > maxRoiPct) {
-          skippedUnsafeCampaign++;
-          if (!includeProtected) continue;
-          const itemKey = `${v.campaign_id}|${v.placement}`;
-          items.push({
-            key: itemKey,
-            placement: v.placement,
-            type: v.type,
-            app_id: v.app_id,
-            cost_brl: round(v.cost),
-            revenue_brl: round4(revenueBrl),
-            revenue_usd: round4(revenueUsd),
-            profit_brl: round(profitBrl),
-            roi_pct: round(roi),
-            clicks: v.clicks,
-            impressions: v.impressions,
-            match_utm: matched,
-            reason: "protegido_receita_sem_match",
-            is_protected: true,
-            protected_reason: "receita sem match exato pode pertencer a este placement",
-            orphan_revenue_usd: round4(orphanUsd),
-            worst_case_roi_pct: round(worstCaseRoi),
-            campaigns: [{
-              campaign_id: v.campaign_id,
-              name: meta.name,
-              google_account_id: meta.google_account_id,
-              cost_brl: round(v.cost),
-              revenue_usd: round4(revenueUsd),
-              matched_utm: matched,
-              roi_pct: round(roi),
-            }],
-          });
-          continue;
-        }
-      }
-
 
       const reason = !matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo");
       const itemKey = `${v.campaign_id}|${v.placement}`;
@@ -415,9 +358,8 @@ Deno.serve(async (req) => {
 
     type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
-    // IMPORTANTE: custo vem do Ads, mas receita do header vem do mesmo GAM filtrado
-    // por site/período usado nos placements. Não usar daily_metrics.revenue aqui,
-    // porque ela pode estar agregada por campanha e divergir do site selecionado.
+    // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
+    // não só as elegíveis para limpeza. Assim o header bate com o dashboard.
     for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -437,6 +379,7 @@ Deno.serve(async (req) => {
           totalsMap.set(String(r.campaign_id), t);
         }
         t.cost_brl += Number(r.spend) || 0;
+        t.revenue_brl += (Number(r.revenue) || 0) * NET_FACTOR * fxUsdBrl;
       }
     }
     for (const [cid, revenueUsd] of campaignRevenueTotals) {
@@ -448,7 +391,7 @@ Deno.serve(async (req) => {
         totalsMap.set(cid, t);
       }
       const liveRevenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
-      t.revenue_brl = liveRevenueBrl;
+      if (liveRevenueBrl > t.revenue_brl) t.revenue_brl = liveRevenueBrl;
     }
     for (const id of campIds) {
       const meta = campMap.get(id);
@@ -472,7 +415,6 @@ Deno.serve(async (req) => {
     const grand_cost_brl = round(campaign_totals.reduce((a, c) => a + c.cost_brl, 0));
     const grand_revenue_brl = round(campaign_totals.reduce((a, c) => a + c.revenue_brl, 0));
     const grand_profit_brl = round(grand_revenue_brl - grand_cost_brl);
-    const orphanGamUsd = Math.max(0, totalGamUsd - attributedGamUsd);
 
     const totalAnalyzed = withMatch + withoutMatch;
     const stats = {
@@ -482,8 +424,6 @@ Deno.serve(async (req) => {
       grouped: cpAgg.size,
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
-      skipped_unsafe_campaign: skippedUnsafeCampaign,
-      unsafe_campaigns: [...orphanUsdByCampaign.keys()],
       ads_rows: ads.length,
       gam_rows: gam.length,
       with_match: withMatch,
@@ -491,12 +431,10 @@ Deno.serve(async (req) => {
       match_pct: totalAnalyzed > 0 ? round((withMatch / totalAnalyzed) * 100) : 0,
       gam_total_usd: round(totalGamUsd),
       gam_attributed_usd: round(attributedGamUsd),
-      gam_orphan_usd: round(orphanGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
       period: { from, to },
       analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
-      protected_visible: includeProtected,
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
       grand_cost_brl,
       grand_revenue_brl,
@@ -521,26 +459,6 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "apply") {
-      let auditQ = admin
-        .from("canonical_attribution_audit_reports")
-        .select("campaign_match_pct, leak_percent, reconciled_revenue_usd, total_gam_revenue_usd, created_at")
-        .eq("user_id", userId)
-        .lte("period_start", from)
-        .gte("period_end", to)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (siteId) auditQ = auditQ.eq("site_id", siteId);
-      const { data: latestAudit, error: auditErr } = await auditQ.maybeSingle();
-      if (auditErr) return json({ error: `Falha ao validar Attribution Audit: ${auditErr.message}` });
-      const campaignMatch = Number(latestAudit?.campaign_match_pct ?? 0);
-      if (!latestAudit || campaignMatch < 95) {
-        return json({
-          error: `Cleanup bloqueado: Attribution Audit não confiável (campaign_match=${round(campaignMatch)}%). Rode o rebuild e só aplique com campaign_match ≥ 95%.`,
-          safety_gate: "campaign_match_lt_95",
-          latest_audit: latestAudit ?? null,
-        });
-      }
-
       const selected: ApplyItem[] = Array.isArray(body?.items) && body.items.length
         ? body.items as ApplyItem[]
         : items.map((i) => ({
@@ -565,65 +483,33 @@ Deno.serve(async (req) => {
       // ============================================================
       // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
       // direto no banco (gam_placement_revenue + ads_placements) antes
-      // de negativar. A regra é a mesma do preview: match EXATO apenas.
+      // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
+      // Match por root domain + variantes (sk2.x.com, www.x.com etc).
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
-
-      // Reaproveita a trava cirúrgica (pior caso de receita órfã) calculada no preview.
-      // Se, no pior caso, a receita órfã da campanha tornaria o ROI deste placement bom,
-      // rejeita ANTES de qualquer outra checagem.
-      const preFiltered = selected.filter((it) => {
-        const cid = it.campaigns?.[0]?.campaign_id;
-        if (!cid) return true;
-        const orphanUsd = orphanUsdByCampaign.get(cid) ?? 0;
-        const cost = Number(it.cost_brl) || 0;
-        const revUsd = Number(it.revenue_usd) || 0;
-        if (orphanUsd > 0 && cost > 0) {
-          const worstCaseRevBrl = (revUsd + orphanUsd) * NET_FACTOR * fxUsdBrl;
-          const worstCaseRoi = ((worstCaseRevBrl - cost) / cost) * 100;
-          if (worstCaseRoi > maxRoiPct) {
-            safetyRejected.push({ placement: it.placement, reason: "orphan_revenue_worst_case_safe", campaign_id: cid, orphan_usd: round4(orphanUsd) });
-            return false;
-          }
-        }
-        return true;
-      });
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
-      const safetyResults = await Promise.all(preFiltered.map(async (it) => {
-        // TRAVA EXTRA: receita GAM EXATA do placement (qualquer campanha) no período.
-        // Se o GAM tem receita registrada exatamente para este host, NUNCA bloqueia.
-        const placementNorm = normalize(it.placement, it.type);
-        let directGamUsd = 0;
-        if (placementNorm) {
-          let directQ = admin
-            .from("gam_placement_revenue")
-            .select("revenue_usd")
-            .eq("user_id", userId)
-            .eq("placement", placementNorm)
-            .gte("date", from)
-            .lte("date", to);
-          if (siteId) directQ = directQ.eq("site_id", siteId);
-          const { data: directRows } = await directQ.limit(5000);
-          directGamUsd = (directRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
-        }
+      const safetyResults = await Promise.all(selected.map(async (it) => {
         const checks = await Promise.all(it.campaigns.map(async (c) => {
-          // CUSTO: usa o agregado AO VIVO do Google Ads já buscado no preview (cpAgg),
-          // e não a tabela `ads_placements` (que pode estar defasada para campanhas
-          // recém-renomeadas/recém-sincronizadas, gerando falsos positivos de
-          // "ROI real positivo" e bloqueando placements legitimamente ruins).
-          const liveCost = cpAgg.get(cpKey(c.campaign_id, placementNorm))?.cost ?? 0;
-          // Fallback: se por algum motivo o live não tem o item, aceita o custo
-          // enviado pelo cliente (que veio do mesmo preview live).
-          const costBrl = liveCost > 0 ? liveCost : (Number(c.cost_brl) || 0);
-          let gamQ = admin
-            .from("gam_placement_revenue")
-            .select("revenue_usd")
+          const root = rootDomain(it.placement);
+          const { data: costRows } = await admin
+            .from("ads_placements")
+            .select("cost, placement, placement_clean")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .eq("placement", placementNorm);
+            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
+            .limit(5000);
+          const costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
+          let gamQ = admin
+            .from("gam_placement_revenue")
+            .select("revenue_usd, placement")
+            .eq("user_id", userId)
+            .eq("campaign_id", c.campaign_id)
+            .gte("date", from)
+            .lte("date", to)
+            .ilike("placement", `%${root}%`);
           if (siteId) gamQ = gamQ.eq("site_id", siteId);
           const { data: revRows } = await gamQ.limit(5000);
           const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
@@ -631,30 +517,15 @@ Deno.serve(async (req) => {
           const profit = revBrl - costBrl;
           const roi = costBrl > 0 ? (profit / costBrl) * 100 : 0;
           const ok = costBrl >= minCostBrl && roi <= maxRoiPct;
-          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok, cost_source: liveCost > 0 ? "live_ads" : "client_preview" };
+          return { campaign_id: c.campaign_id, cost_brl: round(costBrl), revenue_usd: round4(revUsd), roi_pct: round(roi), ok };
         }));
-        // Bloqueia somente se: nenhuma campanha está OK no root.
-        // A trava de "receita GAM direta" só protege se essa receita for grande o
-        // suficiente para tornar o ROI agregado (todas as campanhas envolvidas) bom.
-        // Caso contrário, um placement com R$ 287 de custo e $9 de receita seria
-        // incorretamente protegido.
-        const totalCostBrl = checks.reduce((a, x) => a + x.cost_brl, 0);
-        const directGamBrl = directGamUsd * NET_FACTOR * fxUsdBrl;
-        const directRoi = totalCostBrl > 0 ? ((directGamBrl - totalCostBrl) / totalCostBrl) * 100 : 0;
-        const hasDirectGam = directGamUsd > 0.01 && totalCostBrl > 0 && directRoi > maxRoiPct;
-        const allOk = !hasDirectGam && checks.every((x) => x.ok);
-        return { it, checks, allOk, directGamUsd: round4(directGamUsd), hasDirectGam, directRoi: round(directRoi), totalCostBrl: round(totalCostBrl) };
+        return { it, checks, allOk: checks.every((x) => x.ok) };
       }));
-      for (const { it, checks, allOk, directGamUsd, hasDirectGam } of safetyResults) {
+      for (const { it, checks, allOk } of safetyResults) {
         if (allOk) safetyApproved.push(it);
         else {
-          const reason = hasDirectGam ? "has_direct_gam_revenue" : "safety_recheck_failed";
-          safetyRejected.push({ placement: it.placement, reason, direct_gam_usd: directGamUsd, checks });
-          if (hasDirectGam) {
-            console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — possui receita GAM direta ($${directGamUsd} USD) no período`);
-          } else {
-            console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
-          }
+          safetyRejected.push({ placement: it.placement, reason: "safety_recheck_failed", checks });
+          console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
         }
       }
 

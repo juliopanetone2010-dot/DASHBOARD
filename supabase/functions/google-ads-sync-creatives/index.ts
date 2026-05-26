@@ -14,8 +14,6 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
-    const explicitFrom = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
-    const explicitTo = typeof body?.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.to) ? body.to : null;
     const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
@@ -25,17 +23,11 @@ Deno.serve(async (req) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const normalizeUtcDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
     const today = new Date();
-    const fallbackToDate = new Date(today.getTime() - 86400_000);
-    const fallbackFromDate = new Date(fallbackToDate.getTime() - (lookbackDays - 1) * 86400_000);
-    const from = explicitFrom ?? iso(fallbackFromDate);
-    const to = explicitTo ?? iso(fallbackToDate);
-
-    if (normalizeUtcDate(from).getTime() > normalizeUtcDate(to).getTime()) {
-      return json({ error: "Período inválido para sincronizar criativos" });
-    }
+    const toDate = new Date(today.getTime() - 86400_000);
+    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const from = iso(fromDate), to = iso(toDate);
 
     const { data: campsRaw } = await admin
       .from("campaigns")

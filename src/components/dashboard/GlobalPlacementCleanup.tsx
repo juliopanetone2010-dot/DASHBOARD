@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Loader2, Trash2, ShieldAlert, Play, RefreshCw, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, ShieldAlert, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { AiAssistantButton, type AiContext } from "@/components/ai/AiAssistant";
 
 interface PreviewCampaign {
   campaign_id: string;
@@ -40,10 +39,6 @@ interface PreviewItem {
   impressions: number;
   match_utm: boolean;
   reason: string;
-  is_protected?: boolean;
-  protected_reason?: string;
-  orphan_revenue_usd?: number;
-  worst_case_roi_pct?: number;
   campaigns: PreviewCampaign[];
 }
 interface CampaignTotal {
@@ -54,9 +49,8 @@ interface CampaignTotal {
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
-  skipped_unsafe_campaign?: number; unsafe_campaigns?: string[];
   with_match?: number; without_match?: number; match_pct?: number;
-  gam_total_usd?: number; gam_attributed_usd?: number; gam_orphan_usd?: number; gam_attributed_pct?: number;
+  gam_total_usd?: number; gam_attributed_usd?: number; gam_attributed_pct?: number;
   period?: { from: string; to: string };
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
@@ -73,8 +67,6 @@ const fmtPlacementRevenue = (usd: number) => {
   if (!Number.isFinite(usd) || usd <= 0) return "$0.00";
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 };
-
-const protectedActionText = "Receita existe na campanha, mas não bate com esse placement. Confira UTM/placement no GAM e ressincronize; enquanto isso, não excluir automático.";
 
 export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const { filters, range, selectSite } = useDashboardFilters();
@@ -109,41 +101,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
-  const [siteAccounts, setSiteAccounts] = useState<Record<string, string[]>>({});
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
-  const canExclude = (i: PreviewItem) => !i.is_protected && (i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id));
-  // Modo seguro: só permite excluir placements de campanhas 100% atribuídas (sem receita órfã do GAM)
-  const [safeMode, setSafeMode] = useState(true);
-  const [estimateOrphan, setEstimateOrphan] = useState(true);
-  // limite de tolerância: campanha é "100% atribuída" se órfã ≤ 5% do custo
-  const ORPHAN_TOLERANCE = 0.05;
-  const [cleanupSnapshot, setCleanupSnapshot] = useState<NonNullable<AiContext["cleanup_snapshot"]> | null>(null);
-
-  // Reconciliação de receita por campanha
-  type AuditRow = { campaign_id: string; audit_status: "verified"|"partial"|"leak_detected"|"unreliable"|"unknown"; confidence: number; leak_percent: number; leak_amount_usd: number; campaign_revenue_usd: number; placements_revenue_usd: number; findings?: any[] };
-  const [audits, setAudits] = useState<Record<string, AuditRow>>({});
-  const [auditing, setAuditing] = useState(false);
-  const [paranoidMode, setParanoidMode] = useState(false);
-  const PARANOID_MIN_CONFIDENCE = 98;
-  const PARANOID_MAX_LEAK_PCT = 3;
-  const STANDARD_MIN_CONFIDENCE = 95;
-
-  const runReconciliation = async (campaignIds: string[], period: { from: string; to: string }, rebuild = false) => {
-    if (!campaignIds.length) return;
-    setAuditing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke<{ results: AuditRow[] }>(
-        "reconcile-placement-revenue",
-        { body: { mode: rebuild ? "rebuild" : "audit", campaign_ids: campaignIds, period_start: period.from, period_end: period.to, site_id: filters.siteId !== "all" ? filters.siteId : null, user_id: undefined } },
-      );
-      if (error) { console.warn("[reconcile] error", error); return; }
-      const next: Record<string, AuditRow> = {};
-      for (const r of data?.results ?? []) if (r?.campaign_id) next[r.campaign_id] = r;
-      setAudits((prev) => ({ ...prev, ...next }));
-    } finally {
-      setAuditing(false);
-    }
-  };
+  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
 
   // carrega config persistida
   useEffect(() => {
@@ -169,17 +128,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .select("id, name")
         .order("name", { ascending: true });
       setSites((ss ?? []).map((s: any) => ({ id: s.id, name: s.name })));
-      const { data: links } = await supabase
-        .from("account_site_links")
-        .select("site_id, google_account_id");
-      const bySite: Record<string, string[]> = {};
-      for (const link of links ?? []) {
-        const siteId = String((link as any).site_id ?? "");
-        const accountId = String((link as any).google_account_id ?? "");
-        if (!siteId || !accountId) continue;
-        bySite[siteId] = [...(bySite[siteId] ?? []), accountId];
-      }
-      setSiteAccounts(bySite);
     })();
   }, []);
 
@@ -219,7 +167,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
-  const runPreview = async (options?: { includeProtected?: boolean }) => {
+  const runPreview = async () => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
       return;
@@ -240,7 +188,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
-          include_protected: options?.includeProtected ?? false,
         },
       });
       if (error || data?.error) {
@@ -254,16 +201,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
       setOpen(true);
-      const campaignIds = Array.from(new Set(list.flatMap((i) => i.campaigns.map((c) => c.campaign_id))));
-      setCleanupSnapshot({
-        ran_at: new Date().toISOString(),
-        mode: "preview",
-        period: { from: effectiveRange.from, to: effectiveRange.to },
-        campaign_ids: campaignIds,
-        stats: (data?.stats ?? {}) as Record<string, unknown>,
-      });
-      // dispara reconciliação em background — não bloqueia a UI
-      runReconciliation(campaignIds, { from: effectiveRange.from, to: effectiveRange.to }).catch(() => {});
       // persiste filtros
       await persistConfig({
         placement_cleanup_min_days: minDays,
@@ -276,18 +213,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const [resyncing, setResyncing] = useState(false);
-  const [reviewingProtected, setReviewingProtected] = useState(false);
-  const runResyncAndPreview = async (includeProtected = false) => {
+  const runResyncAndPreview = async () => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", variant: "destructive" });
       return;
     }
-    includeProtected ? setReviewingProtected(true) : setResyncing(true);
+    setResyncing(true);
     try {
-      toast({
-        title: includeProtected ? "Rechecando protegidos com calma…" : "Ressincronizando receita do GAM…",
-        description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}`,
-      });
+      toast({ title: "Ressincronizando receita do GAM…", description: `Aguardando terminar: ${effectiveRange.from} → ${effectiveRange.to}` });
       const { data: gamData, error: gamErr } = await supabase.functions.invoke<GamSyncResp>("gam-sync-revenue", {
         body: {
           wait: true,
@@ -298,9 +231,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           account_ids: filters.googleAccountIds ?? [],
           revenue_only: true,
           skip_viewability: true,
-          skip_legacy_reports: true,
-          // ressync manual: regenera snapshot pra receita aparecer atualizada nos cards.
-          skip_snapshot_regen: false,
         },
       });
       if (gamErr || gamData?.error) {
@@ -310,16 +240,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const googleRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_rows ?? s.rows_returned ?? 0), 0);
       const placementRows = (gamData?.summary ?? []).reduce((sum, s) => sum + Number(s.google_placement_rows ?? 0), 0);
       toast({
-        title: includeProtected ? "Receita atualizada — mostrando protegidos…" : "Receita atualizada — rechecando placements…",
+        title: "Receita atualizada — rechecando placements…",
         description: `${googleRows} linha(s) de campanha · ${placementRows} linha(s) de placement`,
       });
-      if (includeProtected) {
-        await runPreview({ includeProtected: true });
-      } else {
-        await runPreview();
-      }
+      await runPreview();
     } finally {
-      includeProtected ? setReviewingProtected(false) : setResyncing(false);
+      setResyncing(false);
     }
   };
 
@@ -369,16 +295,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         console.warn("[safety] placements rejeitados pela re-verificação:", rejected);
       }
 
-      setCleanupSnapshot((prev) => ({
-        ran_at: new Date().toISOString(),
-        mode: "apply",
-        period: prev?.period ?? { from: effectiveRange.from, to: effectiveRange.to },
-        campaign_ids: prev?.campaign_ids ?? Array.from(new Set(payload.flatMap((p) => p.campaigns.map((c) => c.campaign_id)))),
-        campaigns: prev?.campaigns,
-        stats: prev?.stats,
-        applied: data?.applied ?? 0,
-        failed: data?.failed ?? 0,
-      }));
       setOpen(false);
     } finally {
       setApplying(false);
@@ -386,10 +302,6 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   };
 
   const noMatch = items.filter((i) => !i.match_utm).length;
-  const protectedVisible = items.filter((i) => i.is_protected).length;
-  const visibleAccounts = filters.siteId && filters.siteId !== "all" && siteAccounts[filters.siteId]
-    ? accounts.filter((a) => siteAccounts[filters.siteId].includes(a.id))
-    : accounts;
 
   // filtra items pela conta selecionada
   const filteredItems = accountFilter === "all"
@@ -406,78 +318,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       itemsByCampaign.set(c.campaign_id, arr);
     }
   }
-  for (const [cid, list] of itemsByCampaign) {
-    itemsByCampaign.set(cid, [...list].sort((a, b) =>
-      (b.revenue_brl || 0) - (a.revenue_brl || 0)
-      || a.roi_pct - b.roi_pct
-      || b.cost_brl - a.cost_brl,
-    ));
-  }
-  // Mostra apenas o total dos placements ruins exibidos. Assim a linha da campanha
-  // bate exatamente com as linhas expandidas, sem misturar o total geral da campanha.
-  const campaignMeta = new Map(campaignTotals.map((c) => [c.campaign_id, c]));
-  const sortedCampaigns = [...itemsByCampaign.entries()]
-    .map(([cid, list]) => {
-      const first = list.flatMap((i) => i.campaigns).find((c) => c.campaign_id === cid);
-      const meta = campaignMeta.get(cid);
-      const cost = list.reduce((sum, i) => sum + (i.campaigns.find((c) => c.campaign_id === cid)?.cost_brl ?? 0), 0);
-      const exactRevenue = list.reduce((sum, i) => {
-        const campaign = i.campaigns.find((c) => c.campaign_id === cid);
-        if (!campaign) return sum;
-        const share = i.revenue_usd > 0 ? (campaign.revenue_usd ?? 0) / i.revenue_usd : 0;
-        return sum + i.revenue_brl * share;
-      }, 0);
-      const protected_count = list.filter((i) => i.is_protected).length;
-      const gamRevenue = protected_count > 0 && (meta?.revenue_brl ?? 0) > exactRevenue ? (meta?.revenue_brl ?? 0) : exactRevenue;
-      const profit = exactRevenue - cost;
-      const revenue_count = list.filter((i) => i.revenue_brl > 0).length;
-      const orphan_brl = Math.max(0, gamRevenue - exactRevenue);
-      const fully_matched = cost <= 0 || orphan_brl <= cost * ORPHAN_TOLERANCE;
-      // ROI estimado (com rateio da receita órfã pelo custo do placement)
-      const estRevenue = exactRevenue + orphan_brl;
-      const estProfit = estRevenue - cost;
-      return {
-        campaign_id: cid,
-        name: first?.name ?? meta?.name ?? cid,
-        google_account_id: first?.google_account_id ?? meta?.google_account_id,
-        cost_brl: cost,
-        revenue_brl: exactRevenue,
-        gam_revenue_brl: gamRevenue,
-        orphan_brl,
-        fully_matched,
-        est_revenue_brl: estRevenue,
-        est_profit_brl: estProfit,
-        est_roi_pct: cost > 0 ? (estProfit / cost) * 100 : 0,
-        profit_brl: profit,
-        roi_pct: cost > 0 ? (profit / cost) * 100 : 0,
-        bad_count: list.length,
-        revenue_count,
-        protected_count,
-        eligible: meta?.eligible,
-      };
-    })
+  // Mostra apenas campanhas que TÊM placements ruins (respeitando ROI máx e custo mín).
+  const accountFilteredTotals = accountFilter === "all"
+    ? campaignTotals
+    : campaignTotals.filter((c) => c.google_account_id === accountFilter);
+  const sortedCampaigns = [...accountFilteredTotals]
+    .filter((c) => (itemsByCampaign.get(c.campaign_id)?.length ?? 0) > 0)
     .sort((a, b) => a.roi_pct - b.roi_pct);
 
-  // mapa rápido id -> meta da campanha (orfã, fully_matched, etc)
-  const campAggMap = new Map(sortedCampaigns.map((c) => [c.campaign_id, c]));
-  const canExcludeInMode = (i: PreviewItem, campaignId: string) => {
-    if (!canExclude(i)) return false;
-    if (!safeMode) return true;
-    const agg = campAggMap.get(campaignId);
-    return !!agg?.fully_matched;
-  };
-  const estimatedItemRoi = (i: PreviewItem, campaignId: string) => {
-    const agg = campAggMap.get(campaignId);
-    const c = i.campaigns.find((x) => x.campaign_id === campaignId);
-    if (!agg || !c || agg.cost_brl <= 0 || (c.cost_brl ?? 0) <= 0) return i.roi_pct;
-    const share = (c.cost_brl ?? 0) / agg.cost_brl;
-    const placementOrphan = (agg.orphan_brl ?? 0) * share;
-    const estRev = (i.revenue_brl ?? 0) + placementOrphan;
-    const estProfit = estRev - (c.cost_brl ?? 0);
-    return (estProfit / (c.cost_brl ?? 1)) * 100;
-  };
-
-  // Custo/Lucro do header reflete somente os placements ruins exibidos.
+  // Custo/Lucro do header reflete TODAS campanhas exibidas (com e sem placements ruins),
+  // assim bate com o dashboard "Últimos 15 dias".
   const grandCost = sortedCampaigns.reduce((a, c) => a + (c.cost_brl || 0), 0);
   const grandProfit = sortedCampaigns.reduce((a, c) => a + (c.profit_brl || 0), 0);
 
@@ -485,16 +335,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
-    const placements = (itemsByCampaign.get(cid) ?? []).filter((i) => canExcludeInMode(i, cid)).map(itemKey);
-    if (on && placements.length === 0) {
-      const agg = campAggMap.get(cid);
-      toast({
-        title: "Bloqueado pelo Modo Seguro",
-        description: `Esta campanha tem ${agg ? fmtBRL(agg.orphan_brl) : "receita"} no GAM sem match exato. Conserte a UTM ou desligue Modo Seguro pra liberar.`,
-        variant: "destructive",
-      });
-      return;
-    }
+    const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
     setSelected((s) => {
       const n = new Set(s);
       for (const p of placements) on ? n.add(p) : n.delete(p);
@@ -519,29 +360,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
-        <Button onClick={() => runPreview()} disabled={loading} variant="destructive">
+        <Button onClick={runPreview} disabled={loading} variant="destructive">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
           Executar limpeza agora
         </Button>
-        {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
-          <AiAssistantButton
-            label={`Auditar com AI (${cleanupSnapshot.campaign_ids.length} camp.)`}
-            context={{
-              active_tab: "placements_cleanup",
-              current_site: filters.siteId && filters.siteId !== "all" ? filters.siteId : null,
-              range: cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to },
-              filters: { account_ids: filters.googleAccountIds, min_days: minDays, max_roi_pct: maxRoi, min_cost_brl: minCost },
-              cleanup_snapshot: cleanupSnapshot,
-            }}
-            suggestions={[
-              "Faça uma varredura profunda nessas campanhas e me diga se tudo está batendo (custo, receita, ROI, GAM).",
-              "Tem receita órfã ou placement sem match nessas campanhas?",
-              "O NET_FACTOR e o revshare foram aplicados certo em todas?",
-              "Algum placement está com revenue inflada ou cross-site leak?",
-              "Recheca tudo e, se não bater, rode de novo as tools até bater ou me mostrar o bug real.",
-            ]}
-          />
-        )}
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
@@ -585,34 +407,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <div className="flex items-start justify-between gap-3">
-              <DialogTitle>Preview · placements ruins</DialogTitle>
-              {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
-                <AiAssistantButton
-                  label={`Auditar com AI (${cleanupSnapshot.campaign_ids.length} camp.)`}
-                  context={{
-                    active_tab: "placements_cleanup",
-                    current_site: filters.siteId && filters.siteId !== "all" ? filters.siteId : null,
-                    range: cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to },
-                    filters: { account_ids: filters.googleAccountIds, min_days: minDays, max_roi_pct: maxRoi, min_cost_brl: minCost },
-                    cleanup_snapshot: cleanupSnapshot,
-                  }}
-                  suggestions={[
-                    "Faça uma varredura profunda nessas campanhas e me diga se tudo está batendo (custo, receita, ROI, GAM).",
-                    "Tem receita órfã ou placement sem match nessas campanhas?",
-                    "O NET_FACTOR e o revshare foram aplicados certo em todas?",
-                    "Algum placement está com revenue inflada ou cross-site leak?",
-                    "Recheca tudo e, se não bater, rode de novo as tools até bater ou me mostrar o bug real.",
-                  ]}
-                />
-              )}
-            </div>
+            <DialogTitle>Preview · placements ruins</DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Período: {stats?.period?.from} → {stats?.period?.to}</Badge>
               <Badge variant="outline">{stats?.eligible}/{stats?.total} campanhas</Badge>
               <Badge variant="outline">{stats?.grouped} placements analisados</Badge>
-              <Badge variant="destructive">{items.length - protectedVisible} ruins</Badge>
-              {protectedVisible > 0 && <Badge variant="outline" className="border-warning text-warning">🛡️ {protectedVisible} protegidos em revisão</Badge>}
+              <Badge variant="destructive">{items.length} ruins</Badge>
               {noMatch > 0 && <Badge variant="outline" className="border-warning text-warning">{noMatch} sem UTM</Badge>}
               {typeof stats?.match_pct === "number" && (
                 <Badge variant="outline" className={cn(stats.match_pct >= 70 ? "border-success text-success" : "border-warning text-warning")}>
@@ -620,29 +420,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 </Badge>
               )}
               {typeof stats?.gam_attributed_pct === "number" && (
-                <Badge variant="outline" title={`GAM total US$ ${stats.gam_total_usd} · batido por placement US$ ${stats.gam_attributed_usd}${stats.gam_orphan_usd ? ` · sem placement exato US$ ${stats.gam_orphan_usd}` : ""}`}>
-                  Receita com match: {stats.gam_attributed_pct}%
+                <Badge variant="outline" title={`GAM total US$ ${stats.gam_total_usd} · atribuído US$ ${stats.gam_attributed_usd}`}>
+                  Receita atribuída: {stats.gam_attributed_pct}%
                 </Badge>
               )}
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/60 px-2 py-1 text-xs">
-                <span>Custo ({analysisWindowDays}d): <strong className="tabular-nums">{fmtBRL(grandCost)}</strong> · Lucro com match exato: <strong className="tabular-nums">{fmtBRL(grandProfit)}</strong></span>
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-6 px-2 ml-1"
-                  onClick={() => runResyncAndPreview(true)}
-                  disabled={resyncing || reviewingProtected || loading}
-                  title="Re-puxa receita do GAM e recheca TUDO (inclusive os protegidos)"
-                >
-                  {(resyncing || reviewingProtected) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                  Checar GAM
-                </Button>
-              </span>
-              {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
-                <Badge variant="outline" className="border-warning text-warning" title="A receita do GAM não bateu exatamente com um placement do Ads. Por segurança, só removi da lista os placements que poderiam ficar bons se essa receita fosse deles.">
-                  🛡️ {stats?.skipped_unsafe_campaign} protegido(s) por receita sem match exato
-                </Badge>
-              )}
+              <Badge variant="secondary">Custo ({analysisWindowDays}d): {fmtBRL(grandCost)} · Lucro: {fmtBRL(grandProfit)}</Badge>
               <select
                 className="h-7 text-xs rounded border border-border bg-background px-2"
                 value={accountFilter}
@@ -657,38 +439,20 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   });
                 }}
               >
-                <option value="all">Todas as contas do site ({visibleAccounts.length})</option>
-                {visibleAccounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+                <option value="all">Todas as contas ({accounts.length})</option>
+                {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
               </select>
               <span className="ml-auto flex items-center gap-3 text-xs">
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => runResyncAndPreview(false)}
+                  onClick={runResyncAndPreview}
                   disabled={resyncing || loading}
                   title="Re-puxa receita do GAM no período e roda o preview de novo"
                 >
                   {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
                   Ressincronizar receita & rechecar
                 </Button>
-                {(stats?.skipped_unsafe_campaign ?? 0) > 0 && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => runResyncAndPreview(true)}
-                    disabled={reviewingProtected || resyncing || loading}
-                    title="Atualiza a receita e mostra os protegidos sem selecionar para exclusão automática"
-                  >
-                    {reviewingProtected ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />}
-                    Ver com calma
-                  </Button>
-                )}
-                <span className="flex items-center gap-2" title="Quando ligado, bloqueia seleção de placements em campanhas com receita órfã no GAM (sem match exato).">
-                  🛡️ Modo seguro <Switch checked={safeMode} onCheckedChange={setSafeMode} />
-                </span>
-                <span className="flex items-center gap-2" title="Rateia a receita órfã do GAM por custo dos placements pra estimar um ROI mais realista.">
-                  📊 Estimar órfã <Switch checked={estimateOrphan} onCheckedChange={setEstimateOrphan} />
-                </span>
                 <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
@@ -700,80 +464,45 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   <TableHead className="w-10"></TableHead>
                   <TableHead>Campanha</TableHead>
                   <TableHead className="text-right">Custo ({analysisWindowDays}d)</TableHead>
-                  <TableHead className="text-right">Receita exata ({analysisWindowDays}d)</TableHead>
+                  <TableHead className="text-right">Receita ({analysisWindowDays}d)</TableHead>
                   <TableHead className="text-right">Lucro</TableHead>
                   <TableHead className="text-right">ROI</TableHead>
-                  {estimateOrphan && <TableHead className="text-right" title="ROI estimado com rateio da receita órfã do GAM por custo do placement">ROI est.</TableHead>}
                   <TableHead className="text-right">Ruins</TableHead>
-                  <TableHead className="w-20"></TableHead>
                   <TableHead className="text-right">Selec.</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedCampaigns.length === 0 && (
-                  <TableRow><TableCell colSpan={estimateOrphan ? 10 : 9} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nada a limpar 🎉</TableCell></TableRow>
                 )}
                 {sortedCampaigns.map((camp) => {
                   const list = itemsByCampaign.get(camp.campaign_id) ?? [];
-                  const selectableList = list.filter((i) => canExcludeInMode(i, camp.campaign_id));
-                  const allSelected = selectableList.length > 0 && selectableList.every((i) => selected.has(itemKey(i)));
+                  const websiteList = list.filter((i) => i.type === "WEBSITE");
+                  const allSelected = websiteList.length > 0 && websiteList.every((i) => selected.has(itemKey(i)));
                   const isOpen = expanded.has(camp.campaign_id);
-                  const isUnsafe = !camp.fully_matched && camp.orphan_brl > 0;
-                  const openGamSearch = (e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    const q = encodeURIComponent(camp.name);
-                    window.open(`https://admanager.google.com/${q}#delivery/report_home`, "_blank");
-                  };
                   return (
                     <Fragment key={camp.campaign_id}>
-                      <TableRow key={camp.campaign_id} className={cn("cursor-pointer hover:bg-muted/30", isUnsafe && "bg-warning/5")} onClick={() => toggleExpand(camp.campaign_id)}>
+                      <TableRow key={camp.campaign_id} className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(camp.campaign_id)}>
                         <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
-                        <TableCell className="font-medium text-sm">
-                          <div className="flex items-center gap-2">
-                            {isUnsafe && <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />}
-                            <span>{camp.name}</span>
-                          </div>
-                        </TableCell>
+                        <TableCell className="font-medium text-sm">{camp.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtBRL(camp.cost_brl)}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          <div>{fmtBRL(camp.revenue_brl)}</div>
-                          {camp.orphan_brl > 0 && (
-                            <div className="text-[10px] text-warning" title="Receita atribuída ao GAM mas sem placement com match exato">
-                              +{fmtBRL(camp.orphan_brl)} órfã GAM
-                            </div>
-                          )}
-                          {camp.revenue_count > 0 && <div className="text-[10px] text-muted-foreground">{camp.revenue_count} com receita</div>}
-                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtBRL(camp.revenue_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums", camp.profit_brl < 0 && "text-danger")}>{fmtBRL(camp.profit_brl)}</TableCell>
                         <TableCell className={cn("text-right tabular-nums font-semibold", camp.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(camp.roi_pct)}</TableCell>
-                        {estimateOrphan && (
-                          <TableCell className={cn("text-right tabular-nums text-xs", camp.est_roi_pct < 0 ? "text-danger" : "text-success")} title="ROI estimado considerando a receita órfã do GAM rateada por custo">
-                            {fmtPercent(camp.est_roi_pct)}
-                          </TableCell>
-                        )}
                         <TableCell className="text-right">
                           {list.length > 0
                             ? <Badge variant="destructive">{list.length}</Badge>
                             : <Badge variant="outline" className="border-success/50 text-success">0</Badge>}
                         </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" onClick={openGamSearch} title="Abrir GAM para investigar UTM/placement">
-                            <ExternalLink className="h-3 w-3 mr-1" />GAM
-                          </Button>
-                        </TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           {list.length > 0 && (
-                            <Checkbox
-                              checked={allSelected}
-                              disabled={selectableList.length === 0}
-                              onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)}
-                            />
+                            <Checkbox checked={allSelected} onCheckedChange={(v) => toggleCampaignSelection(camp.campaign_id, !!v)} />
                           )}
                         </TableCell>
                       </TableRow>
                       {isOpen && (
                         <TableRow key={`${camp.campaign_id}-detail`}>
-                          <TableCell colSpan={estimateOrphan ? 10 : 9} className="bg-muted/10 p-0">
+                          <TableCell colSpan={8} className="bg-muted/10 p-0">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -782,10 +511,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   <TableHead>Tipo</TableHead>
                                   <TableHead className="text-right">Cliques</TableHead>
                                   <TableHead className="text-right">Custo</TableHead>
-                                  <TableHead className="text-right">Receita exata</TableHead>
-                                  <TableHead className="text-right">Sem match</TableHead>
+                                  <TableHead className="text-right">Receita</TableHead>
                                   <TableHead className="text-right">ROI</TableHead>
-                                  {estimateOrphan && <TableHead className="text-right">ROI est.</TableHead>}
                                   {showDebug && <TableHead>Match</TableHead>}
                                   {showDebug && <TableHead>Motivo</TableHead>}
                                 </TableRow>
@@ -793,50 +520,23 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
-                                  const baseCan = canExclude(i);
-                                  const allowedInMode = canExcludeInMode(i, camp.campaign_id);
-                                  const disabled = !allowedInMode;
+                                  const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
-                                  const estRoi = estimatedItemRoi(i, camp.campaign_id);
-                                  const onCheck = () => {
-                                    if (selected.has(itemKey(i))) { toggle(itemKey(i)); return; }
-                                    // Se a campanha não é 100% atribuída, exigir confirmação explícita
-                                    if (!camp.fully_matched) {
-                                      const ok = confirm(
-                                        `⚠️ ATENÇÃO\n\nA campanha "${camp.name}" tem ${fmtBRL(camp.orphan_brl)} de receita no GAM SEM match exato a placements.\n\nROI atual: ${fmtPercent(i.roi_pct)}\nROI estimado (com rateio da órfã): ${fmtPercent(estRoi)}\n\nTem CERTEZA que quer excluir "${i.placement}"?`,
-                                      );
-                                      if (!ok) return;
-                                    }
-                                    toggle(itemKey(i));
-                                  };
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60", !camp.fully_matched && baseCan && "bg-warning/5")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
                                       <TableCell>
-                                        {i.is_protected
-                                          ? <ShieldAlert className="h-3.5 w-3.5 text-warning" />
-                                          : <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={onCheck} />}
+                                        <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
                                       <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
                                       <TableCell className="text-xs">
                                         {i.type}
-                                        {i.is_protected && <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning">protegido</Badge>}
-                                        {!camp.fully_matched && baseCan && !i.is_protected && (
-                                          <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning" title={`Campanha tem ${fmtBRL(camp.orphan_brl)} órfã no GAM`}>⚠️ sem match</Badge>
-                                        )}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
-                                        {disabled && !i.is_protected && safeMode && !camp.fully_matched && <Badge variant="secondary" className="ml-1 text-[9px]">bloq. seguro</Badge>}
-                                        {disabled && !i.is_protected && !safeMode && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtPlacementRevenue(c?.revenue_usd ?? 0)}</TableCell>
-                                      <TableCell className="text-right tabular-nums text-xs text-warning">{i.is_protected ? fmtPlacementRevenue(i.orphan_revenue_usd ?? 0) : "—"}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs text-danger font-semibold">{fmtPercent(i.roi_pct)}</TableCell>
-                                      {estimateOrphan && (
-                                        <TableCell className={cn("text-right tabular-nums text-xs", estRoi < 0 ? "text-danger" : "text-success")}>
-                                          {fmtPercent(estRoi)}
-                                        </TableCell>
-                                      )}
                                       {showDebug && (
                                         <TableCell>
                                           {c?.matched_utm
@@ -844,7 +544,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                             : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                                         </TableCell>
                                       )}
-                                      {showDebug && <TableCell className="text-[10px] font-mono max-w-[320px]">{i.is_protected ? protectedActionText : i.reason}</TableCell>}
+                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
                                     </TableRow>
                                   );
                                 })}
@@ -859,48 +559,12 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </TableBody>
             </Table>
           </div>
-          <DialogFooter className="gap-2 items-center">
-            {(() => {
-              const auditList = Object.values(audits);
-              const verified = auditList.filter((a) => a.audit_status === "verified").length;
-              const partial = auditList.filter((a) => a.audit_status === "partial").length;
-              const leak = auditList.filter((a) => a.audit_status === "leak_detected").length;
-              const unreliable = auditList.filter((a) => a.audit_status === "unreliable").length;
-              const minConf = paranoidMode ? PARANOID_MIN_CONFIDENCE : STANDARD_MIN_CONFIDENCE;
-              const maxLeak = paranoidMode ? PARANOID_MAX_LEAK_PCT : 10;
-              const selCids = new Set(items.filter((i) => selected.has(itemKey(i))).flatMap((i) => i.campaigns.map((c) => c.campaign_id)));
-              const blocking = [...selCids].map((cid) => audits[cid]).filter(Boolean).filter((a) => a.confidence < minConf || Math.abs(a.leak_percent) > maxLeak);
-              const missingAudit = paranoidMode && [...selCids].some((cid) => !audits[cid]);
-              const blocked = blocking.length > 0 || missingAudit;
-              return (
-                <>
-                  <div className="mr-auto flex flex-wrap items-center gap-2 text-xs">
-                    {auditing && <Badge variant="outline"><Loader2 className="h-3 w-3 mr-1 animate-spin" />reconciliando…</Badge>}
-                    {verified > 0 && <Badge variant="outline" className="border-success text-success">✅ {verified} VERIFIED</Badge>}
-                    {partial > 0 && <Badge variant="outline" className="border-warning text-warning">◐ {partial} PARTIAL</Badge>}
-                    {leak > 0 && <Badge variant="outline" className="border-danger text-danger">⚠️ {leak} LEAK</Badge>}
-                    {unreliable > 0 && <Badge variant="destructive">🛑 {unreliable} UNRELIABLE</Badge>}
-                    {cleanupSnapshot && cleanupSnapshot.campaign_ids.length > 0 && (
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={auditing}
-                        onClick={() => runReconciliation(cleanupSnapshot.campaign_ids, cleanupSnapshot.period ?? { from: effectiveRange.from, to: effectiveRange.to }, true)}>
-                        Rebuild & recheck
-                      </Button>
-                    )}
-                    <label className="inline-flex items-center gap-1 ml-2 cursor-pointer" title={`Só permite excluir se confidence ≥ ${PARANOID_MIN_CONFIDENCE} e |leak| ≤ ${PARANOID_MAX_LEAK_PCT}%`}>
-                      <input type="checkbox" checked={paranoidMode} onChange={(e) => setParanoidMode(e.target.checked)} />
-                      <span className="font-medium">PARANOID</span>
-                    </label>
-                    {blocked && selected.size > 0 && <Badge variant="destructive" className="ml-1">🚫 receita não confiável</Badge>}
-                  </div>
-                  <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                  <Button variant="destructive" disabled={applying || selected.size === 0 || blocked} onClick={runApply}
-                    title={blocked ? `${blocking.length} campanha(s) com receita não confiável${missingAudit ? " · auditoria pendente" : ""}` : undefined}>
-                    {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-                    Aplicar exclusão ({selected.size})
-                  </Button>
-                </>
-              );
-            })()}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button variant="destructive" disabled={applying || selected.size === 0} onClick={runApply}>
+              {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Aplicar exclusão ({selected.size})
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

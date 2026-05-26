@@ -20,62 +20,22 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const accountIds: string[] = Array.isArray((body as any)?.account_ids) ? (body as any).account_ids : [];
     const campaignIds: string[] = Array.isArray((body as any)?.campaign_ids) ? (body as any).campaign_ids : [];
-    const requestedUserId: string | null = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
-    const onlyMissing: boolean = (body as any)?.only_missing === true;
 
-    const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    let userId: string | undefined;
-    let isService = false;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
-      userId = requestedUserId ?? undefined;
-      isService = true;
-    } else {
-      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
-    }
+    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
+    const userId = claims?.claims?.sub;
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-
-    if (!isService) {
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_edit_rules" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_edit_rules" });
-    }
-
 
     let q = admin.from("campaigns")
       .select("campaign_id, name, google_account_id")
       .eq("user_id", userId);
     if (accountIds.length) q = q.in("google_account_id", accountIds);
     if (campaignIds.length) q = q.in("campaign_id", campaignIds);
-    const { data: campaignsRaw, error: cErr } = await q;
+    const { data: campaigns, error: cErr } = await q;
     if (cErr) return json({ error: cErr.message });
-    if (!campaignsRaw?.length) return json({ ok: true, total: 0, success: 0, failed: 0, skipped: 0, suffix: SUFFIX });
-
-    let campaigns = campaignsRaw;
-    let skipped = 0;
-
-    // only_missing: pula campanhas onde campaign_final_urls.final_url_suffix já bate com SUFFIX.
-    // Usado pelo auto-onboard pra não mutar a cada sync (rate limit do Google Ads).
-    if (onlyMissing) {
-      const ids = campaigns.map((c) => c.campaign_id);
-      const { data: existing } = await admin
-        .from("campaign_final_urls")
-        .select("campaign_id, final_url_suffix")
-        .eq("user_id", userId)
-        .in("campaign_id", ids);
-      const okSet = new Set(
-        (existing ?? [])
-          .filter((r) => (r.final_url_suffix ?? "") === SUFFIX)
-          .map((r) => r.campaign_id),
-      );
-      const before = campaigns.length;
-      campaigns = campaigns.filter((c) => !okSet.has(c.campaign_id));
-      skipped = before - campaigns.length;
-      if (!campaigns.length) return json({ ok: true, total: before, success: 0, failed: 0, skipped, suffix: SUFFIX, note: "all campaigns already canonical" });
-    }
+    if (!campaigns?.length) return json({ error: "Nenhuma campanha encontrada" });
 
     // Agrupa por google_account_id
     const byAcc = new Map<string, typeof campaigns>();
@@ -170,7 +130,7 @@ Deno.serve(async (req) => {
       error: errors.length ? JSON.stringify(errors).slice(0, 1000) : null,
     });
 
-    return json({ ok: true, total: campaigns.length, success: totalOk, failed: totalFail, skipped, suffix: SUFFIX, errors });
+    return json({ ok: true, total: campaigns.length, success: totalOk, failed: totalFail, suffix: SUFFIX, errors });
   } catch (e) {
     console.error("[apply-utm-bulk] uncaught", e);
     return json({ error: String(e) });

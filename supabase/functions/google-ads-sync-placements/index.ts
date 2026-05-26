@@ -25,18 +25,9 @@ Deno.serve(async (req) => {
     }
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id as string : null;
-    let userId: string | undefined;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
-      userId = requestedUserId ?? undefined;
-    } else {
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
-    }
+    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
+    const userId = claims?.claims?.sub;
     if (!userId) return json({ error: "Token inválido" });
-
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 

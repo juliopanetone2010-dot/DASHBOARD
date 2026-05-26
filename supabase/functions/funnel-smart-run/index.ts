@@ -73,11 +73,6 @@ Deno.serve(async (req) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    if (userJwt && onlyUserId) {
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: onlyUserId, _perm: "can_use_funil" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_use_funil" }, 403);
-    }
-
     let cfgQuery = admin.from("site_funnel_config").select("*");
     if (onlyUserId) cfgQuery = cfgQuery.eq("user_id", onlyUserId);
     if (selectedSiteId) cfgQuery = cfgQuery.eq("site_id", selectedSiteId);

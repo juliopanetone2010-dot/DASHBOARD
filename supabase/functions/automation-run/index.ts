@@ -159,13 +159,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ACL: chamada manual (com JWT) exige can_run_automation. Cron (sem JWT) passa.
-    if (userJwt && onlyUserId) {
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: onlyUserId, _perm: "can_run_automation" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_run_automation" }, 403);
-    }
-
-
     // Regras numéricas continuam em rules_config; habilitação agora é por site/conta.
     let rulesQuery = admin.from("rules_config").select("*");
     if (onlyUserId) rulesQuery = rulesQuery.eq("user_id", onlyUserId);
@@ -1073,63 +1066,27 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
 }
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string, accountId: string): Promise<string | null> {
-  // Resolução em cascata. A automação não pode ficar cega quando o GAM só
-  // recebeu UTM em parte das visitas (utm_placement ausente ⇒ gam_placement_revenue
-  // fica vazia, mas a revenue real existe em gam_campaign_source_revenue / gam_url_revenue).
-  const pickTop = (rows: Array<{ site_id: string | null; revenue_usd?: number | null }> | null | undefined) => {
-    const bySite = new Map<string, number>();
-    for (const row of rows ?? []) {
-      const sid = String(row.site_id ?? "");
-      if (!sid) continue;
-      bySite.set(sid, (bySite.get(sid) ?? 0) + (Number(row.revenue_usd) || 0));
-    }
-    if (bySite.size === 0) return null;
-    return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
-  };
-
-  // 1) gam_placement_revenue (mais preciso quando existe)
-  const { data: p1 } = await admin
+  // Resolução SEGURA: somente via revenue real do GAM com campaign_id confirmado.
+  // gam_campaign_source_revenue também guarda linhas agregadas (__aggregate__) por origem;
+  // para automação usamos gam_placement_revenue porque ela vem de UTM de campanha/placement.
+  const { data: revenueSites } = await admin
     .from("gam_placement_revenue")
     .select("site_id, revenue_usd")
-    .eq("user_id", userId).eq("campaign_id", campaignId)
-    .not("site_id", "is", null).limit(1000);
-  const s1 = pickTop(p1); if (s1) return s1;
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .not("site_id", "is", null)
+    .limit(1000);
 
-  // 2) gam_campaign_source_revenue (UTM utm_campaign sem placement)
-  const { data: p2 } = await admin
-    .from("gam_campaign_source_revenue")
-    .select("site_id, revenue_usd")
-    .eq("user_id", userId).eq("campaign_id", campaignId)
-    .not("site_id", "is", null).limit(1000);
-  const s2 = pickTop(p2); if (s2) return s2;
-
-  // 3) gam_url_revenue via campaign_final_urls → mesmo site
-  const { data: urls } = await admin
-    .from("campaign_final_urls")
-    .select("final_url")
-    .eq("user_id", userId).eq("campaign_id", campaignId)
-    .not("final_url", "is", null).limit(50);
-  const urlList = Array.from(new Set((urls ?? []).map((r: any) => String(r.final_url)).filter(Boolean)));
-  if (urlList.length > 0) {
-    const { data: p3 } = await admin
-      .from("gam_url_revenue")
-      .select("site_id, revenue_usd")
-      .eq("user_id", userId).in("url", urlList)
-      .not("site_id", "is", null).limit(1000);
-    const s3 = pickTop(p3); if (s3) return s3;
+  const bySite = new Map<string, number>();
+  for (const row of revenueSites ?? []) {
+    const sid = String(row.site_id ?? "");
+    if (!sid) continue;
+    bySite.set(sid, (bySite.get(sid) ?? 0) + (Number(row.revenue_usd) || 0));
   }
+  if (bySite.size === 1) return [...bySite.keys()][0];
+  if (bySite.size > 1) return [...bySite.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
-  // 4) último recurso: site vinculado à conta Google Ads (1:1 only — evita
-  // atribuir a um site errado quando a conta serve múltiplos sites)
-  if (accountId) {
-    const { data: links } = await admin
-      .from("account_site_links")
-      .select("site_id")
-      .eq("user_id", userId).eq("google_account_id", accountId);
-    const uniq = Array.from(new Set((links ?? []).map((r: any) => String(r.site_id)).filter(Boolean)));
-    if (uniq.length === 1) return uniq[0];
-  }
-
+  // Sem revenue GAM = não conseguimos confirmar o site. Não tocar.
   return null;
 }
 

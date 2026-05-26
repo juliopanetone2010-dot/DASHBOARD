@@ -483,20 +483,35 @@ function allocateRevenueUsdByPlacement(
     const ads = adsByCampaign.get(cid) ?? [];
     if (ads.length === 0) continue;
     const indexes = buildPlacementIndexes(ads);
-
-    // Atribuição ESTRITA: só match EXATO do host. Sem root/prefixo e sem rateio
-    // de receita órfã — garante que a receita exibida bate 100% com o GAM.
+    const claimed = new Set<string>();
+    let unmatchedUsd = 0;
     for (const [rawPlacement, usd] of revenues) {
       if (usd <= 0) continue;
       const revPlacement = normalize(rawPlacement);
-      const exactMatches = indexes.byExact.get(revPlacement);
-      if (!exactMatches || exactMatches.length === 0) continue;
-      const totalCost = exactMatches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-      const totalClicks = exactMatches.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-      const equalShare = usd / exactMatches.length;
-      for (const a of exactMatches) {
+      const matches = findPlacementMatches(revPlacement, indexes).filter((a) => !claimed.has(a.placement));
+      if (matches.length === 0) { unmatchedUsd += usd; continue; }
+      const targets = matches;
+      if (targets.length === 0) continue;
+      const totalCost = targets.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+      const totalClicks = targets.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+      const equalShare = usd / targets.length;
+      for (const a of targets) {
         const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
         const share = weight > 0 ? usd * weight : equalShare;
+        const key = cpKey(scope, cid, a.placement);
+        result.set(key, (result.get(key) ?? 0) + share);
+        claimed.add(a.placement);
+      }
+    }
+    if (unmatchedUsd > 0) {
+      const targets = ads.filter((a) => !claimed.has(a.placement));
+      const fallback = targets.length > 0 ? targets : ads;
+      const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+      const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+      const equalShare = unmatchedUsd / fallback.length;
+      for (const a of fallback) {
+        const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+        const share = weight > 0 ? unmatchedUsd * weight : equalShare;
         const key = cpKey(scope, cid, a.placement);
         result.set(key, (result.get(key) ?? 0) + share);
       }

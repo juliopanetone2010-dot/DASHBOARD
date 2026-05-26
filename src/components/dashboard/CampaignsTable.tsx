@@ -16,26 +16,19 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
-import { FinalUrlActions, type FinalUrlInfo } from "./FinalUrlActions";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "conv_rate" | "cost_per_conv";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions";
 type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
   downAccountIds?: Set<string>;
-  finalUrlMap?: Map<string, FinalUrlInfo>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
 
-
-const ctrOf = (c: CampaignAggregate) => (c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0);
-const convRateOf = (c: CampaignAggregate) => (c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0);
-const cpaOf = (c: CampaignAggregate) => (c.conversions > 0 ? c.spend / c.conversions : 0);
-
-export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
@@ -53,16 +46,9 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
     if (!sort) return campaigns;
     const arr = [...campaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
-    const getVal = (c: CampaignAggregate): number => {
-      switch (sort.key) {
-        case "ctr": return ctrOf(c);
-        case "conv_rate": return convRateOf(c);
-        case "cost_per_conv": return cpaOf(c);
-        default: return Number(c[sort.key as keyof CampaignAggregate] ?? 0);
-      }
-    };
     arr.sort((a, b) => {
-      const av = getVal(a); const bv = getVal(b);
+      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
+      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
       if (av === bv) return 0;
       return av < bv ? -1 * mult : 1 * mult;
     });
@@ -131,18 +117,15 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
               <SortHead k="ecpm" label="eCPM" />
-              <SortHead k="ctr" label="CTR" />
               <SortHead k="clicks" label="Cliques" />
               <SortHead k="conversions" label="Conv." />
-              <SortHead k="conv_rate" label="Tx. Conv." />
-              <SortHead k="cost_per_conv" label="CPA" />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={14} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -173,20 +156,6 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
-                    {(() => {
-                      const info = finalUrlMap?.get(c.campaign_id);
-                      return (
-                        <FinalUrlActions
-                          {...(info ?? { url: null, source: "unknown" })}
-                          compact
-                          className="mt-0.5"
-                          campaignId={c.campaign_id}
-                          googleAccountId={c.google_account_id ?? null}
-                          onRefresh={onRefresh}
-                        />
-                      );
-                    })()}
-
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -222,19 +191,10 @@ export function CampaignsTable({ campaigns, downAccountIds, finalUrlMap, onPause
                     {fmtUSD(Number(c.ecpm) || 0)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtPercent(ctrOf(c))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(Math.round(c.conversions))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtPercent(convRateOf(c))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {c.conversions > 0 ? fmtCurrency(cpaOf(c)) : "—"}
                   </TableCell>
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">

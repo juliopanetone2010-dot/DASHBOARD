@@ -53,36 +53,10 @@ Deno.serve(async (req) => {
     const dryRunOverride = (body as any)?.dry_run as boolean | undefined;
     const targetUserId = (body as any)?.user_id as string | undefined;
     const siteIds = Array.isArray((body as any)?.site_ids) ? ((body as any).site_ids as string[]).map(String) : null;
-    const cronRunAll = Boolean((body as any)?.cron_run_all);
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
-    const systemMode = token === SERVICE_KEY || cronRunAll;
-
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-
-    // Modo sistema sem user_id → loop em TODOS usuários com engine habilitada (cron)
-    if ((systemMode && !targetUserId) || cronRunAll) {
-      const { data: enabledCfgs } = await admin
-        .from("scale_unlock_config")
-        .select("*")
-        .eq("enabled", true);
-      const results: any[] = [];
-      for (const cfgRow of enabledCfgs ?? []) {
-        const cfg = cfgRow as unknown as SUConfig;
-        const dryRun = dryRunOverride ?? cfg.dry_run;
-        try {
-          const r = await runForUser(admin, cfg.user_id, cfg, dryRun, SERVICE_KEY, siteIds);
-          await admin.from("scale_unlock_config")
-            .update({ last_run_at: new Date().toISOString() })
-            .eq("user_id", cfg.user_id);
-          results.push({ user_id: cfg.user_id, ...r });
-        } catch (err) {
-          results.push({ user_id: cfg.user_id, error: String((err as Error)?.message ?? err) });
-        }
-      }
-      return json({ ok: true, mode: "cron_all_users", users: results.length, results });
-    }
+    const systemMode = token === SERVICE_KEY;
 
     let userId = targetUserId ?? "";
     if (!systemMode) {
@@ -90,9 +64,9 @@ Deno.serve(async (req) => {
       const { data: claims } = await userClient.auth.getClaims(token);
       userId = String(claims?.claims?.sub ?? "");
       if (!userId) return json({ error: "Token inválido" }, 401);
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_scale_campaigns" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_scale_campaigns" }, 403);
     }
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
     // Carrega ou cria config
     let { data: cfgRow } = await admin
@@ -264,7 +238,6 @@ async function runForUser(
     const baseStateUpdate: Json = {
       user_id: userId,
       campaign_id: cid,
-      campaign_name: (camp as any).name ?? null,
       google_account_id: accountId,
       site_id: siteId,
       unlock_score: score,

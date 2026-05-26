@@ -1,9 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown, Ban, Bug, Pencil } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
-} from "@/components/ui/dialog";
+import { Loader2, RefreshCw, Globe, ChevronDown, ChevronUp, ChevronsUpDown, Ban, Bug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,21 +27,6 @@ interface Props { fxUsdBrl: number; }
 
 type SortKey = "cost" | "revenue" | "roi" | "clicks" | "impressions";
 type ViewMode = "country" | "campaign";
-
-const normalizeCountryCode = (countryCode: string | null | undefined) => String(countryCode ?? "").trim().toUpperCase();
-const countryExclusionKey = (campaignId: string, countryCode: string | null | undefined) => `${campaignId}|country:${normalizeCountryCode(countryCode)}`;
-const criterionExclusionKey = (campaignId: string, criterionId: string | null | undefined) => `${campaignId}|criterion:${String(criterionId ?? "").replace(/\D/g, "")}`;
-const addCountryExclusionKeys = (set: Set<string>, campaignId: string, countryCode?: string | null, criterionId?: string | null) => {
-  const code = normalizeCountryCode(countryCode);
-  const criterion = String(criterionId ?? "").replace(/\D/g, "");
-  if (code) set.add(countryExclusionKey(campaignId, code));
-  if (criterion) set.add(criterionExclusionKey(campaignId, criterion));
-};
-const isCountryExcluded = (set: Set<string>, campaignId: string, countryCode?: string | null, criterionId?: string | null) => {
-  const code = normalizeCountryCode(countryCode);
-  const criterion = String(criterionId ?? "").replace(/\D/g, "");
-  return (code && set.has(countryExclusionKey(campaignId, code))) || (criterion && set.has(criterionExclusionKey(campaignId, criterion)));
-};
 
 export function CountriesTab({ fxUsdBrl }: Props) {
   const dash = useDashboardData();
@@ -98,7 +79,6 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         to: range.to,
         fxUsdBrl,
         netFactor: NET_FACTOR,
-        restrictToCurrentCountries: true,
       });
       const cells = [...result.cells.values()];
       setCountryRows(cells);
@@ -115,25 +95,6 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         for (const c of campRows ?? []) names[String(c.campaign_id)] = c.name;
       }
       setCampNames(names);
-
-      // Rehidrata exclusões já executadas (persistidas em automation_actions)
-      if (ids.length > 0) {
-        const excluded = new Set<string>();
-        for (let i = 0; i < ids.length; i += 200) {
-          const { data: acts } = await supabase
-            .from("automation_actions")
-            .select("campaign_id, payload")
-            .eq("action_type", "exclude_country")
-            .eq("status", "executed")
-            .in("campaign_id", ids.slice(i, i + 200))
-            .limit(5000);
-          for (const a of acts ?? []) {
-            const payload = (a.payload ?? {}) as { country_code?: string | null; country_criterion_id?: string | null };
-            addCountryExclusionKeys(excluded, String(a.campaign_id), payload.country_code, payload.country_criterion_id);
-          }
-        }
-        setExcludedKeys(excluded);
-      }
     } catch (e) {
       toast({ title: "Erro ao carregar países", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
       setCountryRows([]);
@@ -160,8 +121,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
         site_id: siteId === "all" ? undefined : siteId,
         account_ids: effectiveAccountIds,
         revenue_only: true,
-        skip_viewability: true,
-        skip_snapshot_regen: true,
+        wait: true,
         include_yesterday_fallback: preset === "today",
       };
       const adsRes = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-sync-campaigns", { body: syncBody });
@@ -323,14 +283,14 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
         "google-ads-mutate",
-        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId, country_code: countryCode } },
+        { body: { action: "exclude_country", campaign_id: campaignId, country_criterion_id: criterionId } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao excluir país", description: data?.error ?? error?.message, variant: "destructive" });
         return;
       }
-      setExcludedKeys((s) => { const n = new Set(s); addCountryExclusionKeys(n, campaignId, countryCode, criterionId); return n; });
-      setSelectedKeys((s) => { const n = new Set(s); n.delete(countryExclusionKey(campaignId, countryCode)); return n; });
+      setExcludedKeys((s) => { const n = new Set(s); n.add(`${campaignId}|${countryCode}`); return n; });
+      setSelectedKeys((s) => { const n = new Set(s); n.delete(`${campaignId}|${countryCode}`); return n; });
       toast({ title: "País excluído", description: `${countryName} adicionado como exclusão na campanha.` });
     } finally { setExcluding(null); }
   };
@@ -339,8 +299,8 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     const items: { campaignId: string; criterionId: string | null; countryCode: string; countryName: string }[] = [];
     const seen = new Set<string>();
     for (const r of countryRows) {
-      const k = countryExclusionKey(r.campaign_id, r.country_code);
-      if (selectedKeys.has(k) && !isCountryExcluded(excludedKeys, r.campaign_id, r.country_code, r.country_criterion_id) && !seen.has(k)) {
+      const k = `${r.campaign_id}|${r.country_code}`;
+      if (selectedKeys.has(k) && !excludedKeys.has(k) && !seen.has(k)) {
         seen.add(k);
         items.push({ campaignId: r.campaign_id, criterionId: r.country_criterion_id, countryCode: r.country_code, countryName: r.country_name ?? r.country_code });
       }
@@ -353,10 +313,10 @@ export function CountriesTab({ fxUsdBrl }: Props) {
       try {
         const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>(
           "google-ads-mutate",
-          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId, country_code: it.countryCode } },
+          { body: { action: "exclude_country", campaign_id: it.campaignId, country_criterion_id: it.criterionId } },
         );
         if (error || data?.error) { fail++; continue; }
-        setExcludedKeys((s) => { const n = new Set(s); addCountryExclusionKeys(n, it.campaignId, it.countryCode, it.criterionId); return n; });
+        setExcludedKeys((s) => { const n = new Set(s); n.add(`${it.campaignId}|${it.countryCode}`); return n; });
         ok++;
       } catch { fail++; }
     }
@@ -364,26 +324,6 @@ export function CountriesTab({ fxUsdBrl }: Props) {
     setBulkBusy(false);
     toast({ title: "Exclusão em lote", description: `${ok} excluídos${fail ? `, ${fail} falharam` : ""}.`, variant: fail && !ok ? "destructive" : "default" });
   };
-
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const handleRename = async (campaignId: string, newName: string) => {
-    setRenaming(campaignId);
-    try {
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; name?: string }>(
-        "google-ads-mutate",
-        { body: { action: "set_name", campaign_id: campaignId, name: newName } },
-      );
-      if (error || data?.error) {
-        toast({ title: "Erro ao renomear", description: data?.error ?? error?.message, variant: "destructive" });
-        return false;
-      }
-      setCampNames((m) => ({ ...m, [campaignId]: newName }));
-      toast({ title: "Campanha renomeada", description: newName });
-      return true;
-    } finally { setRenaming(null); }
-  };
-
-
 
   const toggleSelect = (key: string) => setSelectedKeys((s) => {
     const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n;
@@ -605,7 +545,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             {!loading && view === "country" && sortedCountries.map((c) => {
               const isOpen = expanded.has(c.code);
               const allCamps = campaignsByCountry.get(c.code) ?? [];
-              const camps = allCamps.filter((cp) => !isCountryExcluded(excludedKeys, cp.campaign_id, c.code, cp.country_criterion_id));
+              const camps = allCamps.filter((cp) => !excludedKeys.has(`${cp.campaign_id}|${c.code}`));
               if (camps.length === 0) return null;
               const visCost = camps.reduce((a, x) => a + x.cost, 0);
               const visRev = camps.reduce((a, x) => a + x.revenue_brl, 0);
@@ -651,7 +591,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {camps.map((cp) => {
                             const key = `${cp.campaign_id}|${cp.country_criterion_id ?? ""}`;
-                            const selKey = countryExclusionKey(cp.campaign_id, c.code);
+                            const selKey = `${cp.campaign_id}|${c.code}`;
                             return (
                               <TableRow key={cp.campaign_id}>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -665,18 +605,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                                 <TableCell className={cn("text-right tabular-nums", cp.profit < 0 && "text-danger")}>{fmtBRL(cp.profit)}</TableCell>
                                 <TableCell className={cn("text-right tabular-nums font-semibold", cp.roi < 0 ? "text-danger" : "text-success")}>{fmtPercent(cp.roi)}</TableCell>
                                 <TableCell className="text-right">
-                                  <div className="inline-flex items-center gap-1">
-                                    <RenameButton
-                                      busy={renaming === cp.campaign_id}
-                                      currentName={cp.name}
-                                      onConfirm={(n) => handleRename(cp.campaign_id, n)}
-                                    />
-                                    <ExcludeButton
-                                      busy={excluding === key}
-                                      onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
-                                      label={`Excluir ${c.name} desta campanha`}
-                                    />
-                                  </div>
+                                  <ExcludeButton
+                                    busy={excluding === key}
+                                    onConfirm={() => handleExclude(cp.campaign_id, cp.country_criterion_id, c.name, c.code)}
+                                    label={`Excluir ${c.name} desta campanha`}
+                                  />
                                 </TableCell>
                               </TableRow>
                             );
@@ -692,7 +625,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
             {!loading && view === "campaign" && sortedCampaigns.map((cp) => {
               const isOpen = expanded.has(cp.campaign_id);
               const allList = countriesByCampaign.get(cp.campaign_id) ?? [];
-              const list = allList.filter((co) => !isCountryExcluded(excludedKeys, cp.campaign_id, co.country_code, co.country_criterion_id));
+              const list = allList.filter((co) => !excludedKeys.has(`${cp.campaign_id}|${co.country_code}`));
               if (list.length === 0) return null;
               const visCost = list.reduce((a, x) => a + x.cost, 0);
               const visRev = list.reduce((a, x) => a + x.revenue_brl, 0);
@@ -704,18 +637,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                 <Fragment key={cp.campaign_id}>
                   <TableRow className="cursor-pointer hover:bg-muted/30" onClick={() => toggleExpand(cp.campaign_id)}>
                     <TableCell><span className="text-xs">{isOpen ? "▼" : "▶"}</span></TableCell>
-                    <TableCell className="font-medium text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{cp.name}</span>
-                        <span onClick={(e) => e.stopPropagation()}>
-                          <RenameButton
-                            busy={renaming === cp.campaign_id}
-                            currentName={cp.name}
-                            onConfirm={(n) => handleRename(cp.campaign_id, n)}
-                          />
-                        </span>
-                      </div>
-                    </TableCell>
+                    <TableCell className="font-medium text-sm">{cp.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{list.length}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visCost)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtBRL(visRev)}</TableCell>
@@ -746,7 +668,7 @@ export function CountriesTab({ fxUsdBrl }: Props) {
                         <TableBody>
                           {list.map((co) => {
                             const key = `${cp.campaign_id}|${co.country_criterion_id ?? ""}`;
-                            const selKey = countryExclusionKey(cp.campaign_id, co.country_code);
+                            const selKey = `${cp.campaign_id}|${co.country_code}`;
                             return (
                               <TableRow key={co.country_code}>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -808,42 +730,5 @@ function ExcludeButton({ busy, onConfirm, label }: { busy: boolean; onConfirm: (
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
-}
-
-function RenameButton({ busy, currentName, onConfirm }: { busy: boolean; currentName: string; onConfirm: (newName: string) => Promise<boolean | void> }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(currentName);
-  useEffect(() => { if (open) setValue(currentName); }, [open, currentName]);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} title="Renomear campanha">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Renomear campanha</DialogTitle>
-          <DialogDescription>
-            O nome será atualizado no Google Ads. Útil quando você removeu um país do nome.
-          </DialogDescription>
-        </DialogHeader>
-        <Input value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button
-            disabled={busy || !value.trim() || value.trim() === currentName}
-            onClick={async () => {
-              const ok = await onConfirm(value.trim());
-              if (ok !== false) setOpen(false);
-            }}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : null}
-            Salvar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

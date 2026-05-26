@@ -60,10 +60,7 @@ function delay(ms: number) {
 }
 
 async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
-  // Sempre chama funções internas como service-role e passa o user_id do dono do site.
-  const internalAuthHeader = `Bearer ${SERVICE_ROLE}`;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
   const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -119,34 +116,11 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
-      internalAuthHeader,
+      { from, to, site_id: siteId, account_ids: accountIds },
+      authHeader,
     );
-
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
     if (!ads.ok) syncLog.errors.push(`ads sync ${ads.status}: ${JSON.stringify(ads.body).slice(0, 300)}`);
-
-    // 1b. Aplica UTM canônico nas campanhas que ainda não têm o suffix padrão.
-    // Idempotente (only_missing=true), então roda barato a cada auto-sync.
-    // Sem isso, campanhas novas ficam sem utm_campaign/utm_placement e a receita
-    // GAM cai no bucket __aggregate__ porque a engine não consegue reconciliar.
-    if (hasBudget(15_000)) {
-      const utm = await callFn(
-        "google-ads-apply-utm-bulk",
-        { account_ids: accountIds, user_id: userId, only_missing: true },
-        internalAuthHeader,
-      );
-      console.log("[auto-onboard] utm bulk", { siteId, status: utm.status, body: typeof utm.body === "object" ? { ok: (utm.body as any)?.ok, success: (utm.body as any)?.success, skipped: (utm.body as any)?.skipped, failed: (utm.body as any)?.failed } : utm.body });
-      if (!utm.ok) syncLog.errors.push(`utm bulk ${utm.status}: ${JSON.stringify(utm.body).slice(0, 200)}`);
-
-      const finalUrls = await callFn(
-        "google-ads-sync-final-urls",
-        { account_ids: accountIds, user_id: userId },
-        internalAuthHeader,
-      );
-      console.log("[auto-onboard] final urls", { siteId, status: finalUrls.status, body: typeof finalUrls.body === "object" ? { ok: (finalUrls.body as any)?.ok, upserted: (finalUrls.body as any)?.upserted } : finalUrls.body });
-      if (!finalUrls.ok) syncLog.errors.push(`final urls ${finalUrls.status}: ${JSON.stringify(finalUrls.body).slice(0, 200)}`);
-    }
 
     // 2. receita GAM em chunks pequenos e aguardando concluir.
     // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
@@ -175,12 +149,9 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       }
       const gam = await callFn(
         "gam-sync-revenue",
-        // Snapshot regen no chunk mais recente para o dashboard refletir receita nova;
-        // pulamos nos chunks antigos para caber no deadline.
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: !isFreshestChunk, user_id: userId },
-        internalAuthHeader,
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: true },
+        authHeader,
       );
-
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
       syncLog.gamChunks.push({ ...c, status: gam.status, ok: gam.ok });
       if (!gam.ok) syncLog.errors.push(`gam ${c.from}..${c.to} ${gam.status}: ${JSON.stringify(gam.body).slice(0, 300)}`);
@@ -203,7 +174,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
-      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to, user_id: userId }, internalAuthHeader);
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
       await delay(1_000);
@@ -262,35 +233,13 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     const { data: site } = await admin
       .from("sites")
-      .select("id, user_id, sync_status, sync_started_at, last_full_sync_at")
+      .select("id, sync_status, sync_started_at, last_full_sync_at")
       .eq("id", site_id)
+      .eq("user_id", user.id)
       .maybeSingle();
     if (!site) {
       return new Response(JSON.stringify({ error: "site not found" }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Access check: owner, super_admin, or granted via admin_site_access
-    const ownerUserId = (site as { user_id: string }).user_id;
-    let allowed = user.id === ownerUserId;
-    if (!allowed) {
-      const { data: isSuper } = await admin.rpc("is_super_admin", { _uid: user.id });
-      allowed = !!isSuper;
-    }
-    if (!allowed) {
-      const { data: granted } = await admin
-        .from("admin_site_access")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("site_id", site_id)
-        .maybeSingle();
-      allowed = !!granted;
-    }
-    if (!allowed) {
-      return new Response(JSON.stringify({ error: "forbidden" }), {
-        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -317,11 +266,11 @@ Deno.serve(async (req) => {
     await admin
       .from("sites")
       .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
-      .eq("id", site_id);
+      .eq("id", site_id)
+      .eq("user_id", user.id);
 
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, authHeader, isIncrementalRefresh));
-
+    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader, isIncrementalRefresh));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,

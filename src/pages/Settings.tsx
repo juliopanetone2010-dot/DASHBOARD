@@ -147,16 +147,6 @@ export default function Settings() {
             Redirect URI: <code className="font-mono">{typeof window !== "undefined" ? `${window.location.origin}/oauth/google-ads/callback` : ""}</code>
           </p>
         </section>
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-elegant">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-semibold">AI Providers</h2>
-              <p className="text-xs text-muted-foreground">Conecte DeepSeek, OpenAI, OpenRouter, Claude ou Gemini ao AI Assistant.</p>
-            </div>
-            <Button asChild size="sm"><Link to="/ai-settings">Abrir</Link></Button>
-          </div>
-        </section>
       </main>
     </div>
   );

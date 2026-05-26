@@ -41,10 +41,6 @@ Deno.serve(async (req) => {
     if (!u?.user) return json({ error: "unauthorized" }, 401);
     const userId = u.user.id;
 
-    const adminCli = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: hasPerm } = await adminCli.rpc("admin_has_permission", { _uid: userId, _perm: "can_use_migration" });
-    if (!hasPerm) return json({ error: "Permissão negada: can_use_migration" }, 403);
-
     const body = (await req.json()) as MigrationBody;
     if (!body?.source_campaign_id || !body?.source_google_account_id ||
         !body?.destination_google_account_id || !body?.destination_site_id ||

@@ -1,63 +1,150 @@
-## Diagnóstico
 
-A engine canônica que você descreveu **já existe** e está funcionando:
+# Arquitetura Database-First (estilo GAM/AdSense)
 
-- `supabase/functions/_shared/canonical_placement.ts` — `parseCanonicalPlacement()`, `normalizePlacement()`, `reconcileRow()` com hierarquia exact_utm_placement (100) → campaign_placement (95) → normalized_url (70) → inferred (40).
-- Tabela `placement_revenue_reconciled` com todos os campos da spec (canonical_key, reconciliation_method, confidence, broken_tracking, source_row, aggregate_allocated_revenue_usd, etc).
-- Edge function `rebuild-canonical-placement-engine` reprocessa tudo e popula a tabela.
-- `AttributionAuditTab` já tem botão "Rebuild canonical engine".
-- **100% das 7.905 linhas reconciliadas dos últimos 2 dias estão como `exact_utm_placement`.** A engine acerta.
+Objetivo: tela abre **instantânea** lendo do banco. APIs externas (Google Ads/GAM) rodam **só em background** via cron. UI **nunca** espera por elas.
 
-## Por que o dashboard mostra errado
+---
 
-O **consumidor** ainda lê das tabelas brutas, não da reconciliada:
+## Princípio central
 
-| Arquivo | Tabela lida hoje | Deveria ler |
+```text
+[ Google Ads API ]──┐
+                    ├──► [ CRON background ] ──► [ Postgres (banco) ] ──► [ React (UI instantânea) ]
+[ GAM API ]─────────┘                                  ▲
+                                                       │
+                              [ Botão "Atualizar" manual (opcional) ]
+```
+
+Regras:
+1. Frontend **só lê** do banco. Nunca chama edge function de sync no carregamento.
+2. Sync acontece **só** via cron OU clique manual no botão "Atualizar".
+3. Trocar filtro/site/data = `data.refresh()` (leitura). **Não** dispara sync.
+4. Botão "Atualizar": se último sync < 30min → mostra toast "dados recentes" e nem chama. Se > 30min → dispara sync em background, UI continua respondendo.
+5. Header sempre mostra `Última atualização: 10:35` por fonte (Google Ads / GAM).
+
+---
+
+## Etapas
+
+### 1. Limpar gatilhos de sync no frontend
+- `src/pages/Index.tsx`: remover `syncDashboardData` do `handleFilterChange`. Filtro só chama `data.refresh()`.
+- Carregamento inicial **nunca** dispara sync. Se banco vazio para o range, mostra estado "sem dados — clique em Atualizar".
+- Banner "Coletando dados…" só aparece quando o usuário **clicou** em Atualizar e o sync está em curso.
+- Mesma regra aplicada às abas: Calendário, Migração, Funil, Países, Placements, Criativos, Retenção.
+
+### 2. Botão "Atualizar" inteligente (cache 30min)
+- Lê `rules_config.last_*_sync_at` (já existem alguns campos: `automation_last_run_at`, etc).
+- Se `now - lastSync < 30min`: toast "Dados recentes (sync há Xmin)". Não chama nada.
+- Se ≥ 30min: dispara sync **fire-and-forget** (não dá `await`). UI segue navegável. Quando termina, invalida React Query e atualiza silenciosamente.
+- Indicador de "sync em andamento" só no header (spinner pequeno + "sincronizando…"), nunca cobrindo a tela.
+
+### 3. Tabela de controle de sync
+Nova tabela `sync_state` para registrar última sincronização por (site/conta/fonte):
+
+```text
+sync_state
+├── id, user_id
+├── source (google_ads | gam | placements | countries | creatives | funnel)
+├── google_account_id (nullable)
+├── site_id (nullable)
+├── last_started_at, last_finished_at
+├── last_status (ok | error | running)
+├── last_error (text)
+└── rows_synced (int)
+```
+RLS: `auth.uid() = user_id`.
+
+Cada edge function de sync grava aqui ao começar e ao terminar. Frontend lê pra mostrar "Última atualização: 10:35 ✓" por fonte.
+
+### 4. Crons em background (pg_cron)
+Um cron por fonte, intervalado pra não saturar. Cada um chama a edge function existente para **todos** os usuários/contas:
+
+| Cron | Frequência | Função |
 |---|---|---|
-| `src/pages/Index.tsx` linha 93 (extraRevQuery push/other) | `gam_campaign_source_revenue` | `placement_revenue_reconciled` |
-| `src/pages/Index.tsx` linha 237 (siteShareQuery) | `gam_placement_revenue` | `placement_revenue_reconciled` |
-| `src/components/dashboard/PlacementsTab.tsx` linha 124 (fetchAllGamPlacementRevenue) | `gam_placement_revenue` | `placement_revenue_reconciled` |
+| Google Ads campanhas + métricas | 30 min | `google-ads-sync-campaigns` |
+| GAM revenue | 1 h | `gam-sync-revenue` |
+| Placements | 2 h | `google-ads-sync-placements` |
+| Countries | 2 h | `google-ads-sync-countries` |
+| Creatives | 4 h | `google-ads-sync-creatives` |
+| FX rates | 6 h | `fx-sync` |
 
-Isso explica receita zero/errada em campanhas: a UI ignora o que a engine canônica já reconciliou.
+(Os crons de automação/funil/geo-cleanup já existem e ficam como estão.)
 
-## Mudanças
+### 5. Materialized views para dashboards pesados
+Views que agregam por dia/site/conta — refresh diário (ou a cada 1h via cron). Frontend lê da view, não recalcula no client:
 
-### 1. Migrar leituras para a tabela reconciliada
-- `Index.tsx`: trocar `gam_placement_revenue`/`gam_campaign_source_revenue` por `placement_revenue_reconciled` filtrando `reconciliation_method = 'exact_utm_placement'` (com fallback ao bruto só pra `utm_source != google` push/wpp/direct, que não entra na engine canônica).
-- `PlacementsTab.tsx`: `fetchAllGamPlacementRevenue` passa a ler `placement_revenue_reconciled` por `campaign_id`, retornando `placement`, `normalized_placement`, `revenue_usd`, `impressions`, `clicks`, `ecpm`, `reconciliation_method`, `confidence`, `broken_tracking`.
+- `dashboard_overview_daily` (spend, revenue_usd, revenue_brl, profit, roi, roas, clicks, conversions) por `user_id, site_id, date`
+- `campaign_summary_daily` por `user_id, campaign_id, date`
+- `placement_summary_daily` por `user_id, campaign_id, placement, date`
+- `country_summary_daily` por `user_id, campaign_id, country_code, date`
+- `creative_summary_daily` por `user_id, campaign_id, ad_id, date`
 
-### 2. Badges na aba Placements
-Em cada linha de placement adicionar badge baseado no row:
-- `VERIFIED` (verde) — `reconciliation_method = exact_utm_placement` e `confidence = 100`
-- `INFERRED` (amarelo) — `confidence < 95`
-- `BROKEN` (vermelho) — `broken_tracking = true`
-- `LEAK` (cinza) — placement existe em `ads_placements` mas sem linha em `placement_revenue_reconciled` (cliques sem revenue casada)
+`REFRESH MATERIALIZED VIEW CONCURRENTLY` via cron a cada 30min. Índices em `(user_id, site_id, date)`.
 
-### 3. Trava de segurança no cleanup
-Em `GlobalPlacementCleanup`/`PlacementsTab` qualquer botão de "excluir placement" só habilita se `confidence >= 95` E `reconciliation_method = 'exact_utm_placement'`. Caso contrário, botão desabilitado com tooltip "tracking não verificado".
+### 6. React Query — stale-while-revalidate
+Configurar globalmente:
+- `staleTime: 5 * 60 * 1000` (5min — não refaz fetch)
+- `gcTime: 30 * 60 * 1000`
+- `refetchOnWindowFocus: false`
+- `refetchOnMount: false` (já tem cache → mostra cache, não bloqueia)
+- `placeholderData: keepPreviousData` (troca de filtro mostra dados antigos enquanto novo chega)
 
-### 4. Auto-rebuild
-Adicionar cron (pg_cron) chamando `rebuild-canonical-placement-engine` a cada 30 min para os últimos 3 dias, garantindo que `placement_revenue_reconciled` esteja sempre fresca sem depender do botão manual.
+Resultado: navegar entre abas = instantâneo. Trocar filtro = mostra dados antigos por 200ms até o novo chegar do banco.
 
-### 5. Pequeno hardening do normalizador
-Atualizar `normalizePlacement()` em `_shared/canonical_placement.ts` para também tratar:
-- decodeURIComponent
-- remover anchors (`#...`)
-- remover slashes duplicados
-- remover trailing slash quando houver path (mantendo só host hoje já cobre, mas adicionar para placements com path)
+### 7. Aplicação por aba
+Remover qualquer chamada a `*-sync-*` no `useEffect`/mount de:
+- `MigrationTab`, `PlacementsTab`, `CountriesTab`, `CreativesTab`, `FinancialCalendarTab`, `RetentionTab`, `PlacementFunnelTab`, `SmartFunnelPanel`.
 
-## Arquivos tocados
+Cada uma passa a ler **só** das tabelas/views correspondentes. Se precisarem de "atualizar agora", têm botão local que segue mesma regra (cache 30min + fire-and-forget).
 
-- `supabase/functions/_shared/canonical_placement.ts` — hardening do normalize
-- `src/pages/Index.tsx` — trocar 2 queries de receita
-- `src/components/dashboard/PlacementsTab.tsx` — trocar fonte + adicionar badges + trava de exclusão
-- `src/components/dashboard/AttributionAuditTab.tsx` — adicionar métrica "VERIFIED %" no header
-- 1 migration nova: cron 30min chamando `rebuild-canonical-placement-engine`
+### 8. Header global de status
+Componente `SyncStatusBar` no topo da Index:
+```text
+✓ Google Ads: 10:31  ✓ GAM: 10:15  ✓ Placements: 09:00   [Atualizar tudo]
+```
+Cores: verde se < 1h, amarelo 1-6h, vermelho > 6h ou erro.
 
-Nenhuma tabela nova, nenhuma edge function nova. A engine já existe — só estou plugando a UI nela.
+---
 
-## Resultado esperado
+## Detalhes técnicos
 
-- Receita por campanha = soma de `placement_revenue_reconciled` onde `campaign_id = X` e `exact_utm_placement` → bate 1:1 com GAM por `utm_placement`.
-- Campanhas como SENAI/JOVEM APRENDIZ continuam $0 só se realmente não tiverem cliques chegando em página monetizada — o que é a verdade, não bug.
-- Nenhum placement marcado "ruim" se confidence < 95.
+**Migrations necessárias:**
+- `CREATE TABLE sync_state (...)` + RLS
+- `CREATE MATERIALIZED VIEW dashboard_overview_daily AS ...` (+ outras 4)
+- Índices: `CREATE UNIQUE INDEX ON dashboard_overview_daily (user_id, site_id, date)` (necessário para `REFRESH CONCURRENTLY`)
+- Habilitar `pg_cron` e `pg_net` se ainda não.
+
+**Crons (via supabase--insert, não migration — contém keys):**
+- 6 jobs novos no `cron.schedule(...)` chamando as edge functions com `pg_net.http_post`.
+- 1 job extra chamando `REFRESH MATERIALIZED VIEW CONCURRENTLY` a cada 30min.
+
+**Edge functions:**
+- Adicionar em cada sync function: `INSERT INTO sync_state` no início (status=running), `UPDATE` no fim (status=ok/error + rows_synced).
+- Não criar funções novas — só instrumentar as existentes.
+
+**Frontend:**
+- `src/pages/Index.tsx`: remover sync do `handleFilterChange` e do mount.
+- `src/App.tsx`: configurar QueryClient com defaults stale-while-revalidate.
+- Novo `src/components/dashboard/SyncStatusBar.tsx`.
+- Novo hook `src/hooks/useSyncState.ts` lendo `sync_state` com Realtime opcional.
+- `src/hooks/useDashboardData.ts`: trocar fontes por views materializadas onde possível.
+
+**Compatibilidade:**
+- Tabelas atuais (`daily_metrics`, `gam_placement_revenue` etc) ficam intactas. Views materializadas leem delas. Zero breaking change.
+
+---
+
+## Entregáveis (em ordem)
+
+1. Migration: `sync_state` + materialized views + índices.
+2. Insert: 7 cron jobs (`pg_cron`).
+3. Edge functions: instrumentar com `sync_state`.
+4. Frontend: remover syncs automáticos + QueryClient defaults + `SyncStatusBar` + botão Atualizar inteligente.
+5. Frontend por aba: remover syncs em mount de Migração/Funil/Países/Placements/Criativos/Calendário/Retenção.
+6. QA visual de cada aba: abrir e confirmar carregamento instantâneo.
+
+---
+
+## Confirmação
+
+Esse é um trabalho grande (touches ~15 arquivos, 1 migration grande, 7 crons, 6 edge functions). Vou executar em uma única passada se você aprovar este plano. Posso começar?

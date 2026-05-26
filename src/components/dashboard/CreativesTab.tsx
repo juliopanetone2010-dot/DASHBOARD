@@ -17,9 +17,6 @@ import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
-import { getNetFactor } from "@/lib/revshare";
-import { FinalUrlActions } from "./FinalUrlActions";
-import { buildFinalUrlMap } from "@/lib/final-url-map";
 
 interface CreativeRow {
   campaign_id: string;
@@ -98,8 +95,6 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
-  const [netFactor, setNetFactor] = useState(1);
-  const [finalUrls, setFinalUrls] = useState<Map<string, import("./FinalUrlActions").FinalUrlInfo>>(new Map());
 
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -140,12 +135,6 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      setNetFactor(await getNetFactor(siteId === "all" ? null : siteId));
-    })();
-  }, [siteId]);
-
   const saveRules = async (patch: Partial<{ creative_auto_optimize_enabled: boolean; creative_min_cost_brl: number; creative_min_days: number; creative_min_roi_diff_pct: number }>) => {
     const { data: u } = await supabase.auth.getUser();
     if (!u?.user) return;
@@ -182,19 +171,6 @@ export function CreativesTab({ fxUsdBrl }: Props) {
         list = allowed.size > 0 ? list.filter((r) => allowed.has(String(r.campaign_id))) : [];
       }
       setRows(list);
-
-      // Final URL REAL por campanha — vinda da API do Google Ads (campaign_final_urls).
-      try {
-        let uq = supabase
-          .from("campaign_final_urls")
-          .select("campaign_id, final_url, mobile_url, tracking_template, final_url_suffix, source, updated_at")
-          .order("updated_at", { ascending: false })
-          .limit(10000);
-        if (effectiveAccountIds.length > 0) uq = uq.in("google_account_id", effectiveAccountIds);
-        const { data: urlRows } = await uq;
-        setFinalUrls(buildFinalUrlMap(urlRows as any[]));
-      } catch { /* ignore */ }
-
     } finally { setLoading(false); }
   };
 
@@ -209,14 +185,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       const days = Math.max(1, Math.ceil((+new Date(range.to) - +new Date(range.from)) / 86400_000) + 1);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; rows?: number }>(
         "google-ads-sync-creatives",
-        {
-          body: {
-            lookback_days: days,
-            from: range.from,
-            to: range.to,
-            site_id: siteId === "all" ? undefined : siteId,
-          },
-        },
+        { body: { lookback_days: days, site_id: siteId === "all" ? undefined : siteId } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message, variant: "destructive" });
@@ -232,7 +201,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
     const adMap = new Map<string, AdAgg & { datesSet: Set<string> }>();
     const campMap = new Map<string, CampAgg>();
     for (const r of rows) {
-      const revBrl = Number(r.revenue_usd) * fxUsdBrl * netFactor;
+      const revBrl = Number(r.revenue_usd) * fxUsdBrl;
       const adKey = `${r.campaign_id}|${r.ad_group_id}|${r.ad_id}`;
       const a = adMap.get(adKey);
       if (a) {
@@ -279,7 +248,7 @@ export function CreativesTab({ fxUsdBrl }: Props) {
       c.ads.sort((a, b) => b.cost - a.cost);
     }
     return [...campMap.values()].sort((a, b) => b.cost - a.cost);
-  }, [rows, fxUsdBrl, netFactor]);
+  }, [rows, fxUsdBrl]);
 
   // Decisão por criativo dentro da campanha
   const decideAd = (ad: AdAgg, bestRoi: number | null) => {
@@ -541,9 +510,6 @@ export function CreativesTab({ fxUsdBrl }: Props) {
               <TableHead className="text-right">Impr.</TableHead>
               <TableHead className="text-right">Cliques</TableHead>
               <TableHead className="text-right">CTR</TableHead>
-              <TableHead className="text-right">Conv.</TableHead>
-              <TableHead className="text-right">Tx. Conv.</TableHead>
-              <TableHead className="text-right">CPA</TableHead>
               <TableHead className="text-right">Custo</TableHead>
               <TableHead className="text-right">Receita</TableHead>
               <TableHead className="text-right">Lucro</TableHead>
@@ -554,9 +520,9 @@ export function CreativesTab({ fxUsdBrl }: Props) {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={14} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={11} className="text-center py-10"><Loader2 className="h-4 w-4 animate-spin inline" /></TableCell></TableRow>
             ) : visibleCampaigns.length === 0 ? (
-              <TableRow><TableCell colSpan={14} className="text-center py-10 text-muted-foreground text-sm">
+              <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
                 {onlyNew ? "Nenhum criativo novo nos últimos 3 dias." : <>Nenhum criativo encontrado. Clique em <strong>Sincronizar Google Ads</strong>.</>}
               </TableCell></TableRow>
             ) : visibleCampaigns.map((c) => {
@@ -570,18 +536,12 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                       {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </TableCell>
                     <TableCell className="font-medium">
-                      <div>{c.campaign_name}
-                        <span className="ml-2 text-xs text-muted-foreground">({c.ads.length} criativos)</span>
-                      </div>
-                      <FinalUrlActions {...(finalUrls.get(c.campaign_id) ?? { url: null, source: "unknown" })} compact className="mt-0.5" />
-
+                      {c.campaign_name}
+                      <span className="ml-2 text-xs text-muted-foreground">({c.ads.length} criativos)</span>
                     </TableCell>
                     <TableCell className="text-right">{fmtNumber(c.impressions)}</TableCell>
                     <TableCell className="text-right">{fmtNumber(c.clicks)}</TableCell>
                     <TableCell className="text-right">{fmtPercent(c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0)}</TableCell>
-                    <TableCell className="text-right">{fmtNumber(Math.round(c.conversions))}</TableCell>
-                    <TableCell className="text-right">{fmtPercent(c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0)}</TableCell>
-                    <TableCell className="text-right">{c.conversions > 0 ? fmtBRL(c.cost / c.conversions) : "—"}</TableCell>
                     <TableCell className="text-right">{fmtBRL(c.cost)}</TableCell>
                     <TableCell className="text-right">{fmtBRL(c.revenue_brl)}</TableCell>
                     <TableCell className={cn("text-right", c.revenue_brl - c.cost >= 0 ? "text-success" : "text-danger")}>
@@ -620,15 +580,10 @@ export function CreativesTab({ fxUsdBrl }: Props) {
                               <span className="ml-2 italic">[best ROI: {bestRoi.toFixed(1)}% · {decision.reason}]</span>
                             )}
                           </div>
-                          <FinalUrlActions {...(finalUrls.get(a.campaign_id) ?? { url: null, source: "unknown" })} compact className="mt-0.5" />
-
                         </TableCell>
                         <TableCell className="text-right">{fmtNumber(a.impressions)}</TableCell>
                         <TableCell className="text-right">{fmtNumber(a.clicks)}</TableCell>
                         <TableCell className="text-right">{fmtPercent(a.ctr)}</TableCell>
-                        <TableCell className="text-right">{fmtNumber(Math.round(a.conversions))}</TableCell>
-                        <TableCell className="text-right">{fmtPercent(a.clicks > 0 ? (a.conversions / a.clicks) * 100 : 0)}</TableCell>
-                        <TableCell className="text-right">{a.conversions > 0 ? fmtBRL(a.cost / a.conversions) : "—"}</TableCell>
                         <TableCell className="text-right">{fmtBRL(a.cost)}</TableCell>
                         <TableCell className="text-right">{fmtBRL(a.revenue_brl)}</TableCell>
                         <TableCell className={cn("text-right", profit >= 0 ? "text-success" : "text-danger")}>

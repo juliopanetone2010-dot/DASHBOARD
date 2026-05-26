@@ -6,12 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap, Bell, Link2 } from "lucide-react";
+import { RefreshCw, Repeat, Sparkles, Wallet, TrendingUp, CalendarIcon, Zap } from "lucide-react";
 import { fmtUSD, fmtCurrency } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
 import { MetricCard } from "./MetricCard";
-import { PushDebugPanel } from "./PushDebugPanel";
 import { REV_SHARE_PCT } from "@/engine/rules";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { DATE_PRESETS, presetFromRange, type DatePresetKey } from "@/components/dashboard/FilterBar";
@@ -25,31 +24,6 @@ interface SourceRow {
   utm_source: string;
   revenue_usd: number;
   impressions: number;
-}
-
-interface GamUrlRevenueRow {
-  url: string;
-  utm_source: string | null;
-  revenue_usd: number;
-  impressions: number;
-  site_id: string | null;
-}
-
-interface PushUrlRevenueRow {
-  page_url: string;
-  utm_source: string | null;
-  utm_campaign: string | null;
-  revenue_usd: number;
-  impressions: number;
-  ecpm: number | null;
-  site_id: string | null;
-}
-
-interface PushUtmRevenueRow {
-  utm_source: string | null;
-  revenue_usd: number;
-  impressions: number;
-  site_id: string | null;
 }
 
 interface Props {
@@ -68,11 +42,7 @@ export function RetentionTab({ campaigns }: Props) {
 
   const applyPreset = (key: DatePresetKey) => {
     const p = DATE_PRESETS.find((x) => x.key === key);
-    if (p) {
-      const nextRange = p.range();
-      setLocalRange(nextRange);
-      void load(nextRange);
-    }
+    if (p) setLocalRange(p.range());
   };
 
   const queryKey = useMemo(
@@ -107,76 +77,14 @@ export function RetentionTab({ campaigns }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  const RETENTION_SOURCES = ["push", "wpp", "whatsapp"] as const;
-  const isRetentionSource = (value: unknown) => {
-    const source = String(value ?? "").toLowerCase().trim();
-    if (!source) return false;
-    if (source === "push" || source === "utm_source=push") return true;
-    if (source === "wpp" || source === "utm_source=wpp") return true;
-    if (source === "whatsapp" || source === "utm_source=whatsapp") return true;
-    return false;
-  };
-  // URLs de retenção (push + wpp) — espelha report do GAM (dim=URL + filtro Channel=utm_source=push|wpp).
-  const pushPlacementsQuery = useQuery<Array<{ placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>>({
-    queryKey: ["push-url-revenue", range.from, range.to, filters.siteId],
-    queryFn: async () => {
-      let q = supabase
-        .from("gam_url_revenue")
-        .select("url, utm_source, revenue_usd, impressions, site_id")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .in("utm_source", RETENTION_SOURCES as unknown as string[]);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data } = await q.limit(20000);
-      const rows = (data ?? []) as GamUrlRevenueRow[];
-      const map = new Map<string, { placement: string; raw_utm: string | null; utm_source: string | null; rev: number; impr: number }>();
-      for (const r of rows) {
-        if (!isRetentionSource(r.utm_source)) continue;
-        const key = `${r.url}|${r.utm_source ?? ""}`;
-        const cur = map.get(key) ?? { placement: r.url, raw_utm: null, utm_source: r.utm_source, rev: 0, impr: 0 };
-        cur.rev += Number(r.revenue_usd) || 0;
-        cur.impr += Number(r.impressions) || 0;
-        map.set(key, cur);
-      }
-      return [...map.values()].sort((a, b) => b.rev - a.rev);
-    },
-    staleTime: 30_000,
-  });
-
-  // UTMs de retenção (push + wpp) — receita por UTM vem de gam_campaign_source_revenue
-  const pushUtmsQuery = useQuery<Array<{ utm: string; rev: number; impr: number }>>({
-    queryKey: ["push-utms", range.from, range.to, filters.siteId],
-    queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("utm_source, revenue_usd, impressions, site_id")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .in("utm_source", RETENTION_SOURCES as unknown as string[]);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data } = await q.limit(20000);
-      const map = new Map<string, { utm: string; rev: number; impr: number }>();
-      for (const r of (data ?? []) as PushUtmRevenueRow[]) {
-        const utm = String(r.utm_source ?? "(sem utm)");
-        if (!isRetentionSource(utm)) continue;
-        const cur = map.get(utm) ?? { utm, rev: 0, impr: 0 };
-        cur.rev += Number(r.revenue_usd) || 0;
-        cur.impr += Number(r.impressions) || 0;
-        map.set(utm, cur);
-      }
-      return [...map.values()].sort((a, b) => b.rev - a.rev);
-    },
-    staleTime: 30_000,
-  });
-
-  const rows = useMemo(() => rowsQuery.data ?? [], [rowsQuery.data]);
+  const rows = rowsQuery.data ?? [];
   const usdBrl = fxQuery.data ?? 5;
   const loading = rowsQuery.isFetching || syncing;
 
-  const load = async (targetRange = range) => {
+  const load = async () => {
     setSyncing(true);
     try {
-      const chunks = chunkDates(targetRange.from, targetRange.to, 1);
+      const chunks = chunkDates(range.from, range.to, 1);
       for (const c of chunks) {
         await supabase.functions.invoke("gam-sync-revenue", {
           body: {
@@ -193,9 +101,6 @@ export function RetentionTab({ campaigns }: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
-      await queryClient.invalidateQueries({ queryKey: ["push-url-revenue"] });
-      await queryClient.invalidateQueries({ queryKey: ["push-utms"] });
-      await Promise.all([pushPlacementsQuery.refetch(), pushUtmsQuery.refetch()]);
     } finally {
       setSyncing(false);
     }
@@ -262,7 +167,7 @@ export function RetentionTab({ campaigns }: Props) {
               Usar período do dashboard
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => load()} disabled={loading} className="gap-2">
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Atualizar
           </Button>
@@ -298,12 +203,7 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={fromDate}
-                onSelect={(d) => {
-                  if (!d) return;
-                  const nextRange = { from: format(d, "yyyy-MM-dd"), to: range.to };
-                  setLocalRange(nextRange);
-                  void load(nextRange);
-                }}
+                onSelect={(d) => d && setLocalRange({ from: format(d, "yyyy-MM-dd"), to: range.to })}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
@@ -320,12 +220,7 @@ export function RetentionTab({ campaigns }: Props) {
               <Calendar
                 mode="single"
                 selected={toDate}
-                onSelect={(d) => {
-                  if (!d) return;
-                  const nextRange = { from: range.from, to: format(d, "yyyy-MM-dd") };
-                  setLocalRange(nextRange);
-                  void load(nextRange);
-                }}
+                onSelect={(d) => d && setLocalRange({ from: range.from, to: format(d, "yyyy-MM-dd") })}
                 initialFocus
                 className={cn("p-3 pointer-events-auto")}
               />
@@ -363,149 +258,60 @@ export function RetentionTab({ campaigns }: Props) {
         />
       </section>
 
-      {(() => {
-        const pushRows = pushPlacementsQuery.data ?? [];
-        const utms = pushUtmsQuery.data ?? [];
-        const totalRev = utms.reduce((a, u) => a + u.rev, 0);
-        const totalImpr = utms.reduce((a, u) => a + u.impr, 0);
-        const avgEcpm = totalImpr > 0 ? (totalRev / totalImpr) * 1000 : 0;
-
-
-        return (
-          <>
-            <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <MetricCard
-                label="eCPM médio (Push/Retenção)"
-                value={`$${avgEcpm.toFixed(2)}`}
-                icon={Bell}
-                variant="primary"
-                hint={`${pushRows.length} URL(s) exata(s) detectada(s)`}
-              />
-              <MetricCard
-                label="Receita push (USD)"
-                value={fmtUSD(totalRev)}
-                icon={Repeat}
-                hint={`${totalImpr.toLocaleString("pt-BR")} impressões`}
-              />
-              <MetricCard
-                label="UTMs distintas"
-                value={String(utms.length)}
-                icon={Link2}
-                hint="origens de retenção identificadas"
-              />
-            </section>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between text-base">
-                  <span className="flex items-center gap-2"><Bell className="h-4 w-4" /> UTMs de retenção</span>
-                  <Badge variant="outline">{utms.length} utm(s)</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {utms.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">
-                    Nenhuma UTM de push/retenção encontrada no período.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>UTM source</TableHead>
-                          <TableHead className="text-right">Impressões</TableHead>
-                          <TableHead className="text-right">Receita (USD)</TableHead>
-                          <TableHead className="text-right">eCPM</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {utms.map((u) => {
-                          const ecpm = u.impr > 0 ? (u.rev / u.impr) * 1000 : 0;
-                          return (
-                            <TableRow key={u.utm}>
-                              <TableCell className="font-mono text-sm">{u.utm}</TableCell>
-                              <TableCell className="text-right tabular-nums">{u.impr.toLocaleString("pt-BR")}</TableCell>
-                              <TableCell className="text-right tabular-nums">{fmtUSD(u.rev)}</TableCell>
-                              <TableCell className="text-right tabular-nums font-semibold">${ecpm.toFixed(2)}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between text-base">
-                  <span className="flex items-center gap-2"><Link2 className="h-4 w-4" /> URLs de push / retenção</span>
-                  <Badge variant="outline">{pushRows.length} url(s)</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {pushRows.length === 0 ? (
-                  totalRev > 0 ? (
-                    <div className="text-sm text-muted-foreground py-6 text-center space-y-2">
-                      <p>
-                        Receita push detectada (<b>{fmtUSD(totalRev)}</b>) mas nenhuma URL retornada ainda.
-                      </p>
-                      <p className="text-xs">
-                        Aguardando primeiras URLs do GAM (delay normal de 5–30min após ativação dos key-values).
-                        Confirme que o snippet (<code>page_url</code>, <code>utm_source</code>) roda <b>antes</b> de <code>enableServices()</code> e que as keys estão marcadas como <b>Reportable</b> no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground py-6 text-center">
-                      Nenhuma URL com utm_source=push encontrada. Confirme que o snippet de key-values (page_url, utm_source) está ativo no site e que as keys estão marcadas como "Reportable" no GAM. Veja <code>docs/gpt-push-snippet.md</code>.
-                    </p>
-                  )
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>URL / Placement</TableHead>
-                          <TableHead>UTM</TableHead>
-                          <TableHead className="text-right">Impressões</TableHead>
-                          <TableHead className="text-right">Receita</TableHead>
-                          <TableHead className="text-right">eCPM</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {pushRows.slice(0, 200).map((r, i) => {
-                          const ecpm = r.impr > 0 ? (r.rev / r.impr) * 1000 : 0;
-                          return (
-                            <TableRow key={`${r.placement}-${i}`}>
-                              <TableCell className="font-mono text-xs max-w-[420px] truncate" title={r.placement}>{r.placement}</TableCell>
-                              <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.utm_source ?? ""}>
-                                {r.utm_source ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">{r.impr.toLocaleString("pt-BR")}</TableCell>
-                              <TableCell className="text-right tabular-nums">{fmtUSD(r.rev)}</TableCell>
-                              <TableCell className="text-right tabular-nums font-semibold">${ecpm.toFixed(2)}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <PushDebugPanel
-              pushRows={pushRows}
-              utms={utms}
-              totalRev={totalRev}
-              totalImpr={totalImpr}
-              range={range}
-              siteId={filters.siteId}
-            />
-          </>
-        );
-      })()}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-base">
+            <span>LTV por campanha ({range.from} → {range.to})</span>
+            <Badge variant="outline">{byCampaign.length} campanha(s)</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {byCampaign.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              Sem receita atribuída por UTM ainda. Aplique as UTMs nas campanhas e aguarde o tráfego retornar.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Campanha</TableHead>
+                    <TableHead className="text-right">Google (USD)</TableHead>
+                    <TableHead className="text-right">Push (USD)</TableHead>
+                    <TableHead className="text-right">Outras</TableHead>
+                    <TableHead className="text-right">LTV total</TableHead>
+                    <TableHead className="text-right">% Retenção</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {byCampaign.map((c) => {
+                    const pctPush = c.total > 0 ? (c.push / c.total) * 100 : 0;
+                    return (
+                      <TableRow key={c.campaign_id}>
+                        <TableCell>
+                          <div className="font-medium text-sm">
+                            {campaignName.get(c.campaign_id) ?? `#${c.campaign_id}`}
+                          </div>
+                          <div className="text-xs text-muted-foreground font-mono">{c.campaign_id}</div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtUSD(c.google)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-primary">{fmtUSD(c.push)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{fmtUSD(c.other)}</TableCell>
+                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(c.total)}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={pctPush > 30 ? "default" : "outline"}>
+                            {pctPush.toFixed(1)}%
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <p className="text-xs text-muted-foreground">
         ⓘ ROI/ROAS na aba Dashboard considera <b>somente</b> receita com <code>utm_source=google</code>.

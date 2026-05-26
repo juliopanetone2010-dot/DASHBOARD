@@ -35,7 +35,7 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
   const res = await fetch(input, init);
   if ((res.status === 429 || res.status === 503) && attempt < 4) {
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
-    const backoff = retryAfter > 0 ? Math.min(retryAfter * 1000, 15000) : [1500, 4000, 8000, 15000][attempt];
+    const backoff = retryAfter > 0 ? retryAfter * 1000 : [3000, 8000, 20000, 45000][attempt];
     console.warn(`[gam-sync-revenue] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
     await new Promise((r) => setTimeout(r, backoff));
     return gamFetchRaw(input, init, attempt + 1);
@@ -304,25 +304,6 @@ async function runSync(req: Request): Promise<Response> {
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
-          for (const site of networkSites) {
-            try {
-              await persistGamUrlRevenue({
-                admin, userId, siteId: site?.id, siteDomain: site?.domain,
-                networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt,
-                allowRelativeUrls: networkSites.length === 1,
-              });
-            } catch (e) {
-              debug.push(`[${networkCode}] persistGamUrlRevenue site=${site?.domain ?? site?.id} erro: ${String(e).slice(0, 300)}`);
-            }
-            try {
-              await persistPushUrlRevenue({
-                admin, userId, siteId: site?.id, siteDomain: site?.domain,
-                networkCode, accessToken, ranges, debug, ingestionDivisor,
-              });
-            } catch (e) {
-              debug.push(`[${networkCode}] persistPushUrlRevenue site=${site?.domain ?? site?.id} erro: ${String(e).slice(0, 300)}`);
-            }
-          }
         }
 
         const vTot = viewabilityRows.reduce((a, r) => ({
@@ -402,21 +383,14 @@ async function runSync(req: Request): Promise<Response> {
         }
       }
       for (const d of expanded) {
-        if (!hasBudget(8_000)) {
-          debug.push(`[snapshot] stopped before Edge timeout after partial regen`);
-          break;
-        }
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5_000);
         await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
           method: "POST",
           headers: {
             Authorization: authHeader!,
             "Content-Type": "application/json",
           },
-          signal: controller.signal,
           body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
-        }).catch(() => {}).finally(() => clearTimeout(timeout));
+        }).catch(() => {});
       }
       debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
       }
@@ -441,22 +415,6 @@ interface AttributionResult {
   googlePlacementRows: AttributedRow[];
   campaignSource: string;
   placementSource: string;
-}
-
-function dedupeAttributedRows(rows: AttributedRow[]): AttributedRow[] {
-  const out = new Map<string, AttributedRow>();
-  for (const row of rows) {
-    const key = [
-      row.date ?? "",
-      row.source ?? "",
-      row.cid ?? "",
-      row.placement ?? "",
-      String(row.impressions ?? 0),
-      String(row.revenue ?? 0),
-    ].join("|");
-    if (!out.has(key)) out.set(key, row);
-  }
-  return [...out.values()];
 }
 
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
@@ -652,7 +610,7 @@ async function collectUtmAttribution(args: {
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
   // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
-  const reportRows: ReportRow[] = [];
+  let reportRows: ReportRow[] = [];
   try {
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
@@ -762,34 +720,9 @@ async function collectUtmAttribution(args: {
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
   // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  let googleCampaignRows = campaignRows;
-  let googlePlacementRows = placementRows.filter((r) => r.placement);
+  const googleCampaignRows = campaignRows;
+  const googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
-
-  const fallbackCandidates = await Promise.all([
-    runKeyValuesNameCandidate(networkCode, accessToken, ranges, debug),
-    runUrlNameCandidate(networkCode, accessToken, ranges, debug),
-  ]);
-
-  for (const candidate of fallbackCandidates) {
-    const candidateCampaignRows = candidate.rows
-      .filter((r) => r.source === "google" && !!r.cid)
-      .map((r) => ({
-        ...r,
-        placement: null,
-        raw: `${candidate.label}|${r.raw}`,
-      }));
-    const candidatePlacementRows = candidate.rows
-      .filter((r) => r.source === "google" && !!r.cid && !!r.placement)
-      .map((r) => ({
-        ...r,
-        raw: `${candidate.label}|${r.raw}`,
-      }));
-
-    googleCampaignRows = dedupeAttributedRows([...googleCampaignRows, ...candidateCampaignRows]);
-    googlePlacementRows = dedupeAttributedRows([...googlePlacementRows, ...candidatePlacementRows]);
-    debug.push(`[${networkCode}/ATTRIBUTION_FALLBACK] ${candidate.label}: campaign_rows=${candidateCampaignRows.length}; placement_rows=${candidatePlacementRows.length}`);
-  }
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
 
@@ -898,440 +831,6 @@ async function runUrlNameCandidate(
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { label, rows: [] };
-  }
-}
-
-async function persistGamUrlRevenue(args: {
-  admin: any;
-  userId: string;
-  siteId: string | undefined;
-  siteDomain?: string | null;
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  debug: string[];
-  ingestionDivisor: number;
-  deadlineAt?: number;
-  allowRelativeUrls?: boolean;
-}) {
-  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt, allowRelativeUrls } = args;
-  if (!siteId) return;
-  const domain = normalizeDomain(siteDomain);
-  const authoritativeDates = new Set<string>();
-
-  // Espelha o report da UI do GAM: dim=URL + métricas Ad Exchange (impressions+revenue)
-  // FILTRADO em Channel=utm_source=push. Se o filtro for rejeitado pelo
-  // GAM, caímos no fallback client-side filtrando URLs cuja query string contenha
-  // utm_source=push. eCPM é derivado em runtime: revenue / impressions * 1000.
-  const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
-  let totalRows = 0;
-  let filteredPushRows = 0;
-  let totalRevenue = 0;
-  const sample: string[] = [];
-  const sampleDropped: string[] = [];
-  const pushFilters = buildPushKeyValueFilters();
-  const pushFiltersFallback = buildPushKeyValueFiltersFallback();
-
-  for (const { range, date } of expandToDailyGamRanges(ranges)) {
-    if (deadlineAt && Date.now() + 18_000 >= deadlineAt) {
-      debug.push(`[${networkCode}] URL+AdX stopped before Edge timeout`);
-      break;
-    }
-    let rows: ReportRow[] = [];
-    let usedFilter = true;
-    let filterLabel = "CHANNEL=utm_source=push";
-    try {
-      rows = await runReport({
-        networkCode, accessToken, range,
-        dimensions: ["URL"],
-        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-        filters: pushFilters,
-        expandedCompatibility: true,
-        debug,
-          deadlineAt,
-      });
-    } catch (e) {
-      const msg1 = `[${networkCode}] URL+AdX+CHANNEL ${date} falhou (${String(e).slice(0, 180)}); tentando KEY_VALUES_NAME`;
-      console.warn(msg1);
-      debug.push(msg1);
-      try {
-        filterLabel = "KEY_VALUES_NAME=utm_source=push";
-        rows = await runReport({
-          networkCode, accessToken, range,
-          dimensions: ["URL"],
-          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-          filters: pushFiltersFallback,
-          expandedCompatibility: true,
-          debug,
-          deadlineAt,
-        });
-      } catch (e2) {
-        usedFilter = false;
-        filterLabel = "sem filtro (client-side)";
-        const msg2 = `[${networkCode}] URL+AdX+KEY_VALUES ${date} falhou (${String(e2).slice(0, 180)}); tentando sem filtro`;
-        console.warn(msg2);
-        debug.push(msg2);
-        try {
-          rows = await runReport({
-            networkCode, accessToken, range,
-            dimensions: ["URL"],
-            metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-            expandedCompatibility: true,
-            debug,
-            deadlineAt,
-          });
-        } catch (e3) {
-          const m = `[${networkCode}] URL+AdX ${date} falhou: ${String(e3).slice(0, 300)}`;
-          console.error(m);
-          debug.push(m);
-          continue;
-        }
-      }
-    }
-    debug.push(`[${networkCode}] URL+AdX ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
-    if (usedFilter) authoritativeDates.add(date);
-
-    totalRows += rows.length;
-    for (const r of rows) {
-      const rawUrl = String(r.dims[0] ?? "").trim();
-      if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-      // Se NÃO usamos o filtro do GAM, exigimos utm_source=push no próprio URL.
-      if (!usedFilter && !urlHasPushSource(rawUrl)) {
-        if (sampleDropped.length < 5) sampleDropped.push(rawUrl.slice(0, 200));
-        continue;
-      }
-      const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-      const impressions = Number(r.impressions) || 0;
-      if (revenue <= 0 && impressions <= 0) continue;
-      filteredPushRows++;
-      totalRevenue += revenue;
-      if (sample.length < 8) sample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
-      const key = `${date}|${rawUrl}`;
-      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "push", date, revenue_usd: 0, impressions: 0 };
-      cur.revenue_usd += revenue;
-      cur.impressions += impressions;
-      buckets.set(key, cur);
-    }
-  }
-
-  // ============================================================================
-  // SEGUNDA PASSADA: URL+AdX filtrado por utm_source=google
-  // ----------------------------------------------------------------------------
-  // Captura tráfego do Google Ads em nível de URL (utm_source=google) para que o
-  // attribution engine possa casar URL → final_url do anúncio quando o GAM não
-  // tagueia utm_campaign/utm_placement (rows que iriam para __aggregate__).
-  // ============================================================================
-  const googleFilters = buildGoogleKeyValueFilters();
-  const googleFiltersFallback = buildGoogleKeyValueFiltersFallback();
-  let totalGoogleRows = 0;
-  let filteredGoogleRows = 0;
-  let totalGoogleRevenue = 0;
-  const googleSample: string[] = [];
-
-  for (const { range, date } of expandToDailyGamRanges(ranges)) {
-    if (deadlineAt && Date.now() + 18_000 >= deadlineAt) {
-      debug.push(`[${networkCode}] URL+AdX (google) stopped before Edge timeout`);
-      break;
-    }
-    let rows: ReportRow[] = [];
-    let usedFilter = true;
-    let filterLabel = "CHANNEL=utm_source=google";
-    try {
-      rows = await runReport({
-        networkCode, accessToken, range,
-        dimensions: ["URL"],
-        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-        filters: googleFilters,
-        expandedCompatibility: true,
-        debug,
-        deadlineAt,
-      });
-    } catch {
-      try {
-        filterLabel = "KEY_VALUES_NAME=utm_source=google";
-        rows = await runReport({
-          networkCode, accessToken, range,
-          dimensions: ["URL"],
-          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-          filters: googleFiltersFallback,
-          expandedCompatibility: true,
-          debug,
-          deadlineAt,
-        });
-      } catch {
-        usedFilter = false;
-        filterLabel = "sem filtro (client-side google)";
-        try {
-          rows = await runReport({
-            networkCode, accessToken, range,
-            dimensions: ["URL"],
-            metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-            expandedCompatibility: true,
-            debug,
-            deadlineAt,
-          });
-        } catch (e3) {
-          debug.push(`[${networkCode}] URL+AdX (google) ${date} falhou: ${String(e3).slice(0, 200)}`);
-          continue;
-        }
-      }
-    }
-    debug.push(`[${networkCode}] URL+AdX (google) ${date} usou filtro: ${filterLabel} rows=${rows.length}`);
-    if (usedFilter) authoritativeDates.add(date);
-    totalGoogleRows += rows.length;
-    for (const r of rows) {
-      const rawUrl = String(r.dims[0] ?? "").trim();
-      if (!rawUrl || rawUrl === "(not applicable)" || rawUrl === "(unknown)") continue;
-      const params = parseUrlParams(rawUrl);
-      const src = safeDecode(params.utm_source ?? "").toLowerCase().trim();
-      if (!usedFilter && src !== "google") continue;
-      if (src === "push") continue; // evita conflito com passada de push
-      const revenue = (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-      const impressions = Number(r.impressions) || 0;
-      if (revenue <= 0 && impressions <= 0) continue;
-      filteredGoogleRows++;
-      totalGoogleRevenue += revenue;
-      if (googleSample.length < 8) googleSample.push(`${rawUrl} | impr=${impressions} | rev=${revenue.toFixed(4)}`);
-      const key = `${date}|${rawUrl}`;
-      const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: "google", date, revenue_usd: 0, impressions: 0 };
-      cur.revenue_usd += revenue;
-      cur.impressions += impressions;
-      cur.utm_source = "google";
-      buckets.set(key, cur);
-    }
-  }
-
-  const payload = [...buckets.values()];
-  const msg = `[${networkCode}] gam_url_revenue PUSH+GOOGLE: push_rows=${totalRows} filtered_push=${filteredPushRows} push_usd=${totalRevenue.toFixed(4)} | google_rows=${totalGoogleRows} filtered_google=${filteredGoogleRows} google_usd=${totalGoogleRevenue.toFixed(4)} | persistidas=${payload.length} site=${domain} push_sample=${JSON.stringify(sample)} google_sample=${JSON.stringify(googleSample)} sampleDropped=${JSON.stringify(sampleDropped)}`;
-  console.log(msg);
-  debug.push(msg);
-
-  const datesToRefresh = [...new Set([...authoritativeDates, ...payload.map((row) => row.date)])];
-  if (datesToRefresh.length > 0) {
-    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", datesToRefresh);
-  }
-
-  const CHUNK = 500;
-  for (let i = 0; i < payload.length; i += CHUNK) {
-    const { error } = await admin
-      .from("gam_url_revenue")
-      .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
-    if (error) console.error(`[${networkCode}] gam_url_revenue upsert: ${error.message}`);
-  }
-}
-
-// Normaliza page_url no servidor (espelha o helper do snippet GPT)
-function normalizePageUrl(raw: string): string {
-  try {
-    const decoded = safeDecode(String(raw ?? "")).trim();
-    if (!decoded) return "";
-    // Pode vir como host+path direto, ou URL completa.
-    const hasScheme = /^https?:\/\//i.test(decoded);
-    const u = new URL(hasScheme ? decoded : `https://${decoded}`);
-    const host = u.host.toLowerCase();
-    let path = u.pathname.replace(/\/+$/, "");
-    return (host + path).toLowerCase();
-  } catch {
-    return String(raw ?? "")
-      .toLowerCase()
-      .split(/[?#]/)[0]
-      .replace(/\/+$/, "")
-      .trim();
-  }
-}
-
-// Puxa CUSTOM_CRITERIA (key-values enviados pelo GPT) + AdX e persiste em push_url_revenue.
-async function persistPushUrlRevenue(args: {
-  admin: any;
-  userId: string;
-  siteId: string | undefined;
-  siteDomain?: string | null;
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  debug: string[];
-  ingestionDivisor: number;
-}) {
-  const { siteId, siteDomain, networkCode, debug } = args;
-  if (!siteId) return;
-  // CUSTOM_CRITERIA não é dimensão válida na GAM Reporting API v1 (retorna 400
-  // INVALID_ARGUMENT). gam_url_revenue (URL + key-values) já cobre push.
-  // Mantemos como no-op para não estourar o IDLE_TIMEOUT de 150s.
-  const skipMsg = `[${networkCode}] push_url_revenue skipped (CUSTOM_CRITERIA não suportado na API v1) site=${siteDomain ?? siteId}`;
-  console.log(skipMsg);
-  debug.push(skipMsg);
-}
-
-function buildPushKeyValueFilters() {
-  // Espelha o filtro da UI do GAM: "Channel is any of utm_source=push".
-  // "Channel" na UI = CHANNEL na enum REST v1; o channel configurado
-  // no GAM chama exatamente "utm_source=push".
-  const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
-  return [{
-    fieldFilter: {
-      field: { dimension: "CHANNEL" },
-      operation: "IN",
-      values,
-    },
-  }];
-}
-
-// Fallback alternativo caso CHANNEL seja rejeitado em alguma network
-function buildPushKeyValueFiltersFallback() {
-  const values = ["utm_source=push"].map((stringValue) => ({ stringValue }));
-  return [{
-    fieldFilter: {
-      field: { dimension: "KEY_VALUES_NAME" },
-      operation: "IN",
-      values,
-    },
-  }];
-}
-
-function buildGoogleKeyValueFilters() {
-  const values = ["utm_source=google"].map((stringValue) => ({ stringValue }));
-  return [{
-    fieldFilter: {
-      field: { dimension: "CHANNEL" },
-      operation: "IN",
-      values,
-    },
-  }];
-}
-
-function buildGoogleKeyValueFiltersFallback() {
-  const values = ["utm_source=google"].map((stringValue) => ({ stringValue }));
-  return [{
-    fieldFilter: {
-      field: { dimension: "KEY_VALUES_NAME" },
-      operation: "IN",
-      values,
-    },
-  }];
-}
-
-async function persistUrlRevenueRows(args: {
-  admin: any;
-  userId: string;
-  siteId: string;
-  siteDomain?: string | null;
-  networkCode: string;
-  rows: ReportRow[];
-  source: string;
-  today: string;
-  ingestionDivisor: number;
-  allowRelativeUrls?: boolean;
-}) {
-  const { admin, userId, siteId, siteDomain, networkCode, rows, source, today, ingestionDivisor, allowRelativeUrls } = args;
-  const buckets = new Map<string, { user_id: string; site_id: string; url: string; utm_source: string; date: string; revenue_usd: number; impressions: number }>();
-  for (const r of rows) {
-    const rawUrl = String(r.dims[1] ?? r.dims[0] ?? "").trim();
-    if (!isUrlForSite(rawUrl, siteDomain, Boolean(allowRelativeUrls))) continue;
-    const date = r.date ?? today;
-    const key = `${date}|${rawUrl}`;
-    const cur = buckets.get(key) ?? { user_id: userId, site_id: siteId, url: rawUrl, utm_source: source, date, revenue_usd: 0, impressions: 0 };
-    cur.revenue_usd += (Number(r.revenue) || 0) / (ingestionDivisor || 1);
-    cur.impressions += Number(r.impressions) || 0;
-    buckets.set(key, cur);
-  }
-
-  const payload = [...buckets.values()];
-  console.log(`[${networkCode}] gam_url_revenue filtered payload=${payload.length}`);
-  const dates = [...new Set(payload.map((row) => row.date))];
-  if (dates.length > 0) {
-    await admin.from("gam_url_revenue").delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  }
-  const CHUNK = 500;
-  for (let i = 0; i < payload.length; i += CHUNK) {
-    const { error } = await admin
-      .from("gam_url_revenue")
-      .upsert(payload.slice(i, i + CHUNK), { onConflict: "user_id,site_id,url,date" });
-    if (error) console.error(`[${networkCode}] gam_url_revenue filtered upsert: ${error.message}`);
-  }
-}
-
-async function persistUrlPushParamFallback(args: {
-  admin: any;
-  userId: string;
-  siteId: string;
-  siteDomain?: string | null;
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  debug: string[];
-  ingestionDivisor: number;
-  allowRelativeUrls?: boolean;
-  metricGroups: Array<{ label: string; metrics: string[] }>;
-}) {
-  const { admin, userId, siteId, siteDomain, networkCode, accessToken, ranges, debug, ingestionDivisor, allowRelativeUrls, metricGroups } = args;
-  const rows: ReportRow[] = [];
-  let totalRowsSeen = 0;
-  let totalRowsWithQuery = 0;
-  const sampleAll: string[] = [];
-  const samplePush: string[] = [];
-  for (const group of metricGroups) {
-    try {
-      const groupRows = (await Promise.all(expandToDailyGamRanges(ranges).map(async ({ range, date }) => {
-        const reportRows = await runReport({
-          networkCode, accessToken, range,
-          dimensions: ["URL"],
-          metrics: group.metrics,
-          expandedCompatibility: true,
-          debug,
-        });
-        return reportRows.map((r) => ({ ...r, date }));
-      }))).flat();
-      totalRowsSeen += groupRows.length;
-      for (const r of groupRows) {
-        const u = String(r.dims[0] ?? "");
-        if (u.includes("?")) totalRowsWithQuery++;
-        if (sampleAll.length < 5) sampleAll.push(u.slice(0, 200));
-      }
-      const pushRows = groupRows.filter((r) => urlHasPushSource(String(r.dims[0] ?? "")));
-      for (const r of pushRows.slice(0, 5)) {
-        if (samplePush.length < 5) samplePush.push(String(r.dims[0] ?? "").slice(0, 200));
-      }
-      rows.push(...pushRows);
-      const msg = `[${networkCode}] URL fallback ${group.label} rows=${groupRows.length}; push_rows=${pushRows.length}`;
-      console.log(msg);
-      debug.push(msg);
-    } catch (e) {
-      const msg = `[${networkCode}] URL fallback ${group.label} falhou: ${String(e).slice(0, 240)}`;
-      console.log(msg);
-      debug.push(msg);
-    }
-  }
-  debug.push(`[${networkCode}] URL fallback total: seen=${totalRowsSeen} withQuery=${totalRowsWithQuery} pushKept=${rows.length} sampleAll=${JSON.stringify(sampleAll)} samplePush=${JSON.stringify(samplePush)}`);
-  await persistUrlRevenueRows({ admin, userId, siteId, siteDomain, networkCode, rows, source: "push", today: new Date().toISOString().slice(0, 10), ingestionDivisor, allowRelativeUrls });
-}
-
-const PUSH_SOURCE_VALUES = new Set(["push"]);
-
-function isPushSourceValue(value: string) {
-  const source = safeDecode(value).toLowerCase().trim();
-  return PUSH_SOURCE_VALUES.has(source);
-}
-
-function urlHasPushSource(rawUrl: string) {
-  const params = parseUrlParams(rawUrl);
-  return isPushSourceValue(params.utm_source ?? "");
-}
-
-function normalizeDomain(value?: string | null) {
-  return String(value ?? "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-}
-
-function isUrlForSite(rawUrl: string, siteDomain?: string | null, allowRelativeUrls = false) {
-  const url = String(rawUrl ?? "").trim();
-  if (!url || url === "(not applicable)" || url === "(unknown)") return false;
-  const domain = normalizeDomain(siteDomain);
-  if (!domain) return true;
-  if (url.startsWith("/")) return allowRelativeUrls;
-  try {
-    const host = new URL(url.startsWith("http") ? url : `https://${url}`).hostname.toLowerCase().replace(/^www\./, "");
-    return host === domain || host.endsWith(`.${domain}`);
-  } catch {
-    return allowRelativeUrls;
   }
 }
 
@@ -1519,30 +1018,6 @@ async function applyGoogleUtmRevenue(
     return;
   }
 
-  // Preload campaign_final_urls para URL-match fallback (uma vez por sync, não por dia)
-  const { data: finalUrlRows } = await admin
-    .from("campaign_final_urls")
-    .select("campaign_id, final_url, updated_at")
-    .eq("user_id", userId)
-    .in("google_account_id", accountIds)
-    .order("updated_at", { ascending: false })
-    .limit(20000);
-  const finalUrlByCid = new Map<string, string>();
-  const cidsByFinalUrl = new Map<string, Set<string>>();
-  for (const r of (finalUrlRows ?? []) as any[]) {
-    const cid = String(r.campaign_id ?? "");
-    if (!cid || finalUrlByCid.has(cid) || !r.final_url) continue;
-    const norm = normalizePageUrl(String(r.final_url));
-    if (!norm) continue;
-    finalUrlByCid.set(cid, norm);
-    const owners = cidsByFinalUrl.get(norm) ?? new Set<string>();
-    owners.add(cid);
-    cidsByFinalUrl.set(norm, owners);
-  }
-  const sharedFinalUrlCount = [...cidsByFinalUrl.values()].filter((owners) => owners.size > 1).length;
-  debug.push(`[url_match] preload final_urls=${finalUrlByCid.size} shared_urls=${sharedFinalUrlCount} (de ${(finalUrlRows ?? []).length} rows)`);
-
-
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics } = await admin
@@ -1558,13 +1033,6 @@ async function applyGoogleUtmRevenue(
     // gam_placement_revenue só captura tráfego do Google Ads (utm_source=google), então
     // usá-la como primário subnotifica receita de pushes e outras fontes.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
-    const metricByCid = new Map<string, { spend: number; impressions: number }>();
-    for (const m of (metrics as any[])) {
-      metricByCid.set(String(m.campaign_id), {
-        spend: Number(m.spend ?? 0),
-        impressions: Number(m.impressions ?? 0),
-      });
-    }
 
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
@@ -1592,81 +1060,6 @@ async function applyGoogleUtmRevenue(
         aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
       }
     }
-    // URL-match: para campanhas com final_url conhecida, soma gam_url_revenue
-    // (utm_source=google) cuja URL bate com a final_url do anúncio. GAM agrupa
-    // muito tráfego em __aggregate__ porque KEY_VALUES_NAME não tem utm_campaign,
-    // mas o report por URL+CHANNEL=google captura a receita real da página.
-    // Estratégia: pegar o MAIOR entre o já agregado (source_revenue) e o
-    // URL-match — assim cobrimos o gap sem dobrar contagem.
-    const urlGroups = new Map<string, string[]>();
-    for (const cid of cids) {
-      const normFinal = finalUrlByCid.get(cid);
-      if (!normFinal) continue;
-      const owners = urlGroups.get(normFinal) ?? [];
-      owners.push(cid);
-      urlGroups.set(normFinal, owners);
-    }
-    if (urlGroups.size > 0) {
-      const { data: urlRows } = await admin
-        .from("gam_url_revenue")
-        .select("url, revenue_usd")
-        .eq("user_id", userId)
-        .eq("site_id", siteId)
-        .eq("date", date)
-        .eq("utm_source", "google")
-        .limit(20000);
-      const revByNormUrl = new Map<string, number>();
-      for (const r of (urlRows ?? []) as any[]) {
-        const u = normalizePageUrl(String(r.url ?? ""));
-        if (!u) continue;
-        revByNormUrl.set(u, (revByNormUrl.get(u) ?? 0) + Number(r.revenue_usd ?? 0));
-      }
-      let uniqueBoostedCount = 0;
-      let sharedGroupBoostCount = 0;
-      let urlBoostedDelta = 0;
-      for (const [normFinal, ownerCids] of urlGroups.entries()) {
-        const urlRev = revByNormUrl.get(normFinal) ?? 0;
-        if (urlRev <= 0) continue;
-
-        if (ownerCids.length === 1) {
-          const cid = ownerCids[0];
-          const already = aggregatedByCid.get(cid) ?? 0;
-          if (urlRev > already) {
-            aggregatedByCid.set(cid, urlRev);
-            uniqueBoostedCount++;
-            urlBoostedDelta += (urlRev - already);
-          }
-          continue;
-        }
-
-        const alreadyTotal = ownerCids.reduce((sum, cid) => sum + (aggregatedByCid.get(cid) ?? 0), 0);
-        const delta = urlRev - alreadyTotal;
-        if (delta <= 0) continue;
-
-        const weightedOwners = ownerCids.map((cid) => {
-          const stats = metricByCid.get(cid);
-          const spend = stats?.spend ?? 0;
-          const impressions = stats?.impressions ?? 0;
-          const weight = spend > 0 ? spend : impressions > 0 ? impressions : 1;
-          return { cid, weight };
-        });
-        const totalWeight = weightedOwners.reduce((sum, owner) => sum + owner.weight, 0);
-        if (totalWeight <= 0) continue;
-
-        sharedGroupBoostCount++;
-        let distributed = 0;
-        weightedOwners.forEach((owner, index) => {
-          const slice = index === weightedOwners.length - 1
-            ? delta - distributed
-            : delta * (owner.weight / totalWeight);
-          aggregatedByCid.set(owner.cid, (aggregatedByCid.get(owner.cid) ?? 0) + slice);
-          distributed += slice;
-        });
-        urlBoostedDelta += delta;
-      }
-      debug.push(`[url_match] ${date}: urls=${urlGroups.size} unique_boosted=${uniqueBoostedCount} shared_groups=${sharedGroupBoostCount} delta_usd=${urlBoostedDelta.toFixed(4)}`);
-    }
-
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
 
     const directMap = directByDateCid.get(date) ?? new Map();
@@ -1712,8 +1105,6 @@ interface RunReportArgs {
   range: GamRange;
   dimensions: string[];
   metrics?: string[];
-  filters?: any[];
-  expandedCompatibility?: boolean;
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   debug: string[];
@@ -1721,7 +1112,7 @@ interface RunReportArgs {
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, filters, expandedCompatibility, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const ensureBudget = (minimumMs = 8_000) => {
     if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
@@ -1743,8 +1134,6 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     ],
     dateRange: range.dateRange,
   };
-  if (filters?.length) reportDefinition.filters = filters;
-  if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };
@@ -1762,10 +1151,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) {
-    console.error(`[${tag}] create failed body=${JSON.stringify(reportBody).slice(0, 800)} response=${createText.slice(0, 1200)}`);
-    throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 800)}`);
-  }
+  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
   const reportName: string = createJson.name;
 
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {

@@ -64,11 +64,6 @@ Deno.serve(async (req) => {
     }
     if (!userId) return json({ error: "Token inválido" });
 
-    if (!isCron) {
-      const { data: hasPerm } = await admin.rpc("admin_has_permission", { _uid: userId, _perm: "can_use_geo_expansion" });
-      if (!hasPerm) return json({ error: "Permissão negada: can_use_geo_expansion" });
-    }
-
     const REV_SHARE_PCT = (await getRevSharePct(admin, userId, siteId)) / 100;
     const NET_FACTOR = 1 - REV_SHARE_PCT;
     console.log(`[geo-cleanup] revshare=${(REV_SHARE_PCT * 100).toFixed(2)}% · net_factor=${NET_FACTOR.toFixed(4)}`);

@@ -13,8 +13,6 @@ export interface ClientCountryEngineParams {
   to: string;
   fxUsdBrl: number;
   netFactor: number;
-  /** Mantém apenas países atualmente segmentados (presentes na data mais recente sincronizada). */
-  restrictToCurrentCountries?: boolean;
 }
 
 export interface ClientCountryCell {
@@ -108,28 +106,6 @@ export async function computeCountryPerformanceClient(
       if (error) break;
       const rows = (data ?? []) as CRow[];
       countryRows.push(...rows);
-      if (rows.length < 1000) break;
-      start += 1000;
-    }
-  }
-
-  // Base de distribuição por país para dias em que o Google Ads não devolveu
-  // country rows. Sem isso, o custo de "Últimos 7 dias" ficava igual ao único
-  // dia que tinha geo salvo (ex.: só 19/05), mesmo existindo spend diário.
-  const fallbackCountryRows: CRow[] = [];
-  const fallbackFrom = addDaysIso(p.from, -60);
-  for (const chunk of chunk200(resolvedCampaignIds)) {
-    let start = 0;
-    for (;;) {
-      let q = supabase.from("campaign_country_metrics")
-        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-        .in("campaign_id", chunk)
-        .gte("date", fallbackFrom).lte("date", p.to);
-      if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      const { data, error } = await q.range(start, start + 999);
-      if (error) break;
-      const rows = (data ?? []) as CRow[];
-      fallbackCountryRows.push(...rows);
       if (rows.length < 1000) break;
       start += 1000;
     }
@@ -230,69 +206,21 @@ export async function computeCountryPerformanceClient(
     return Math.min(1, Math.max(0, site / total));
   };
 
+  const totalsByCD = new Map<string, { impr: number; clicks: number; conv: number; cost: number }>();
+  for (const r of countryRows) {
+    const k = `${r.campaign_id}|${r.date}`;
+    const acc = totalsByCD.get(k) ?? { impr: 0, clicks: 0, conv: 0, cost: 0 };
+    acc.impr += Number(r.impressions) || 0;
+    acc.clicks += Number(r.clicks) || 0;
+    acc.conv += Number(r.conversions) || 0;
+    acc.cost += Number(r.cost) || 0;
+    totalsByCD.set(k, acc);
+  }
+
   const cells = new Map<string, ClientCountryCell>();
   const cellAccum = new Map<string, { shareSum: number; shareCount: number; sfWeight: number; sfTotal: number }>();
 
-  type BasisItem = CRow & { share: number; costShare: number; method: ClientCountryCell["share_method"] };
-  const buildBasisMap = (rows: CRow[], keyOf: (r: CRow) => string) => {
-    const grouped = new Map<string, Map<string, CRow>>();
-    for (const r of rows) {
-      const groupKey = keyOf(r);
-      const countryKey = r.country_code || r.country_criterion_id || r.country_name || "ZZ";
-      const byCountry = grouped.get(groupKey) ?? new Map<string, CRow>();
-      const cur = byCountry.get(countryKey) ?? { ...r, cost: 0, clicks: 0, impressions: 0, conversions: 0 };
-      cur.cost += Number(r.cost) || 0;
-      cur.clicks += Number(r.clicks) || 0;
-      cur.impressions += Number(r.impressions) || 0;
-      cur.conversions += Number(r.conversions) || 0;
-      if (!cur.country_criterion_id && r.country_criterion_id) cur.country_criterion_id = r.country_criterion_id;
-      if (!cur.google_account_id && r.google_account_id) cur.google_account_id = r.google_account_id;
-      byCountry.set(countryKey, cur);
-      grouped.set(groupKey, byCountry);
-    }
-    const out = new Map<string, BasisItem[]>();
-    for (const [key, byCountry] of grouped) {
-      const items = [...byCountry.values()];
-      const totals = items.reduce((a, r) => ({
-        impr: a.impr + (Number(r.impressions) || 0),
-        clicks: a.clicks + (Number(r.clicks) || 0),
-        conv: a.conv + (Number(r.conversions) || 0),
-        cost: a.cost + (Number(r.cost) || 0),
-      }), { impr: 0, clicks: 0, conv: 0, cost: 0 });
-      let method: ClientCountryCell["share_method"] = "none";
-      const basis = items.map((r): BasisItem => {
-        // Revenue share: prefer impressions > clicks > conversions > cost
-        let share = 0;
-        if (totals.impr > 0)        { share = (Number(r.impressions) || 0) / totals.impr; method = "impressions"; }
-        else if (totals.clicks > 0) { share = (Number(r.clicks) || 0) / totals.clicks; method = "clicks"; }
-        else if (totals.conv > 0)   { share = (Number(r.conversions) || 0) / totals.conv; method = "conversions"; }
-        else if (totals.cost > 0)   { share = (Number(r.cost) || 0) / totals.cost; method = "cost"; }
-        // Cost share: use real per-country cost from Google Ads when available,
-        // so each country reflects its actual spend ratio (gives a real ROI per país).
-        let costShare = 0;
-        if (totals.cost > 0)        costShare = (Number(r.cost) || 0) / totals.cost;
-        else                        costShare = share;
-        return { ...r, share, costShare, method };
-      }).filter((r) => r.share > 0 || r.costShare > 0);
-      if (basis.length > 0) out.set(key, basis);
-    }
-    return out;
-  };
-
-
-  const basisByCD = buildBasisMap(countryRows, (r) => `${r.campaign_id}|${r.date}`);
-  const periodBasisByCampaign = buildBasisMap(countryRows, (r) => r.campaign_id);
-  const latestDateByCampaign = new Map<string, string>();
-  for (const r of fallbackCountryRows) {
-    const prev = latestDateByCampaign.get(r.campaign_id);
-    if (!prev || r.date > prev) latestDateByCampaign.set(r.campaign_id, r.date);
-  }
-  const latestBasisByCampaign = buildBasisMap(
-    fallbackCountryRows.filter((r) => latestDateByCampaign.get(r.campaign_id) === r.date),
-    (r) => r.campaign_id,
-  );
-
-  const ensureCell = (r: Pick<CRow, "campaign_id" | "google_account_id" | "country_code" | "country_name" | "country_criterion_id">) => {
+  for (const r of countryRows) {
     const k = `${r.campaign_id}|${r.country_code}`;
     let cell = cells.get(k);
     if (!cell) {
@@ -309,42 +237,44 @@ export async function computeCountryPerformanceClient(
       cells.set(k, cell);
       cellAccum.set(k, { shareSum: 0, shareCount: 0, sfWeight: 0, sfTotal: 0 });
     }
-    return cell;
-  };
+    const acc = cellAccum.get(k)!;
 
-  for (const r of countryRows) {
-    const cell = ensureCell(r);
-
+    const cost = Number(r.cost) || 0;
     const clicks = Number(r.clicks) || 0;
     const impr = Number(r.impressions) || 0;
     const conv = Number(r.conversions) || 0;
 
+    cell.cost_brl += cost;
     cell.clicks += clicks;
     cell.impressions += impr;
     cell.conversions += conv;
     if (!cell.country_criterion_id && r.country_criterion_id) cell.country_criterion_id = r.country_criterion_id;
     if (!cell.google_account_id && r.google_account_id) cell.google_account_id = r.google_account_id;
-  }
 
-  for (const [cd, daily] of dailyByCD) {
-    const [campaignId, date] = cd.split("|");
-    const basis = basisByCD.get(cd) ?? periodBasisByCampaign.get(campaignId) ?? latestBasisByCampaign.get(campaignId);
-    if (!basis || basis.length === 0) continue;
-    const sf = siteFactor(campaignId, date);
-    for (const b of basis) {
-      const cell = ensureCell(b);
-      const acc = cellAccum.get(`${b.campaign_id}|${b.country_code}`)!;
-      cell.cost_brl += daily.spend * b.costShare;
-      if (daily.grossRevenueBrl > 0 && sf > 0) {
-        const grossUsd = daily.revenue * sf * b.share;
-        const grossBrl = daily.grossRevenueBrl * sf * b.share;
-        cell.revenue_gross_usd += grossUsd;
-        cell.revenue_brl += grossBrl * p.netFactor;
-        acc.sfTotal += sf * b.share; acc.sfWeight += b.share;
-      }
-      if (cell.share_method === "none") cell.share_method = b.method;
-      acc.shareSum += b.share; acc.shareCount += 1;
-    }
+    const cd = `${r.campaign_id}|${r.date}`;
+    const totals = totalsByCD.get(cd);
+    const daily = dailyByCD.get(cd);
+    if (!totals || !daily || daily.grossRevenueBrl <= 0) continue;
+
+    let share = 0;
+    let method: ClientCountryCell["share_method"] = "none";
+    if (totals.impr > 0)        { share = impr   / totals.impr;   method = "impressions"; }
+    else if (totals.clicks > 0) { share = clicks / totals.clicks; method = "clicks"; }
+    else if (totals.conv > 0)   { share = conv   / totals.conv;   method = "conversions"; }
+    else if (totals.cost > 0)   { share = cost   / totals.cost;   method = "cost"; }
+    if (share <= 0) continue;
+
+    const sf = siteFactor(r.campaign_id, r.date);
+    if (sf <= 0) continue;
+
+    const grossUsd = daily.revenue * sf * share;
+    const grossBrl = daily.grossRevenueBrl * sf * share;
+    cell.revenue_gross_usd += grossUsd;
+    cell.revenue_brl += grossBrl * p.netFactor;
+    if (cell.share_method === "none") cell.share_method = method;
+
+    acc.shareSum += share; acc.shareCount += 1;
+    acc.sfTotal += sf * share; acc.sfWeight += share;
   }
 
   for (const [k, cell] of cells) {
@@ -385,27 +315,6 @@ export async function computeCountryPerformanceClient(
     }
   }
 
-  if (p.restrictToCurrentCountries) {
-    // Mantém apenas países que aparecem na data mais recente sincronizada da campanha
-    // (proxy para "países atualmente segmentados hoje"), independentemente do período do filtro.
-    const currentByCampaign = new Map<string, Set<string>>();
-    for (const r of fallbackCountryRows) {
-      if (latestDateByCampaign.get(r.campaign_id) !== r.date) continue;
-      const code = r.country_code || "";
-      if (!code) continue;
-      const set = currentByCampaign.get(r.campaign_id) ?? new Set<string>();
-      set.add(code);
-      currentByCampaign.set(r.campaign_id, set);
-    }
-    for (const [k, cell] of [...cells]) {
-      const current = currentByCampaign.get(cell.campaign_id);
-      // Se a campanha não tem snapshot recente, preserva (não conseguimos inferir o estado atual).
-      if (current && current.size > 0 && !current.has(cell.country_code)) {
-        cells.delete(k);
-      }
-    }
-  }
-
   return {
     cells, campaignTotals, warnings,
     meta: {
@@ -419,10 +328,4 @@ function chunk200<T>(arr: T[]): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += 200) out.push(arr.slice(i, i + 200));
   return out;
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }

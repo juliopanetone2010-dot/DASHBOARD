@@ -14,8 +14,6 @@ import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterB
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import type { Campaign, GoogleAccount } from "@/types/domain";
 import { GlobalPlacementCleanup } from "@/components/dashboard/GlobalPlacementCleanup";
-import { AiAssistantButton } from "@/components/ai/AiAssistant";
-
 
 interface AdsPlacementRow {
   id: string;
@@ -36,17 +34,9 @@ interface AdsPlacementRow {
   avg_cpc: number;
 }
 
-interface GamRevRow {
-  placement: string;
-  revenue_usd: number;
-  impressions: number;
-  date: string;
-  reconciliation_method?: string | null;
-  confidence?: number | null;
-  broken_tracking?: boolean | null;
-  normalized_placement?: string | null;
-}
+interface GamRevRow { placement: string; revenue_usd: number; impressions: number; date: string; utm_source?: string | null; raw_utm?: string | null; }
 interface CampaignMetricRow { revenue: number; clicks: number; impressions: number; date: string; }
+interface ApplyUtmResult { error?: string; success?: number; total?: number; failed?: number; }
 interface PlacementActionRow { placement: string; action: "blacklist" | "favorite"; }
 
 interface AggRow {
@@ -63,13 +53,10 @@ interface AggRow {
   revenueBrl: number;         // revenueUsdNet * fxUsdBrl
   profitBrl: number;          // receita_brl - custo_brl
   roi: number;                // ROI calculado em BRL
-  revenueSource: "utm_full" | "none";
+  revenueSource: "utm_full" | "utm_root" | "utm_prefix" | "none";
   matchedUtm: string | null;  // qual utm_placement bateu
   ctr: number;
   cpcBrl: number;
-  reconciliationMethod: string | null;
-  confidence: number;          // 0..100 (0 = sem match)
-  brokenTracking: boolean;
 }
 
 type SortKey = "roi" | "costBrl" | "conversions" | "ctr" | "impressions";
@@ -108,6 +95,17 @@ const normalizePlacementKey = (value: string, type?: string | null): string => {
 const isMobileAppPlacement = (type: string, placement: string) =>
   type === "MOBILE_APPLICATION" || /^\d+$/.test(placement);
 
+const findPrefixRevenueKey = (placement: string, keys: string[], usedKeys: Set<string>) => {
+  const normalized = placement.replace(/\.$/, "");
+  return keys
+    .filter((key) => {
+      if (usedKeys.has(key)) return false;
+      const prefix = key.replace(/\.$/, "");
+      return prefix.length >= 8 && normalized.startsWith(prefix);
+    })
+    .sort((a, b) => b.length - a.length)[0] ?? null;
+};
+
 async function fetchAllAdsPlacements(cid: string, from: string, to: string) {
   const all: AdsPlacementRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
@@ -132,9 +130,10 @@ async function fetchAllGamPlacementRevenue(cid: string, from: string, to: string
   const all: GamRevRow[] = [];
   for (let start = 0; ; start += QUERY_PAGE_SIZE) {
     let q = supabase
-      .from("placement_revenue_reconciled")
-      .select("placement, normalized_placement, revenue_usd, impressions, date, reconciliation_method, confidence, broken_tracking")
+      .from("gam_placement_revenue")
+      .select("placement, revenue_usd, impressions, date, utm_source, raw_utm")
       .eq("campaign_id", cid)
+      .eq("utm_source", "google")
       .gte("date", from)
       .lte("date", to);
     if (siteId) q = q.eq("site_id", siteId);
@@ -164,6 +163,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [actions, setActions] = useState<Record<string, "blacklist" | "favorite" | undefined>>({});
   const [showDebug, setShowDebug] = useState(false);
+  const [applyingUtm, setApplyingUtm] = useState(false);
 
   // Sincroniza com o filtro global de contas
   useEffect(() => {
@@ -174,6 +174,32 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
   useEffect(() => {
     if (presetKey) setPreset(presetKey);
   }, [presetKey]);
+
+  const applyUtmAll = async () => {
+    if (!confirm("Aplicar UTM padrão (utm_placement={campaignid}_{placement}) no Final URL Suffix de TODAS as campanhas?\n\nIsso é necessário para que o GAM consiga associar receita por placement.")) return;
+    setApplyingUtm(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-apply-utm-bulk", {
+        body: accountIds.length ? { account_ids: accountIds } : {},
+      });
+      if (error) {
+        toast({ title: "Erro ao aplicar UTM", description: error.message, variant: "destructive" });
+        return;
+      }
+      const r = data as ApplyUtmResult | null;
+      if (r?.error) {
+        toast({ title: "Erro", description: r.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "UTM aplicado",
+        description: `${r?.success ?? 0}/${r?.total ?? 0} campanhas atualizadas${r?.failed ? ` (${r.failed} falha(s))` : ""}.`,
+      });
+    } finally {
+      setApplyingUtm(false);
+    }
+  };
+
 
   const visibleCampaigns = useMemo(() => {
     return campaigns
@@ -279,30 +305,25 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     return last2;
   };
 
-  // Receita GAM por placement (canonical engine — placement_revenue_reconciled)
+  // Receita GAM por placement (já agrupada via UTM no backend)
   const gamRevenueByPlacement = useMemo(() => {
-    const map = new Map<string, { revenue: number; method: string | null; confidence: number; broken: boolean }>();
+    const map = new Map<string, number>();
     for (const g of gamRows) {
-      const key = normalizePlacementKey(g.normalized_placement || g.placement || "");
+      const key = normalizePlacementKey(g.placement || "");
       if (!key) continue;
-      const cur = map.get(key) ?? { revenue: 0, method: null, confidence: 0, broken: false };
-      cur.revenue += Number(g.revenue_usd ?? 0);
-      // Mantém o método com maior confidence
-      const conf = Number(g.confidence ?? 0);
-      if (conf >= cur.confidence) {
-        cur.confidence = conf;
-        cur.method = g.reconciliation_method ?? cur.method;
-      }
-      if (g.broken_tracking) cur.broken = true;
-      map.set(key, cur);
+      map.set(key, (map.get(key) ?? 0) + Number(g.revenue_usd ?? 0));
     }
     return map;
   }, [gamRows]);
 
   const aggregated: AggRow[] = useMemo(() => {
     const map = new Map<string, AggRow>();
+    const revenueKeys = [...gamRevenueByPlacement.keys()];
+    const usedPrefixRevenueKeys = new Set<string>();
     for (const r of rows) {
       const rawPlacement = normalizePlacementKey(r.placement_clean || r.placement, r.placement_type);
+      // Mantém o subdomínio como chave (ex: may.karwin.com separado de karwin.com).
+      // O root domain é guardado para fallback de match de receita via UTM.
       const key = rawPlacement;
       const root = rootDomain(rawPlacement);
       let agg = map.get(key);
@@ -315,23 +336,33 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           impressions: 0, clicks: 0, costBrl: 0, conversions: 0,
           revenueUsd: 0, revenueUsdNet: 0, revenueBrl: 0, profitBrl: 0, roi: 0,
           revenueSource: "none", matchedUtm: null, ctr: 0, cpcBrl: 0,
-          reconciliationMethod: null, confidence: 0, brokenTracking: false,
         };
         map.set(key, agg);
       }
       if (r.ad_group_name) agg.ad_groups.add(r.ad_group_name);
       agg.impressions += Number(r.impressions);
       agg.clicks += Number(r.clicks);
-      agg.costBrl += Number(r.cost);
+      agg.costBrl += Number(r.cost); // custo NATIVO (BRL na conta BR)
       agg.conversions += Number(r.conversions);
     }
     const values = [...map.values()];
     for (const a of values) {
-      const match = gamRevenueByPlacement.get(a.placement);
-      const usd = match?.revenue ?? 0;
+      // Match: 1) full normalizado  2) root domain
+      let usd = gamRevenueByPlacement.get(a.placement) ?? 0;
       let source: AggRow["revenueSource"] = "none";
       let matchedKey: string | null = null;
       if (usd > 0) { source = "utm_full"; matchedKey = a.placement; }
+      else if (a.placementRoot && a.placementRoot !== a.placement) {
+        const rootUsd = gamRevenueByPlacement.get(a.placementRoot) ?? 0;
+        if (rootUsd > 0) { usd = rootUsd; source = "utm_root"; matchedKey = a.placementRoot; }
+      }
+      if (usd <= 0 && isMobileAppPlacement(a.type, a.placement)) {
+        const prefixKey = findPrefixRevenueKey(a.placement, revenueKeys, usedPrefixRevenueKeys);
+        if (prefixKey) {
+          usd = gamRevenueByPlacement.get(prefixKey) ?? 0;
+          if (usd > 0) { source = "utm_prefix"; matchedKey = prefixKey; usedPrefixRevenueKeys.add(prefixKey); }
+        }
+      }
       const usdNet = usd * (1 - REV_SHARE_PCT);
       const revenueBrl = usdNet * (fxUsdBrl > 0 ? fxUsdBrl : 1);
       a.revenueUsd = usd;
@@ -343,9 +374,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
       a.matchedUtm = matchedKey;
       a.ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0;
       a.cpcBrl = a.clicks > 0 ? a.costBrl / a.clicks : 0;
-      a.reconciliationMethod = match?.method ?? null;
-      a.confidence = match?.confidence ?? 0;
-      a.brokenTracking = match?.broken ?? false;
     }
     return values;
   }, [rows, gamRevenueByPlacement, fxUsdBrl]);
@@ -445,32 +473,9 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
     else { setSortKey(k); setSortDir(k === "roi" ? "asc" : "desc"); }
   };
 
-  const selectedCampaign = campaigns.find((c) => c.campaign_id === campaignId) ?? null;
-
   return (
     <div className="space-y-6">
-      <div className="flex justify-end -mb-2">
-        <AiAssistantButton
-          context={{
-            active_tab: "placements",
-            current_site: globalFilters.siteId && globalFilters.siteId !== "all" ? globalFilters.siteId : null,
-            range: { from: range.from, to: range.to },
-            filters: { account_ids: accountIds, search, preset },
-            selected_campaign: selectedCampaign ? { campaign_id: selectedCampaign.campaign_id, name: selectedCampaign.name } : null,
-            loaded_data: { rows_count: rows.length, gam_rows_count: gamRows.length },
-          }}
-          suggestions={[
-            "Os placements desta campanha estão calculando a receita certo?",
-            "Tem placement sem revenue match?",
-            "Qual placement está mais suspeito?",
-            "O ROI bate com o GAM?",
-            "Tem placement misturado entre sites?",
-            "O NET_FACTOR foi aplicado corretamente?",
-          ]}
-        />
-      </div>
       {/* Filtros */}
-
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
@@ -570,6 +575,20 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
         </div>
       </div>
 
+      {/* Aplicar UTM em todas as campanhas */}
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[260px]">
+          <div className="text-sm font-semibold">UTMs nas campanhas</div>
+          <div className="text-xs text-muted-foreground">
+            Aplica <code className="bg-muted px-1 rounded">{"utm_placement={campaignid}_{placement}"}</code> no Final URL Suffix de todas as campanhas {accountIds.length ? "da conta filtrada" : "de todas as contas"}. Necessário para casar receita do GAM por placement.
+          </div>
+        </div>
+        <Button onClick={applyUtmAll} disabled={applyingUtm} variant="default">
+          {applyingUtm ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+          Aplicar UTM {accountIds.length ? "(conta filtrada)" : "em todas"}
+        </Button>
+      </div>
+
       <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold">🔄 Como funciona a limpeza automática (a cada 15 dias)</span>
@@ -581,7 +600,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
           </div>
           <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
             <div className="font-semibold text-sm">2. Verificação de ROI real</div>
-            <p className="text-muted-foreground">Cruza <b>custo real</b> (ads_placements) × <b>receita real</b> (GAM) por placement exato, aplicando NET_FACTOR (0.935) × FX.</p>
+            <p className="text-muted-foreground">Cruza <b>custo real</b> (ads_placements) × <b>receita real</b> (GAM) por domínio raiz, aplicando NET_FACTOR (0.935) × FX.</p>
           </div>
           <div className="rounded-lg border border-success/40 bg-success/5 p-3 space-y-1.5">
             <div className="font-semibold text-sm text-success">🛡️ 3. Trava de segurança</div>
@@ -640,7 +659,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
             <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
               <div>ads rows: <b>{rows.length}</b> · placements únicos: <b>{aggregated.length}</b></div>
               <div>gam rows (UTM): <b>{gamRows.length}</b> · placements GAM únicos: <b>{gamRevenueByPlacement.size}</b></div>
-              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b> · mobile com receita=<b>{aggregated.filter(a => isMobileAppPlacement(a.type, a.placement) && a.revenueSource !== "none").length}</b></div>
+              <div>match: full=<b>{aggregated.filter(a => a.revenueSource === "utm_full").length}</b> · root=<b>{aggregated.filter(a => a.revenueSource === "utm_root").length}</b> · sem receita=<b>{aggregated.length - matchedCount}</b> · mobile com receita=<b>{aggregated.filter(a => isMobileAppPlacement(a.type, a.placement) && a.revenueSource !== "none").length}</b></div>
               <div>custo: vem do Google Ads em <b>BRL nativo</b> (sem conversão) · rev share: <b>{(REV_SHARE_PCT * 100).toFixed(1)}%</b></div>
               <div>receita: GAM em USD → convertida p/ BRL via fx <b>{fxUsdBrl}</b> · ROI calculado em BRL</div>
             </div>
@@ -692,25 +711,15 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                     const lowCtr = r.impressions > 1000 && r.ctr < 0.3;
                     const wasted = r.costBrl > 100 && r.conversions === 0;
                     const action = actions[r.placement];
-                    const isVerified = matched && r.reconciliationMethod === "exact_utm_placement" && r.confidence >= 95;
-                    const isInferred = matched && !isVerified && !r.brokenTracking;
-                    const isBroken = r.brokenTracking === true;
-                    const isLeak = !matched && r.costBrl > 0; // gastou e nada veio do GAM
-                    // Trava: só permite blacklist se a receita é VERIFIED OU se realmente não há receita (leak).
-                    const canBlacklist = isVerified || (!matched && r.costBrl >= 100);
-                    const blacklistTitle = canBlacklist
-                      ? "Excluir no Google Ads (negative placement)"
-                      : "Bloqueado: tracking não verificado (confidence < 95 ou método não exact_utm_placement)";
                     return (
                       <TableRow key={r.placement} className={cn(action === "blacklist" && "opacity-50")}>
                         <TableCell className="font-mono text-xs max-w-[260px] truncate" title={r.placement}>
                           {r.placement}
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {isVerified && <Badge className="text-[9px] bg-success/15 text-success border border-success/30" title={`exact_utm_placement · confidence ${r.confidence}`}>VERIFIED</Badge>}
-                            {isInferred && <Badge className="text-[9px] bg-warning/15 text-warning border border-warning/30" title={`${r.reconciliationMethod ?? "?"} · confidence ${r.confidence}`}>INFERRED</Badge>}
-                            {isBroken && <Badge variant="destructive" className="text-[9px]">BROKEN</Badge>}
-                            {isLeak && <Badge className="text-[9px] bg-foreground/10 text-foreground border border-border" title="Custo sem receita reconciliada">LEAK</Badge>}
-                            {r.revenueSource === "none" && !isLeak && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
+                            {r.revenueSource === "utm_full" && <Badge variant="outline" className="text-[9px]">UTM full</Badge>}
+                            {r.revenueSource === "utm_root" && <Badge variant="outline" className="text-[9px]">UTM root</Badge>}
+                            {r.revenueSource === "utm_prefix" && <Badge variant="outline" className="text-[9px]">UTM app</Badge>}
+                            {r.revenueSource === "none" && <Badge variant="outline" className="text-[9px]">sem receita</Badge>}
                             {negative && <Badge variant="destructive" className="text-[9px]">ROI&lt;0</Badge>}
                             {lowCtr && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">CTR baixo</Badge>}
                             {wasted && <Badge variant="secondary" className="text-[9px] bg-warning/20 text-warning">Sem conv.</Badge>}
@@ -744,14 +753,7 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Favoritar" onClick={() => toggleAction(r.placement, "favorite")}>
                               <Star className={cn("h-3.5 w-3.5", action === "favorite" && "fill-primary text-primary")} />
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className={cn("h-7 w-7", canBlacklist ? "text-danger" : "text-muted-foreground/40 cursor-not-allowed")}
-                              title={blacklistTitle}
-                              disabled={!canBlacklist}
-                              onClick={() => canBlacklist && toggleAction(r.placement, "blacklist", r)}
-                            >
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-danger" title="Excluir no Google Ads (negative placement)" onClick={() => toggleAction(r.placement, "blacklist", r)}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -763,8 +765,6 @@ export function PlacementsTab({ campaigns, googleAccounts, fxUsdBrl = 4.97 }: Pr
                             <div>root: {r.placementRoot}</div>
                             <div>cost_ads: R$ {r.costBrl.toFixed(2)} (BRL)</div>
                             <div>utm_match: {r.matchedUtm ?? "—"} ({r.revenueSource})</div>
-                            <div>method: {r.reconciliationMethod ?? "—"} · conf: {r.confidence}</div>
-                            <div>broken: {String(r.brokenTracking)}</div>
                             <div>rev_usd: ${r.revenueUsd.toFixed(4)} → net ${r.revenueUsdNet.toFixed(4)}</div>
                             <div>fx: {fxUsdBrl} → rev_brl: R$ {r.revenueBrl.toFixed(2)}</div>
                             <div>roi: {r.roi.toFixed(2)}%</div>

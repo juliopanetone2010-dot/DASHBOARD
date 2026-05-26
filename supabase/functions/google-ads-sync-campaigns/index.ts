@@ -19,7 +19,6 @@ Deno.serve(async (req) => {
     let dateFrom: string | null = null;
     let dateTo: string | null = null;
     let accountIds: string[] = [];
-    let requestedUserId: string | null = null;
     try {
       const body = await req.json().catch(() => ({}));
       if (body && typeof body === "object") {
@@ -29,7 +28,6 @@ Deno.serve(async (req) => {
         accountIds = Array.isArray((body as any).account_ids)
           ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
           : [];
-        requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
       }
     } catch (_) { /* no body */ }
 
@@ -49,17 +47,9 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
-    const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    let userId: string | undefined;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
-      userId = requestedUserId ?? undefined;
-    } else {
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
-    }
+    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
+    const userId = claims?.claims?.sub;
     if (!userId) return json({ error: "Token inválido" });
-
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
