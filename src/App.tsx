@@ -9,6 +9,7 @@ import NotFound from "./pages/NotFound.tsx";
 import Settings from "./pages/Settings.tsx";
 import OAuthCallback from "./pages/OAuthCallback.tsx";
 import Auth from "./pages/Auth.tsx";
+import AdminUsers from "./pages/AdminUsers.tsx";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 
 const queryClient = new QueryClient();
