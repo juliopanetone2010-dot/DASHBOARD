@@ -549,26 +549,10 @@ const IndexInner = () => {
   const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
   const extraNetBrl = extraNetUsd * usdBrl;
 
-  // Receita REAL do GAM em BRL (independe do display). Inclui impressões SEM UTM.
-  // Quando disponível, vira a base do ROI/lucro — assim o ROI reflete a verdade do Ad Manager.
-  const realGamRevenueBrl = (() => {
-    const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
-    let total = 0;
-    for (const [cur, val] of Object.entries(byCur)) {
-      if (cur === "BRL") total += val;
-      else total += val * usdBrl; // USD ou fallback
-    }
-    return total;
-  })();
-  const hasRealGam = realGamRevenueBrl > 0;
-  // Se temos receita real do GAM, usamos ela (líquida) como base do ROI.
-  // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
-  const totalProfitBrl = hasRealGam
-    ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
-    : baseTotals.profit + extraNetBrl;
-  const totalRevenueUsd = hasRealGam
-    ? (realGamRevenueBrl * NET_FACTOR) / usdBrl
-    : baseTotals.revenue + extraNetUsd;
+  // Fonte única da verdade: GAM exato (utm_source=google + campaign_id) já líquido (rev share 6.5%)
+  // agregado pelo engine a partir de daily_metrics. Sem override de site_metrics_daily.
+  const totalProfitBrl = baseTotals.profit;
+  const totalRevenueUsd = baseTotals.revenue;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
   const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
   const totals = {
@@ -608,11 +592,8 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
-  // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
-  // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
-  const realGamRevenueDisplay = (isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl) * NET_FACTOR;
-  // Receita "atribuída" antiga = só Google UTM + push/outras (sem impressões sem tag)
+  // Receita do card = GAM exato líquido (já em totals.revenue, USD).
+  const realGamRevenueDisplay = revenueDisplay;
   const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
   const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
   const attributionPct = realGamRevenueDisplay > 0
