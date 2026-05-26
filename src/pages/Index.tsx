@@ -308,6 +308,44 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
+  // Receita canônica reconciliada por (campaign_id, date).
+  // Antes o dashboard lia daily_metrics.revenue, populado a partir de gam_campaign_source_revenue
+  // (só match exato utm_source=google + campaign_id). Isso subdimensionava campanhas onde parte
+  // do tráfego chega na página sem utm_source completo, mas COM utm_placement amarrando ao
+  // campaign_id. A engine canônica `placement_revenue_reconciled` soma:
+  //   - revenue_usd                       → match exato por utm_placement
+  //   - aggregate_allocated_revenue_usd   → impressões agregadas (sem campaign id direto)
+  //                                         distribuídas proporcionalmente entre campanhas
+  //                                         que servem a mesma URL
+  // Esse é o valor real do GAM atribuível a cada campanha. Aqui buscamos e usamos como
+  // override em filtered.metrics — recomputando profit/ROI corretamente.
+  const reconciledRevQuery = useQuery({
+    queryKey: ["reconciled-rev", range.from, range.to, filters.siteId],
+    queryFn: async () => {
+      let q = supabase
+        .from("placement_revenue_reconciled")
+        .select("campaign_id, date, revenue_usd, aggregate_allocated_revenue_usd")
+        .gte("date", range.from).lte("date", range.to)
+        .limit(100000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const map = new Map<string, Map<string, number>>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id);
+        const d = String((r as any).date);
+        const v = (Number((r as any).revenue_usd) || 0)
+                + (Number((r as any).aggregate_allocated_revenue_usd) || 0);
+        if (v <= 0) continue;
+        const inner = map.get(cid) ?? new Map<string, number>();
+        inner.set(d, (inner.get(d) ?? 0) + v);
+        map.set(cid, inner);
+      }
+      return map;
+    },
+    staleTime: 60_000,
+  });
+
   // Final URL por campaign_id — REAL, vinda da API do Google Ads (tabela campaign_final_urls).
   // Hierarquia: ad.final_urls (mais recente) → fallback null = UNKNOWN URL.
   const finalUrlQuery = useQuery({
