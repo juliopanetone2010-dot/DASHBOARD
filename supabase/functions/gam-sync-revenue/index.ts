@@ -209,8 +209,36 @@ async function runSync(req: Request): Promise<Response> {
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         const utmRows = attribution.retentionRows;
-        const googleCampaignRows = attribution.googleCampaignRows;
-        const googlePlacementRows = attribution.googlePlacementRows;
+        let googleCampaignRows = attribution.googleCampaignRows;
+        let googlePlacementRows = attribution.googlePlacementRows;
+
+        // Fallback URL-based: para campanhas SEM utm_placement/utm_campaign configurado,
+        // tentamos casar a URL da página (URL_NAME) com campaign_final_urls. Isso recupera
+        // a receita real do GAM (ex.: .../cursos-senai-brasil → cid 23867649336).
+        // Só usamos o fallback para (date, cid) que NÃO já tem atribuição via UTM, para
+        // evitar dupla contagem.
+        try {
+          const siteIdForNet = networkSites[0]?.id;
+          const { data: linkRows } = siteIdForNet ? await admin
+            .from("account_site_links").select("google_account_id")
+            .eq("user_id", userId).eq("site_id", siteIdForNet) : { data: [] };
+          const accountIds = ((linkRows ?? []) as any[]).map((l) => l.google_account_id).filter(Boolean);
+          const finalUrlMap = await buildFinalUrlMap(admin, userId, accountIds, debug);
+          if (finalUrlMap.size > 0) {
+            const urlFallback = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+            const utmCovered = new Set(
+              googleCampaignRows.filter((r) => r.cid && r.revenue > 0).map((r) => `${r.date}|${r.cid}`),
+            );
+            const fallbackUse = urlFallback.filter((r) => r.cid && !utmCovered.has(`${r.date}|${r.cid}`));
+            if (fallbackUse.length > 0) {
+              googleCampaignRows = [...googleCampaignRows, ...fallbackUse];
+              googlePlacementRows = [...googlePlacementRows, ...fallbackUse];
+              debug.push(`[${networkCode}/URL_FALLBACK] adicionadas ${fallbackUse.length} linhas (cids ausentes do UTM atribuídos via final_url)`);
+            }
+          }
+        } catch (e) {
+          debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
+        }
         const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
@@ -861,6 +889,82 @@ async function runUrlNameCandidate(
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
     return { label, rows: [] };
   }
+}
+
+
+// =========================================================================
+// URL-based fallback: quando uma campanha não tem utm_placement configurado,
+// usamos a URL da página (dimensão URL_NAME do GAM) e casamos com
+// campaign_final_urls para atribuir a receita real ao campaign_id correto.
+// =========================================================================
+function normalizeUrlForMatch(raw: string): string {
+  if (!raw) return "";
+  let t = safeDecode(String(raw)).toLowerCase().trim();
+  t = t.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  t = t.split("?")[0].split("#")[0];
+  t = t.replace(/\/+$/, "");
+  return t;
+}
+
+async function buildFinalUrlMap(
+  admin: any,
+  userId: string,
+  accountIds: string[],
+  debug: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!accountIds || accountIds.length === 0) return map;
+  const { data, error } = await admin
+    .from("campaign_final_urls")
+    .select("campaign_id, final_url")
+    .eq("user_id", userId)
+    .in("google_account_id", accountIds);
+  if (error) {
+    debug.push(`[URL_FALLBACK/map] erro=${String(error.message ?? error).slice(0, 300)}`);
+    return map;
+  }
+  for (const row of (data ?? []) as any[]) {
+    const key = normalizeUrlForMatch(String(row.final_url ?? ""));
+    if (!key) continue;
+    // primeira ocorrência ganha (final_url canonical → cid)
+    if (!map.has(key)) map.set(key, String(row.campaign_id));
+  }
+  debug.push(`[URL_FALLBACK/map] urls_indexadas=${map.size} (accounts=${accountIds.length})`);
+  return map;
+}
+
+async function collectUrlAttribution(args: {
+  networkCode: string; accessToken: string; ranges: GamRange[];
+  finalUrlMap: Map<string, string>; debug: string[]; deadlineAt?: number;
+}): Promise<AttributedRow[]> {
+  const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
+  const out: AttributedRow[] = [];
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
+    ))).flat();
+    let matched = 0;
+    for (const r of reportRows) {
+      const rawUrl = r.dims[1] || r.dims[0] || "";
+      const key = normalizeUrlForMatch(rawUrl);
+      const cid = finalUrlMap.get(key);
+      if (!cid) continue;
+      matched++;
+      out.push({
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid,
+        placement: key,
+        raw: `URL_NAME_FALLBACK|url=${rawUrl}|cid=${cid}`,
+      });
+    }
+    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
+  }
+  return out;
 }
 
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
