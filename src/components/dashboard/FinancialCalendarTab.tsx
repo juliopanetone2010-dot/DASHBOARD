@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CalendarDays, RefreshCw, TrendingUp, TrendingDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboardFilters } from "@/contexts/FilterContext";
+import { useDashboardData } from "@/hooks/useDashboardData";
+import { NET_FACTOR } from "@/engine/rules";
 import { fmtCurrency, fmtPercent, fmtNumber, fmtUSD, fmtBRL } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,7 @@ const MONTHS_PT = [
 
 export function FinancialCalendarTab() {
   const { filters } = useDashboardFilters();
+  const dash = useDashboardData(); // MESMA fonte do dashboard (RLS, filtros, escopo)
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
@@ -46,11 +49,11 @@ export function FinancialCalendarTab() {
 
   const monthStart = useMemo(() => `${year}-${String(month).padStart(2, "0")}-01`, [year, month]);
   const monthEnd = useMemo(() => {
-    const d = new Date(year, month, 0); // último dia do mês
+    const d = new Date(year, month, 0);
     return d.toISOString().slice(0, 10);
   }, [year, month]);
 
-  // FX USD→BRL para consolidar sites com moedas diferentes quando "Todos os sites"
+  // FX só pra exibir labels USD quando preciso
   const fxQuery = useQuery({
     queryKey: ["fx-usd-brl-calendar"],
     queryFn: async () => {
@@ -66,13 +69,16 @@ export function FinancialCalendarTab() {
   });
   const usdBrl = fxQuery.data ?? 5;
 
-  // Quando "Todos os sites": consolidamos por dia usando a MESMA fonte da verdade
-  // do dashboard — daily_metrics (spend BRL nativo) + revenue GAM exato (USD bruto,
-  // já filtrado por utm_source=google + campaign_id na ingestão) × NET_FACTOR (rev share 6,5%),
-  // convertendo USD → BRL via FX. Assim o ROI do calendário bate com o do dashboard.
-  const NET_FACTOR = 0.935;
+  // === FONTE ÚNICA ===
+  // Quando "Todos os sites": agrega data.metrics (já filtrado pelo dashboard) por dia.
+  // Aplicamos a MESMA fórmula do engine (rules.ts):
+  //   grossRevBrl = profit + spend  (BRL nativo)
+  //   netBrl      = grossRevBrl * NET_FACTOR (0,935 = rev share 6,5%)
+  //   lucroLiq    = netBrl - spend
+  // Assim o ROI/lucro batem 1:1 com os cards do dashboard.
   const snapshotsQuery = useQuery({
-    queryKey: ["dfs", filters.siteId, monthStart, monthEnd, usdBrl],
+    queryKey: ["dfs-calendar", filters.siteId, monthStart, monthEnd, dash.fetchedAt],
+    enabled: !dash.loading,
     queryFn: async () => {
       if (filters.siteId !== "all") {
         const { data, error } = await supabase
@@ -86,28 +92,8 @@ export function FinancialCalendarTab() {
         if (error) throw error;
         return (data ?? []) as unknown as Snapshot[];
       }
-      // === ALL SITES === paginar daily_metrics e agregar por data
-      // IMPORTANTE: igualar exatamente o filtro do dashboard — só conta linhas cujo
-      // campaign_id existe na tabela `campaigns` (campanhas ativas/cadastradas).
-      // Sem isso, somamos campanhas órfãs/removidas e o gasto fica ~2× inflado.
-      const validCampaigns = new Set<string>();
-      {
-        let cFrom = 0;
-        const CPAGE = 1000;
-        while (true) {
-          const { data: cRows, error: cErr } = await supabase
-            .from("campaigns")
-            .select("campaign_id")
-            .order("campaign_id", { ascending: true })
-            .range(cFrom, cFrom + CPAGE - 1);
-          if (cErr) throw cErr;
-          if (!cRows || cRows.length === 0) break;
-          for (const r of cRows) validCampaigns.add(String((r as any).campaign_id));
-          if (cRows.length < CPAGE) break;
-          cFrom += CPAGE;
-        }
-      }
 
+      // === ALL SITES === reusa data.metrics do dashboard
       const byDate = new Map<string, Snapshot>();
       const ensure = (date: string): Snapshot => {
         let m = byDate.get(date);
@@ -124,39 +110,22 @@ export function FinancialCalendarTab() {
         }
         return m;
       };
-      // Canonical: grossRevBrl = profit + spend (BRL nativo, igual ao engine).
-      // NET_FACTOR (rev share 6,5%) sobre o bruto BRL → 1:1 com o dashboard.
-      // Paginação ESTÁVEL com ORDER BY date,id pra não duplicar/perder linhas em range().
-      let from = 0;
-      const PAGE = 1000;
-      while (true) {
-        const { data, error } = await supabase
-          .from("daily_metrics")
-          .select("id, campaign_id, date, spend, clicks, conversions, impressions, revenue, profit")
-          .gte("date", monthStart)
-          .lte("date", monthEnd)
-          .order("date", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, from + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const r of data) {
-          if (!validCampaigns.has(String((r as any).campaign_id))) continue;
-          const m = ensure(r.date as string);
-          const spend = Number(r.spend) || 0;
-          const profit = Number(r.profit) || 0;
-          const grossBrl = profit + spend; // BRL nativo (igual engine)
-          m.google_ads_cost += spend;
-          m.total_cost += spend;
-          m.clicks += Number(r.clicks) || 0;
-          m.conversions += Number(r.conversions) || 0;
-          m.impressions += Number(r.impressions) || 0;
-          m.gross_revenue += grossBrl;
-          m.net_revenue += grossBrl * NET_FACTOR;
-          m.revenue_after_revshare += grossBrl * NET_FACTOR;
-        }
-        if (data.length < PAGE) break;
-        from += PAGE;
+
+      for (const r of dash.metrics) {
+        const date = String(r.date);
+        if (date < monthStart || date > monthEnd) continue;
+        const spend = Number(r.spend) || 0;
+        const profit = Number(r.profit) || 0;
+        const grossBrl = profit + spend; // BRL nativo, igual engine
+        const m = ensure(date);
+        m.google_ads_cost += spend;
+        m.total_cost += spend;
+        m.clicks += Number(r.clicks) || 0;
+        m.conversions += Number(r.conversions) || 0;
+        m.impressions += Number(r.impressions) || 0;
+        m.gross_revenue += grossBrl;
+        m.net_revenue += grossBrl * NET_FACTOR;
+        m.revenue_after_revshare += grossBrl * NET_FACTOR;
       }
       for (const m of byDate.values()) {
         m.liquid_profit = m.net_revenue - m.total_cost;
@@ -166,6 +135,8 @@ export function FinancialCalendarTab() {
       return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
     },
   });
+
+
 
 
 
