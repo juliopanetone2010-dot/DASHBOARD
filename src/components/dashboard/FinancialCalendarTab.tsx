@@ -223,15 +223,13 @@ export function FinancialCalendarTab() {
   }, [year]);
 
   if (filters.siteId === "all") {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          <CalendarDays className="h-10 w-10 mx-auto mb-3 opacity-50" />
-          Selecione um site no topo para ver o calendário financeiro.
-        </CardContent>
-      </Card>
-    );
+    // permitido: aba consolida todos os sites em BRL
   }
+
+  // currency display: forçamos BRL quando "todos os sites" (consolidação)
+  const revCurrencyDisplay = filters.siteId === "all" ? "BRL" : revCurrency;
+  const fmtRevDisplay = (v: number) => (revCurrencyDisplay === "USD" ? fmtUSD(v) : fmtBRL(v));
+
 
   return (
     <div className="space-y-4">
