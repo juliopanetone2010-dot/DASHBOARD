@@ -200,6 +200,7 @@ Deno.serve(async (req) => {
             campaign.name,
             campaign.status,
             campaign.advertising_channel_type,
+            campaign.final_url_suffix,
             campaign_budget.amount_micros,
             campaign.target_cpa.target_cpa_micros,
             campaign.maximize_conversions.target_cpa_micros,
