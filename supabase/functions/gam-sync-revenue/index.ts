@@ -945,7 +945,8 @@ async function collectUrlAttribution(args: {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
   const out: AttributedRow[] = [];
   // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
-  // Mantemos o helper como no-op até trocarmos para a dimensão correta (REFERRER_URL/TARGETING_URL).
+  // O caminho correto agora é garantir UTM padrão em todas as campanhas via
+  // google-ads-sync-campaigns (auto-aplica final_url_suffix). Mantemos o helper desligado.
   return out;
   // eslint-disable-next-line no-unreachable
   try {
