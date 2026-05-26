@@ -949,8 +949,10 @@ async function collectUrlAttribution(args: {
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
     ))).flat();
     let matched = 0;
+    const sampleUrls: string[] = [];
     for (const r of reportRows) {
       const rawUrl = r.dims[1] || r.dims[0] || "";
+      if (sampleUrls.length < 5 && rawUrl) sampleUrls.push(rawUrl);
       const key = normalizeUrlForMatch(rawUrl);
       const cid = finalUrlMap.get(key);
       if (!cid) continue;
@@ -965,8 +967,10 @@ async function collectUrlAttribution(args: {
         raw: `URL_NAME_FALLBACK|url=${rawUrl}|cid=${cid}`,
       });
     }
-    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}`);
+    console.log(`[URL_FALLBACK/collect] net=${networkCode} url_rows=${reportRows.length} matched=${matched} sample=${JSON.stringify(sampleUrls)} mapSample=${JSON.stringify([...finalUrlMap.keys()].slice(0, 5))}`);
+    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}; sample_urls=${JSON.stringify(sampleUrls)}`);
   } catch (e) {
+    console.error(`[URL_FALLBACK/collect] erro net=${networkCode}`, e);
     debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
   }
   return out;
