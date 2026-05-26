@@ -269,9 +269,40 @@ Deno.serve(async (req) => {
       if (ads.length === 0) continue;
       const indexes = buildPlacementIndexes(ads);
       const claimed = new Set<string>();
-      let unmatchedUsd = 0;
+      const exactSet = new Set(indexes.byExact.keys());
+
+      // ============================================================
+      // PASSO 1 — EXACT MATCH PRIORITÁRIO (1 row GAM = 1 placement Ads)
+      // utm_placement={cid}_{placement} bate 1:1 com Ads. Garante que
+      // linhas agregadas/root (ex.: "fflivegame.com") não consumam, via
+      // byRoot, os slots de subdomínios (39., 1022., play112., …) e
+      // empurrem o revenue real para o fallback proporcional.
+      // ============================================================
+      const unmatchedQueue: Array<[string, number]> = [];
       for (const [rawPlacement, usd] of revenues) {
         if (usd <= 0) continue;
+        const norm = normalize(rawPlacement);
+        if (exactSet.has(norm)) {
+          const direct = indexes.byExact.get(norm)!;
+          const totalCost = direct.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+          const totalClicks = direct.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+          const equalShare = usd / direct.length;
+          for (const a of direct) {
+            const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+            const share = weight > 0 ? usd * weight : equalShare;
+            const key = cpKey(cid, a.placement);
+            revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+            attributedGamUsd += share;
+            claimed.add(a.placement);
+          }
+        } else {
+          unmatchedQueue.push([rawPlacement, usd]);
+        }
+      }
+
+      // PASSO 2 — root/prefix, ignorando ads já reclamados no exato
+      let unmatchedUsd = 0;
+      for (const [rawPlacement, usd] of unmatchedQueue) {
         const matches = findPlacementMatches(normalize(rawPlacement), indexes).filter((a) => !claimed.has(a.placement));
         if (matches.length === 0) { unmatchedUsd += usd; continue; }
         const totalCost = matches.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
@@ -283,22 +314,25 @@ Deno.serve(async (req) => {
           const key = cpKey(cid, a.placement);
           revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
           attributedGamUsd += share;
-          claimed.add(a.placement);
+          // NÃO claim aqui — root matches podem legitimamente cobrir os mesmos ads
         }
       }
+
       if (unmatchedUsd > 0) {
-        // Fallback: distribui proporcional ao custo entre placements ainda sem match
-        const targets = ads.filter((a) => !claimed.has(a.placement));
-        const fallback = targets.length > 0 ? targets : ads;
-        const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
-        const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
-        const equalShare = unmatchedUsd / fallback.length;
-        for (const a of fallback) {
-          const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
-          const share = weight > 0 ? unmatchedUsd * weight : equalShare;
-          const key = cpKey(cid, a.placement);
-          revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
-          attributedGamUsd += share;
+        // Fallback final: prioriza ads que ainda não receberam receita nenhuma
+        const targets = ads.filter((a) => !claimed.has(a.placement) && (revenueUsdByCp.get(cpKey(cid, a.placement)) ?? 0) === 0);
+        const fallback = targets.length > 0 ? targets : ads.filter((a) => !claimed.has(a.placement));
+        if (fallback.length > 0) {
+          const totalCost = fallback.reduce((sum, a) => sum + Math.max(0, a.cost), 0);
+          const totalClicks = fallback.reduce((sum, a) => sum + Math.max(0, a.clicks), 0);
+          const equalShare = unmatchedUsd / fallback.length;
+          for (const a of fallback) {
+            const weight = totalCost > 0 ? Math.max(0, a.cost) / totalCost : totalClicks > 0 ? Math.max(0, a.clicks) / totalClicks : 0;
+            const share = weight > 0 ? unmatchedUsd * weight : equalShare;
+            const key = cpKey(cid, a.placement);
+            revenueUsdByCp.set(key, (revenueUsdByCp.get(key) ?? 0) + share);
+            attributedGamUsd += share;
+          }
         }
       }
     }
