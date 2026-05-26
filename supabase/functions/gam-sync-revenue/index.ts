@@ -515,20 +515,32 @@ function normalizePlacement(s: string): string {
 }
 
 // utm_placement vem como "{campaignid}_{placement}". Extrai a parte do placement.
+// IMPORTANTE: prefixo numérico pode ser ID da campanha (11+ dígitos) OU do anúncio (10 dígitos).
+// Tratamos como campaignid apenas números com 11+ dígitos para evitar colisão com ad_id
+// quando URLs hardcoded contêm o ID do ad em vez do macro {campaignid}.
 function extractPlacementValue(raw: string, cid: string | null): string | null {
   if (!raw) return null;
   const decoded = safeDecode(raw);
-  const m = decoded.match(/^(\d{6,})[_\-:](.+)$/);
+  const m = decoded.match(/^(\d{11,})[_\-:](.+)$/);
   if (m) return normalizePlacement(m[2]);
   if (cid && decoded.startsWith(cid)) return normalizePlacement(decoded.slice(cid.length).replace(/^[_\-:]/, ""));
   return normalizePlacement(decoded);
 }
 
+// Escolhe o MAIOR número (em comprimento) com 6+ dígitos dentro do raw.
+// Real campaign IDs do Google Ads têm 11 dígitos; ad IDs costumam ter 10.
+// Pegar o maior evita atribuir receita ao ad_id quando ambos aparecem na URL
+// (ex: utm_placement=1589883010_23836816710_slug ou final URL com ID hardcoded).
 function extractCampaignId(raw: string | null | undefined): string | null {
   const decoded = safeDecode(String(raw ?? "").trim());
   if (!decoded || decoded === "(not applicable)" || decoded === "(empty)") return null;
-  const m = decoded.match(/(\d{6,})/);
-  return m ? m[1] : null;
+  const matches = decoded.match(/\d{6,}/g);
+  if (!matches || matches.length === 0) return null;
+  let best = matches[0];
+  for (const candidate of matches) {
+    if (candidate.length > best.length) best = candidate;
+  }
+  return best;
 }
 
 function isRealValue(raw: string | null | undefined): boolean {
