@@ -1,9 +1,18 @@
 // Sincroniza:
 // 1) Sub-contas (customer_client) de cada MCC
 // 2) Campanhas + métricas de cada conta não-manager
+// 3) Auto-aplica final_url_suffix padrão em qualquer campanha que não tenha
 // Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+
+const STANDARD_UTM_SUFFIX = [
+  "utm_source=google",
+  "utm_campaign={campaignid}",
+  "utm_adgroup={adgroupid}",
+  "utm_content={creative}",
+  "utm_placement={campaignid}_{placement}",
+].join("&");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
