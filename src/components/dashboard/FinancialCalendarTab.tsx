@@ -103,36 +103,39 @@ export function FinancialCalendarTab() {
         }
         return m;
       };
-      // 1) Spend BRL + cliques/conv/impressões + RECEITA (USD-equivalente) — mesma fonte do dashboard
-      //    daily_metrics.revenue já vem normalizado em USD (BRL nativo dividido pelo FX na ingestão).
-      //    Usamos isso pra garantir que o ROI do calendário bata 1:1 com o do dashboard.
-      let offset = 0;
+      // 1) Spend BRL + cliques/conv/impressões + RECEITA — MESMA fonte do engine/dashboard.
+      //    Canonical: grossRevBrl = profit + spend (BRL nativo, exatamente como o engine).
+      //    Aplicamos NET_FACTOR (rev share 6,5%) sobre o bruto BRL → 1:1 com o dashboard.
+      //    Paginação ESTÁVEL com ORDER BY date,id para evitar duplicação/perda em range().
+      let from = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from("daily_metrics")
-          .select("date, spend, clicks, conversions, impressions, revenue")
+          .select("id, date, spend, clicks, conversions, impressions, revenue, profit")
           .gte("date", monthStart)
           .lte("date", monthEnd)
-          .range(offset, offset + PAGE - 1);
+          .order("date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, from + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
         for (const r of data) {
           const m = ensure(r.date as string);
           const spend = Number(r.spend) || 0;
-          const revUsd = Number(r.revenue) || 0;
-          const revBrl = revUsd * usdBrl; // bruto BRL
+          const profit = Number(r.profit) || 0;
+          const grossBrl = profit + spend; // BRL nativo (igual ao engine)
           m.google_ads_cost += spend;
           m.total_cost += spend;
           m.clicks += Number(r.clicks) || 0;
           m.conversions += Number(r.conversions) || 0;
           m.impressions += Number(r.impressions) || 0;
-          m.gross_revenue += revBrl;
-          m.net_revenue += revBrl * NET_FACTOR;
-          m.revenue_after_revshare += revBrl * NET_FACTOR;
+          m.gross_revenue += grossBrl;
+          m.net_revenue += grossBrl * NET_FACTOR;
+          m.revenue_after_revshare += grossBrl * NET_FACTOR;
         }
         if (data.length < PAGE) break;
-        offset += PAGE;
+        from += PAGE;
       }
       // 2) Lucro / margem / eCPM coerentes
       for (const m of byDate.values()) {
