@@ -2443,6 +2443,57 @@ export type Database = {
         }
         Relationships: []
       }
+      push_retention_revenue: {
+        Row: {
+          created_at: string
+          date: string
+          ecpm: number
+          id: string
+          impressions: number
+          normalized_url: string
+          raw_gam_row: Json | null
+          revenue_usd: number
+          site_id: string
+          source: string | null
+          updated_at: string
+          url: string
+          user_id: string
+          utm_source: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          normalized_url: string
+          raw_gam_row?: Json | null
+          revenue_usd?: number
+          site_id: string
+          source?: string | null
+          updated_at?: string
+          url: string
+          user_id: string
+          utm_source?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          ecpm?: number
+          id?: string
+          impressions?: number
+          normalized_url?: string
+          raw_gam_row?: Json | null
+          revenue_usd?: number
+          site_id?: string
+          source?: string | null
+          updated_at?: string
+          url?: string
+          user_id?: string
+          utm_source?: string
+        }
+        Relationships: []
+      }
       push_url_revenue: {
         Row: {
           created_at: string
@@ -3251,6 +3302,45 @@ export type Database = {
           rows_synced?: number | null
           site_id?: string | null
           source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      unattributed_push_revenue: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          impressions: number
+          raw_gam_row: Json | null
+          reason: string
+          revenue_usd: number
+          site_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          impressions?: number
+          raw_gam_row?: Json | null
+          reason?: string
+          revenue_usd?: number
+          site_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          impressions?: number
+          raw_gam_row?: Json | null
+          reason?: string
+          revenue_usd?: number
+          site_id?: string
           updated_at?: string
           user_id?: string
         }
