@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,7 @@ import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
 import { FinancialCalendarTab } from "@/components/dashboard/FinancialCalendarTab";
+import { HistoryTab } from "@/components/dashboard/HistoryTab";
 import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
@@ -541,6 +542,9 @@ const IndexInner = () => {
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
+            <TabsTrigger value="history" className="gap-1.5">
+              <History className="h-3.5 w-3.5" /> Histórico
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
@@ -821,6 +825,12 @@ const IndexInner = () => {
           <TabsContent value="rules" className="mt-6">
             <DashboardErrorBoundary tabName="Regras">
               <RulesPanel rules={data.rules} onSave={data.saveRules} />
+            </DashboardErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-6">
+            <DashboardErrorBoundary tabName="Histórico">
+              <HistoryTab />
             </DashboardErrorBoundary>
           </TabsContent>
         </Tabs>
