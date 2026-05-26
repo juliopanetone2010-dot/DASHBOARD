@@ -192,7 +192,38 @@ async function setSiteAccess(admin: any, body: any, callerId: string) {
       siteIds.map((sid) => ({ user_id: userId, site_id: sid })),
     );
   }
-  await logAudit(admin, callerId, "set_site_access", { resource_id: userId, after: { site_ids: siteIds } });
+
+  // Auto-grant Google Ads access (view + sync) for all accounts linked to the granted sites.
+  // Preserve existing migrate flag where present; do NOT remove permissions for accounts
+  // linked to sites the user still has access to.
+  const { data: links } = siteIds.length > 0
+    ? await admin.from("account_site_links").select("google_account_id").in("site_id", siteIds)
+    : { data: [] as Array<{ google_account_id: string }> };
+  const accountIds = Array.from(new Set((links ?? []).map((l: any) => l.google_account_id).filter(Boolean)));
+
+  if (accountIds.length > 0) {
+    const { data: existing } = await admin
+      .from("admin_google_ads_permissions")
+      .select("google_account_id, can_migrate")
+      .eq("user_id", userId)
+      .in("google_account_id", accountIds);
+    const migrateMap = new Map<string, boolean>((existing ?? []).map((r: any) => [r.google_account_id, !!r.can_migrate]));
+    await admin.from("admin_google_ads_permissions").upsert(
+      accountIds.map((aid) => ({
+        user_id: userId,
+        google_account_id: aid,
+        can_view: true,
+        can_sync: true,
+        can_migrate: migrateMap.get(aid) ?? false,
+      })),
+      { onConflict: "user_id,google_account_id" },
+    );
+  }
+
+  await logAudit(admin, callerId, "set_site_access", {
+    resource_id: userId,
+    after: { site_ids: siteIds, auto_granted_accounts: accountIds },
+  });
   return jsonResp({ ok: true });
 }
 
