@@ -827,6 +827,12 @@ const IndexInner = () => {
               <RulesPanel rules={data.rules} onSave={data.saveRules} />
             </DashboardErrorBoundary>
           </TabsContent>
+
+          <TabsContent value="history" className="mt-6">
+            <DashboardErrorBoundary tabName="Histórico">
+              <HistoryTab />
+            </DashboardErrorBoundary>
+          </TabsContent>
         </Tabs>
       </main>
     </div>
