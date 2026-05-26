@@ -195,18 +195,24 @@ function json(payload: unknown) {
 // "mobileapp::1-com.foo.bar"   → "com.foo.bar"
 // "youtube.com/channel/UCxx"   → "youtube.com"
 function cleanPlacement(placement: string, targetUrl: string | null): string {
-  const candidate = (placement || targetUrl || "").trim();
+  let candidate = (placement || targetUrl || "").trim();
   if (!candidate) return "";
+  // Remove sufixo "(123456)" que o Ads/UI adiciona ao displayName
+  candidate = candidate.replace(/\s*\(\d{4,}\)\s*$/g, "").trim();
   // App Android/iOS
   const appMatch = candidate.match(/mobileapp::\d+-(.+)$/i);
   if (appMatch) return appMatch[1].toLowerCase();
   const numericAppMatch = candidate.match(/^\d+-(.+)$/i);
   if (numericAppMatch) return numericAppMatch[1].toLowerCase();
-  // URL completa
-  try {
-    const u = new URL(candidate.startsWith("http") ? candidate : `https://${candidate}`);
-    return u.hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return candidate.replace(/^www\./, "").toLowerCase();
+  // Normaliza
+  let t = candidate.toLowerCase();
+  t = t.replace(/^https?:\/\//, "").split("?")[0].split("#")[0].replace(/\/+$/, "").replace(/\s{2,}/g, " ");
+  // URL/host?
+  if (/^[^/\s]+\.[^/\s]+/.test(t)) {
+    try {
+      const u = new URL(`https://${t}`);
+      return u.hostname.replace(/^www\./, "").toLowerCase();
+    } catch { /* slug */ }
   }
+  return t.replace(/^www\./, "");
 }
