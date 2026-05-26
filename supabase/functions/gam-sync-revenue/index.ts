@@ -502,16 +502,33 @@ function safeDecode(s: string): string {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
+// Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
+// ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
+function cleanPlacementLabel(s: string): string {
+  return (s || "").replace(/\s*\(\d{4,}\)\s*$/g, "").trim();
+}
+
+// Pipeline oficial de normalização para reconcile GAM ↔ Ads.
+// Regras: lowercase, sem protocolo, sem query, sem anchor, sem trailing slash,
+// sem IDs "(123)", sem espaços duplicados; URLs viram hostname.
 function normalizePlacement(s: string): string {
-  const t = (s || "").trim().toLowerCase();
+  let t = cleanPlacementLabel(String(s || "")).toLowerCase().trim();
+  if (!t) return "";
   const appMatch = t.match(/mobileapp::\d+-(.+)$/i);
-  if (appMatch) return appMatch[1];
-  try {
-    const u = new URL(t.startsWith("http") ? t : `https://${t}`);
-    return u.hostname.replace(/^www\./, "");
-  } catch {
-    return t.replace(/^www\./, "");
+  if (appMatch) return cleanPlacementLabel(appMatch[1]).toLowerCase();
+  // Tira protocolo/query/anchor manualmente (preserva slugs quando não é URL)
+  t = t.replace(/^https?:\/\//, "");
+  t = t.split("?")[0].split("#")[0];
+  t = t.replace(/\/+$/, "");
+  t = t.replace(/\s{2,}/g, " ");
+  // Se parecer URL/host (contém ponto antes da primeira /), reduz a hostname
+  if (/^[^/\s]+\.[^/\s]+/.test(t)) {
+    try {
+      const u = new URL(`https://${t}`);
+      return u.hostname.replace(/^www\./, "");
+    } catch { /* fallthrough */ }
   }
+  return t.replace(/^www\./, "");
 }
 
 // utm_placement vem como "{campaignid}_{placement}". Extrai a parte do placement.
