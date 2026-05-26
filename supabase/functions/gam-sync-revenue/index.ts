@@ -944,10 +944,8 @@ async function collectUrlAttribution(args: {
 }): Promise<AttributedRow[]> {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
   const out: AttributedRow[] = [];
-  // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
-  // Mantemos o helper como no-op até trocarmos para a dimensão correta (REFERRER_URL/TARGETING_URL).
-  return out;
-  // eslint-disable-next-line no-unreachable
+  // Tenta dimensão URL_NAME (URL da página servida). Se o GAM rejeitar,
+  // o try/catch abaixo registra o erro e retorna vazio.
   try {
     const reportRows = (await Promise.all(ranges.map((range) =>
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
