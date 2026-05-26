@@ -542,6 +542,9 @@ const IndexInner = () => {
             <TabsTrigger value="rules" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" /> Regras
             </TabsTrigger>
+            <TabsTrigger value="history" className="gap-1.5">
+              <History className="h-3.5 w-3.5" /> Histórico
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
