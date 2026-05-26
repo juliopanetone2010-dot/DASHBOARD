@@ -84,6 +84,8 @@ const IndexInner = () => {
       data.refresh(),
       queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
       queryClient.invalidateQueries({ queryKey: ["campaign-final-urls-v2"] }),
+      queryClient.invalidateQueries({ queryKey: ["reconciled-rev"] }),
+      queryClient.invalidateQueries({ queryKey: ["site-share"] }),
     ]);
   }, [data, queryClient]);
 
@@ -308,6 +310,44 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
+  // Receita canônica reconciliada por (campaign_id, date).
+  // Antes o dashboard lia daily_metrics.revenue, populado a partir de gam_campaign_source_revenue
+  // (só match exato utm_source=google + campaign_id). Isso subdimensionava campanhas onde parte
+  // do tráfego chega na página sem utm_source completo, mas COM utm_placement amarrando ao
+  // campaign_id. A engine canônica `placement_revenue_reconciled` soma:
+  //   - revenue_usd                       → match exato por utm_placement
+  //   - aggregate_allocated_revenue_usd   → impressões agregadas (sem campaign id direto)
+  //                                         distribuídas proporcionalmente entre campanhas
+  //                                         que servem a mesma URL
+  // Esse é o valor real do GAM atribuível a cada campanha. Aqui buscamos e usamos como
+  // override em filtered.metrics — recomputando profit/ROI corretamente.
+  const reconciledRevQuery = useQuery({
+    queryKey: ["reconciled-rev", range.from, range.to, filters.siteId],
+    queryFn: async () => {
+      let q = supabase
+        .from("placement_revenue_reconciled")
+        .select("campaign_id, date, revenue_usd, aggregate_allocated_revenue_usd")
+        .gte("date", range.from).lte("date", range.to)
+        .limit(100000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const map = new Map<string, Map<string, number>>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id);
+        const d = String((r as any).date);
+        const v = (Number((r as any).revenue_usd) || 0)
+                + (Number((r as any).aggregate_allocated_revenue_usd) || 0);
+        if (v <= 0) continue;
+        const inner = map.get(cid) ?? new Map<string, number>();
+        inner.set(d, (inner.get(d) ?? 0) + v);
+        map.set(cid, inner);
+      }
+      return map;
+    },
+    staleTime: 60_000,
+  });
+
   // Final URL por campaign_id — REAL, vinda da API do Google Ads (tabela campaign_final_urls).
   // Hierarquia: ad.final_urls (mais recente) → fallback null = UNKNOWN URL.
   const finalUrlQuery = useQuery({
@@ -360,13 +400,19 @@ const IndexInner = () => {
     const metricsRaw = data.metrics.filter(
       (m) => matchCampaign(m.campaign_id, m.google_account_id) && inDateRange(m.date),
     );
+    const reconciledMap = reconciledRevQuery.data;
     const metrics: DailyMetric[] = metricsRaw.map((m) => {
       const f = campaignShare(m.campaign_id);
-      if (f === 1) return m;
+      // Override: receita real do GAM via engine canônica (cobre allocated aggregate revenue
+      // que gam_campaign_source_revenue ignora). Cai pra daily_metrics.revenue se não houver
+      // reconciliação ainda (engine roda a cada 30min).
+      const reconciled = reconciledMap?.get(m.campaign_id)?.get(m.date);
+      const baseRevenue = reconciled !== undefined ? reconciled : Number(m.revenue);
+      if (f === 1 && reconciled === undefined) return m;
       return {
         ...m,
         spend: Number(m.spend) * f,
-        revenue: Number(m.revenue) * f,
+        revenue: baseRevenue * f,
         profit: Number(m.profit) * f,
         clicks: Math.round(Number(m.clicks) * f),
         conversions: Number(m.conversions) * f,
@@ -382,7 +428,7 @@ const IndexInner = () => {
     });
 
     return { campaigns, metrics, placements };
-  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data]);
+  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data, reconciledRevQuery.data]);
 
   const engine = useMemo(() => {
     if (!data.rules) return null;
