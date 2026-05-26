@@ -257,6 +257,7 @@ Deno.serve(async (req) => {
             const results = (camJson.results ?? []) as Array<{
               campaign: {
                 id: string; name: string; status: string; advertisingChannelType?: string;
+                finalUrlSuffix?: string;
                 targetCpa?: { targetCpaMicros?: string };
                 maximizeConversions?: { targetCpaMicros?: string };
               };
@@ -266,7 +267,7 @@ Deno.serve(async (req) => {
             }>;
 
             // Agrupa campanhas únicas (mantém último budget/cpa visto)
-            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null }>();
+            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; final_url_suffix: string | null }>();
             for (const r of results) {
               const budgetMicros = r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null;
               const cpaMicros = r.campaign.targetCpa?.targetCpaMicros
@@ -278,8 +279,60 @@ Deno.serve(async (req) => {
                 channel: r.campaign.advertisingChannelType ?? "DISPLAY",
                 budget_micros: budgetMicros,
                 target_cpa_micros: cpaMicros,
+                final_url_suffix: r.campaign.finalUrlSuffix ?? null,
               });
             }
+
+            // ===== AUTO-APLICAR UTM PADRÃO em campanhas sem o sufixo correto =====
+            try {
+              const toFix = Array.from(uniqueCampaigns.entries())
+                .filter(([_, info]) => (info.final_url_suffix ?? "") !== STANDARD_UTM_SUFFIX)
+                // só campanhas habilitadas/pausadas (ignora removidas)
+                .filter(([_, info]) => info.status !== "REMOVED");
+              if (toFix.length > 0) {
+                const CHUNK_MUT = 100;
+                let fixedOk = 0;
+                let fixedFail = 0;
+                for (let i = 0; i < toFix.length; i += CHUNK_MUT) {
+                  const slice = toFix.slice(i, i + CHUNK_MUT);
+                  const mutateBody = {
+                    operations: slice.map(([cid]) => ({
+                      update: {
+                        resourceName: `customers/${leaf.customer_id}/campaigns/${cid}`,
+                        finalUrlSuffix: STANDARD_UTM_SUFFIX,
+                      },
+                      updateMask: "final_url_suffix",
+                    })),
+                    partialFailure: true,
+                  };
+                  const mr = await fetch(
+                    `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/campaigns:mutate`,
+                    { method: "POST", headers, body: JSON.stringify(mutateBody) },
+                  );
+                  const mj = await mr.json();
+                  if (!mr.ok) {
+                    fixedFail += slice.length;
+                    debugLogs.push(`auto-utm mutate err ${leaf.customer_id}: ${mj?.error?.message ?? "?"}`);
+                  } else {
+                    const failed = new Set<number>();
+                    if (mj.partialFailureError?.details) {
+                      for (const d of mj.partialFailureError.details) {
+                        for (const e of (d.errors ?? [])) {
+                          const idx = e?.location?.fieldPathElements?.[0]?.index;
+                          if (typeof idx === "number") failed.add(idx);
+                        }
+                      }
+                    }
+                    fixedOk += (mj.results?.length ?? slice.length) - failed.size;
+                    fixedFail += failed.size;
+                  }
+                }
+                debugLogs.push(`auto-utm ${leaf.customer_id}: ok=${fixedOk} fail=${fixedFail} (de ${toFix.length})`);
+              }
+            } catch (e) {
+              debugLogs.push(`auto-utm exception ${leaf.customer_id}: ${String(e)}`);
+            }
+
 
             // Bulk upsert campanhas
             if (uniqueCampaigns.size > 0) {
