@@ -415,17 +415,26 @@ async function runSync(req: Request): Promise<Response> {
           }
         }
       }
-      for (const d of expanded) {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
+      // Fire-and-forget em paralelo: não bloqueia a resposta (evita IDLE_TIMEOUT 150s).
+      // Usa EdgeRuntime.waitUntil quando disponível para continuar após o response.
+      const snapshotJobs = Array.from(expanded).map((d) =>
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
           method: "POST",
           headers: {
             Authorization: authHeader!,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
-        }).catch(() => {});
+        }).catch(() => {}),
+      );
+      const er = (globalThis as any).EdgeRuntime;
+      if (er && typeof er.waitUntil === "function") {
+        er.waitUntil(Promise.allSettled(snapshotJobs));
+      } else {
+        // fallback: deixa rodar em background sem await
+        Promise.allSettled(snapshotJobs).catch(() => {});
       }
-      debug.push(`[snapshot] regenerated ${expanded.size} day(s)`);
+      debug.push(`[snapshot] enqueued ${expanded.size} day(s) (background)`);
       }
     } catch (e) {
       debug.push(`[snapshot] regen failed: ${String(e)}`);
