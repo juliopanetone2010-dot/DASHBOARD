@@ -38,11 +38,52 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
+  // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
+  const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
+  const finalUrlsQuery = useQuery({
+    queryKey: ["campaign-final-urls", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, string>();
+      const { data } = await supabase
+        .from("campaign_final_urls")
+        .select("campaign_id, final_url, ad_status")
+        .in("campaign_id", campaignIds)
+        .not("final_url", "is", null);
+      const map = new Map<string, string>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; final_url: string | null; ad_status: string | null }>) {
+        if (!r.final_url) continue;
+        // Prioriza ads ENABLED; primeiro URL vence se ainda não há entrada
+        const cur = map.get(r.campaign_id);
+        if (!cur) map.set(r.campaign_id, r.final_url);
+        else if ((r.ad_status ?? "").toUpperCase() === "ENABLED") map.set(r.campaign_id, r.final_url);
+      }
+      return map;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Métricas derivadas dos agregados (clicks/impressions/conversions/cost vêm DIRETO do Ads API).
+  // Fórmulas oficiais (mesmo cálculo que o Ads UI faz ao agregar dias):
+  //   CTR = clicks / impressions
+  //   Tx. Conv. = conversions / clicks
+  //   CPA = cost / conversions
+  const derived = useMemo(() => {
+    const m = new Map<string, { ctr: number; convRate: number; cpa: number }>();
+    for (const c of campaigns) {
+      const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
+      const convRate = c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0;
+      const cpa = c.conversions > 0 ? c.spend / c.conversions : 0;
+      m.set(c.campaign_id, { ctr, convRate, cpa });
+    }
+    return m;
+  }, [campaigns]);
+
   const handleSort = (key: SortKey) => {
     setSort((cur) => {
       if (!cur || cur.key !== key) return { key, dir: "desc" };
       if (cur.dir === "desc") return { key, dir: "asc" };
-      return null; // 3º clique remove ordenação
+      return null;
     });
   };
 
@@ -50,14 +91,41 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
     if (!sort) return campaigns;
     const arr = [...campaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
+    const valueOf = (c: CampaignAggregate): number => {
+      const d = derived.get(c.campaign_id);
+      switch (sort.key) {
+        case "ctr": return d?.ctr ?? 0;
+        case "convRate": return d?.convRate ?? 0;
+        case "cpa": return d?.cpa ?? 0;
+        default: return Number((c as any)[sort.key] ?? 0);
+      }
+    };
     arr.sort((a, b) => {
-      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
-      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
+      const av = valueOf(a), bv = valueOf(b);
       if (av === bv) return 0;
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort]);
+  }, [campaigns, sort, derived]);
+
+  const copyToClipboard = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "URL copiada", description: url });
+    } catch {
+      toast({ title: "Erro ao copiar", variant: "destructive" });
+    }
+  };
+
+  const shortenUrl = (url: string): string => {
+    try {
+      const u = new URL(url);
+      const path = u.pathname.length > 22 ? u.pathname.slice(0, 22) + "…" : u.pathname;
+      return `${u.hostname.replace(/^www\./, "")}${path}`;
+    } catch {
+      return url.length > 32 ? url.slice(0, 32) + "…" : url;
+    }
+  };
 
   const SortIcon = ({ k }: { k: SortKey }) => {
     if (!sort || sort.key !== k) return <ChevronsUpDown className="h-3 w-3 opacity-40" />;
