@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +10,9 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
@@ -17,7 +21,7 @@ import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions";
 type SortDir = "desc" | "asc";
 
 interface Props {
@@ -34,11 +38,52 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
+  // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
+  const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
+  const finalUrlsQuery = useQuery({
+    queryKey: ["campaign-final-urls", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, string>();
+      const { data } = await supabase
+        .from("campaign_final_urls")
+        .select("campaign_id, final_url, ad_status")
+        .in("campaign_id", campaignIds)
+        .not("final_url", "is", null);
+      const map = new Map<string, string>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; final_url: string | null; ad_status: string | null }>) {
+        if (!r.final_url) continue;
+        // Prioriza ads ENABLED; primeiro URL vence se ainda não há entrada
+        const cur = map.get(r.campaign_id);
+        if (!cur) map.set(r.campaign_id, r.final_url);
+        else if ((r.ad_status ?? "").toUpperCase() === "ENABLED") map.set(r.campaign_id, r.final_url);
+      }
+      return map;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Métricas derivadas dos agregados (clicks/impressions/conversions/cost vêm DIRETO do Ads API).
+  // Fórmulas oficiais (mesmo cálculo que o Ads UI faz ao agregar dias):
+  //   CTR = clicks / impressions
+  //   Tx. Conv. = conversions / clicks
+  //   CPA = cost / conversions
+  const derived = useMemo(() => {
+    const m = new Map<string, { ctr: number; convRate: number; cpa: number }>();
+    for (const c of campaigns) {
+      const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
+      const convRate = c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0;
+      const cpa = c.conversions > 0 ? c.spend / c.conversions : 0;
+      m.set(c.campaign_id, { ctr, convRate, cpa });
+    }
+    return m;
+  }, [campaigns]);
+
   const handleSort = (key: SortKey) => {
     setSort((cur) => {
       if (!cur || cur.key !== key) return { key, dir: "desc" };
       if (cur.dir === "desc") return { key, dir: "asc" };
-      return null; // 3º clique remove ordenação
+      return null;
     });
   };
 
@@ -46,14 +91,41 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
     if (!sort) return campaigns;
     const arr = [...campaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
+    const valueOf = (c: CampaignAggregate): number => {
+      const d = derived.get(c.campaign_id);
+      switch (sort.key) {
+        case "ctr": return d?.ctr ?? 0;
+        case "convRate": return d?.convRate ?? 0;
+        case "cpa": return d?.cpa ?? 0;
+        default: return Number((c as any)[sort.key] ?? 0);
+      }
+    };
     arr.sort((a, b) => {
-      const av = Number(a[sort.key as keyof CampaignAggregate] ?? 0);
-      const bv = Number(b[sort.key as keyof CampaignAggregate] ?? 0);
+      const av = valueOf(a), bv = valueOf(b);
       if (av === bv) return 0;
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort]);
+  }, [campaigns, sort, derived]);
+
+  const copyToClipboard = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "URL copiada", description: url });
+    } catch {
+      toast({ title: "Erro ao copiar", variant: "destructive" });
+    }
+  };
+
+  const shortenUrl = (url: string): string => {
+    try {
+      const u = new URL(url);
+      const path = u.pathname.length > 22 ? u.pathname.slice(0, 22) + "…" : u.pathname;
+      return `${u.hostname.replace(/^www\./, "")}${path}`;
+    } catch {
+      return url.length > 32 ? url.slice(0, 32) + "…" : url;
+    }
+  };
 
   const SortIcon = ({ k }: { k: SortKey }) => {
     if (!sort || sort.key !== k) return <ChevronsUpDown className="h-3 w-3 opacity-40" />;
@@ -104,6 +176,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
   };
 
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
       <div className="overflow-x-auto">
         <Table>
@@ -111,21 +184,26 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
+              <TableHead className="w-[220px]">Final URL</TableHead>
               <SortHead k="spend" label="Gasto" />
               <SortHead k="revenue" label="Receita" />
               <SortHead k="profit" label="Lucro" />
               <SortHead k="roi" label="ROI" />
               <SortHead k="roas" label="ROAS" />
               <SortHead k="ecpm" label="eCPM" />
+              <SortHead k="impressions" label="Impr." />
               <SortHead k="clicks" label="Cliques" />
+              <SortHead k="ctr" label="CTR" />
               <SortHead k="conversions" label="Conv." />
+              <SortHead k="convRate" label="Tx. Conv." />
+              <SortHead k="cpa" label="CPA" />
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={16} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -136,6 +214,8 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
               const accountDown = !!(c.google_account_id && downAccountIds?.has(c.google_account_id));
               const rowKey = c.campaign_id;
               const loading = busy === rowKey;
+              const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
+              const d = derived.get(c.campaign_id);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -156,6 +236,39 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {finalUrl ? (
+                      <div className="flex items-center gap-1 max-w-[220px]">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={finalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 truncate text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{shortenUrl(finalUrl)}</span>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-md break-all">
+                            {finalUrl}
+                          </TooltipContent>
+                        </Tooltip>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 shrink-0"
+                          title="Copiar URL"
+                          onClick={() => copyToClipboard(finalUrl)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -191,10 +304,22 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                     {fmtUSD(Number(c.ecpm) || 0)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmtNumber(c.impressions)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(d?.ctr ?? 0).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(Math.round(c.conversions))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(d?.convRate ?? 0).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
                   </TableCell>
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">
@@ -299,5 +424,6 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
         </Table>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
