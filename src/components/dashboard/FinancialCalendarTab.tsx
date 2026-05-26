@@ -87,6 +87,27 @@ export function FinancialCalendarTab() {
         return (data ?? []) as unknown as Snapshot[];
       }
       // === ALL SITES === paginar daily_metrics e agregar por data
+      // IMPORTANTE: igualar exatamente o filtro do dashboard — só conta linhas cujo
+      // campaign_id existe na tabela `campaigns` (campanhas ativas/cadastradas).
+      // Sem isso, somamos campanhas órfãs/removidas e o gasto fica ~2× inflado.
+      const validCampaigns = new Set<string>();
+      {
+        let cFrom = 0;
+        const CPAGE = 1000;
+        while (true) {
+          const { data: cRows, error: cErr } = await supabase
+            .from("campaigns")
+            .select("campaign_id")
+            .order("campaign_id", { ascending: true })
+            .range(cFrom, cFrom + CPAGE - 1);
+          if (cErr) throw cErr;
+          if (!cRows || cRows.length === 0) break;
+          for (const r of cRows) validCampaigns.add(String((r as any).campaign_id));
+          if (cRows.length < CPAGE) break;
+          cFrom += CPAGE;
+        }
+      }
+
       const byDate = new Map<string, Snapshot>();
       const ensure = (date: string): Snapshot => {
         let m = byDate.get(date);
@@ -103,16 +124,15 @@ export function FinancialCalendarTab() {
         }
         return m;
       };
-      // 1) Spend BRL + cliques/conv/impressões + RECEITA — MESMA fonte do engine/dashboard.
-      //    Canonical: grossRevBrl = profit + spend (BRL nativo, exatamente como o engine).
-      //    Aplicamos NET_FACTOR (rev share 6,5%) sobre o bruto BRL → 1:1 com o dashboard.
-      //    Paginação ESTÁVEL com ORDER BY date,id para evitar duplicação/perda em range().
+      // Canonical: grossRevBrl = profit + spend (BRL nativo, igual ao engine).
+      // NET_FACTOR (rev share 6,5%) sobre o bruto BRL → 1:1 com o dashboard.
+      // Paginação ESTÁVEL com ORDER BY date,id pra não duplicar/perder linhas em range().
       let from = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from("daily_metrics")
-          .select("id, date, spend, clicks, conversions, impressions, revenue, profit")
+          .select("id, campaign_id, date, spend, clicks, conversions, impressions, revenue, profit")
           .gte("date", monthStart)
           .lte("date", monthEnd)
           .order("date", { ascending: true })
@@ -121,10 +141,11 @@ export function FinancialCalendarTab() {
         if (error) throw error;
         if (!data || data.length === 0) break;
         for (const r of data) {
+          if (!validCampaigns.has(String((r as any).campaign_id))) continue;
           const m = ensure(r.date as string);
           const spend = Number(r.spend) || 0;
           const profit = Number(r.profit) || 0;
-          const grossBrl = profit + spend; // BRL nativo (igual ao engine)
+          const grossBrl = profit + spend; // BRL nativo (igual engine)
           m.google_ads_cost += spend;
           m.total_cost += spend;
           m.clicks += Number(r.clicks) || 0;
@@ -137,7 +158,6 @@ export function FinancialCalendarTab() {
         if (data.length < PAGE) break;
         from += PAGE;
       }
-      // 2) Lucro / margem / eCPM coerentes
       for (const m of byDate.values()) {
         m.liquid_profit = m.net_revenue - m.total_cost;
         m.profit_margin_pct = m.net_revenue > 0 ? (m.liquid_profit / m.net_revenue) * 100 : 0;
