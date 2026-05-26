@@ -86,6 +86,69 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_google_ads_permissions: {
+        Row: {
+          can_migrate: boolean
+          can_sync: boolean
+          can_view: boolean
+          created_at: string
+          google_account_id: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          can_migrate?: boolean
+          can_sync?: boolean
+          can_view?: boolean
+          created_at?: string
+          google_account_id: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          can_migrate?: boolean
+          can_sync?: boolean
+          can_view?: boolean
+          created_at?: string
+          google_account_id?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      admin_module_permissions: {
+        Row: {
+          can_access: boolean
+          can_edit: boolean
+          created_at: string
+          id: string
+          module: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          can_access?: boolean
+          can_edit?: boolean
+          created_at?: string
+          id?: string
+          module: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          can_access?: boolean
+          can_edit?: boolean
+          created_at?: string
+          id?: string
+          module?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       admin_permissions: {
         Row: {
           can_edit_budgets: boolean
@@ -3198,6 +3261,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accessible_sites: { Args: { _uid: string }; Returns: string[] }
       admin_has_permission: {
         Args: { _perm: string; _uid: string }
         Returns: boolean
@@ -3214,10 +3278,24 @@ export type Database = {
         Args: { _campaign_id: string; _uid: string }
         Returns: boolean
       }
+      can_access_google_account: {
+        Args: {
+          _account_id: string
+          _need_migrate?: boolean
+          _need_sync?: boolean
+          _uid: string
+        }
+        Returns: boolean
+      }
+      can_access_module: {
+        Args: { _module: string; _need_edit?: boolean; _uid: string }
+        Returns: boolean
+      }
       can_access_site: {
         Args: { _site_id: string; _uid: string }
         Returns: boolean
       }
+      effective_role: { Args: { _uid: string }; Returns: string }
       is_super_admin: { Args: { _uid: string }; Returns: boolean }
     }
     Enums: {
@@ -3226,6 +3304,7 @@ export type Database = {
         | "admin"
         | "media_buyer"
         | "adops"
+        | "manager"
         | "viewer"
         | "site_manager"
     }
@@ -3360,6 +3439,7 @@ export const Constants = {
         "admin",
         "media_buyer",
         "adops",
+        "manager",
         "viewer",
         "site_manager",
       ],

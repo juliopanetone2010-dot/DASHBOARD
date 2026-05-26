@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, History,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, History, UserCog,
 } from "lucide-react";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -52,6 +54,7 @@ const Index = () => {
 
 const IndexInner = () => {
   const { user } = useAuth();
+  const { data: currentRole } = useCurrentRole();
   const data = useDashboardData();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
@@ -498,10 +501,31 @@ const IndexInner = () => {
               <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               {syncing ? "Sincronizando…" : "Atualizar"}
             </Button>
+            {currentRole && (
+              <Badge
+                variant="outline"
+                className={
+                  currentRole.isSuperAdmin ? "border-purple-500 text-purple-600 bg-purple-500/10"
+                  : currentRole.role === "admin" ? "border-blue-500 text-blue-600 bg-blue-500/10"
+                  : currentRole.role === "manager" ? "border-amber-500 text-amber-600 bg-amber-500/10"
+                  : "border-slate-400 text-slate-600 bg-slate-400/10"
+                }
+              >
+                {currentRole.isSuperAdmin ? "Super Admin"
+                  : currentRole.role === "admin" ? "Admin"
+                  : currentRole.role === "manager" ? "Manager" : "Viewer"}
+              </Badge>
+            )}
+            {currentRole?.isSuperAdmin && (
+              <Button variant="outline" size="sm" asChild className="gap-2" title="Gerenciar usuários">
+                <Link to="/admin/users"><UserCog className="h-4 w-4" /> Admins</Link>
+              </Button>
+            )}
           </div>
 
         </div>
       </header>
+
 
       <main className="container py-6 space-y-6">
         <Tabs defaultValue="dashboard">
