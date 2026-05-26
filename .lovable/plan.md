@@ -1,150 +1,82 @@
+# Plano: SaaS multi-tenant com RBAC e isolamento por site
 
-# Arquitetura Database-First (estilo GAM/AdSense)
+Trabalho grande — vou entregar em **5 fases** pra você poder testar e reverter qualquer uma sem quebrar o sistema. Cada fase é independente e funcional.
 
-Objetivo: tela abre **instantânea** lendo do banco. APIs externas (Google Ads/GAM) rodam **só em background** via cron. UI **nunca** espera por elas.
+## Fase 1 — Schema RBAC + Super Admin (backend-only, sem UI)
 
----
+Reaproveitar as tabelas que já existem (`admin_profiles`, `admin_permissions`, `admin_site_access`) e completar o que falta:
 
-## Princípio central
+**Nova tabela** `admin_google_ads_permissions` — quais contas Google Ads cada admin pode acessar (hoje só existe por site).
 
-```text
-[ Google Ads API ]──┐
-                    ├──► [ CRON background ] ──► [ Postgres (banco) ] ──► [ React (UI instantânea) ]
-[ GAM API ]─────────┘                                  ▲
-                                                       │
-                              [ Botão "Atualizar" manual (opcional) ]
-```
+**Nova tabela** `admin_module_permissions` — controle granular por módulo (Dashboard, Placements, Attribution, Funil, Países, Criativos, Push, Automação, Destravar Escala, Migração, Regras, Integrações, AI, Admins).
 
-Regras:
-1. Frontend **só lê** do banco. Nunca chama edge function de sync no carregamento.
-2. Sync acontece **só** via cron OU clique manual no botão "Atualizar".
-3. Trocar filtro/site/data = `data.refresh()` (leitura). **Não** dispara sync.
-4. Botão "Atualizar": se último sync < 30min → mostra toast "dados recentes" e nem chama. Se > 30min → dispara sync em background, UI continua respondendo.
-5. Header sempre mostra `Última atualização: 10:35` por fonte (Google Ads / GAM).
+**Nova tabela** `admin_action_logs` — auditoria de ações sensíveis (já existe `admin_audit_logs` parecida; vou consolidar nela em vez de duplicar).
 
----
+**Helpers SQL (SECURITY DEFINER)** novos:
+- `can_access_module(uid, module_name)` — checa se o usuário pode ver/editar um módulo
+- `can_access_google_account(uid, account_id)` — já existe parcial em `can_access_account`, vou expandir
+- `effective_role(uid)` — devolve `super_admin | admin | manager | viewer`
+- `accessible_sites(uid)` → setof uuid — lista de sites permitidos (usada em RLS via `site_id IN (...)`)
 
-## Etapas
+**Roles do enum** `app_role`: adicionar `manager` se não existir (já tem `super_admin`, `admin`, `viewer`).
 
-### 1. Limpar gatilhos de sync no frontend
-- `src/pages/Index.tsx`: remover `syncDashboardData` do `handleFilterChange`. Filtro só chama `data.refresh()`.
-- Carregamento inicial **nunca** dispara sync. Se banco vazio para o range, mostra estado "sem dados — clique em Atualizar".
-- Banner "Coletando dados…" só aparece quando o usuário **clicou** em Atualizar e o sync está em curso.
-- Mesma regra aplicada às abas: Calendário, Migração, Funil, Países, Placements, Criativos, Retenção.
+**RLS revisada** em **todas** as tabelas que têm `site_id` ou `google_account_id`: as policies já cobrem o caso single-user (`auth.uid() = user_id`) e admin (`can_access_site`/`can_access_account`). Vou adicionar policies de UPDATE/DELETE/INSERT pra admins seguindo o RBAC (hoje só leitura está liberada).
 
-### 2. Botão "Atualizar" inteligente (cache 30min)
-- Lê `rules_config.last_*_sync_at` (já existem alguns campos: `automation_last_run_at`, etc).
-- Se `now - lastSync < 30min`: toast "Dados recentes (sync há Xmin)". Não chama nada.
-- Se ≥ 30min: dispara sync **fire-and-forget** (não dá `await`). UI segue navegável. Quando termina, invalida React Query e atualiza silenciosamente.
-- Indicador de "sync em andamento" só no header (spinner pequeno + "sincronizando…"), nunca cobrindo a tela.
+## Fase 2 — Edge function guards
 
-### 3. Tabela de controle de sync
-Nova tabela `sync_state` para registrar última sincronização por (site/conta/fonte):
+Criar `supabase/functions/_shared/rbac.ts` com:
+- `requireUser(req)` — valida JWT e devolve userId
+- `requireSiteAccess(userId, siteId)` — 403 se não pode
+- `requireAccountAccess(userId, accountId)` — 403 se não pode
+- `requireModule(userId, module, action)` — 403 se sem permissão
+- `requireSuperAdmin(userId)` — gates globais
 
-```text
-sync_state
-├── id, user_id
-├── source (google_ads | gam | placements | countries | creatives | funnel)
-├── google_account_id (nullable)
-├── site_id (nullable)
-├── last_started_at, last_finished_at
-├── last_status (ok | error | running)
-├── last_error (text)
-└── rows_synced (int)
-```
-RLS: `auth.uid() = user_id`.
+Aplicar em **todas** as 30+ edge functions críticas: `gam-sync-revenue`, `google-ads-sync-*`, `placements-cleanup`, `automation-run`, `funnel-smart-run`, `migration-execute`, `geo-cleanup`, `scale-unlock-run`, `campaign-restart`, `placements-undo`, `automation-revert`, etc.
 
-Cada edge function de sync grava aqui ao começar e ao terminar. Frontend lê pra mostrar "Última atualização: 10:35 ✓" por fonte.
+## Fase 3 — Site Selector como source-of-truth global
 
-### 4. Crons em background (pg_cron)
-Um cron por fonte, intervalado pra não saturar. Cada um chama a edge function existente para **todos** os usuários/contas:
+Hoje o `GlobalSiteSelector` + `FilterContext` já existem mas não são respeitados consistentemente. Vou:
+- Garantir que **toda** chamada de hook (`useDashboardData`, `useSiteOnboarding`, etc.) passe `siteId` ativo
+- Toda invocação de edge function recebe `site_id` no body e a função valida acesso
+- AI Assistant (`ai_threads.context`) grava o `site_id` ativo e o prompt do sistema injeta apenas dados desse site
+- Adicionar guard no `RequireAuth` que bloqueia rotas se nenhum site selecionado (exceto super admin)
 
-| Cron | Frequência | Função |
-|---|---|---|
-| Google Ads campanhas + métricas | 30 min | `google-ads-sync-campaigns` |
-| GAM revenue | 1 h | `gam-sync-revenue` |
-| Placements | 2 h | `google-ads-sync-placements` |
-| Countries | 2 h | `google-ads-sync-countries` |
-| Creatives | 4 h | `google-ads-sync-creatives` |
-| FX rates | 6 h | `fx-sync` |
+## Fase 4 — Página Admins (`/admin`)
 
-(Os crons de automação/funil/geo-cleanup já existem e ficam como estão.)
+Nova rota `/admin` (visível só pra `super_admin` e `admin` com `can_manage_users`):
+- Lista de usuários com role, status, último login
+- Criar usuário (envia magic link ou senha temporária via `admin.inviteUserByEmail`)
+- Editar role, ativar/desativar
+- Matriz de permissões: sites × can_view/edit/sync/delete/automate
+- Matriz de contas Google Ads acessíveis
+- Matriz de módulos com toggle can_access/can_edit
+- Resetar senha (envia recovery email)
+- Aba "Logs de acesso" lendo `admin_audit_logs`
 
-### 5. Materialized views para dashboards pesados
-Views que agregam por dia/site/conta — refresh diário (ou a cada 1h via cron). Frontend lê da view, não recalcula no client:
+UI: tabela shadcn + dialogs pra editar, badges coloridos por role.
 
-- `dashboard_overview_daily` (spend, revenue_usd, revenue_brl, profit, roi, roas, clicks, conversions) por `user_id, site_id, date`
-- `campaign_summary_daily` por `user_id, campaign_id, date`
-- `placement_summary_daily` por `user_id, campaign_id, placement, date`
-- `country_summary_daily` por `user_id, campaign_id, country_code, date`
-- `creative_summary_daily` por `user_id, campaign_id, ad_id, date`
+## Fase 5 — UX final + segurança
 
-`REFRESH MATERIALIZED VIEW CONCURRENTLY` via cron a cada 30min. Índices em `(user_id, site_id, date)`.
+- Badge de role no header (`Super Admin` / `Admin` / `Manager` / `Viewer`) com cor
+- Avatar + dropdown perfil → `/perfil`
+- Página `/perfil` com nome, avatar, troca de senha
+- Troca rápida de site no header (já existe, melhorar UX com busca)
+- Ocultar abas/botões que o usuário não tem permissão (UI guard — backend já bloqueia)
+- HIBP check ativado nas senhas (`configure_auth`)
+- Audit log automático em mutations sensíveis (delete placement, pausar campanha, mudar budget) via trigger SQL
 
-### 6. React Query — stale-while-revalidate
-Configurar globalmente:
-- `staleTime: 5 * 60 * 1000` (5min — não refaz fetch)
-- `gcTime: 30 * 60 * 1000`
-- `refetchOnWindowFocus: false`
-- `refetchOnMount: false` (já tem cache → mostra cache, não bloqueia)
-- `placeholderData: keepPreviousData` (troca de filtro mostra dados antigos enquanto novo chega)
+## O que NÃO entra neste plano
 
-Resultado: navegar entre abas = instantâneo. Trocar filtro = mostra dados antigos por 200ms até o novo chegar do banco.
+- **Rate limiting / brute force**: o backend não tem primitivas nativas pra isso ainda — vou pular conforme política da plataforma. Supabase Auth já tem proteção básica contra brute force em login.
+- **Billing**: você mencionou "billing futuro" — fica pra depois, não bloqueia nada.
+- **Refresh token customizado**: o Supabase já gerencia refresh tokens automaticamente; não precisa reinventar.
 
-### 7. Aplicação por aba
-Remover qualquer chamada a `*-sync-*` no `useEffect`/mount de:
-- `MigrationTab`, `PlacementsTab`, `CountriesTab`, `CreativesTab`, `FinancialCalendarTab`, `RetentionTab`, `PlacementFunnelTab`, `SmartFunnelPanel`.
+## Notas técnicas
 
-Cada uma passa a ler **só** das tabelas/views correspondentes. Se precisarem de "atualizar agora", têm botão local que segue mesma regra (cache 30min + fire-and-forget).
+**Reutilização vs criação**: já existem `admin_profiles`, `admin_permissions`, `admin_site_access`, `admin_audit_logs`, `is_super_admin()`, `admin_has_permission()`, `can_access_site()`, `can_access_account()`, `can_access_campaign()`. Vou **estender** isso em vez de criar tabelas paralelas — assim seu usuário super_admin atual continua válido sem migração de dados.
 
-### 8. Header global de status
-Componente `SyncStatusBar` no topo da Index:
-```text
-✓ Google Ads: 10:31  ✓ GAM: 10:15  ✓ Placements: 09:00   [Atualizar tudo]
-```
-Cores: verde se < 1h, amarelo 1-6h, vermelho > 6h ou erro.
+**Risco**: cada fase mexe em RLS. Vou rodar `supabase--linter` depois de cada migration pra garantir que nada quebrou pra usuários comuns. Se algo travar, dá pra reverter via histórico do Lovable.
 
----
+## Como você prefere começar?
 
-## Detalhes técnicos
-
-**Migrations necessárias:**
-- `CREATE TABLE sync_state (...)` + RLS
-- `CREATE MATERIALIZED VIEW dashboard_overview_daily AS ...` (+ outras 4)
-- Índices: `CREATE UNIQUE INDEX ON dashboard_overview_daily (user_id, site_id, date)` (necessário para `REFRESH CONCURRENTLY`)
-- Habilitar `pg_cron` e `pg_net` se ainda não.
-
-**Crons (via supabase--insert, não migration — contém keys):**
-- 6 jobs novos no `cron.schedule(...)` chamando as edge functions com `pg_net.http_post`.
-- 1 job extra chamando `REFRESH MATERIALIZED VIEW CONCURRENTLY` a cada 30min.
-
-**Edge functions:**
-- Adicionar em cada sync function: `INSERT INTO sync_state` no início (status=running), `UPDATE` no fim (status=ok/error + rows_synced).
-- Não criar funções novas — só instrumentar as existentes.
-
-**Frontend:**
-- `src/pages/Index.tsx`: remover sync do `handleFilterChange` e do mount.
-- `src/App.tsx`: configurar QueryClient com defaults stale-while-revalidate.
-- Novo `src/components/dashboard/SyncStatusBar.tsx`.
-- Novo hook `src/hooks/useSyncState.ts` lendo `sync_state` com Realtime opcional.
-- `src/hooks/useDashboardData.ts`: trocar fontes por views materializadas onde possível.
-
-**Compatibilidade:**
-- Tabelas atuais (`daily_metrics`, `gam_placement_revenue` etc) ficam intactas. Views materializadas leem delas. Zero breaking change.
-
----
-
-## Entregáveis (em ordem)
-
-1. Migration: `sync_state` + materialized views + índices.
-2. Insert: 7 cron jobs (`pg_cron`).
-3. Edge functions: instrumentar com `sync_state`.
-4. Frontend: remover syncs automáticos + QueryClient defaults + `SyncStatusBar` + botão Atualizar inteligente.
-5. Frontend por aba: remover syncs em mount de Migração/Funil/Países/Placements/Criativos/Calendário/Retenção.
-6. QA visual de cada aba: abrir e confirmar carregamento instantâneo.
-
----
-
-## Confirmação
-
-Esse é um trabalho grande (touches ~15 arquivos, 1 migration grande, 7 crons, 6 edge functions). Vou executar em uma única passada se você aprovar este plano. Posso começar?
+Posso começar pela **Fase 1 + 2** juntas (backend RBAC completo, invisível na UI mas já protegido) — esse é o pulo de qualidade que destrava todo o resto. Confirma que eu sigo, ou prefere começar pela Fase 4 (página de Admins) primeiro pra você já conseguir convidar gente?
