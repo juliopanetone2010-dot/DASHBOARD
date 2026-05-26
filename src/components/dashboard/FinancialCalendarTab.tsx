@@ -331,9 +331,9 @@ export function FinancialCalendarTab() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            disabled={regenerating}
+                            disabled={regenerating || filters.siteId === "all"}
                             onClick={() => regenerate(r.date)}
-                            title="Regenerar este dia"
+                            title={filters.siteId === "all" ? "Selecione um site para regenerar" : "Regenerar este dia"}
                           >
                             <RefreshCw className="h-3 w-3" />
                           </Button>
