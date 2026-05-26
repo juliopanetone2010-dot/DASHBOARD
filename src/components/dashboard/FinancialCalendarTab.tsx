@@ -50,21 +50,81 @@ export function FinancialCalendarTab() {
     return d.toISOString().slice(0, 10);
   }, [year, month]);
 
-  const snapshotsQuery = useQuery({
-    queryKey: ["dfs", filters.siteId, monthStart, monthEnd],
-    enabled: filters.siteId !== "all",
+  // FX USD→BRL para consolidar sites com moedas diferentes quando "Todos os sites"
+  const fxQuery = useQuery({
+    queryKey: ["fx-usd-brl-calendar"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
+        .from("exchange_rates")
+        .select("rate")
+        .eq("from_currency", "USD")
+        .eq("to_currency", "BRL")
+        .maybeSingle();
+      return Number((data as any)?.rate) || 5;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const usdBrl = fxQuery.data ?? 5;
+
+  const snapshotsQuery = useQuery({
+    queryKey: ["dfs", filters.siteId, monthStart, monthEnd, usdBrl],
+    queryFn: async () => {
+      let q = supabase
         .from("daily_financial_snapshots")
         .select("*")
-        .eq("site_id", filters.siteId)
         .gte("date", monthStart)
         .lte("date", monthEnd)
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(5000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as unknown as Snapshot[];
+      const rows = (data ?? []) as unknown as Snapshot[];
+      if (filters.siteId !== "all") return rows;
+      // Agrega por data somando todos os sites. Receitas em USD viram BRL via FX.
+      const byDate = new Map<string, Snapshot>();
+      for (const r of rows) {
+        const cur = String(r.revenue_currency ?? "BRL").toUpperCase();
+        const fx = cur === "USD" ? usdBrl : 1;
+        const cur0 = byDate.get(r.date);
+        const merged: Snapshot = cur0 ?? {
+          id: r.date,
+          site_id: "all",
+          date: r.date,
+          google_ads_cost: 0, facebook_ads_cost: 0, other_cost: 0, total_cost: 0,
+          gross_revenue: 0, net_revenue: 0, revenue_after_revshare: 0,
+          liquid_profit: 0, profit_margin_pct: 0,
+          ecpm: 0, viewability: 0, impressions: 0, clicks: 0, conversions: 0,
+          revenue_currency: "BRL",
+        };
+        merged.google_ads_cost += Number(r.google_ads_cost || 0);
+        merged.facebook_ads_cost += Number(r.facebook_ads_cost || 0);
+        merged.other_cost += Number(r.other_cost || 0);
+        merged.total_cost += Number(r.total_cost || 0);
+        merged.gross_revenue += Number(r.gross_revenue || 0) * fx;
+        merged.net_revenue += Number(r.net_revenue || 0) * fx;
+        merged.revenue_after_revshare += Number(r.revenue_after_revshare || 0) * fx;
+        merged.liquid_profit += Number(r.liquid_profit || 0) * fx - (fx === 1 ? 0 : 0);
+        merged.impressions += Number(r.impressions || 0);
+        merged.clicks += Number(r.clicks || 0);
+        merged.conversions += Number(r.conversions || 0);
+        // eCPM ponderado depois; aqui só acumula impressões*ecpm em viewability tmp não faz sentido
+        // Recalcula eCPM e viewability como média ponderada por impressões:
+        (merged as any).__ecpmW = ((merged as any).__ecpmW || 0) + Number(r.ecpm || 0) * Number(r.impressions || 0);
+        (merged as any).__viewW = ((merged as any).__viewW || 0) + Number(r.viewability || 0) * Number(r.impressions || 0);
+        byDate.set(r.date, merged);
+      }
+      // Recalcula lucro líquido coerente: net_revenue (BRL) − total_cost (BRL)
+      for (const m of byDate.values()) {
+        m.liquid_profit = m.net_revenue - m.total_cost;
+        m.profit_margin_pct = m.net_revenue > 0 ? (m.liquid_profit / m.net_revenue) * 100 : 0;
+        m.ecpm = m.impressions > 0 ? ((m as any).__ecpmW || 0) / m.impressions : 0;
+        m.viewability = m.impressions > 0 ? ((m as any).__viewW || 0) / m.impressions : 0;
+      }
+      return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
     },
   });
+
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const rows = (snapshotsQuery.data ?? []).filter((r) => r.date < todayStr);
