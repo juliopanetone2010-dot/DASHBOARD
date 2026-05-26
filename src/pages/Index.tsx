@@ -84,6 +84,8 @@ const IndexInner = () => {
       data.refresh(),
       queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
       queryClient.invalidateQueries({ queryKey: ["campaign-final-urls-v2"] }),
+      queryClient.invalidateQueries({ queryKey: ["reconciled-rev"] }),
+      queryClient.invalidateQueries({ queryKey: ["site-share"] }),
     ]);
   }, [data, queryClient]);
 
