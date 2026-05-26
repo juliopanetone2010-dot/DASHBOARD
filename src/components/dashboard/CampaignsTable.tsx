@@ -214,6 +214,8 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
               const accountDown = !!(c.google_account_id && downAccountIds?.has(c.google_account_id));
               const rowKey = c.campaign_id;
               const loading = busy === rowKey;
+              const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
+              const d = derived.get(c.campaign_id);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -234,6 +236,39 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {finalUrl ? (
+                      <div className="flex items-center gap-1 max-w-[220px]">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={finalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 truncate text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{shortenUrl(finalUrl)}</span>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-md break-all">
+                            {finalUrl}
+                          </TooltipContent>
+                        </Tooltip>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 shrink-0"
+                          title="Copiar URL"
+                          onClick={() => copyToClipboard(finalUrl)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
