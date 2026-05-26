@@ -126,13 +126,20 @@ export function FinancialCalendarTab() {
         if (data.length < PAGE) break;
         offset += PAGE;
       }
-      // 2) Receita GAM exato (utm_source=google + campaign_id) em USD bruto
+      // 2) Receita GAM exato (utm_source=google). ATENÇÃO: apesar do nome `revenue_usd`,
+      //    o valor é armazenado em MOEDA NATIVA do site (BRL pra sites BRL, USD pra USD).
+      //    Buscamos a moeda de cada site e só convertemos via FX quando for USD.
+      const { data: siteRows } = await supabase
+        .from("sites")
+        .select("id, gam_currency");
+      const curBySite = new Map<string, string>();
+      for (const s of siteRows ?? []) curBySite.set(String((s as any).id), String((s as any).gam_currency ?? "USD").toUpperCase());
+
       offset = 0;
-      let grossUsdTotal = 0;
       while (true) {
         const { data, error } = await supabase
           .from("gam_campaign_source_revenue")
-          .select("date, revenue_usd")
+          .select("date, revenue_usd, site_id")
           .eq("utm_source", "google")
           .gte("date", monthStart)
           .lte("date", monthEnd)
@@ -141,9 +148,11 @@ export function FinancialCalendarTab() {
         if (!data || data.length === 0) break;
         for (const r of data) {
           const m = ensure(r.date as string);
-          const usd = Number(r.revenue_usd) || 0;
-          grossUsdTotal += usd;
-          const brl = usd * usdBrl;
+          const native = Number((r as any).revenue_usd) || 0;
+          const sid = (r as any).site_id ? String((r as any).site_id) : null;
+          const cur = sid ? (curBySite.get(sid) ?? "USD") : "USD";
+          // BRL nativo: usa direto. USD nativo: converte pra BRL via FX.
+          const brl = cur === "BRL" ? native : native * usdBrl;
           m.gross_revenue += brl;
           m.net_revenue += brl * NET_FACTOR;
           m.revenue_after_revshare += brl * NET_FACTOR;
