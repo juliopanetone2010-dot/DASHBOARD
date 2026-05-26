@@ -592,8 +592,19 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita do card = GAM exato líquido (já em totals.revenue, USD).
-  const realGamRevenueDisplay = revenueDisplay;
+  // Receita do card = total REAL do GAM (site_metrics_daily) líquido de rev share (6.5%).
+  // Antes o card usava só a parte atribuída a campanhas (engine.totals.revenue) — o que
+  // sub-dimensionava o valor versus o que aparece no painel do Ad Manager. Agora batemos
+  // 1:1 com o GAM.
+  const realRevByCurrency = siteRealRevenueQuery.data?.byCurrency ?? {};
+  const realGamUsdNative = Number(realRevByCurrency.USD ?? 0);
+  const realGamBrlNative = Number(realRevByCurrency.BRL ?? 0);
+  // Receita bruta total do GAM, convertida pra moeda de exibição
+  const realGamGrossDisplay = isBrlSite
+    ? realGamBrlNative + realGamUsdNative * usdBrl
+    : realGamUsdNative + (usdBrl > 0 ? realGamBrlNative / usdBrl : 0);
+  // Aplica rev share 6.5% pra bater com "Receita líquida"
+  const realGamRevenueDisplay = realGamGrossDisplay * NET_FACTOR;
   const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
   const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
   const attributionPct = realGamRevenueDisplay > 0
