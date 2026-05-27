@@ -29,12 +29,25 @@ Deno.serve(async (req) => {
       ? [...new Set(body.campaign_ids.map((id: unknown) => String(id)).filter(Boolean))]
       : [];
 
-    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
+    const token = authHeader.replace("Bearer ", "");
+    let userId: string | undefined;
+    if (token === SERVICE_ROLE) {
+      if (typeof body?.user_id === "string") userId = body.user_id;
+      else if (siteId) {
+        const { data: s } = await admin.from("sites").select("user_id").eq("id", siteId).maybeSingle();
+        userId = s?.user_id ?? undefined;
+      } else if (requestedAccountIds.length > 0) {
+        const { data: ga } = await admin.from("google_accounts").select("user_id").eq("id", requestedAccountIds[0]).maybeSingle();
+        userId = ga?.user_id ?? undefined;
+      }
+    } else {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
-
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const today = new Date();
