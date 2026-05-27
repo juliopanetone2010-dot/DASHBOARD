@@ -116,7 +116,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds },
+      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
       authHeader,
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
@@ -151,7 +151,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       // para que o dashboard mostre métricas corretas em todo o intervalo, não só nos últimos dias.
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: false, skip_snapshot_regen: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, user_id: userId, revenue_only: true, sync: true, skip_viewability: false, skip_snapshot_regen: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });
@@ -176,7 +176,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
-      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to }, authHeader);
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to, user_id: userId }, authHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
       await delay(1_000);
