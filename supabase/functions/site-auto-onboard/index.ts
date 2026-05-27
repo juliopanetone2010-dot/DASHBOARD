@@ -213,21 +213,32 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
-    const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
+    const body = await req.json().catch(() => ({}));
+    const { site_id, force } = body as { site_id?: string; force?: boolean };
+    if (!site_id || typeof site_id !== "string") {
+      return new Response(JSON.stringify({ error: "site_id required" }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { site_id, force } = await req.json().catch(() => ({}));
-    if (!site_id || typeof site_id !== "string") {
-      return new Response(JSON.stringify({ error: "site_id required" }), {
-        status: 400,
+    // Bypass de auth para chamadas via service role (cron). Pega user_id do dono do site.
+    const isServiceRole = authHeader.includes(SERVICE_ROLE);
+    let user: { id: string } | null = null;
+    if (isServiceRole) {
+      const adminPre = createClient(SUPABASE_URL, SERVICE_ROLE);
+      const { data: siteRow } = await adminPre.from("sites").select("user_id").eq("id", site_id).maybeSingle();
+      if (siteRow?.user_id) user = { id: siteRow.user_id };
+    } else {
+      const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (u) user = { id: u.id };
+    }
+    if (!user) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
