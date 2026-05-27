@@ -28,6 +28,8 @@ Deno.serve(async (req) => {
     let dateFrom: string | null = null;
     let dateTo: string | null = null;
     let accountIds: string[] = [];
+    let bodyUserId: string | null = null;
+    let bodySiteId: string | null = null;
     try {
       const body = await req.json().catch(() => ({}));
       if (body && typeof body === "object") {
@@ -37,6 +39,8 @@ Deno.serve(async (req) => {
         accountIds = Array.isArray((body as any).account_ids)
           ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
           : [];
+        bodyUserId = typeof (body as any).user_id === "string" ? (body as any).user_id : null;
+        bodySiteId = typeof (body as any).site_id === "string" ? (body as any).site_id : null;
       }
     } catch (_) { /* no body */ }
 
@@ -59,13 +63,16 @@ Deno.serve(async (req) => {
       try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
     }
     let userId: string | undefined;
-    const bodyRaw: any = (typeof globalThis.structuredClone === "function") ? null : null; // placeholder
     if (isServiceRole) {
-      // Re-read body para pegar user_id sem refazer parse (já consumido acima); usa variável fechada via re-parsing seguro
-      // Note: o body já foi lido; precisamos do user_id passado pelo caller. Como o parse acima jogou fora,
-      // forçamos requisição body.user_id via header alternativo OR aceitamos via "x-user-id" header.
-      const hdrUser = req.headers.get("x-user-id");
-      userId = hdrUser ?? undefined;
+      const adminPre = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
+      if (bodyUserId) userId = bodyUserId;
+      else if (bodySiteId) {
+        const { data: s } = await adminPre.from("sites").select("user_id").eq("id", bodySiteId).maybeSingle();
+        userId = s?.user_id ?? undefined;
+      } else if (accountIds.length > 0) {
+        const { data: ga } = await adminPre.from("google_accounts").select("user_id").eq("id", accountIds[0]).maybeSingle();
+        userId = ga?.user_id ?? undefined;
+      }
     } else {
       const userClient = createClient(
         Deno.env.get("SUPABASE_URL")!,
