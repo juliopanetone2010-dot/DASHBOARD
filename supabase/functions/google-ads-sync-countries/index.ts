@@ -33,7 +33,15 @@ Deno.serve(async (req) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
     const token = authHeader.replace("Bearer ", "");
     let userId: string | undefined;
-    if (token === SERVICE_ROLE) {
+    let isServiceRole = token === SERVICE_ROLE;
+    if (!isServiceRole) {
+      // Also detect service-role by decoding JWT payload
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+        if (payload?.role === "service_role") isServiceRole = true;
+      } catch { /* ignore */ }
+    }
+    if (isServiceRole) {
       if (typeof body?.user_id === "string") userId = body.user_id;
       else if (siteId) {
         const { data: s } = await admin.from("sites").select("user_id").eq("id", siteId).maybeSingle();
