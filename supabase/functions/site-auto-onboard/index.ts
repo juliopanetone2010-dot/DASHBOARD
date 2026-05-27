@@ -147,9 +147,11 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping GAM chunks due deadline", { siteId, next: c });
         break;
       }
+      // Viewability/eCPM diários são leves (só dim DATE) — rodar em TODOS os chunks
+      // para que o dashboard mostre métricas corretas em todo o intervalo, não só nos últimos dias.
       const gam = await callFn(
         "gam-sync-revenue",
-        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: !isFreshestChunk, skip_snapshot_regen: true },
+        { from: c.from, to: c.to, site_id: siteId, account_ids: accountIds, revenue_only: true, sync: true, skip_viewability: false, skip_snapshot_regen: true },
         authHeader,
       );
       console.log("[auto-onboard] gam chunk", { siteId, from: c.from, to: c.to, status: gam.status });

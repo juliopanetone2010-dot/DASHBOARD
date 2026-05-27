@@ -302,8 +302,8 @@ async function runSync(req: Request): Promise<Response> {
           },
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
-        if (skipViewability || !hasBudget(35_000)) {
-          debug.push(`[${networkCode}] viewability skipped (revenue_only=${revenueOnly})`);
+        if (skipViewability || !hasBudget(15_000)) {
+          debug.push(`[${networkCode}] viewability skipped (skip=${skipViewability}, budget low)`);
         } else for (const variant of viewabilityVariants) {
           try {
             const raw = (await Promise.all(ranges.map((range) =>
