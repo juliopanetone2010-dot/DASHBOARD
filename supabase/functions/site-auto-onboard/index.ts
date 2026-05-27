@@ -224,19 +224,35 @@ Deno.serve(async (req) => {
 
     // Bypass de auth para chamadas via service role (cron). Pega user_id do dono do site.
     const isServiceRole = authHeader.includes(SERVICE_ROLE);
-    let user: { id: string } | null = null;
+    const adminPre = createClient(SUPABASE_URL, SERVICE_ROLE);
+    let ownerUserId: string | null = null;
+    let callerUserId: string | null = null;
     if (isServiceRole) {
-      const adminPre = createClient(SUPABASE_URL, SERVICE_ROLE);
       const { data: siteRow } = await adminPre.from("sites").select("user_id").eq("id", site_id).maybeSingle();
-      if (siteRow?.user_id) user = { id: siteRow.user_id };
+      if (siteRow?.user_id) {
+        ownerUserId = siteRow.user_id;
+        callerUserId = siteRow.user_id;
+      }
     } else {
-      const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      const supa = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
         global: { headers: { Authorization: authHeader } },
       });
-      const { data: { user: u } } = await supabase.auth.getUser();
-      if (u) user = { id: u.id };
+      const { data: { user: u } } = await supa.auth.getUser();
+      if (u) {
+        callerUserId = u.id;
+        const { data: siteRow } = await adminPre.from("sites").select("user_id").eq("id", site_id).maybeSingle();
+        if (siteRow?.user_id) {
+          if (siteRow.user_id === u.id) {
+            ownerUserId = u.id;
+          } else {
+            // Caller pode ser admin (super_admin ou admin_site_access). Usa o user_id do dono pro sync.
+            const { data: canAccess } = await adminPre.rpc("can_access_site", { _uid: u.id, _site_id: site_id });
+            if (canAccess) ownerUserId = siteRow.user_id;
+          }
+        }
+      }
     }
-    if (!user) {
+    if (!callerUserId || !ownerUserId) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -248,7 +264,7 @@ Deno.serve(async (req) => {
       .from("sites")
       .select("id, sync_status, sync_started_at, last_full_sync_at")
       .eq("id", site_id)
-      .eq("user_id", user.id)
+      .eq("user_id", ownerUserId)
       .maybeSingle();
     if (!site) {
       return new Response(JSON.stringify({ error: "site not found" }), {
@@ -266,7 +282,6 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    // Se já completado e não forçado, no-op
     if (!force && site.sync_status === "completed" && site.last_full_sync_at) {
       return new Response(JSON.stringify({ status: "completed", message: "already onboarded" }), {
         status: 200,
@@ -280,10 +295,13 @@ Deno.serve(async (req) => {
       .from("sites")
       .update({ sync_status: "processing", sync_started_at: new Date().toISOString(), sync_error: null })
       .eq("id", site_id)
-      .eq("user_id", user.id);
+      .eq("user_id", ownerUserId);
 
+    // Roda sync com user_id do dono (que tem os tokens Google Ads e vínculos).
+    // Usa SERVICE_ROLE no Authorization pras chamadas internas — caller (ex: Cesar admin) pode não ter acesso direto.
+    const internalAuth = `Bearer ${SERVICE_ROLE}`;
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, user.id, authHeader, isIncrementalRefresh));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,
