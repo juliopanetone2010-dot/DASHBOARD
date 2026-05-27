@@ -52,12 +52,28 @@ Deno.serve(async (req) => {
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
 
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-    );
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const token = authHeader.replace("Bearer ", "");
+    let isServiceRole = token === SERVICE_ROLE;
+    if (!isServiceRole) {
+      try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
+    }
+    let userId: string | undefined;
+    const bodyRaw: any = (typeof globalThis.structuredClone === "function") ? null : null; // placeholder
+    if (isServiceRole) {
+      // Re-read body para pegar user_id sem refazer parse (já consumido acima); usa variável fechada via re-parsing seguro
+      // Note: o body já foi lido; precisamos do user_id passado pelo caller. Como o parse acima jogou fora,
+      // forçamos requisição body.user_id via header alternativo OR aceitamos via "x-user-id" header.
+      const hdrUser = req.headers.get("x-user-id");
+      userId = hdrUser ?? undefined;
+    } else {
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+      );
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
