@@ -387,8 +387,7 @@ Deno.serve(async (req) => {
                   ad_group_ad.ad.final_urls,
                   ad_group_ad.status
                 FROM ad_group_ad
-                WHERE ad_group_ad.status != 'REMOVED'
-                  AND campaign.status != 'REMOVED'
+                WHERE campaign.status != 'REMOVED'
               `;
               const adsRes = await fetch(
                 `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
