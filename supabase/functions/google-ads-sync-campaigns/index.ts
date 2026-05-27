@@ -376,6 +376,62 @@ Deno.serve(async (req) => {
               else debugLogs.push(`campaigns upsert err ${leaf.customer_id}: ${campErr.message}`);
             }
 
+            // ===== SYNC FINAL URLS (ad_group_ad.final_urls) =====
+            // Garante que toda campanha (inclusive novas) tenha seu link visível na UI.
+            try {
+              const adsQuery = `
+                SELECT
+                  campaign.id,
+                  ad_group.id,
+                  ad_group_ad.ad.id,
+                  ad_group_ad.ad.final_urls,
+                  ad_group_ad.status
+                FROM ad_group_ad
+                WHERE ad_group_ad.status != 'REMOVED'
+                  AND campaign.status != 'REMOVED'
+              `;
+              const adsRes = await fetch(
+                `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
+                { method: "POST", headers, body: JSON.stringify({ query: adsQuery, pageSize: 10000 }) },
+              );
+              const adsJson = await adsRes.json();
+              if (adsRes.ok) {
+                const adRows = (adsJson.results ?? []) as Array<{
+                  campaign: { id: string };
+                  adGroup: { id: string };
+                  adGroupAd: { ad: { id: string; finalUrls?: string[] }; status?: string };
+                }>;
+                const urlPayload: Array<Record<string, unknown>> = [];
+                for (const r of adRows) {
+                  const urls = r.adGroupAd?.ad?.finalUrls ?? [];
+                  if (!urls.length) continue;
+                  urlPayload.push({
+                    user_id: userId,
+                    google_account_id: leaf.id,
+                    campaign_id: r.campaign.id,
+                    ad_group_id: r.adGroup?.id ?? null,
+                    ad_id: r.adGroupAd?.ad?.id ?? "",
+                    final_url: urls[0],
+                    source: "ad.final_urls",
+                    ad_status: (r.adGroupAd?.status ?? "").toUpperCase() || null,
+                  });
+                }
+                const CHUNK_URL = 500;
+                for (let i = 0; i < urlPayload.length; i += CHUNK_URL) {
+                  const slice = urlPayload.slice(i, i + CHUNK_URL);
+                  const { error: urlErr } = await admin
+                    .from("campaign_final_urls")
+                    .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id,ad_id" });
+                  if (urlErr) debugLogs.push(`final_urls upsert err ${leaf.customer_id}: ${urlErr.message}`);
+                }
+                debugLogs.push(`final_urls ${leaf.customer_id}: ${urlPayload.length} ads`);
+              } else {
+                debugLogs.push(`final_urls fetch err ${leaf.customer_id}: ${adsJson?.error?.message ?? "?"}`);
+              }
+            } catch (e) {
+              debugLogs.push(`final_urls exception ${leaf.customer_id}: ${String(e)}`);
+            }
+
             // Bulk upsert métricas diárias (apenas campos de spend; preserva revenue existente)
             const metricRows = results.map((r) => {
               const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
