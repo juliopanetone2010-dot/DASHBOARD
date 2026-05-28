@@ -218,7 +218,7 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
     const body = await req.json().catch(() => ({}));
-    const { site_id, force } = body as { site_id?: string; force?: boolean };
+    const { site_id, force, from, to } = body as { site_id?: string; force?: boolean; from?: string; to?: string };
     if (!site_id || typeof site_id !== "string") {
       return new Response(JSON.stringify({ error: "site_id required" }), {
         status: 400,
@@ -305,7 +305,7 @@ Deno.serve(async (req) => {
     // Usa SERVICE_ROLE no Authorization pras chamadas internas — caller (ex: Cesar admin) pode não ter acesso direto.
     const internalAuth = `Bearer ${SERVICE_ROLE}`;
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh, { from, to }));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,
