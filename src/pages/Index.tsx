@@ -384,9 +384,9 @@ const IndexInner = () => {
     setSyncing(true);
     try {
       if (nextFilters.siteId === "all") {
-        await allSites.syncAll(true);
+        await allSites.syncAll(true, { from, to });
       } else {
-        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to } });
         toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
@@ -523,7 +523,7 @@ const IndexInner = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void allSites.syncAll(true); }}
+              onClick={() => { void allSites.syncAll(true, range); }}
               disabled={!allSites.totalCount || allSites.processingCount > 0}
               className="gap-2"
               title="Sincroniza todos os sites"
