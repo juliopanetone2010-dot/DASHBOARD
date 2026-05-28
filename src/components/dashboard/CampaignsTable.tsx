@@ -219,7 +219,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
               const d = derived.get(c.campaign_id);
               const gamMetric = campaignGamMetrics?.get(c.campaign_id);
-              const gamEcpm = gamMetric?.ecpm ?? Number(c.ecpm) || 0;
+              const gamEcpm = gamMetric?.ecpm ?? (Number(c.ecpm) || 0);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
