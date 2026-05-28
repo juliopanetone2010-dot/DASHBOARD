@@ -59,7 +59,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
+async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false, requestedRange?: { from?: string; to?: string }) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
@@ -110,13 +110,17 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       return earliest < cap ? cap : earliest;
     }
 
-    const from = await detectFromDate();
-    console.log("[auto-onboard] window", { siteId, from, to });
+    const validDate = (d: unknown) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    const requestedFrom = validDate(requestedRange?.from) ? requestedRange!.from! : null;
+    const requestedTo = validDate(requestedRange?.to) ? requestedRange!.to! : null;
+    const from = requestedFrom ?? await detectFromDate();
+    const effectiveTo = requestedTo ?? to;
+    console.log("[auto-onboard] window", { siteId, from, to: effectiveTo });
 
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
+      { from, to: effectiveTo, site_id: siteId, account_ids: accountIds, user_id: userId },
       authHeader,
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
@@ -127,7 +131,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
     const chunkDays = incremental ? 3 : 7;
     const fromDate = new Date(from + "T00:00:00Z");
-    const toDate = new Date(to + "T00:00:00Z");
+    const toDate = new Date(effectiveTo + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
     for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + chunkDays)) {
       const cFrom = d.toISOString().slice(0, 10);
@@ -176,7 +180,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
-      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to, user_id: userId }, authHeader);
+      const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to: effectiveTo, user_id: userId }, authHeader);
       if (placement.ok) placementsOk += 1;
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
       await delay(1_000);
@@ -214,7 +218,7 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
     const body = await req.json().catch(() => ({}));
-    const { site_id, force } = body as { site_id?: string; force?: boolean };
+    const { site_id, force, from, to } = body as { site_id?: string; force?: boolean; from?: string; to?: string };
     if (!site_id || typeof site_id !== "string") {
       return new Response(JSON.stringify({ error: "site_id required" }), {
         status: 400,
@@ -301,7 +305,7 @@ Deno.serve(async (req) => {
     // Usa SERVICE_ROLE no Authorization pras chamadas internas — caller (ex: Cesar admin) pode não ter acesso direto.
     const internalAuth = `Bearer ${SERVICE_ROLE}`;
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh, { from, to }));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,

@@ -26,13 +26,14 @@ type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
+  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number }>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
 
-export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
@@ -97,6 +98,8 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
         case "ctr": return d?.ctr ?? 0;
         case "convRate": return d?.convRate ?? 0;
         case "cpa": return d?.cpa ?? 0;
+        case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
+        case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
         default: return Number((c as any)[sort.key] ?? 0);
       }
     };
@@ -106,7 +109,7 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived]);
+  }, [campaigns, sort, derived, campaignGamMetrics]);
 
   const copyToClipboard = async (url: string) => {
     try {
@@ -216,6 +219,8 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
               const loading = busy === rowKey;
               const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
               const d = derived.get(c.campaign_id);
+              const gamMetric = campaignGamMetrics?.get(c.campaign_id);
+              const gamEcpm = gamMetric?.ecpm ?? (Number(c.ecpm) || 0);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -301,10 +306,16 @@ export function CampaignsTable({ campaigns, downAccountIds, onPause, onBoost, on
                     {(Number(c.roas) || 0).toFixed(2)}x
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtUSD(Number(c.ecpm) || 0)}
+                    <div>{fmtUSD(gamEcpm)}</div>
+                    {gamMetric && (
+                      <div className="text-[10px] text-muted-foreground">
+                        GAM · {fmtNumber(gamMetric.impressions)} impr.
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(c.impressions)}
+                    <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
+                    {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}

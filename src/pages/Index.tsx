@@ -24,7 +24,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
@@ -56,6 +56,7 @@ const IndexInner = () => {
   const { user } = useAuth();
   const { data: currentRole } = useCurrentRole();
   const data = useDashboardData();
+  const queryClient = useQueryClient();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
@@ -140,39 +141,40 @@ const IndexInner = () => {
   // pois a sync do GAM grava o dia corrente também.
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
-    enabled: filters.siteId !== "all",
     queryFn: async () => {
-      const todayISO = new Date().toISOString().slice(0, 10);
-      const toIncl = range.to >= todayISO ? range.to : todayISO;
-      // GAM tem atraso típico de 1-3 dias; se o range for muito curto e ainda não houve sync recente,
-      // ampliamos retroativamente até 7 dias para sempre mostrar a última métrica disponível.
-      const fromDate = new Date(range.from + "T00:00:00Z");
-      const minLookback = new Date(Date.now() - 7 * 86400_000);
-      const fromIncl = (fromDate < minLookback ? range.from : minLookback.toISOString().slice(0, 10));
-      const { data, error } = await supabase
+      let q = supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
-        .eq("site_id", filters.siteId)
-        .gte("date", fromIncl).lte("date", toIncl)
+        .gte("date", range.from).lte("date", range.to)
         .order("date", { ascending: false })
         .limit(400);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
       if (error) {
         console.error("[site-metrics-daily] query error", error);
         throw error;
       }
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: fromIncl, to: toIncl, count: data?.length ?? 0, sample: data?.[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
       }
-      const totals = (data ?? []).reduce((a, r: any) => ({
-        impr: a.impr + Number(r.impressions ?? 0),
-        meas: a.meas + Number(r.measurable_impressions ?? 0),
-        view: a.view + Number(r.viewable_impressions ?? 0),
-        rev: a.rev + Number(r.revenue_native ?? 0),
-        currency: r.currency || a.currency,
-      }), { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
+      const fxForMetrics = fxQuery.data ?? 5;
+      const totals = (data ?? []).reduce((a, r: any) => {
+        const currency = String(r.currency || "USD").toUpperCase();
+        const nativeRevenue = Number(r.revenue_native ?? 0);
+        const comparableRevenue = filters.siteId === "all" && currency === "BRL"
+          ? nativeRevenue / fxForMetrics
+          : nativeRevenue;
+        return {
+          impr: a.impr + Number(r.impressions ?? 0),
+          meas: a.meas + Number(r.measurable_impressions ?? 0),
+          view: a.view + Number(r.viewable_impressions ?? 0),
+          rev: a.rev + comparableRevenue,
+          currency: r.currency || a.currency,
+        };
+      }, { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
       const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
-      return { viewability, ecpmNative, currency: totals.currency, impressions: totals.impr };
+      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr };
     },
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
@@ -236,6 +238,52 @@ const IndexInner = () => {
       return share;
     },
     staleTime: 60_000,
+  });
+
+  // eCPM por campanha vindo do GAM no período exato. A coluna de campanha não deve usar
+  // impressões do Ads como denominador, porque o eCPM mostrado é da URL/receita do Ad Manager.
+  const campaignGamMetricsQuery = useQuery({
+    queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_placement_revenue")
+        .select("campaign_id, revenue_usd, impressions, site_id")
+        .neq("campaign_id", "__aggregate__")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(50000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+
+      const selectedAccountIds = new Set(filters.googleAccountIds);
+      const allowedCampaignIds = selectedAccountIds.size > 0
+        ? new Set(data.campaigns
+          .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
+          .map((c) => c.campaign_id))
+        : null;
+
+      const map = new Map<string, { revenueUsd: number; impressions: number }>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        const cur = map.get(cid) ?? { revenueUsd: 0, impressions: 0 };
+        cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
+        cur.impressions += Number((r as any).impressions ?? 0);
+        map.set(cid, cur);
+      }
+
+      const out = new Map<string, { ecpm: number; impressions: number }>();
+      for (const [cid, v] of map) {
+        out.set(cid, {
+          ecpm: v.impressions > 0 ? (v.revenueUsd / v.impressions) * 1000 : 0,
+          impressions: v.impressions,
+        });
+      }
+      return out;
+    },
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000,
   });
 
   // Aplica filtros aos dados crus antes de mandar para a engine
@@ -345,19 +393,25 @@ const IndexInner = () => {
     setSyncing(true);
     try {
       if (nextFilters.siteId === "all") {
-        await allSites.syncAll(true);
+        await allSites.syncAll(true, { from, to });
       } else {
-        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true } });
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to } });
         toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["site-metrics-daily"] }),
+        queryClient.invalidateQueries({ queryKey: ["site-real-revenue"] }),
+        queryClient.invalidateQueries({ queryKey: ["campaign-gam-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["gam-freshness"] }),
+      ]);
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
-  }, [allSites, data]);
+  }, [allSites, data, queryClient]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
@@ -484,7 +538,7 @@ const IndexInner = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void allSites.syncAll(true); }}
+              onClick={() => { void allSites.syncAll(true, range); }}
               disabled={!allSites.totalCount || allSites.processingCount > 0}
               className="gap-2"
               title="Sincroniza todos os sites"
@@ -679,7 +733,7 @@ const IndexInner = () => {
               />
             </section>
 
-            {filters.siteId !== "all" && siteMetricsQuery.data && (
+            {siteMetricsQuery.data && (
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
                   label="Viewability (GAM)"
@@ -692,22 +746,24 @@ const IndexInner = () => {
                   value={
                     siteMetricsQuery.data.currency === "BRL"
                       ? fmtCurrency(siteMetricsQuery.data.ecpmNative)
+                      : siteMetricsQuery.data.currency === "GAM"
+                        ? fmtUSD(siteMetricsQuery.data.ecpmNative)
                       : fmtUSD(siteMetricsQuery.data.ecpmNative)
                   }
                   icon={DollarSign}
-                  hint={`${siteMetricsQuery.data.currency} nativo · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
+                  hint={`${siteMetricsQuery.data.currency === "GAM" ? "USD equivalente" : `${siteMetricsQuery.data.currency} nativo`} · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
                 />
                 <MetricCard
                   label="Moeda base"
-                  value="BRL"
+                  value={filters.siteId === "all" ? "Misto" : "BRL"}
                   icon={Globe}
-                  hint={`Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
+                  hint={filters.siteId === "all" ? `Todos os sites · taxa USD→BRL ${usdBrl.toFixed(4)}` : `Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
                 />
                 <MetricCard
                   label="Site"
-                  value={selectedSite?.name ?? "—"}
+                  value={selectedSite?.name ?? "Todos"}
                   icon={MapPin}
-                  hint={selectedSite?.domain ?? ""}
+                  hint={selectedSite?.domain ?? `${data.sites.length} sites`}
                 />
               </section>
             )}
@@ -753,6 +809,7 @@ const IndexInner = () => {
               </div>
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
+                campaignGamMetrics={campaignGamMetricsQuery.data}
                 downAccountIds={new Set(
                   (data.googleAccounts ?? [])
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
