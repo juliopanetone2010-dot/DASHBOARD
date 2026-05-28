@@ -157,13 +157,21 @@ const IndexInner = () => {
       if (import.meta.env.DEV) {
         console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
       }
-      const totals = (data ?? []).reduce((a, r: any) => ({
-        impr: a.impr + Number(r.impressions ?? 0),
-        meas: a.meas + Number(r.measurable_impressions ?? 0),
-        view: a.view + Number(r.viewable_impressions ?? 0),
-        rev: a.rev + Number(r.revenue_native ?? 0),
-        currency: r.currency || a.currency,
-      }), { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
+      const fxForMetrics = fxQuery.data ?? 5;
+      const totals = (data ?? []).reduce((a, r: any) => {
+        const currency = String(r.currency || "USD").toUpperCase();
+        const nativeRevenue = Number(r.revenue_native ?? 0);
+        const comparableRevenue = filters.siteId === "all" && currency === "BRL"
+          ? nativeRevenue / fxForMetrics
+          : nativeRevenue;
+        return {
+          impr: a.impr + Number(r.impressions ?? 0),
+          meas: a.meas + Number(r.measurable_impressions ?? 0),
+          view: a.view + Number(r.viewable_impressions ?? 0),
+          rev: a.rev + comparableRevenue,
+          currency: r.currency || a.currency,
+        };
+      }, { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
       const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
       return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr };
