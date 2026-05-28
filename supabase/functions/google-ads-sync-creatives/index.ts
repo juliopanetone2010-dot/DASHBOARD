@@ -220,14 +220,12 @@ Deno.serve(async (req) => {
 
     const inserts = [...dedup.values()];
     if (inserts.length) {
-      await admin.from("creative_metrics")
-        .delete()
-        .eq("user_id", userId)
-        .in("campaign_id", [...campMeta.keys()])
-        .gte("date", from)
-        .lte("date", to);
+      // UPSERT em vez de DELETE+INSERT: evita perder dias se a fetch da API
+      // falhar parcialmente (preserva histórico já sincronizado).
       for (const chunk of chunkArr(inserts, 1000)) {
-        const { error } = await admin.from("creative_metrics").insert(chunk);
+        const { error } = await admin
+          .from("creative_metrics")
+          .upsert(chunk, { onConflict: "user_id,campaign_id,ad_group_id,ad_id,date" });
         if (error) return json({ error: error.message });
       }
     }
