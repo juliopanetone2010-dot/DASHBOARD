@@ -141,15 +141,15 @@ const IndexInner = () => {
   // pois a sync do GAM grava o dia corrente também.
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
-    enabled: filters.siteId !== "all",
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
-        .eq("site_id", filters.siteId)
         .gte("date", range.from).lte("date", range.to)
         .order("date", { ascending: false })
         .limit(400);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data, error } = await q;
       if (error) {
         console.error("[site-metrics-daily] query error", error);
         throw error;
@@ -166,7 +166,7 @@ const IndexInner = () => {
       }), { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
       const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
-      return { viewability, ecpmNative, currency: totals.currency, impressions: totals.impr };
+      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr };
     },
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
