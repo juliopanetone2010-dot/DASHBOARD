@@ -24,7 +24,7 @@ import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { FilterBar, presetFromRange, type DashboardFilters } from "@/components/dashboard/FilterBar";
 import { GlobalSiteSelector } from "@/components/dashboard/GlobalSiteSelector";
 import { FilterProvider, useDashboardFilters } from "@/contexts/FilterContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/dashboard/SegmentTabs";
 import { PlacementsTab } from "@/components/dashboard/PlacementsTab";
 import { PlacementFunnelTab } from "@/components/dashboard/PlacementFunnelTab";
@@ -56,6 +56,7 @@ const IndexInner = () => {
   const { user } = useAuth();
   const { data: currentRole } = useCurrentRole();
   const data = useDashboardData();
+  const queryClient = useQueryClient();
   const [evaluating, setEvaluating] = useState(false);
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
@@ -391,12 +392,18 @@ const IndexInner = () => {
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["site-metrics-daily"] }),
+        queryClient.invalidateQueries({ queryKey: ["site-real-revenue"] }),
+        queryClient.invalidateQueries({ queryKey: ["campaign-gam-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["gam-freshness"] }),
+      ]);
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
-  }, [allSites, data]);
+  }, [allSites, data, queryClient]);
 
   const handleRefresh = async () => {
     await syncDashboardData(filters, { force: true });
