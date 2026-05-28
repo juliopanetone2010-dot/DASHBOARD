@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
           do {
             const r = await fetch(
               `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
-              { method: "POST", headers, body: JSON.stringify({ query, pageToken, pageSize: 10000 }) },
+              { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
             );
             const j = await r.json();
             if (!r.ok) {
@@ -220,14 +220,12 @@ Deno.serve(async (req) => {
 
     const inserts = [...dedup.values()];
     if (inserts.length) {
-      await admin.from("creative_metrics")
-        .delete()
-        .eq("user_id", userId)
-        .in("campaign_id", [...campMeta.keys()])
-        .gte("date", from)
-        .lte("date", to);
+      // UPSERT em vez de DELETE+INSERT: evita perder dias se a fetch da API
+      // falhar parcialmente (preserva histórico já sincronizado).
       for (const chunk of chunkArr(inserts, 1000)) {
-        const { error } = await admin.from("creative_metrics").insert(chunk);
+        const { error } = await admin
+          .from("creative_metrics")
+          .upsert(chunk, { onConflict: "user_id,campaign_id,ad_group_id,ad_id,date" });
         if (error) return json({ error: error.message });
       }
     }
