@@ -751,13 +751,13 @@ const IndexInner = () => {
                       : fmtUSD(siteMetricsQuery.data.ecpmNative)
                   }
                   icon={DollarSign}
-                  hint={`${siteMetricsQuery.data.currency} nativo · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
+                  hint={`${siteMetricsQuery.data.currency === "GAM" ? "USD equivalente" : `${siteMetricsQuery.data.currency} nativo`} · ${siteMetricsQuery.data.impressions.toLocaleString("pt-BR")} impressões`}
                 />
                 <MetricCard
                   label="Moeda base"
-                  value="BRL"
+                  value={filters.siteId === "all" ? "Misto" : "BRL"}
                   icon={Globe}
-                  hint={`Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
+                  hint={filters.siteId === "all" ? `Todos os sites · taxa USD→BRL ${usdBrl.toFixed(4)}` : `Original: ${selectedSite?.gam_currency ?? "USD"} · taxa USD→BRL ${usdBrl.toFixed(4)}`}
                 />
                 <MetricCard
                   label="Site"
