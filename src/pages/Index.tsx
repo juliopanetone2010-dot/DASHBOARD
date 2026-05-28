@@ -142,18 +142,11 @@ const IndexInner = () => {
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     enabled: filters.siteId !== "all",
     queryFn: async () => {
-      const todayISO = new Date().toISOString().slice(0, 10);
-      const toIncl = range.to >= todayISO ? range.to : todayISO;
-      // GAM tem atraso típico de 1-3 dias; se o range for muito curto e ainda não houve sync recente,
-      // ampliamos retroativamente até 7 dias para sempre mostrar a última métrica disponível.
-      const fromDate = new Date(range.from + "T00:00:00Z");
-      const minLookback = new Date(Date.now() - 7 * 86400_000);
-      const fromIncl = (fromDate < minLookback ? range.from : minLookback.toISOString().slice(0, 10));
       const { data, error } = await supabase
         .from("site_metrics_daily")
         .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
         .eq("site_id", filters.siteId)
-        .gte("date", fromIncl).lte("date", toIncl)
+        .gte("date", range.from).lte("date", range.to)
         .order("date", { ascending: false })
         .limit(400);
       if (error) {
@@ -161,7 +154,7 @@ const IndexInner = () => {
         throw error;
       }
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: fromIncl, to: toIncl, count: data?.length ?? 0, sample: data?.[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
       }
       const totals = (data ?? []).reduce((a, r: any) => ({
         impr: a.impr + Number(r.impressions ?? 0),
@@ -236,6 +229,52 @@ const IndexInner = () => {
       return share;
     },
     staleTime: 60_000,
+  });
+
+  // eCPM por campanha vindo do GAM no período exato. A coluna de campanha não deve usar
+  // impressões do Ads como denominador, porque o eCPM mostrado é da URL/receita do Ad Manager.
+  const campaignGamMetricsQuery = useQuery({
+    queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_placement_revenue")
+        .select("campaign_id, revenue_usd, impressions, site_id")
+        .neq("campaign_id", "__aggregate__")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(50000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+
+      const selectedAccountIds = new Set(filters.googleAccountIds);
+      const allowedCampaignIds = selectedAccountIds.size > 0
+        ? new Set(data.campaigns
+          .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
+          .map((c) => c.campaign_id))
+        : null;
+
+      const map = new Map<string, { revenueUsd: number; impressions: number }>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        const cur = map.get(cid) ?? { revenueUsd: 0, impressions: 0 };
+        cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
+        cur.impressions += Number((r as any).impressions ?? 0);
+        map.set(cid, cur);
+      }
+
+      const out = new Map<string, { ecpm: number; impressions: number }>();
+      for (const [cid, v] of map) {
+        out.set(cid, {
+          ecpm: v.impressions > 0 ? (v.revenueUsd / v.impressions) * 1000 : 0,
+          impressions: v.impressions,
+        });
+      }
+      return out;
+    },
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000,
   });
 
   // Aplica filtros aos dados crus antes de mandar para a engine
