@@ -725,7 +725,7 @@ const IndexInner = () => {
               />
             </section>
 
-            {filters.siteId !== "all" && siteMetricsQuery.data && (
+            {siteMetricsQuery.data && (
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
                   label="Viewability (GAM)"
@@ -738,6 +738,8 @@ const IndexInner = () => {
                   value={
                     siteMetricsQuery.data.currency === "BRL"
                       ? fmtCurrency(siteMetricsQuery.data.ecpmNative)
+                      : siteMetricsQuery.data.currency === "GAM"
+                        ? fmtUSD(siteMetricsQuery.data.ecpmNative)
                       : fmtUSD(siteMetricsQuery.data.ecpmNative)
                   }
                   icon={DollarSign}
@@ -751,9 +753,9 @@ const IndexInner = () => {
                 />
                 <MetricCard
                   label="Site"
-                  value={selectedSite?.name ?? "—"}
+                  value={selectedSite?.name ?? "Todos"}
                   icon={MapPin}
-                  hint={selectedSite?.domain ?? ""}
+                  hint={selectedSite?.domain ?? `${data.sites.length} sites`}
                 />
               </section>
             )}
