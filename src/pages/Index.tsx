@@ -792,6 +792,7 @@ const IndexInner = () => {
               </div>
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
+                campaignGamMetrics={campaignGamMetricsQuery.data}
                 downAccountIds={new Set(
                   (data.googleAccounts ?? [])
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
