@@ -59,7 +59,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false) {
+async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false, requestedRange?: { from?: string; to?: string }) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
@@ -110,13 +110,17 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       return earliest < cap ? cap : earliest;
     }
 
-    const from = await detectFromDate();
+    const validDate = (d: unknown) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    const requestedFrom = validDate(requestedRange?.from) ? requestedRange!.from! : null;
+    const requestedTo = validDate(requestedRange?.to) ? requestedRange!.to! : null;
+    const from = requestedFrom ?? await detectFromDate();
+    const effectiveTo = requestedTo ?? to;
     console.log("[auto-onboard] window", { siteId, from, to });
 
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to, site_id: siteId, account_ids: accountIds, user_id: userId },
+      { from, to: effectiveTo, site_id: siteId, account_ids: accountIds, user_id: userId },
       authHeader,
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
@@ -127,7 +131,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
     const chunkDays = incremental ? 3 : 7;
     const fromDate = new Date(from + "T00:00:00Z");
-    const toDate = new Date(to + "T00:00:00Z");
+    const toDate = new Date(effectiveTo + "T00:00:00Z");
     const chunks: Array<{ from: string; to: string }> = [];
     for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + chunkDays)) {
       const cFrom = d.toISOString().slice(0, 10);
