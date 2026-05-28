@@ -99,6 +99,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
         case "convRate": return d?.convRate ?? 0;
         case "cpa": return d?.cpa ?? 0;
         case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
+        case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
         default: return Number((c as any)[sort.key] ?? 0);
       }
     };
@@ -313,7 +314,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(c.impressions)}
+                    <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
+                    {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {fmtNumber(c.clicks)}
