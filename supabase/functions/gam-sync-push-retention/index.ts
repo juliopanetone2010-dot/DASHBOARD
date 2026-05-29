@@ -236,9 +236,11 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
 
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
+  // GAM API v1 não aceita URL_NAME + CUSTOM_CRITERIA juntos.
+  // URL_NAME já inclui a URL completa com query string, então parseamos utm_source da própria URL.
   const reportDefinition = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL_NAME", "CUSTOM_CRITERIA"],
+    dimensions: ["DATE", "URL_NAME"],
     metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
     dateRange: {
       fixed: {
@@ -295,7 +297,9 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
       const dims = r.dimensionValues ?? [];
       const date = parseGamDate(dims[0]);
       const urlName = String(dims[1]?.stringValue ?? "");
-      const kv = String(dims[2]?.stringValue ?? "");
+      // Extrai query string da URL e converte para formato k=v;k=v p/ parseCustomCriteria
+      const qIdx = urlName.indexOf("?");
+      const kv = qIdx >= 0 ? urlName.slice(qIdx + 1).replace(/&/g, ";") : "";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       const numRev = (v: any) => {
