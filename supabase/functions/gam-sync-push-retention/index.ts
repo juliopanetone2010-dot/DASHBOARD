@@ -240,7 +240,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   // URL_NAME já inclui a URL completa com query string, então parseamos utm_source da própria URL.
   const reportDefinition = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL_NAME"],
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
     dateRange: {
       fixed: {
