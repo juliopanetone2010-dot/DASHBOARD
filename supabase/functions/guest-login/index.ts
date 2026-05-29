@@ -54,10 +54,21 @@ Deno.serve(async (req) => {
     }
     let ownerEmail: string | null = null;
     if (uuidRe.test(raw)) {
-      const { data: ownerData, error: ownerErr } = await admin.auth.admin.getUserById(raw);
+      const { data: ownerData, error: ownerErr } = await getUserByIdWithRetry(admin, raw);
       if (ownerErr || !ownerData?.user?.email) {
         console.error("[guest-login] owner lookup by id failed", ownerErr);
-        return json({ error: "Owner não encontrado" }, 500);
+        const message = String(ownerErr?.message ?? ownerErr ?? "");
+        const isBackendStarting =
+          ownerErr?.status === 500 ||
+          /database error loading user|terminating connection|not accepting connections|failed to send/i.test(message);
+        return json(
+          {
+            error: isBackendStarting
+              ? "Backend ainda está iniciando. Tente novamente em instantes."
+              : "Owner não encontrado",
+          },
+          isBackendStarting ? 503 : 500,
+        );
       }
       ownerEmail = ownerData.user.email;
     } else if (raw.includes("@")) {
@@ -106,4 +117,21 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function getUserByIdWithRetry(admin: ReturnType<typeof createClient>, userId: string) {
+  let lastResult: Awaited<ReturnType<typeof admin.auth.admin.getUserById>> | null = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    lastResult = await admin.auth.admin.getUserById(userId);
+    const message = String(lastResult.error?.message ?? "");
+    const shouldRetry =
+      lastResult.error?.status === 500 ||
+      /database error loading user|terminating connection|not accepting connections|failed to send/i.test(message);
+
+    if (!shouldRetry) return lastResult;
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+
+  return lastResult!;
 }
