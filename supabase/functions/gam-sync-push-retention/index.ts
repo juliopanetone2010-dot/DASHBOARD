@@ -297,7 +297,9 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
       const dims = r.dimensionValues ?? [];
       const date = parseGamDate(dims[0]);
       const urlName = String(dims[1]?.stringValue ?? "");
-      const kv = String(dims[2]?.stringValue ?? "");
+      // Extrai query string da URL e converte para formato k=v;k=v p/ parseCustomCriteria
+      const qIdx = urlName.indexOf("?");
+      const kv = qIdx >= 0 ? urlName.slice(qIdx + 1).replace(/&/g, ";") : "";
       const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
       const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
       const numRev = (v: any) => {
