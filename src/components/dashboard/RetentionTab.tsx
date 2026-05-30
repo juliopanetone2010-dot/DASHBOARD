@@ -114,28 +114,31 @@ export function RetentionTab(_props: Props) {
   const loading = rowsQuery.isFetching || syncing;
   const siteName = (id: string) => sitesQuery.data?.find((s) => s.id === id)?.name ?? id.slice(0, 8);
 
-  // Agrupa por utm_source
+  // Detecta push tanto por utm_source quanto por marcadores na URL (?push, utm_medium=push, etc.)
+  const isPushRow = (r: PushRow) => {
+    const utm = (r.utm_source || "").toLowerCase().trim();
+    if (utm === "push") return true;
+    const u = (r.url || "").toLowerCase();
+    return /[?&](utm_source|utm_medium|source|medium)=push\b/.test(u) || /[?&]push(=|&|$)/.test(u);
+  };
+
+  // Apenas push
+  const pushRows = useMemo(() => rows.filter(isPushRow), [rows]);
+
   const byUtm = useMemo(() => {
-    const map = new Map<string, { utm: string; rows: PushRow[]; revenue: number; impressions: number }>();
-    for (const r of rows) {
-      const utm = (r.utm_source || "(none)").toLowerCase();
-      const cur = map.get(utm) ?? { utm, rows: [], revenue: 0, impressions: 0 };
-      cur.rows.push(r);
-      cur.revenue += Number(r.revenue_usd || 0);
-      cur.impressions += Number(r.impressions || 0);
-      map.set(utm, cur);
-    }
-    return [...map.values()].sort((a, b) => b.revenue - a.revenue);
-  }, [rows]);
+    if (pushRows.length === 0) return [] as { utm: string; rows: PushRow[]; revenue: number; impressions: number }[];
+    const revenue = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const impressions = pushRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+    return [{ utm: "push", rows: [...pushRows].sort((a, b) => Number(b.revenue_usd) - Number(a.revenue_usd)), revenue, impressions }];
+  }, [pushRows]);
 
   const totals = useMemo(() => {
-    const total = rows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
-    const impressions = rows.reduce((s, r) => s + Number(r.impressions || 0), 0);
-    const pushBucket = byUtm.find((b) => b.utm === "push");
+    const total = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const impressions = pushRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
     const unattribTotal = unattrib.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
     const ecpm = impressions > 0 ? (total / impressions) * 1000 : 0;
-    return { total, impressions, push: pushBucket?.revenue ?? 0, unattribTotal, ecpm };
-  }, [rows, unattrib, byUtm]);
+    return { total, impressions, push: total, unattribTotal, ecpm };
+  }, [pushRows, unattrib]);
 
   const syncOne = async (sid: string) => {
     const { data, error } = await supabase.functions.invoke("gam-sync-push-retention", {
