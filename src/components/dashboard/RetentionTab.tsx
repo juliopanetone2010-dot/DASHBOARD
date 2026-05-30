@@ -251,7 +251,7 @@ export function RetentionTab(_props: Props) {
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Receita Total (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${rows.length} URL(s) • ${byUtm.length} utm(s)`} />
+        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${pushRows.length} URL(s) push`} />
         <MetricCard label="Receita Push" value={fmtUSD(totals.push)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
         <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} hint="(receita / impressões) × 1000" />
         <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
