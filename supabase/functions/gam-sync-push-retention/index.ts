@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
         date: b.date,
         url: b.url,
         normalized_url: b.normalized_url,
-        utm_source: "push",
+        utm_source: b.utm_source,
         revenue_usd: b.revenue_usd,
         impressions: b.impressions,
         ecpm,
