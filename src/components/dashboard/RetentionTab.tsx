@@ -197,7 +197,7 @@ export function RetentionTab(_props: Props) {
             </Badge>
           </h2>
           <p className="text-xs text-muted-foreground">
-            Receita do GAM agrupada por <code>utm_source</code> e URL exata. Inclui push, email, organic e outros.
+            Receita do GAM filtrada para <code>utm_source=push</code> (ou URLs marcadas como push), agrupada por URL exata.
           </p>
         </div>
         <div className="flex items-center gap-2">
