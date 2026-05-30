@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
       date: string;
       url: string;
       normalized_url: string;
+      utm_source: string;
       revenue_usd: number;
       impressions: number;
       raw_gam_row: any;
@@ -110,22 +111,13 @@ Deno.serve(async (req) => {
     for (const r of rows) {
       if (!r.date) continue;
       const kv = parseCustomCriteria(r.rawKv);
-      const utmSource = (kv.utm_source ?? "").toLowerCase().trim();
+      const utmSource = (kv.utm_source ?? "").toLowerCase().trim() || "(none)";
 
-      // FILTRO ESTRITO
-      if (utmSource !== "push") {
-        debug.ignoredNoPush++;
-        if (debug.sampleIgnored.length < 5) {
-          debug.sampleIgnored.push(`utm=${utmSource || "(none)"}|url=${r.url.slice(0, 80)}|rev=${r.revenue.toFixed(4)}`);
-        }
-        continue;
-      }
-
-      // Aggregate?
+      // Aggregate URLs (sem URL exata) vão pra tabela separada
       if (isAggregateUrl(r.url)) {
         debug.aggregateRows++;
-        const k = `${r.date}|aggregate`;
-        const cur = unattribBuckets.get(k) ?? { date: r.date, revenue_usd: 0, impressions: 0, reason: "aggregate", raw: r };
+        const k = `${r.date}|aggregate|${utmSource}`;
+        const cur = unattribBuckets.get(k) ?? { date: r.date, revenue_usd: 0, impressions: 0, reason: `aggregate utm=${utmSource}`, raw: r };
         cur.revenue_usd += r.revenue;
         cur.impressions += r.impressions;
         unattribBuckets.set(k, cur);
@@ -137,22 +129,24 @@ Deno.serve(async (req) => {
         debug.aggregateRows++;
         continue;
       }
-      const key = `${r.date}|${normalized}`;
+      const key = `${r.date}|${normalized}|${utmSource}`;
       if (seenKeys.has(key)) debug.duplicates++;
       seenKeys.add(key);
 
       const cur = buckets.get(key) ?? {
-        date: r.date, url: r.url, normalized_url: normalized,
+        date: r.date, url: r.url, normalized_url: normalized, utm_source: utmSource,
         revenue_usd: 0, impressions: 0, raw_gam_row: r,
       };
       cur.revenue_usd += r.revenue;
       cur.impressions += r.impressions;
       buckets.set(key, cur);
-      debug.matchedPush++;
+      if (utmSource === "push") debug.matchedPush++;
+      else debug.ignoredNoPush++;
       if (debug.sampleMatched.length < 5) {
-        debug.sampleMatched.push(`${r.date}|${normalized.slice(0, 80)}|rev=${r.revenue.toFixed(4)}|imp=${r.impressions}`);
+        debug.sampleMatched.push(`${r.date}|utm=${utmSource}|${normalized.slice(0, 80)}|rev=${r.revenue.toFixed(4)}|imp=${r.impressions}`);
       }
     }
+
 
     // Limpa período antes do upsert (evita lixo de runs antigas)
     await admin.from("push_retention_revenue")
