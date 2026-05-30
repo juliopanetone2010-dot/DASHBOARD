@@ -2474,7 +2474,7 @@ export type Database = {
           updated_at?: string
           url: string
           user_id: string
-          utm_source?: string
+          utm_source: string
         }
         Update: {
           created_at?: string

@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, ShieldCheck, AlertTriangle, Bug, ChevronDown } from "lucide-react";
+import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, AlertTriangle, ChevronDown, Globe } from "lucide-react";
 import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
@@ -21,6 +21,7 @@ import { toast } from "@/components/ui/use-toast";
 interface PushRow {
   id: string;
   date: string;
+  site_id: string;
   url: string;
   normalized_url: string;
   utm_source: string;
@@ -31,37 +32,22 @@ interface PushRow {
 
 interface UnattribRow {
   id: string;
+  site_id: string;
   date: string;
   revenue_usd: number;
   impressions: number;
   reason: string;
 }
 
-interface SyncResult {
-  ok: boolean;
-  inserted?: number;
-  unattributed?: number;
-  debug?: {
-    totalRowsFromGam: number;
-    matchedPush: number;
-    ignoredNoPush: number;
-    aggregateRows: number;
-    duplicates: number;
-    ecpmAnomalies: number;
-    sampleIgnored: string[];
-    sampleMatched: string[];
-  };
-}
-
 interface Props {
-  campaigns: Campaign[]; // não usado na nova engine, mantido p/ compat
+  campaigns: Campaign[];
 }
 
 export function RetentionTab(_props: Props) {
   const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
   const range = localRange ?? globalRange;
@@ -72,25 +58,35 @@ export function RetentionTab(_props: Props) {
   };
 
   const siteId = filters.siteId;
-  const enabled = siteId && siteId !== "all";
+  const isAllSites = !siteId || siteId === "all";
 
   const queryKey = useMemo(
-    () => ["push-retention", range.from, range.to, siteId],
+    () => ["push-retention", range.from, range.to, siteId ?? "all"],
     [range.from, range.to, siteId],
   );
 
+  const sitesQuery = useQuery({
+    queryKey: ["sites-lite"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("sites").select("id, name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string }[];
+    },
+    staleTime: 60_000,
+  });
+
   const rowsQuery = useQuery<PushRow[]>({
     queryKey,
-    enabled: !!enabled,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("push_retention_revenue")
-        .select("id, date, url, normalized_url, utm_source, revenue_usd, impressions, ecpm")
-        .eq("site_id", siteId)
+        .select("id, site_id, date, url, normalized_url, utm_source, revenue_usd, impressions, ecpm")
         .gte("date", range.from)
         .lte("date", range.to)
         .order("revenue_usd", { ascending: false })
-        .limit(5000);
+        .limit(10000);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as PushRow[];
     },
@@ -98,15 +94,15 @@ export function RetentionTab(_props: Props) {
   });
 
   const unattribQuery = useQuery<UnattribRow[]>({
-    queryKey: ["push-unattrib", range.from, range.to, siteId],
-    enabled: !!enabled,
+    queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("unattributed_push_revenue")
-        .select("id, date, revenue_usd, impressions, reason")
-        .eq("site_id", siteId)
+        .select("id, site_id, date, revenue_usd, impressions, reason")
         .gte("date", range.from)
         .lte("date", range.to);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as UnattribRow[];
     },
@@ -116,38 +112,71 @@ export function RetentionTab(_props: Props) {
   const rows = rowsQuery.data ?? [];
   const unattrib = unattribQuery.data ?? [];
   const loading = rowsQuery.isFetching || syncing;
+  const siteName = (id: string) => sitesQuery.data?.find((s) => s.id === id)?.name ?? id.slice(0, 8);
+
+  // Agrupa por utm_source
+  const byUtm = useMemo(() => {
+    const map = new Map<string, { utm: string; rows: PushRow[]; revenue: number; impressions: number }>();
+    for (const r of rows) {
+      const utm = (r.utm_source || "(none)").toLowerCase();
+      const cur = map.get(utm) ?? { utm, rows: [], revenue: 0, impressions: 0 };
+      cur.rows.push(r);
+      cur.revenue += Number(r.revenue_usd || 0);
+      cur.impressions += Number(r.impressions || 0);
+      map.set(utm, cur);
+    }
+    return [...map.values()].sort((a, b) => b.revenue - a.revenue);
+  }, [rows]);
 
   const totals = useMemo(() => {
-    const push = rows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const total = rows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
     const impressions = rows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+    const pushBucket = byUtm.find((b) => b.utm === "push");
     const unattribTotal = unattrib.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
-    const ecpm = impressions > 0 ? (push / impressions) * 1000 : 0;
-    return { push, impressions, unattribTotal, ecpm };
-  }, [rows, unattrib]);
+    const ecpm = impressions > 0 ? (total / impressions) * 1000 : 0;
+    return { total, impressions, push: pushBucket?.revenue ?? 0, unattribTotal, ecpm };
+  }, [rows, unattrib, byUtm]);
+
+  const syncOne = async (sid: string) => {
+    const { data, error } = await supabase.functions.invoke("gam-sync-push-retention", {
+      body: { site_id: sid, from: range.from, to: range.to },
+    });
+    if (error) throw new Error(error.message ?? String(error));
+    return data;
+  };
 
   const load = async () => {
-    if (!enabled) {
-      toast({ title: "Selecione um site no topo", variant: "destructive" });
-      return;
-    }
     setSyncing(true);
-    setLastSync(null);
     try {
-      const { data, error } = await supabase.functions.invoke<SyncResult>("gam-sync-push-retention", {
-        body: { site_id: siteId, from: range.from, to: range.to },
-      });
-      if (error) throw error;
-      setLastSync(data ?? null);
+      const targets = isAllSites
+        ? (sitesQuery.data ?? []).map((s) => s.id)
+        : [siteId];
+      if (!targets.length) {
+        toast({ title: "Nenhum site disponível", variant: "destructive" });
+        return;
+      }
+      setProgress({ done: 0, total: targets.length });
+      let inserted = 0, unattributed = 0, errs = 0;
+      for (let i = 0; i < targets.length; i++) {
+        try {
+          const r: any = await syncOne(targets[i] as string);
+          inserted += r?.inserted ?? 0;
+          unattributed += r?.unattributed ?? 0;
+        } catch (e: any) {
+          errs++;
+          console.error("[push-sync] erro site", targets[i], e?.message);
+        }
+        setProgress({ done: i + 1, total: targets.length });
+      }
       await queryClient.invalidateQueries({ queryKey });
-      await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId] });
+      await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
       toast({
         title: "Sincronização concluída",
-        description: `${data?.inserted ?? 0} URLs push • ${data?.unattributed ?? 0} agregadas isoladas`,
+        description: `${targets.length} site(s) • ${inserted} URLs • ${unattributed} agregadas${errs ? ` • ${errs} erro(s)` : ""}`,
       });
-    } catch (e: any) {
-      toast({ title: "Erro ao sincronizar", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
+      setProgress(null);
     }
   };
 
@@ -159,37 +188,28 @@ export function RetentionTab(_props: Props) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            Retenção / Push
-            <Badge variant="outline" className="text-xs">utm_source=push (estrito)</Badge>
+            Retenção / UTM
+            <Badge variant="outline" className="text-xs">
+              {isAllSites ? <><Globe className="h-3 w-3 mr-1 inline" />todos os sites</> : siteName(siteId!)}
+            </Badge>
           </h2>
           <p className="text-xs text-muted-foreground">
-            Receita do GAM por URL exata, filtrada estritamente por <code>utm_source=push</code>. Bate com o relatório manual.
+            Receita do GAM agrupada por <code>utm_source</code> e URL exata. Inclui push, email, organic e outros.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="font-mono text-xs">
-            {range.from} → {range.to}
-          </Badge>
+          <Badge variant="outline" className="font-mono text-xs">{range.from} → {range.to}</Badge>
           {localRange && (
             <Button size="sm" variant="ghost" onClick={() => setLocalRange(null)} className="h-8 text-xs">
               Período do dashboard
             </Button>
           )}
-          <Button size="sm" variant="default" onClick={load} disabled={loading || !enabled} className="gap-2">
+          <Button size="sm" variant="default" onClick={load} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            Sincronizar GAM
+            {progress ? `Sincronizando ${progress.done}/${progress.total}` : `Sincronizar GAM${isAllSites ? " (todos)" : ""}`}
           </Button>
         </div>
       </div>
-
-      {!enabled && (
-        <Card className="border-amber-500/50">
-          <CardContent className="py-6 text-sm text-muted-foreground flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Selecione um site específico no topo do dashboard para usar a engine Push.
-          </CardContent>
-        </Card>
-      )}
 
       <div className="rounded-xl border border-border bg-card p-3 shadow-elegant">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -228,131 +248,102 @@ export function RetentionTab(_props: Props) {
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.push)} icon={Repeat} variant="primary" hint={`${rows.length} URL(s) únicas`} />
-        <MetricCard label="Impressões Push" value={totals.impressions.toLocaleString("pt-BR")} icon={Wallet} />
-        <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} variant="success" hint="(receita / impressões) × 1000" />
-        <MetricCard
-          label="Não atribuído (agregadas)"
-          value={fmtUSD(totals.unattribTotal)}
-          icon={AlertTriangle}
-          hint={`${unattrib.length} linha(s) isoladas — não contamina por-URL`}
-        />
+        <MetricCard label="Receita Total (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${rows.length} URL(s) • ${byUtm.length} utm(s)`} />
+        <MetricCard label="Receita Push" value={fmtUSD(totals.push)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
+        <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} hint="(receita / impressões) × 1000" />
+        <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>URLs Push ({range.from} → {range.to})</span>
-            <Badge variant="outline">{rows.length} URL(s)</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs do período.
-            </p>
-          ) : (
+      {byUtm.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs e UTMs do período{isAllSites ? " de todos os sites" : ""}.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {byUtm.map((bucket) => (
+            <UtmGroupCard key={bucket.utm} bucket={bucket} isAllSites={isAllSites} siteName={siteName} />
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        ⓘ Linhas agregadas (sem URL exata) são isoladas em <code>unattributed_push_revenue</code> e não contaminam o eCPM nem a tabela por URL.
+      </p>
+    </div>
+  );
+}
+
+function UtmGroupCard({
+  bucket, isAllSites, siteName,
+}: {
+  bucket: { utm: string; rows: PushRow[]; revenue: number; impressions: number };
+  isAllSites: boolean;
+  siteName: (id: string) => string;
+}) {
+  const ecpm = bucket.impressions > 0 ? (bucket.revenue / bucket.impressions) * 1000 : 0;
+  const isPush = bucket.utm === "push";
+  return (
+    <Collapsible defaultOpen={isPush}>
+      <Card className={isPush ? "border-primary/40" : undefined}>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors py-3">
+            <CardTitle className="flex items-center justify-between text-sm gap-3 flex-wrap">
+              <span className="flex items-center gap-2">
+                <ChevronDown className="h-4 w-4" />
+                <Badge variant={isPush ? "default" : "outline"} className="font-mono">utm_source = {bucket.utm}</Badge>
+                <span className="text-xs text-muted-foreground">{bucket.rows.length} URL(s)</span>
+              </span>
+              <div className="flex items-center gap-4 text-xs tabular-nums">
+                <span className="text-muted-foreground">imp <b className="text-foreground">{bucket.impressions.toLocaleString("pt-BR")}</b></span>
+                <span className="text-muted-foreground">eCPM <b className="text-foreground">${ecpm.toFixed(2)}</b></span>
+                <span className="font-semibold text-base">{fmtUSD(bucket.revenue)}</span>
+              </div>
+            </CardTitle>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="pt-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {isAllSites && <TableHead>Site</TableHead>}
                     <TableHead>URL</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead className="text-right">Impressões</TableHead>
-                    <TableHead className="text-right">Receita (USD)</TableHead>
+                    <TableHead className="text-right">Receita</TableHead>
                     <TableHead className="text-right">eCPM</TableHead>
-                    <TableHead>utm</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => {
-                    const calcEcpm = r.impressions > 0 ? (Number(r.revenue_usd) / r.impressions) * 1000 : 0;
-                    const matches = Math.abs(calcEcpm - Number(r.ecpm)) < 0.01;
-                    const anomaly = calcEcpm > 1000 || (Number(r.revenue_usd) > 0 && calcEcpm < 0.01);
+                  {bucket.rows.slice(0, 200).map((r) => {
+                    const e = r.impressions > 0 ? (Number(r.revenue_usd) / r.impressions) * 1000 : 0;
                     return (
                       <TableRow key={r.id}>
+                        {isAllSites && <TableCell className="text-xs">{siteName(r.site_id)}</TableCell>}
                         <TableCell className="max-w-[420px]">
                           <div className="font-mono text-xs truncate" title={r.url}>{r.normalized_url}</div>
                         </TableCell>
                         <TableCell className="font-mono text-xs">{r.date}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.impressions.toLocaleString("pt-BR")}</TableCell>
                         <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(Number(r.revenue_usd))}</TableCell>
-                        <TableCell className="text-right tabular-nums">${calcEcpm.toFixed(2)}</TableCell>
-                        <TableCell><Badge variant="outline" className="text-xs">{r.utm_source}</Badge></TableCell>
-                        <TableCell className="text-right">
-                          {anomaly ? (
-                            <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />ANOMALY</Badge>
-                          ) : matches ? (
-                            <Badge variant="default" className="gap-1 bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 border-emerald-500/40">
-                              <ShieldCheck className="h-3 w-3" />VERIFIED
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline">drift</Badge>
-                          )}
-                        </TableCell>
+                        <TableCell className="text-right tabular-nums">${e.toFixed(2)}</TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
+              {bucket.rows.length > 200 && (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Mostrando 200 de {bucket.rows.length} URLs (ordenadas por receita).
+                </p>
+              )}
             </div>
-          )}
-        </CardContent>
+          </CardContent>
+        </CollapsibleContent>
       </Card>
-
-      {lastSync?.debug && (
-        <Collapsible>
-          <Card>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors">
-                <CardTitle className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2"><Bug className="h-4 w-4" /> Debug do último sync</span>
-                  <ChevronDown className="h-4 w-4" />
-                </CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent className="space-y-3 text-xs font-mono">
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-                  <DebugStat label="GAM rows" value={lastSync.debug.totalRowsFromGam} />
-                  <DebugStat label="Matched push" value={lastSync.debug.matchedPush} variant="success" />
-                  <DebugStat label="Ignored ≠push" value={lastSync.debug.ignoredNoPush} />
-                  <DebugStat label="Aggregate" value={lastSync.debug.aggregateRows} variant="warn" />
-                  <DebugStat label="Duplicates" value={lastSync.debug.duplicates} />
-                  <DebugStat label="eCPM anomalies" value={lastSync.debug.ecpmAnomalies} variant={lastSync.debug.ecpmAnomalies ? "warn" : undefined} />
-                </div>
-                {lastSync.debug.sampleMatched.length > 0 && (
-                  <div>
-                    <div className="font-semibold mb-1">Amostra MATCHED:</div>
-                    {lastSync.debug.sampleMatched.map((s, i) => <div key={i} className="text-muted-foreground">• {s}</div>)}
-                  </div>
-                )}
-                {lastSync.debug.sampleIgnored.length > 0 && (
-                  <div>
-                    <div className="font-semibold mb-1">Amostra IGNORED:</div>
-                    {lastSync.debug.sampleIgnored.map((s, i) => <div key={i} className="text-muted-foreground">• {s}</div>)}
-                  </div>
-                )}
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-      )}
-
-      <p className="text-xs text-muted-foreground">
-        ⓘ Linhas agregadas (sem URL exata) são isoladas em <code>unattributed_push_revenue</code> e não contaminam o eCPM nem a tabela por URL. Aggregate contamination = 0%.
-      </p>
-    </div>
-  );
-}
-
-function DebugStat({ label, value, variant }: { label: string; value: number; variant?: "success" | "warn" }) {
-  const cls = variant === "success" ? "text-emerald-500" : variant === "warn" ? "text-amber-500" : "text-foreground";
-  return (
-    <div className="rounded-md border border-border p-2">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={cn("text-sm font-bold tabular-nums", cls)}>{value.toLocaleString("pt-BR")}</div>
-    </div>
+    </Collapsible>
   );
 }
