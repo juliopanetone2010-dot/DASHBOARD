@@ -76,14 +76,18 @@ Deno.serve(async (req) => {
 
     if (action === "preview") {
       const campaignId = String(body?.campaign_id ?? "");
+      const accountId = body?.google_account_id ? String(body.google_account_id) : null;
+      const days = Math.min(Math.max(parseInt(String(body?.days ?? "7")) || 7, 1), 60);
       if (!campaignId) return json({ error: "campaign_id obrigatório" }, 400);
-      return json(await previewLast7Days(admin, userId, campaignId));
+      return json(await previewLastNDays(admin, userId, campaignId, accountId, days));
     }
 
     if (action === "init") {
       const campaignId = String(body?.campaign_id ?? "");
+      const accountId = body?.google_account_id ? String(body.google_account_id) : null;
+      const budgetBrl = Number(body?.budget_brl) > 0 ? Number(body.budget_brl) : INITIAL_BUDGET_BRL;
       if (!campaignId) return json({ error: "campaign_id obrigatório" }, 400);
-      return json(await initFlow(admin, userId, userJwt, campaignId));
+      return json(await initFlow(admin, userId, userJwt, campaignId, accountId, budgetBrl));
     }
 
     if (action === "abort") {
