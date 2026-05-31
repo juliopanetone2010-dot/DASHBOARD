@@ -416,6 +416,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                           <RestartCampaignButton
                             campaignId={c.campaign_id}
                             campaignName={c.name}
+                            googleAccountId={(c as any).google_account_id ?? null}
                             onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
                           />
 
