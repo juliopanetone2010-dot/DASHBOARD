@@ -109,25 +109,29 @@ Deno.serve(async (req) => {
   }
 });
 
-async function previewLast7Days(admin: any, userId: string, campaignId: string) {
+async function previewLastNDays(admin: any, userId: string, campaignId: string, accountId: string | null, days: number) {
   const today = new Date();
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
-  const from = new Date(today); from.setUTCDate(today.getUTCDate() - 7);
-  const { data: rows } = await admin
+  const from = new Date(today); from.setUTCDate(today.getUTCDate() - days);
+  let q = admin
     .from("daily_metrics")
-    .select("date, spend, profit, conversions, clicks")
+    .select("date, spend, profit, conversions, clicks, impressions")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
     .gte("date", isoDate(from))
     .lte("date", isoDate(yest))
     .order("date", { ascending: true });
+  if (accountId) q = q.eq("google_account_id", accountId);
+  const { data: rows } = await q;
 
   const daily = (rows ?? []).map((r: any) => {
     const spend = Number(r.spend) || 0;
     const profit = Number(r.profit) || 0;
+    const impressions = Number(r.impressions) || 0;
     const grossRev = spend + profit;
     const netRev = grossRev * NET_FACTOR;
     const roi = spend > 0 ? ((netRev - spend) / spend) * 100 : 0;
+    const ecpm = impressions > 0 ? (netRev / impressions) * 1000 : 0;
     return {
       date: r.date,
       cost: round2(spend),
@@ -136,6 +140,8 @@ async function previewLast7Days(admin: any, userId: string, campaignId: string) 
       roi: round2(roi),
       conversions: Number(r.conversions) || 0,
       clicks: Number(r.clicks) || 0,
+      impressions,
+      ecpm: round2(ecpm),
     };
   });
 
@@ -144,26 +150,48 @@ async function previewLast7Days(admin: any, userId: string, campaignId: string) 
       cost: acc.cost + d.cost,
       revenue: acc.revenue + d.revenue,
       conversions: acc.conversions + d.conversions,
+      impressions: acc.impressions + d.impressions,
     }),
-    { cost: 0, revenue: 0, conversions: 0 },
+    { cost: 0, revenue: 0, conversions: 0, impressions: 0 },
   );
   const aggRoi = totals.cost > 0 ? ((totals.revenue - totals.cost) / totals.cost) * 100 : 0;
+  const aggEcpm = totals.impressions > 0 ? (totals.revenue / totals.impressions) * 1000 : 0;
+  const aggCpa = totals.conversions > 0 ? totals.cost / totals.conversions : 0;
+
+  // Campaign config (current budget + target CPA armazenados localmente)
+  let campQ = admin.from("campaigns")
+    .select("budget_micros, target_cpa_micros, name, google_account_id")
+    .eq("user_id", userId).eq("campaign_id", campaignId);
+  if (accountId) campQ = campQ.eq("google_account_id", accountId);
+  const { data: campRows } = await campQ.limit(1);
+  const camp = campRows?.[0];
+  const currentBudgetBrl = camp?.budget_micros ? Number(camp.budget_micros) / 1_000_000 : null;
+  const currentCpaBrl = camp?.target_cpa_micros ? Number(camp.target_cpa_micros) / 1_000_000 : null;
 
   // Existência de fluxo ativo
-  const { data: active } = await admin
+  let flowQ = admin
     .from("campaign_restart_flow")
-    .select("id, stage, status, start_date")
+    .select("id, stage, status, start_date, applied_cpa, current_budget")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
-    .eq("status", "active")
-    .maybeSingle();
+    .eq("status", "active");
+  if (accountId) flowQ = flowQ.eq("google_account_id", accountId);
+  const { data: actives } = await flowQ.limit(1);
+  const active = actives?.[0] ?? null;
 
   return {
     daily,
-    totals: { ...totals, roi: round2(aggRoi) },
-    active_flow: active ?? null,
+    days,
+    totals: { ...totals, roi: round2(aggRoi), ecpm: round2(aggEcpm), cpa: round2(aggCpa) },
+    campaign: {
+      current_budget_brl: currentBudgetBrl,
+      current_cpa_brl: currentCpaBrl,
+      applied_cpa_brl: active?.applied_cpa ? Number(active.applied_cpa) : null,
+    },
+    active_flow: active,
   };
 }
+
 
 async function initFlow(admin: any, userId: string, userJwt: string | null, campaignId: string) {
   // Se já houver fluxo ativo, reaplica a configuração inicial em vez de bloquear.
