@@ -193,35 +193,39 @@ async function previewLastNDays(admin: any, userId: string, campaignId: string, 
 }
 
 
-async function initFlow(admin: any, userId: string, userJwt: string | null, campaignId: string) {
+async function initFlow(admin: any, userId: string, userJwt: string | null, campaignId: string, accountId: string | null, budgetBrl: number) {
   // Se já houver fluxo ativo, reaplica a configuração inicial em vez de bloquear.
-  const { data: existing } = await admin
+  let existingQ = admin
     .from("campaign_restart_flow")
     .select("id, stage, status")
     .eq("user_id", userId)
     .eq("campaign_id", campaignId)
-    .eq("status", "active")
-    .maybeSingle();
+    .eq("status", "active");
+  if (accountId) existingQ = existingQ.eq("google_account_id", accountId);
+  const { data: existings } = await existingQ.limit(1);
+  const existing = existings?.[0] ?? null;
 
-  // Resolve campanha + site + conta
-  const { data: camp } = await admin
+  // Resolve campanha + site + conta (desambigua por google_account_id se enviado)
+  let campQ = admin
     .from("campaigns")
     .select("id, campaign_id, name, google_account_id")
     .eq("user_id", userId)
-    .eq("campaign_id", campaignId)
-    .maybeSingle();
+    .eq("campaign_id", campaignId);
+  if (accountId) campQ = campQ.eq("google_account_id", accountId);
+  const { data: campRows } = await campQ.limit(1);
+  const camp = campRows?.[0];
   if (!camp) return { error: "Campanha não encontrada" };
 
   const siteId = await resolveCampaignSiteId(admin, userId, campaignId);
 
-  // Aplica orçamento R$40/dia + bidding MAXIMIZE_CONVERSIONS (sem CPA)
-  const apply = await applyInitialConfig(admin, userId, camp.google_account_id, campaignId, INITIAL_BUDGET_BRL);
+  // Aplica orçamento R$ X/dia + bidding MAXIMIZE_CONVERSIONS (sem CPA)
+  const apply = await applyInitialConfig(admin, userId, camp.google_account_id, campaignId, budgetBrl);
   if (apply.error) return { error: `Falha ao aplicar config inicial: ${apply.error}` };
   const initialNotes = apply?.bidding?.ok === false
-    ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; bidding mantido (${apply.bidding.kept || "atual"}) — Google bloqueou troca: ${String(apply.bidding.warning || "").slice(0, 300)}`
+    ? `Orçamento inicial R$ ${budgetBrl}/dia; bidding mantido (${apply.bidding.kept || "atual"}) — Google bloqueou troca: ${String(apply.bidding.warning || "").slice(0, 300)}`
     : apply?.bidding?.strategy === "TARGET_CPA"
-    ? `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia; Google manteve Target CPA por restrição da campanha`
-    : `Orçamento inicial R$ ${INITIAL_BUDGET_BRL}/dia, Maximize Conversions (sem CPA)`;
+    ? `Orçamento inicial R$ ${budgetBrl}/dia; Google manteve Target CPA por restrição da campanha`
+    : `Orçamento inicial R$ ${budgetBrl}/dia, Maximize Conversions (sem CPA)`;
 
   // Remove de qualquer esteira ativa: zera campaign_automation lifecycle p/ não interferir
   await admin
@@ -240,7 +244,8 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
     const { data: updated, error: updErr } = await admin
       .from("campaign_restart_flow")
       .update({
-        current_budget: INITIAL_BUDGET_BRL,
+        current_budget: budgetBrl,
+        initial_budget: budgetBrl,
         last_action: "init_reapply",
         last_action_at: new Date().toISOString(),
         notes: initialNotes,
@@ -263,8 +268,8 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       stage: "restart_testing_day_0",
       status: "active",
       start_date: new Date().toISOString(),
-      initial_budget: INITIAL_BUDGET_BRL,
-      current_budget: INITIAL_BUDGET_BRL,
+      initial_budget: budgetBrl,
+      current_budget: budgetBrl,
       last_action: "init",
       last_action_at: new Date().toISOString(),
       notes: initialNotes,
@@ -272,6 +277,7 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
     .select()
     .single();
   if (insErr) return { error: insErr.message };
+
 
   return { ok: true, flow: inserted, applied: apply };
 }
