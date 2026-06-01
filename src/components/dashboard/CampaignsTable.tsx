@@ -351,6 +351,20 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-xs tabular-nums text-muted-foreground">
+                    {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {lastAction ? (
+                      <div className="flex flex-col leading-tight">
+                        <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
+                        <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
+                      </div>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     <div>{fmtUSD(c.revenue)}</div>
