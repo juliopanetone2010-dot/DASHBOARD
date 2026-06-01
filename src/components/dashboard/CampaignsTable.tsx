@@ -66,6 +66,72 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     enabled: campaignIds.length > 0,
   });
 
+  // Primeiro dia com spend > 0 por campanha (idade real desde início do gasto)
+  const firstSpendQuery = useQuery({
+    queryKey: ["campaign-first-spend", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, string>();
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, date")
+        .in("campaign_id", campaignIds)
+        .gt("spend", 0)
+        .order("date", { ascending: true })
+        .limit(50000);
+      const map = new Map<string, string>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; date: string }>) {
+        if (!map.has(r.campaign_id)) map.set(r.campaign_id, r.date);
+      }
+      return map;
+    },
+    staleTime: 5 * 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Última ação consolidada (automação + restart) por campanha
+  const lastActionQuery = useQuery({
+    queryKey: ["campaign-last-action", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, { date: string; label: string }>();
+      const [autom, restart] = await Promise.all([
+        supabase
+          .from("campaign_automation")
+          .select("campaign_id, last_action, last_action_date, last_cpa_action, last_cpa_action_date, last_scale_date")
+          .in("campaign_id", campaignIds),
+        supabase
+          .from("campaign_restart_flow")
+          .select("campaign_id, last_action, last_action_at")
+          .in("campaign_id", campaignIds),
+      ]);
+      const out = new Map<string, { date: string; label: string }>();
+      const consider = (cid: string, date: string | null | undefined, label: string) => {
+        if (!cid || !date) return;
+        const cur = out.get(cid);
+        if (!cur || String(date) > cur.date) out.set(cid, { date: String(date), label });
+      };
+      for (const r of (autom.data ?? []) as any[]) {
+        consider(r.campaign_id, r.last_action_date, r.last_action ?? "automação");
+        consider(r.campaign_id, r.last_cpa_action_date, r.last_cpa_action ?? "cpa");
+        consider(r.campaign_id, r.last_scale_date, "scale");
+      }
+      for (const r of (restart.data ?? []) as any[]) {
+        consider(r.campaign_id, r.last_action_at, r.last_action ?? "reinício");
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  const ageInDays = (iso: string | undefined): number | null => {
+    if (!iso) return null;
+    const start = new Date(iso + "T00:00:00Z").getTime();
+    const today = Date.now();
+    return Math.max(0, Math.floor((today - start) / 86400000));
+  };
+
+
+
   // Métricas derivadas dos agregados (clicks/impressions/conversions/cost vêm DIRETO do Ads API).
   // Fórmulas oficiais (mesmo cálculo que o Ads UI faz ao agregar dias):
   //   CTR = clicks / impressions
