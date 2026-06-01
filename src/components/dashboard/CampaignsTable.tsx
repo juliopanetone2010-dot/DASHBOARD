@@ -20,13 +20,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
+import { CampaignHistoryButton } from "./CampaignHistoryButton";
+import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age";
 type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
-  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number }>;
+  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
