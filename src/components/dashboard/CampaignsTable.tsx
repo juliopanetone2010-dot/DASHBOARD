@@ -168,6 +168,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
         case "cpa": return d?.cpa ?? 0;
         case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
         case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
+        case "age": return ageInDays(firstSpendQuery.data?.get(c.campaign_id)) ?? -1;
         default: return Number((c as any)[sort.key] ?? 0);
       }
     };
@@ -177,7 +178,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived, campaignGamMetrics]);
+  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data]);
 
   const copyToClipboard = async (url: string) => {
     try {
