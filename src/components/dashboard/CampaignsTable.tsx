@@ -396,12 +396,21 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                     {(Number(c.roas) || 0).toFixed(2)}x
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <div>{fmtUSD(gamEcpm)}</div>
-                    {gamMetric && (
-                      <div className="text-[10px] text-muted-foreground">
-                        GAM · {fmtNumber(gamMetric.impressions)} impr.
-                      </div>
-                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="cursor-help inline-block text-right">
+                          <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
+                          {gamMetric && (
+                            <div className="text-[10px] text-muted-foreground">
+                              GAM · {fmtNumber(gamMetric.impressions)} impr.
+                            </div>
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                        {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                      </TooltipContent>
+                    </Tooltip>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
