@@ -273,11 +273,12 @@ const IndexInner = () => {
         map.set(cid, cur);
       }
 
-      const out = new Map<string, { ecpm: number; impressions: number }>();
+      const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
       for (const [cid, v] of map) {
         out.set(cid, {
           ecpm: v.impressions > 0 ? (v.revenueUsd / v.impressions) * 1000 : 0,
           impressions: v.impressions,
+          revenueUsd: v.revenueUsd,
         });
       }
       return out;
