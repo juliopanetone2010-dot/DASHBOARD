@@ -257,6 +257,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead className="w-[220px]">Final URL</TableHead>
+              <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
+              <SortHead k="age" label="Idade" />
+              <TableHead className="w-[140px] text-xs">Última ação</TableHead>
               <SortHead k="spend" label="Gasto" />
               <SortHead k="revenue" label="Receita" />
               <SortHead k="profit" label="Lucro" />
