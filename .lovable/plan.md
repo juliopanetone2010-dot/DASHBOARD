@@ -1,77 +1,49 @@
-## Refatorar engine da aba Retenção / Push
+## Objetivo
+Melhorar a análise por campanha direto na tabela do dashboard, sem precisar abrir o modal "Reiniciar". Adicionar histórico, idade, padronizar eCPM e mostrar última ação.
 
-Hoje a aba usa `gam_campaign_source_revenue` agregada por campanha, o que mistura aggregate rows e não permite ver URL exata. Vou criar uma engine isolada que puxa do GAM apenas linhas com `utm_source=push`, por URL exata, e bate com o relatório manual.
+## Mudanças
 
-### 1. Schema novo — `push_retention_revenue`
+### 1. Novo helper compartilhado de eCPM
+Criar `src/lib/campaignEcpm.ts` com `calculateCampaignEcpm(revenueGam, impressionsGam)` retornando `{ ecpm, revenue, impressions, formula }`. Usar em:
+- `CampaignsTable.tsx`
+- `RestartCampaignButton.tsx` (preview modal)
+- Dashboard / Funil
 
-Tabela isolada (não reaproveita `gam_url_revenue` que mistura tudo):
+Fonte única: `gam_campaign_source_revenue` (receita + impressões GAM por campanha/dia). Já é o que alimenta `campaignGamMetrics` no dashboard, garantindo consistência.
 
+### 2. Novas colunas na CampaignsTable
+- **Início gasto**: primeiro `daily_metrics.date` com `spend > 0` (por `campaign_id`)
+- **Idade**: `today - inicio_gasto` em dias
+- **Última ação**: mais recente entre `campaign_automation.last_action_date`, `last_cpa_action_date`, `last_scale_date`, e `campaign_restart_flow.last_action_at`
+
+Query em paralelo (React Query) buscando esses agregados por lista de `campaign_ids` visíveis.
+
+### 3. Novo botão "Histórico" separado do "Reiniciar"
+Componente `CampaignHistoryButton.tsx` abre Drawer com:
+- Seletor 7d / 15d / 30d
+- Tabela dia-a-dia: data, custo, receita, lucro, ROI, conversões, impressões (GAM), eCPM (helper), CPA
+- Banner destacando: início do gasto, última alteração, entrada no funil, última ação automação
+- Dados 100% do banco (`daily_metrics` + `gam_campaign_source_revenue` + `campaign_funnel` + `automation_logs`). Zero chamada Google Ads.
+
+### 4. eCPM com tooltip de debug
+Tooltip no valor de eCPM mostrando:
 ```
-id, site_id, user_id, date, url, normalized_url,
-utm_source, revenue_usd, impressions, ecpm,
-source, raw_gam_row (jsonb), created_at, updated_at
-```
-
-Constraint: `UNIQUE(site_id, date, normalized_url)` para idempotência.
-RLS: dono + `can_access_site`. GRANTs explícitos.
-
-Tabela auxiliar `unattributed_push_revenue` para aggregate rows (`__aggregate__`, URLs vazias):
-```
-id, site_id, date, revenue_usd, impressions, reason, raw_gam_row
-```
-
-### 2. Edge function `gam-sync-push-retention`
-
-Nova função dedicada, não toca em `gam-sync-revenue` (que continua servindo o dashboard).
-
-Fluxo:
-1. RBAC: `requireUser` + `requireSiteAccess`
-2. Query GAM Network Report: dimensões `[AD_UNIT_NAME, CUSTOM_CRITERIA, URL]` com filtro `CUSTOM_TARGETING_VALUE_ID = utm_source=push` (ou via custom field do site)
-3. Para cada linha:
-   - Pular se `utm_source !== 'push'` (match exato, sem fuzzy)
-   - Se URL é aggregate (`__aggregate__`, vazia, `(not set)`) → `unattributed_push_revenue`
-   - Senão: `normalizePushUrl()` e upsert em `push_retention_revenue`
-4. `ecpm = (revenue_usd / impressions) * 1000` calculado no insert (nunca estimado)
-5. Retornar relatório de debug: `{matched, ignored, aggregate, duplicates, anomalies}`
-
-### 3. Helper `normalizePushUrl()`
-
-Em `supabase/functions/_shared/normalize_url.ts` (reusável front+back via cópia em `src/lib/`):
-
-```ts
-- decodeURIComponent
-- lowercase
-- remove protocol (http://, https://)
-- remove www.
-- remove trailing slash
-- remove query params (manter slug puro)
-- collapse múltiplos //
+Receita GAM: $X
+Impressões GAM: Y
+eCPM = X / Y * 1000
+Fonte: gam_campaign_source_revenue
 ```
 
-### 4. UI — refatorar `RetentionTab.tsx`
+### 5. Padronizar eCPM no modal Reiniciar
+`RestartCampaignButton` passa a usar o mesmo helper. Sem mais cálculos divergentes.
 
-Substituir query atual:
-- Card "Receita Push Total": `SUM(revenue_usd) WHERE utm_source='push'` da nova tabela
-- Card "Não atribuído" (aggregate): da `unattributed_push_revenue` — mostrado separadamente
-- Tabela inferior: URL real | Receita | Impressões | eCPM (calculado) | utm | data
-- Botão "Sincronizar Push" chama `gam-sync-push-retention`
-- Badge `VERIFIED` por linha se `raw_gam_row` confere com os campos calculados
-- Painel debug colapsável: matched / ignored / aggregate / duplicates / anomalies (linhas com eCPM > 1000 ou < 0.01)
+## Arquivos
+- novo: `src/lib/campaignEcpm.ts`
+- novo: `src/components/dashboard/CampaignHistoryButton.tsx`
+- editar: `src/components/dashboard/CampaignsTable.tsx` (colunas + botão + tooltip eCPM)
+- editar: `src/components/dashboard/RestartCampaignButton.tsx` (usar helper)
 
-### 5. Pontos técnicos
-
-- A tabela atual `gam_campaign_source_revenue` é mantida (alimenta o dashboard principal e as outras abas)
-- Migração não destrói nada — apenas adiciona 2 tabelas
-- Sync inicial: usuário roda manualmente ao abrir a aba (sem cron por enquanto)
-- Match URL: case-insensitive, mas comparação por `normalized_url` exato (sem `LIKE %`)
-- Aggregate contamination = 0 garantido porque agregadas vão pra outra tabela física
-
-### Arquivos
-
-- `supabase/migrations/<ts>_push_retention.sql` (novo)
-- `supabase/functions/_shared/normalize_url.ts` (novo)
-- `supabase/functions/gam-sync-push-retention/index.ts` (novo)
-- `src/lib/normalizePushUrl.ts` (novo, espelho do shared)
-- `src/components/dashboard/RetentionTab.tsx` (refatorado)
-
-Quer que eu prossiga com a migração + edge function + UI?
+## Não escopo
+- Sem mudanças de schema (todas as tabelas necessárias já existem).
+- Sem novas edge functions (tudo via `supabase.from(...)` no client).
+- Sem mexer em Funil/Automation além de leitura.

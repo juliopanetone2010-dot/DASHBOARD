@@ -20,13 +20,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
+import { CampaignHistoryButton } from "./CampaignHistoryButton";
+import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age";
 type SortDir = "desc" | "asc";
 
 interface Props {
   campaigns: CampaignAggregate[];
-  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number }>;
+  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
@@ -64,6 +66,72 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     enabled: campaignIds.length > 0,
   });
 
+  // Primeiro dia com spend > 0 por campanha (idade real desde início do gasto)
+  const firstSpendQuery = useQuery({
+    queryKey: ["campaign-first-spend", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, string>();
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, date")
+        .in("campaign_id", campaignIds)
+        .gt("spend", 0)
+        .order("date", { ascending: true })
+        .limit(50000);
+      const map = new Map<string, string>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; date: string }>) {
+        if (!map.has(r.campaign_id)) map.set(r.campaign_id, r.date);
+      }
+      return map;
+    },
+    staleTime: 5 * 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Última ação consolidada (automação + restart) por campanha
+  const lastActionQuery = useQuery({
+    queryKey: ["campaign-last-action", campaignIds.join("|")],
+    queryFn: async () => {
+      if (campaignIds.length === 0) return new Map<string, { date: string; label: string }>();
+      const [autom, restart] = await Promise.all([
+        supabase
+          .from("campaign_automation")
+          .select("campaign_id, last_action, last_action_date, last_cpa_action, last_cpa_action_date, last_scale_date")
+          .in("campaign_id", campaignIds),
+        supabase
+          .from("campaign_restart_flow")
+          .select("campaign_id, last_action, last_action_at")
+          .in("campaign_id", campaignIds),
+      ]);
+      const out = new Map<string, { date: string; label: string }>();
+      const consider = (cid: string, date: string | null | undefined, label: string) => {
+        if (!cid || !date) return;
+        const cur = out.get(cid);
+        if (!cur || String(date) > cur.date) out.set(cid, { date: String(date), label });
+      };
+      for (const r of (autom.data ?? []) as any[]) {
+        consider(r.campaign_id, r.last_action_date, r.last_action ?? "automação");
+        consider(r.campaign_id, r.last_cpa_action_date, r.last_cpa_action ?? "cpa");
+        consider(r.campaign_id, r.last_scale_date, "scale");
+      }
+      for (const r of (restart.data ?? []) as any[]) {
+        consider(r.campaign_id, r.last_action_at, r.last_action ?? "reinício");
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  const ageInDays = (iso: string | undefined): number | null => {
+    if (!iso) return null;
+    const start = new Date(iso + "T00:00:00Z").getTime();
+    const today = Date.now();
+    return Math.max(0, Math.floor((today - start) / 86400000));
+  };
+
+
+
   // Métricas derivadas dos agregados (clicks/impressions/conversions/cost vêm DIRETO do Ads API).
   // Fórmulas oficiais (mesmo cálculo que o Ads UI faz ao agregar dias):
   //   CTR = clicks / impressions
@@ -100,6 +168,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
         case "cpa": return d?.cpa ?? 0;
         case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
         case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
+        case "age": return ageInDays(firstSpendQuery.data?.get(c.campaign_id)) ?? -1;
         default: return Number((c as any)[sort.key] ?? 0);
       }
     };
@@ -109,7 +178,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived, campaignGamMetrics]);
+  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data]);
 
   const copyToClipboard = async (url: string) => {
     try {
@@ -188,6 +257,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               <TableHead className="w-[120px]">Campaign ID</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead className="w-[220px]">Final URL</TableHead>
+              <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
+              <SortHead k="age" label="Idade" />
+              <TableHead className="w-[140px] text-xs">Última ação</TableHead>
               <SortHead k="spend" label="Gasto" />
               <SortHead k="revenue" label="Receita" />
               <SortHead k="profit" label="Lucro" />
@@ -206,7 +278,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={16} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={19} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -221,6 +293,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const d = derived.get(c.campaign_id);
               const gamMetric = campaignGamMetrics?.get(c.campaign_id);
               const gamEcpm = gamMetric?.ecpm ?? (Number(c.ecpm) || 0);
+              const firstSpend = firstSpendQuery.data?.get(c.campaign_id);
+              const age = ageInDays(firstSpend);
+              const lastAction = lastActionQuery.data?.get(c.campaign_id);
+              const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -275,6 +351,20 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-xs tabular-nums text-muted-foreground">
+                    {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {lastAction ? (
+                      <div className="flex flex-col leading-tight">
+                        <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
+                        <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
+                      </div>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     <div>{fmtUSD(c.revenue)}</div>
@@ -306,12 +396,21 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                     {(Number(c.roas) || 0).toFixed(2)}x
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <div>{fmtUSD(gamEcpm)}</div>
-                    {gamMetric && (
-                      <div className="text-[10px] text-muted-foreground">
-                        GAM · {fmtNumber(gamMetric.impressions)} impr.
-                      </div>
-                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="cursor-help inline-block text-right">
+                          <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
+                          {gamMetric && (
+                            <div className="text-[10px] text-muted-foreground">
+                              GAM · {fmtNumber(gamMetric.impressions)} impr.
+                            </div>
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                        {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                      </TooltipContent>
+                    </Tooltip>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
@@ -412,6 +511,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
+
+                          <CampaignHistoryButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                          />
 
                           <RestartCampaignButton
                             campaignId={c.campaign_id}
