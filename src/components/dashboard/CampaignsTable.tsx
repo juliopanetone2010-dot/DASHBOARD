@@ -293,6 +293,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const d = derived.get(c.campaign_id);
               const gamMetric = campaignGamMetrics?.get(c.campaign_id);
               const gamEcpm = gamMetric?.ecpm ?? (Number(c.ecpm) || 0);
+              const firstSpend = firstSpendQuery.data?.get(c.campaign_id);
+              const age = ageInDays(firstSpend);
+              const lastAction = lastActionQuery.data?.get(c.campaign_id);
+              const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
