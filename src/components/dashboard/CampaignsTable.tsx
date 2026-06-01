@@ -512,6 +512,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                             </DropdownMenuContent>
                           </DropdownMenu>
 
+                          <CampaignHistoryButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                          />
+
                           <RestartCampaignButton
                             campaignId={c.campaign_id}
                             campaignName={c.name}
