@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, AlertTriangle, ChevronDown, Globe } from "lucide-react";
+import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, AlertTriangle, ChevronDown, Globe, Bug } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
@@ -39,6 +40,31 @@ interface UnattribRow {
   reason: string;
 }
 
+interface PushDebugReport {
+  rowsReceivedGam?: number;
+  totalRowsFromGam?: number;
+  rowsWithUtmPush?: number;
+  rowsInserted?: number;
+  rowsIgnored?: number;
+  ignoredNoPush?: number;
+  aggregateRows?: number;
+  duplicates?: number;
+  discardReasons?: Record<string, number>;
+  parserSources?: Record<string, number>;
+  reportModes?: string[];
+  sampleIgnored?: string[];
+  sampleMatched?: string[];
+}
+
+interface PushDebugRun {
+  site_id: string;
+  ok: boolean;
+  inserted?: number;
+  unattributed?: number;
+  error?: string;
+  debug?: PushDebugReport;
+}
+
 interface Props {
   campaigns: Campaign[];
 }
@@ -47,6 +73,9 @@ export function RetentionTab(_props: Props) {
   const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [debugging, setDebugging] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugRuns, setDebugRuns] = useState<PushDebugRun[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
@@ -105,6 +134,22 @@ export function RetentionTab(_props: Props) {
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as UnattribRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const syncStateQuery = useQuery({
+    queryKey: ["push-sync-state", siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("sync_state")
+        .select("site_id, last_started_at, last_finished_at, last_status, last_error, rows_synced")
+        .eq("source", "gam-sync-push-retention")
+        .order("last_finished_at", { ascending: false });
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q.limit(20);
+      if (error) throw error;
+      return data ?? [];
     },
     staleTime: 30_000,
   });
@@ -173,6 +218,7 @@ export function RetentionTab(_props: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
       toast({
         title: "Sincronização concluída",
         description: `${targets.length} site(s) • ${inserted} URLs • ${unattributed} agregadas${errs ? ` • ${errs} erro(s)` : ""}`,
@@ -180,6 +226,30 @@ export function RetentionTab(_props: Props) {
     } finally {
       setSyncing(false);
       setProgress(null);
+    }
+  };
+
+  const runDebug = async () => {
+    setDebugging(true);
+    setDebugOpen(true);
+    setDebugRuns([]);
+    try {
+      const targets = isAllSites ? (sitesQuery.data ?? []).map((s) => s.id) : [siteId];
+      const runs: PushDebugRun[] = [];
+      for (const sid of targets.filter(Boolean) as string[]) {
+        try {
+          const r: any = await syncOne(sid);
+          runs.push({ site_id: sid, ok: true, inserted: r?.inserted ?? 0, unattributed: r?.unattributed ?? 0, debug: r?.debug });
+        } catch (e: any) {
+          runs.push({ site_id: sid, ok: false, error: String(e?.message ?? e) });
+        }
+      }
+      setDebugRuns(runs);
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
+    } finally {
+      setDebugging(false);
     }
   };
 

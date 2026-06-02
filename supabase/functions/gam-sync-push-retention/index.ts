@@ -15,15 +15,24 @@ interface ReportRow {
   rawKv: string;
   impressions: number;
   revenue: number;
+  sourceDimension: string;
 }
 
 interface DebugReport {
   totalRowsFromGam: number;
+  rowsReceivedGam: number;
   matchedPush: number;
+  rowsWithUtmPush: number;
+  rowsInserted: number;
+  rowsIgnored: number;
   ignoredNoPush: number;
   aggregateRows: number;
   duplicates: number;
   ecpmAnomalies: number;
+  discardReasons: Record<string, number>;
+  parserSources: Record<string, number>;
+  reportModes: string[];
+  lastError: string | null;
   sampleIgnored: string[];
   sampleMatched: string[];
 }
@@ -31,6 +40,9 @@ interface DebugReport {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  let syncUserId: string | null = null;
+  let syncSiteId: string | null = null;
+  let syncAdmin: ReturnType<typeof createClient> | null = null;
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" }, 401);
@@ -51,6 +63,7 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+    syncAdmin = admin;
 
     const { data: u, error: uErr } = await user.auth.getUser();
     if (uErr || !u?.user) return json({ error: "Sessão inválida" }, 401);
@@ -68,6 +81,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (sErr || !site) return json({ error: "Site não encontrado" }, 404);
     if (!site.network_code) return json({ error: "Site sem network_code do GAM" }, 400);
+    syncUserId = site.user_id;
+    syncSiteId = siteId;
 
     // Service account
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -85,13 +100,27 @@ Deno.serve(async (req) => {
 
     const debug: DebugReport = {
       totalRowsFromGam: rows.length,
+      rowsReceivedGam: rows.length,
       matchedPush: 0,
+      rowsWithUtmPush: 0,
+      rowsInserted: 0,
+      rowsIgnored: 0,
       ignoredNoPush: 0,
       aggregateRows: 0,
       duplicates: 0,
+      discardReasons: {},
+      parserSources: {},
+      reportModes: [...new Set(rows.map((r) => r.sourceDimension))],
+      lastError: null,
       ecpmAnomalies: 0,
       sampleIgnored: [],
       sampleMatched: [],
+    };
+
+    const discard = (reason: string, sample?: string) => {
+      debug.rowsIgnored++;
+      debug.discardReasons[reason] = (debug.discardReasons[reason] ?? 0) + 1;
+      if (sample && debug.sampleIgnored.length < 12) debug.sampleIgnored.push(`${reason}|${sample}`);
     };
 
     // Bucketiza por (date, normalized_url)
@@ -109,24 +138,38 @@ Deno.serve(async (req) => {
     const seenKeys = new Set<string>();
 
     for (const r of rows) {
-      if (!r.date) continue;
-      const kv = parseCustomCriteria(r.rawKv);
-      const utmSource = (kv.utm_source ?? "").toLowerCase().trim() || "(none)";
+      if (!r.date) { discard("sem_data", `${r.sourceDimension}|${r.url || r.rawKv}`); continue; }
+      const parsed = detectUtmSource(r);
+      const utmSource = parsed.utmSource;
+      debug.parserSources[parsed.source] = (debug.parserSources[parsed.source] ?? 0) + 1;
 
       // Aggregate URLs (sem URL exata) vão pra tabela separada
       if (isAggregateUrl(r.url)) {
         debug.aggregateRows++;
+        if (utmSource !== "push") {
+          debug.ignoredNoPush++;
+          discard("agregada_sem_push", `${r.date}|utm=${utmSource}|${r.sourceDimension}|${r.rawKv.slice(0, 120)}`);
+          continue;
+        }
         const k = `${r.date}|aggregate|${utmSource}`;
         const cur = unattribBuckets.get(k) ?? { date: r.date, revenue_usd: 0, impressions: 0, reason: `aggregate utm=${utmSource}`, raw: r };
         cur.revenue_usd += r.revenue;
         cur.impressions += r.impressions;
         unattribBuckets.set(k, cur);
+        debug.matchedPush++;
+        debug.rowsWithUtmPush++;
         continue;
       }
 
       const normalized = normalizePushUrl(r.url);
       if (!normalized) {
         debug.aggregateRows++;
+        discard("url_normalizada_vazia", `${r.date}|utm=${utmSource}|${r.url}`);
+        continue;
+      }
+      if (utmSource !== "push") {
+        debug.ignoredNoPush++;
+        discard("utm_diferente_de_push", `${r.date}|utm=${utmSource}|${r.sourceDimension}|${normalized.slice(0, 80)}`);
         continue;
       }
       const key = `${r.date}|${normalized}|${utmSource}`;
@@ -140,10 +183,10 @@ Deno.serve(async (req) => {
       cur.revenue_usd += r.revenue;
       cur.impressions += r.impressions;
       buckets.set(key, cur);
-      if (utmSource === "push") debug.matchedPush++;
-      else debug.ignoredNoPush++;
+      debug.matchedPush++;
+      debug.rowsWithUtmPush++;
       if (debug.sampleMatched.length < 5) {
-        debug.sampleMatched.push(`${r.date}|utm=${utmSource}|${normalized.slice(0, 80)}|rev=${r.revenue.toFixed(4)}|imp=${r.impressions}`);
+        debug.sampleMatched.push(`${r.date}|utm=${utmSource}|via=${parsed.source}|${normalized.slice(0, 80)}|rev=${r.revenue.toFixed(4)}|imp=${r.impressions}`);
       }
     }
 
@@ -187,6 +230,7 @@ Deno.serve(async (req) => {
         if (error) throw new Error(`insert push_retention_revenue: ${error.message}`);
       }
     }
+    debug.rowsInserted = inserts.length;
 
     const unattribInserts = [...unattribBuckets.values()].map((b) => ({
       user_id: site.user_id,
@@ -201,6 +245,7 @@ Deno.serve(async (req) => {
       const { error } = await admin.from("unattributed_push_revenue").insert(unattribInserts);
       if (error) throw new Error(`insert unattributed_push_revenue: ${error.message}`);
     }
+    await setSyncState(admin, site.user_id, siteId, "success", null, inserts.length);
 
     return json({
       ok: true,
@@ -212,6 +257,9 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[gam-sync-push-retention] error", e);
+    if (syncAdmin && syncUserId && syncSiteId) {
+      await setSyncState(syncAdmin, syncUserId, syncSiteId, "error", String((e as Error).message ?? e), 0).catch(() => {});
+    }
     return json({ error: String((e as Error).message ?? e) }, 500);
   }
 });
@@ -223,91 +271,132 @@ function json(payload: unknown, status = 200) {
   });
 }
 
+function detectUtmSource(r: ReportRow): { utmSource: string; source: string } {
+  const kv = parseCustomCriteria(r.rawKv);
+  const kvSource = String(kv.utm_source ?? kv.source ?? "").toLowerCase().trim();
+  if (kvSource) return { utmSource: kvSource, source: r.sourceDimension.includes("KEY_VALUES") ? "KEY_VALUES_NAME" : "custom_targeting" };
+  const urlKv = parseUrlParams(r.url);
+  const urlSource = String(urlKv.utm_source ?? urlKv.source ?? "").toLowerCase().trim();
+  if (urlSource) return { utmSource: urlSource, source: "URL" };
+  return { utmSource: "(none)", source: "not_found" };
+}
+
+function parseUrlParams(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw) return out;
+  const s = String(raw);
+  const q = s.includes("?") ? s.split("?").slice(1).join("?") : s;
+  for (const part of q.split(/[&#;]/)) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    const k = safeDecode(part.slice(0, eq)).trim().toLowerCase();
+    const v = safeDecode(part.slice(eq + 1)).trim();
+    if (k && v) out[k] = v;
+  }
+  return out;
+}
+
+function safeDecode(s: string): string {
+  try { return decodeURIComponent(s.replace(/\+/g, "%20")); } catch { return s; }
+}
+
+async function setSyncState(admin: any, userId: string, siteId: string, status: "success" | "error", error: string | null, rows: number) {
+  const now = new Date().toISOString();
+  const patch = { last_started_at: now, last_finished_at: now, last_status: status, last_error: error, rows_synced: rows };
+  const { data: existing } = await admin
+    .from("sync_state")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("source", "gam-sync-push-retention")
+    .eq("site_id", siteId)
+    .maybeSingle();
+  if (existing?.id) {
+    await admin.from("sync_state").update(patch).eq("id", existing.id);
+  } else {
+    await admin.from("sync_state").insert({ user_id: userId, source: "gam-sync-push-retention", site_id: siteId, ...patch });
+  }
+}
+
 // ============ GAM Report ============
 async function runReport(args: { networkCode: string; accessToken: string; from: string; to: string }): Promise<ReportRow[]> {
   const { networkCode, accessToken, from, to } = args;
   const tag = `${networkCode}/PUSH`;
-
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
-  // GAM API v1 não aceita URL_NAME + CUSTOM_CRITERIA juntos.
-  // URL_NAME já inclui a URL completa com query string, então parseamos utm_source da própria URL.
-  const reportDefinition = {
-    reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL"],
-    metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
-    dateRange: {
-      fixed: {
-        startDate: { year: fy, month: fm, day: fd },
-        endDate: { year: ty, month: tm, day: td },
-      },
-    },
+  const all: ReportRow[] = [];
+  const runOne = async (dimensions: string[], sourceDimension: string) => {
+    const reportDefinition = {
+      reportType: "HISTORICAL",
+      dimensions,
+      metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
+      dateRange: { fixed: { startDate: { year: fy, month: fm, day: fd }, endDate: { year: ty, month: tm, day: td } } },
+    };
+    const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility: "DRAFT", reportDefinition }),
+    });
+    const createText = await createRes.text();
+    if (!createRes.ok) throw new Error(`[${tag}/${sourceDimension}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+    const reportName: string = JSON.parse(createText).name;
+    const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const runJson = JSON.parse(await runRes.text());
+    if (!runRes.ok) throw new Error(`[${tag}/${sourceDimension}] run failed: ${JSON.stringify(runJson)}`);
+    const opName: string = runJson.name;
+    let resultName: string | null = null;
+    for (let i = 0; i < 45; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const opJson = JSON.parse(await opRes.text());
+      if (opJson.done) {
+        if (opJson.error) throw new Error(`[${tag}/${sourceDimension}] op error: ${JSON.stringify(opJson.error)}`);
+        resultName = opJson.response?.reportResult?.name ?? opJson.response?.reportResult ?? opJson.response?.name;
+        if (!resultName) throw new Error(`[${tag}/${sourceDimension}] no reportResult`);
+        break;
+      }
+    }
+    if (!resultName) throw new Error(`[${tag}/${sourceDimension}] report timeout`);
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      url.searchParams.set("pageSize", "1000");
+      const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+      const rowsJson = JSON.parse(await rowsRes.text());
+      if (!rowsRes.ok) throw new Error(`[${tag}/${sourceDimension}] fetchRows failed: ${JSON.stringify(rowsJson)}`);
+      for (const r of (rowsJson.rows ?? [])) {
+        const dims = r.dimensionValues ?? [];
+        const date = parseGamDate(dims[0]);
+        const firstDim = String(dims[1]?.stringValue ?? dims[1]?.intValue ?? "");
+        const secondDim = String(dims[2]?.stringValue ?? dims[2]?.intValue ?? "");
+        const urlDim = sourceDimension.includes("URL") ? firstDim : "";
+        const kvDim = sourceDimension === "KEY_VALUES_NAME" ? firstDim : sourceDimension.includes("KEY_VALUES_NAME") ? secondDim : "";
+        const rawKv = kvDim || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
+        const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
+        const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
+        const numRev = (v: any) => v?.intValue != null ? Number(v.intValue) / 1_000_000 : Number(v?.doubleValue ?? 0);
+        all.push({ date, url: urlDim, rawKv, impressions: num(m[0]) + num(m[2]) + num(m[4]), revenue: numRev(m[1]) + numRev(m[3]) + numRev(m[5]), sourceDimension });
+      }
+      pageToken = rowsJson.nextPageToken;
+    } while (pageToken);
   };
 
-  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ visibility: "DRAFT", reportDefinition }),
+  await runOne(["DATE", "URL", "KEY_VALUES_NAME"], "URL+KEY_VALUES_NAME").catch((e) => {
+    console.warn(`[gam-sync-push-retention] URL+KEY_VALUES_NAME failed`, e);
   });
-  const createText = await createRes.text();
-  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
-  const createJson = JSON.parse(createText);
-  const reportName: string = createJson.name;
-
-  const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
-  const runJson = JSON.parse(await runRes.text());
-  if (!runRes.ok) throw new Error(`[${tag}] run failed: ${JSON.stringify(runJson)}`);
-  const opName: string = runJson.name;
-
-  let resultName: string | null = null;
-  for (let i = 0; i < 45; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const opRes = await fetch(`${GAM_BASE}/${opName}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const opJson = JSON.parse(await opRes.text());
-    if (opJson.done) {
-      if (opJson.error) throw new Error(`[${tag}] op error: ${JSON.stringify(opJson.error)}`);
-      resultName = opJson.response?.reportResult?.name ?? opJson.response?.reportResult ?? opJson.response?.name;
-      if (!resultName) throw new Error(`[${tag}] no reportResult`);
-      break;
-    }
+  if (!all.some((r) => r.url && r.rawKv)) {
+    await runOne(["DATE", "URL_NAME"], "URL_NAME").catch((e) => {
+      console.warn(`[gam-sync-push-retention] URL_NAME failed`, e);
+    });
   }
-  if (!resultName) throw new Error(`[${tag}] report timeout`);
-
-  const all: ReportRow[] = [];
-  let pageToken: string | undefined;
-  do {
-    const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
-    if (pageToken) url.searchParams.set("pageToken", pageToken);
-    url.searchParams.set("pageSize", "1000");
-    const rowsRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-    const rowsJson = JSON.parse(await rowsRes.text());
-    if (!rowsRes.ok) throw new Error(`[${tag}] fetchRows failed: ${JSON.stringify(rowsJson)}`);
-
-    for (const r of (rowsJson.rows ?? [])) {
-      const dims = r.dimensionValues ?? [];
-      const date = parseGamDate(dims[0]);
-      const urlName = String(dims[1]?.stringValue ?? "");
-      // Extrai query string da URL e converte para formato k=v;k=v p/ parseCustomCriteria
-      const qIdx = urlName.indexOf("?");
-      const kv = qIdx >= 0 ? urlName.slice(qIdx + 1).replace(/&/g, ";") : "";
-      const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
-      const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
-      const numRev = (v: any) => {
-        if (!v) return 0;
-        if (v.intValue != null) return Number(v.intValue) / 1_000_000;
-        if (v.doubleValue != null) return Number(v.doubleValue);
-        return 0;
-      };
-      const impressions = num(m[0]) + num(m[2]) + num(m[4]);
-      const revenue = numRev(m[1]) + numRev(m[3]) + numRev(m[5]);
-      all.push({ date, url: urlName, rawKv: kv, impressions, revenue });
-    }
-    pageToken = rowsJson.nextPageToken;
-  } while (pageToken);
+  if (!all.some((r) => r.url)) await runOne(["DATE", "URL"], "URL");
+  await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME").catch((e) => {
+    console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME failed`, e);
+  });
 
   return all;
 }
