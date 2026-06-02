@@ -281,6 +281,10 @@ export function RetentionTab(_props: Props) {
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             {progress ? `Sincronizando ${progress.done}/${progress.total}` : `Sincronizar GAM${isAllSites ? " (todos)" : ""}`}
           </Button>
+          <Button size="sm" variant="outline" onClick={runDebug} disabled={loading || debugging} className="gap-2">
+            <Bug className={debugging ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+            Debug Push
+          </Button>
         </div>
       </div>
 
@@ -344,6 +348,15 @@ export function RetentionTab(_props: Props) {
       <p className="text-xs text-muted-foreground">
         ⓘ Linhas agregadas (sem URL exata) são isoladas em <code>unattributed_push_revenue</code> e não contaminam o eCPM nem a tabela por URL.
       </p>
+
+      <PushDebugDialog
+        open={debugOpen}
+        onOpenChange={setDebugOpen}
+        runs={debugRuns}
+        syncing={debugging}
+        syncState={syncStateQuery.data ?? []}
+        siteName={siteName}
+      />
     </div>
   );
 }
