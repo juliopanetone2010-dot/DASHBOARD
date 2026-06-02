@@ -44,6 +44,7 @@ interface PushDebugReport {
   rowsReceivedGam?: number;
   totalRowsFromGam?: number;
   rowsWithUtmPush?: number;
+  matchedPush?: number;
   rowsInserted?: number;
   rowsIgnored?: number;
   ignoredNoPush?: number;
