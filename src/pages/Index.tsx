@@ -246,7 +246,7 @@ const IndexInner = () => {
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let q = supabase
-        .from("gam_placement_revenue")
+        .from("gam_campaign_source_revenue")
         .select("campaign_id, revenue_usd, impressions, site_id")
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from)
