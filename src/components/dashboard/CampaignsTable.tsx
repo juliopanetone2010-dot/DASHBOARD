@@ -206,10 +206,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
       : <ChevronUp className="h-3 w-3" />;
   };
 
-  const SortHead = ({ k, label }: { k: SortKey; label: string }) => {
+  const SortHead = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => {
     const active = sort?.key === k;
     return (
-      <TableHead className={cn("text-right", active && "bg-primary/5")}>
+      <TableHead className={cn("text-right whitespace-nowrap", active && "bg-primary/5", className)}>
         <button
           type="button"
           onClick={() => handleSort(k)}
@@ -250,13 +250,13 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
-      <div className="overflow-x-auto">
-        <Table>
+      <div className="overflow-x-auto [transform:rotateX(180deg)]">
+        <Table className="min-w-[1840px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="w-[120px]">Campaign ID</TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead className="w-[220px]">Final URL</TableHead>
+              <TableHead className="sticky left-0 z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
+              <TableHead className="sticky left-[132px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
+              <TableHead className="sticky left-[392px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
               <SortHead k="age" label="Idade" />
               <TableHead className="w-[140px] text-xs">Última ação</TableHead>
@@ -299,17 +299,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
+                  <TableCell className="sticky left-0 z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="sticky left-[132px] z-20 w-[260px] min-w-[260px] bg-card border-r border-border font-medium shadow-sm">
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("truncate max-w-[240px]", accountDown && "text-danger")}>{c.name}</span>
+                      <span className={cn("truncate max-w-[190px]", accountDown && "text-danger")}>{c.name}</span>
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
@@ -318,9 +318,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="sticky left-[392px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
                     {finalUrl ? (
-                      <div className="flex items-center gap-1 max-w-[220px]">
+                      <div className="flex items-center gap-1 max-w-[280px]">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <a

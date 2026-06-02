@@ -246,7 +246,7 @@ const IndexInner = () => {
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let q = supabase
-        .from("gam_placement_revenue")
+        .from("gam_campaign_source_revenue")
         .select("campaign_id, revenue_usd, impressions, site_id")
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from)
@@ -507,7 +507,7 @@ const IndexInner = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
+        <div className="w-full max-w-[1920px] mx-auto px-3 sm:px-4 lg:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
               <BarChart3 className="h-5 w-5 text-primary-foreground" />
@@ -582,7 +582,7 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="container py-6 space-y-6">
+      <main className="w-full max-w-[1920px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6">
         <Tabs defaultValue="dashboard">
           <TabsList>
             <TabsTrigger value="dashboard" className="gap-1.5">

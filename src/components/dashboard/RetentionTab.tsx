@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, AlertTriangle, ChevronDown, Globe } from "lucide-react";
+import { RefreshCw, Repeat, Wallet, TrendingUp, CalendarIcon, Zap, AlertTriangle, ChevronDown, Globe, Bug } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import type { Campaign } from "@/types/domain";
@@ -39,6 +40,32 @@ interface UnattribRow {
   reason: string;
 }
 
+interface PushDebugReport {
+  rowsReceivedGam?: number;
+  totalRowsFromGam?: number;
+  rowsWithUtmPush?: number;
+  matchedPush?: number;
+  rowsInserted?: number;
+  rowsIgnored?: number;
+  ignoredNoPush?: number;
+  aggregateRows?: number;
+  duplicates?: number;
+  discardReasons?: Record<string, number>;
+  parserSources?: Record<string, number>;
+  reportModes?: string[];
+  sampleIgnored?: string[];
+  sampleMatched?: string[];
+}
+
+interface PushDebugRun {
+  site_id: string;
+  ok: boolean;
+  inserted?: number;
+  unattributed?: number;
+  error?: string;
+  debug?: PushDebugReport;
+}
+
 interface Props {
   campaigns: Campaign[];
 }
@@ -47,6 +74,9 @@ export function RetentionTab(_props: Props) {
   const { range: globalRange, filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [debugging, setDebugging] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugRuns, setDebugRuns] = useState<PushDebugRun[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [localRange, setLocalRange] = useState<{ from: string; to: string } | null>(null);
@@ -105,6 +135,22 @@ export function RetentionTab(_props: Props) {
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as UnattribRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const syncStateQuery = useQuery({
+    queryKey: ["push-sync-state", siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("sync_state")
+        .select("site_id, last_started_at, last_finished_at, last_status, last_error, rows_synced")
+        .eq("source", "gam-sync-push-retention")
+        .order("last_finished_at", { ascending: false });
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q.limit(20);
+      if (error) throw error;
+      return data ?? [];
     },
     staleTime: 30_000,
   });
@@ -173,6 +219,7 @@ export function RetentionTab(_props: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
       toast({
         title: "Sincronização concluída",
         description: `${targets.length} site(s) • ${inserted} URLs • ${unattributed} agregadas${errs ? ` • ${errs} erro(s)` : ""}`,
@@ -180,6 +227,30 @@ export function RetentionTab(_props: Props) {
     } finally {
       setSyncing(false);
       setProgress(null);
+    }
+  };
+
+  const runDebug = async () => {
+    setDebugging(true);
+    setDebugOpen(true);
+    setDebugRuns([]);
+    try {
+      const targets = isAllSites ? (sitesQuery.data ?? []).map((s) => s.id) : [siteId];
+      const runs: PushDebugRun[] = [];
+      for (const sid of targets.filter(Boolean) as string[]) {
+        try {
+          const r: any = await syncOne(sid);
+          runs.push({ site_id: sid, ok: true, inserted: r?.inserted ?? 0, unattributed: r?.unattributed ?? 0, debug: r?.debug });
+        } catch (e: any) {
+          runs.push({ site_id: sid, ok: false, error: String(e?.message ?? e) });
+        }
+      }
+      setDebugRuns(runs);
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
+    } finally {
+      setDebugging(false);
     }
   };
 
@@ -210,6 +281,10 @@ export function RetentionTab(_props: Props) {
           <Button size="sm" variant="default" onClick={load} disabled={loading} className="gap-2">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             {progress ? `Sincronizando ${progress.done}/${progress.total}` : `Sincronizar GAM${isAllSites ? " (todos)" : ""}`}
+          </Button>
+          <Button size="sm" variant="outline" onClick={runDebug} disabled={loading || debugging} className="gap-2">
+            <Bug className={debugging ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+            Debug Push
           </Button>
         </div>
       </div>
@@ -274,6 +349,15 @@ export function RetentionTab(_props: Props) {
       <p className="text-xs text-muted-foreground">
         ⓘ Linhas agregadas (sem URL exata) são isoladas em <code>unattributed_push_revenue</code> e não contaminam o eCPM nem a tabela por URL.
       </p>
+
+      <PushDebugDialog
+        open={debugOpen}
+        onOpenChange={setDebugOpen}
+        runs={debugRuns}
+        syncing={debugging}
+        syncState={syncStateQuery.data ?? []}
+        siteName={siteName}
+      />
     </div>
   );
 }
@@ -348,5 +432,121 @@ function UtmGroupCard({
         </CollapsibleContent>
       </Card>
     </Collapsible>
+  );
+}
+
+function PushDebugDialog({
+  open, onOpenChange, runs, syncing, syncState, siteName,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  runs: PushDebugRun[];
+  syncing: boolean;
+  syncState: any[];
+  siteName: (id: string) => string;
+}) {
+  const total = runs.reduce((acc, r) => {
+    const d = r.debug ?? {};
+    acc.received += Number(d.rowsReceivedGam ?? d.totalRowsFromGam ?? 0);
+    acc.push += Number(d.rowsWithUtmPush ?? d.matchedPush ?? 0);
+    acc.inserted += Number(d.rowsInserted ?? r.inserted ?? 0);
+    acc.ignored += Number(d.rowsIgnored ?? d.ignoredNoPush ?? 0);
+    return acc;
+  }, { received: 0, push: 0, inserted: 0, ignored: 0 });
+
+  const latestState = syncState[0] as any | undefined;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[82vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Debug Push</DialogTitle>
+          <DialogDescription>
+            Auditoria da ingestão GAM → Push por URL, incluindo parser de URL, KEY_VALUES e descartes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <DebugStat label="Rows GAM" value={total.received} />
+          <DebugStat label="utm_source=push" value={total.push} />
+          <DebugStat label="Rows gravadas" value={total.inserted} />
+          <DebugStat label="Rows ignoradas" value={total.ignored} />
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
+          <div><b>Última sincronização:</b> {latestState?.last_finished_at ? new Date(latestState.last_finished_at).toLocaleString("pt-BR") : "—"}</div>
+          <div><b>Status:</b> {latestState?.last_status ?? "—"}</div>
+          <div><b>Último erro:</b> {latestState?.last_error ?? runs.find((r) => !r.ok)?.error ?? "—"}</div>
+        </div>
+
+        {syncing && <div className="text-sm text-muted-foreground">Rodando auditoria no GAM…</div>}
+
+        <div className="space-y-3">
+          {runs.map((run) => {
+            const d = run.debug ?? {};
+            return (
+              <div key={run.site_id} className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold">{siteName(run.site_id)}</div>
+                  <Badge variant={run.ok ? "default" : "destructive"}>{run.ok ? "ok" : "erro"}</Badge>
+                </div>
+                {run.error ? <div className="text-xs text-danger">{run.error}</div> : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                      <DebugStat label="Recebidas" value={Number(d.rowsReceivedGam ?? d.totalRowsFromGam ?? 0)} small />
+                      <DebugStat label="Push" value={Number(d.rowsWithUtmPush ?? d.matchedPush ?? 0)} small />
+                      <DebugStat label="Gravadas" value={Number(d.rowsInserted ?? run.inserted ?? 0)} small />
+                      <DebugStat label="Ignoradas" value={Number(d.rowsIgnored ?? d.ignoredNoPush ?? 0)} small />
+                      <DebugStat label="Agregadas" value={Number(d.aggregateRows ?? 0)} small />
+                      <DebugStat label="Duplicadas" value={Number(d.duplicates ?? 0)} small />
+                    </div>
+                    <DebugMap title="Parser encontrou em" data={d.parserSources} />
+                    <DebugMap title="Motivos de descarte" data={d.discardReasons} />
+                    <div className="grid md:grid-cols-2 gap-3 text-xs">
+                      <DebugList title="Amostras gravadas" items={d.sampleMatched ?? []} />
+                      <DebugList title="Amostras ignoradas" items={d.sampleIgnored ?? []} />
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Reports testados: {(d.reportModes ?? []).join(", ") || "—"}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DebugStat({ label, value, small }: { label: string; value: number; small?: boolean }) {
+  return (
+    <div className={cn("rounded-lg border border-border bg-card p-3", small && "p-2")}>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("font-mono font-semibold", small ? "text-sm" : "text-xl")}>{value.toLocaleString("pt-BR")}</div>
+    </div>
+  );
+}
+
+function DebugMap({ title, data }: { title: string; data?: Record<string, number> }) {
+  const entries = Object.entries(data ?? {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return null;
+  return (
+    <div className="text-xs">
+      <div className="font-semibold mb-1">{title}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {entries.map(([k, v]) => <Badge key={k} variant="outline" className="font-mono">{k}: {v}</Badge>)}
+      </div>
+    </div>
+  );
+}
+
+function DebugList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-md bg-muted/40 p-2 min-h-20">
+      <div className="font-semibold mb-1">{title}</div>
+      {items.length ? items.map((it, idx) => <div key={idx} className="font-mono text-[11px] break-all">{it}</div>) : <div className="text-muted-foreground">—</div>}
+    </div>
   );
 }
