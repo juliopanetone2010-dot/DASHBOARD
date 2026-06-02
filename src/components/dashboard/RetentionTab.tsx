@@ -433,3 +433,119 @@ function UtmGroupCard({
     </Collapsible>
   );
 }
+
+function PushDebugDialog({
+  open, onOpenChange, runs, syncing, syncState, siteName,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  runs: PushDebugRun[];
+  syncing: boolean;
+  syncState: any[];
+  siteName: (id: string) => string;
+}) {
+  const total = runs.reduce((acc, r) => {
+    const d = r.debug ?? {};
+    acc.received += Number(d.rowsReceivedGam ?? d.totalRowsFromGam ?? 0);
+    acc.push += Number(d.rowsWithUtmPush ?? d.matchedPush ?? 0);
+    acc.inserted += Number(d.rowsInserted ?? r.inserted ?? 0);
+    acc.ignored += Number(d.rowsIgnored ?? d.ignoredNoPush ?? 0);
+    return acc;
+  }, { received: 0, push: 0, inserted: 0, ignored: 0 });
+
+  const latestState = syncState[0] as any | undefined;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[82vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Debug Push</DialogTitle>
+          <DialogDescription>
+            Auditoria da ingestão GAM → Push por URL, incluindo parser de URL, KEY_VALUES e descartes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <DebugStat label="Rows GAM" value={total.received} />
+          <DebugStat label="utm_source=push" value={total.push} />
+          <DebugStat label="Rows gravadas" value={total.inserted} />
+          <DebugStat label="Rows ignoradas" value={total.ignored} />
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
+          <div><b>Última sincronização:</b> {latestState?.last_finished_at ? new Date(latestState.last_finished_at).toLocaleString("pt-BR") : "—"}</div>
+          <div><b>Status:</b> {latestState?.last_status ?? "—"}</div>
+          <div><b>Último erro:</b> {latestState?.last_error ?? runs.find((r) => !r.ok)?.error ?? "—"}</div>
+        </div>
+
+        {syncing && <div className="text-sm text-muted-foreground">Rodando auditoria no GAM…</div>}
+
+        <div className="space-y-3">
+          {runs.map((run) => {
+            const d = run.debug ?? {};
+            return (
+              <div key={run.site_id} className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold">{siteName(run.site_id)}</div>
+                  <Badge variant={run.ok ? "default" : "destructive"}>{run.ok ? "ok" : "erro"}</Badge>
+                </div>
+                {run.error ? <div className="text-xs text-danger">{run.error}</div> : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                      <DebugStat label="Recebidas" value={Number(d.rowsReceivedGam ?? d.totalRowsFromGam ?? 0)} small />
+                      <DebugStat label="Push" value={Number(d.rowsWithUtmPush ?? d.matchedPush ?? 0)} small />
+                      <DebugStat label="Gravadas" value={Number(d.rowsInserted ?? run.inserted ?? 0)} small />
+                      <DebugStat label="Ignoradas" value={Number(d.rowsIgnored ?? d.ignoredNoPush ?? 0)} small />
+                      <DebugStat label="Agregadas" value={Number(d.aggregateRows ?? 0)} small />
+                      <DebugStat label="Duplicadas" value={Number(d.duplicates ?? 0)} small />
+                    </div>
+                    <DebugMap title="Parser encontrou em" data={d.parserSources} />
+                    <DebugMap title="Motivos de descarte" data={d.discardReasons} />
+                    <div className="grid md:grid-cols-2 gap-3 text-xs">
+                      <DebugList title="Amostras gravadas" items={d.sampleMatched ?? []} />
+                      <DebugList title="Amostras ignoradas" items={d.sampleIgnored ?? []} />
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Reports testados: {(d.reportModes ?? []).join(", ") || "—"}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DebugStat({ label, value, small }: { label: string; value: number; small?: boolean }) {
+  return (
+    <div className={cn("rounded-lg border border-border bg-card p-3", small && "p-2")}>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("font-mono font-semibold", small ? "text-sm" : "text-xl")}>{value.toLocaleString("pt-BR")}</div>
+    </div>
+  );
+}
+
+function DebugMap({ title, data }: { title: string; data?: Record<string, number> }) {
+  const entries = Object.entries(data ?? {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return null;
+  return (
+    <div className="text-xs">
+      <div className="font-semibold mb-1">{title}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {entries.map(([k, v]) => <Badge key={k} variant="outline" className="font-mono">{k}: {v}</Badge>)}
+      </div>
+    </div>
+  );
+}
+
+function DebugList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-md bg-muted/40 p-2 min-h-20">
+      <div className="font-semibold mb-1">{title}</div>
+      {items.length ? items.map((it, idx) => <div key={idx} className="font-mono text-[11px] break-all">{it}</div>) : <div className="text-muted-foreground">—</div>}
+    </div>
+  );
+}
