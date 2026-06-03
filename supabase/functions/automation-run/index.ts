@@ -769,7 +769,18 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" | "failed_circuit_breaker" = "dry_run";
     let execError: string | null = null;
-    if (decision.action !== "none") {
+    if (decision.action === "pause" && manuallyResumedProtected) {
+      execStatus = "skipped";
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: agg.campaign_id,
+        action: "pause_blocked_manual_resume",
+        decision: "protected",
+        reason: `Pausa bloqueada: usuário reativou esta campanha manualmente após pausa automática. Decisão original: ${decision.reason ?? ""}`,
+        roi: Number.isFinite(decision.roi) ? round2(decision.roi) : null,
+      });
+    } else if (decision.action !== "none") {
+
       if (dryRun) {
         // In dry-run we still track pause intent against the breaker so the
         // post-run summary can warn the operator about how the live run would
