@@ -430,6 +430,37 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
+    // === PROTEÇÃO CONTRA RE-PAUSA APÓS REATIVAÇÃO MANUAL ===
+    // Se a automação pausou antes (auto_paused_at) e a campanha agora está
+    // ENABLED sem termos sido nós (auto_pause_state != 'auto_resumed'),
+    // significa que o usuário reativou manualmente. Marca como 'manual_resumed'
+    // para bloquear novas pausas até o usuário pausar manualmente de novo.
+    if (
+      prevState?.auto_paused_at &&
+      prevState?.auto_pause_state !== "auto_resumed" &&
+      prevState?.auto_pause_state !== "manual_resumed"
+    ) {
+      await admin
+        .from("campaign_automation")
+        .update({
+          auto_pause_state: "manual_resumed",
+          auto_pause_resumed_at: new Date().toISOString(),
+          auto_pause_review_at: null,
+        })
+        .eq("user_id", userId)
+        .eq("campaign_id", agg.campaign_id);
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: agg.campaign_id,
+        action: "manual_resume_detected",
+        decision: "protected",
+        reason: "Usuário reativou a campanha manualmente após pausa automática — proteção contra nova pausa ativada.",
+      });
+      if (prevState) prevState.auto_pause_state = "manual_resumed";
+    }
+    const manuallyResumedProtected = prevState?.auto_pause_state === "manual_resumed";
+
+
     // Campanhas em MAXIMIZE_CONVERSIONS sem target_cpa: fase de aprendizado.
     // Regra:
     //  - Por até 5 dias com spend > 0, automação não toca (deixa aprender).
@@ -738,7 +769,18 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     }
     let execStatus: "executed" | "dry_run" | "skipped" | "failed" | "failed_circuit_breaker" = "dry_run";
     let execError: string | null = null;
-    if (decision.action !== "none") {
+    if (decision.action === "pause" && manuallyResumedProtected) {
+      execStatus = "skipped";
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: agg.campaign_id,
+        action: "pause_blocked_manual_resume",
+        decision: "protected",
+        reason: `Pausa bloqueada: usuário reativou esta campanha manualmente após pausa automática. Decisão original: ${decision.reason ?? ""}`,
+        roi: Number.isFinite(decision.roi) ? round2(decision.roi) : null,
+      });
+    } else if (decision.action !== "none") {
+
       if (dryRun) {
         // In dry-run we still track pause intent against the breaker so the
         // post-run summary can warn the operator about how the live run would

@@ -363,10 +363,30 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
     last_delivery_rate: deliveryRate,
   };
 
+  // Proteção contra re-pausa após reativação manual: lê estado da automação
+  const { data: autoState } = await admin
+    .from("campaign_automation")
+    .select("auto_pause_state")
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .maybeSingle();
+  const manuallyResumedProtected = autoState?.auto_pause_state === "manual_resumed";
+
   // Helpers de ação
   const apply = async (action: string, params: any, reason: string, statusTo: string | null, extras: any = {}) => {
     let error: string | null = null;
     let executed = false;
+    const isPauseAttempt = action === "set_status" && String(params?.status ?? "").toUpperCase() === "PAUSED";
+    if (isPauseAttempt && manuallyResumedProtected) {
+      await logFunnelAction(admin, row, {
+        action: "pause_blocked_manual_resume", reason: `Pausa bloqueada (Funil): usuário reativou manualmente após pausa automática. Motivo original: ${reason}`,
+        status_from: status, status_to: status,
+        roi_pct: roiPct, delivery_rate: deliveryRate, avg_cpa: avgCpa,
+        dry_run: dryRun, error: null,
+        payload: { params, blocked: true },
+      });
+      return false;
+    }
     if (!dryRun) {
       try {
         const r = await callMutate(action, { campaign_id: campaignId, site_id: row.site_id, google_account_id: row.google_account_id, ...params }, userJwt, userId);
@@ -388,6 +408,7 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
     }
     return executed || dryRun;
   };
+
 
   let acted = false;
 
