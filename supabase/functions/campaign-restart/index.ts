@@ -240,6 +240,20 @@ async function initFlow(admin: any, userId: string, userJwt: string | null, camp
       last_action_date: new Date().toISOString(),
     }, { onConflict: "user_id,site_id,google_account_id,campaign_id" });
 
+  // Remove do Funil Inteligente para que ele não pause/ajuste a campanha
+  // enquanto a esteira de reinício estiver rodando.
+  await admin
+    .from("campaign_funnel")
+    .update({
+      funnel_status: "graduated",
+      graduated_at: new Date().toISOString(),
+      last_action: "removed_for_restart",
+      last_action_reason: "Campanha entrou em esteira de reinício manual",
+    })
+    .eq("user_id", userId)
+    .eq("campaign_id", campaignId)
+    .not("funnel_status", "in", "(graduated,failed-learning)");
+
   if (existing) {
     const { data: updated, error: updErr } = await admin
       .from("campaign_restart_flow")
