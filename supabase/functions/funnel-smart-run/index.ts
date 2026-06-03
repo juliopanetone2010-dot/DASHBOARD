@@ -264,22 +264,18 @@ async function onboardNewCampaigns(admin: any, cfg: SiteFunnelConfig, enrollAll 
     }
   }
 
-  // Restarts manuais
-  const { data: restarts } = await admin
+  // Restarts manuais: NÃO inscrever no funil. O fluxo de reinício é gerido
+  // exclusivamente por `campaign-restart` (esteira própria). Inscrever aqui
+  // fazia o funil pausar a campanha no dia seguinte ao clique em "Reiniciar".
+  const { data: activeRestarts } = await admin
     .from("campaign_restart_flow")
-    .select("campaign_id, site_id, google_account_id, status, start_date")
+    .select("campaign_id")
     .eq("user_id", user_id)
     .eq("site_id", site_id)
     .eq("google_account_id", google_account_id)
-    .eq("status", "active")
-    .gte("start_date", since);
-  for (const r of restarts ?? []) {
-    if (!inFunnel.has(r.campaign_id)) {
-      // Resolve nome
-      const camp = (newCamps ?? []).find((c: any) => c.campaign_id === r.campaign_id);
-      candidates.set(r.campaign_id, { name: camp?.name ?? r.campaign_id, source: "restart" });
-    }
-  }
+    .eq("status", "active");
+  const restartLocked = new Set<string>((activeRestarts ?? []).map((r: any) => String(r.campaign_id)));
+  for (const id of restartLocked) candidates.delete(id);
 
   if (candidates.size === 0) return 0;
 
