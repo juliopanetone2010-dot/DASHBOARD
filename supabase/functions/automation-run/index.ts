@@ -430,6 +430,37 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const prevState = stateByCamp.get(agg.campaign_id);
     const fromStatus: Lifecycle | null = prevState?.lifecycle_status ?? null;
 
+    // === PROTEÇÃO CONTRA RE-PAUSA APÓS REATIVAÇÃO MANUAL ===
+    // Se a automação pausou antes (auto_paused_at) e a campanha agora está
+    // ENABLED sem termos sido nós (auto_pause_state != 'auto_resumed'),
+    // significa que o usuário reativou manualmente. Marca como 'manual_resumed'
+    // para bloquear novas pausas até o usuário pausar manualmente de novo.
+    if (
+      prevState?.auto_paused_at &&
+      prevState?.auto_pause_state !== "auto_resumed" &&
+      prevState?.auto_pause_state !== "manual_resumed"
+    ) {
+      await admin
+        .from("campaign_automation")
+        .update({
+          auto_pause_state: "manual_resumed",
+          auto_pause_resumed_at: new Date().toISOString(),
+          auto_pause_review_at: null,
+        })
+        .eq("user_id", userId)
+        .eq("campaign_id", agg.campaign_id);
+      await admin.from("automation_logs").insert({
+        user_id: userId, site_id: siteId, google_account_id: accountId,
+        campaign_id: agg.campaign_id,
+        action: "manual_resume_detected",
+        decision: "protected",
+        reason: "Usuário reativou a campanha manualmente após pausa automática — proteção contra nova pausa ativada.",
+      });
+      if (prevState) prevState.auto_pause_state = "manual_resumed";
+    }
+    const manuallyResumedProtected = prevState?.auto_pause_state === "manual_resumed";
+
+
     // Campanhas em MAXIMIZE_CONVERSIONS sem target_cpa: fase de aprendizado.
     // Regra:
     //  - Por até 5 dias com spend > 0, automação não toca (deixa aprender).
