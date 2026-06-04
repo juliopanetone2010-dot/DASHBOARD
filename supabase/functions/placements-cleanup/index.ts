@@ -614,6 +614,7 @@ Deno.serve(async (req) => {
           console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
         }
       }
+      } // fim do else (trava ligada)
 
       if (safetyApproved.length === 0) {
         return json({
