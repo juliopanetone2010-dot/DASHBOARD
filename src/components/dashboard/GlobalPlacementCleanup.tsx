@@ -97,6 +97,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [safetyEnabled, setSafetyEnabled] = useState(true);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("all");
@@ -280,7 +281,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; safety_rejected?: any[] }>(
         "placements-cleanup",
-        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds } },
+        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds, disable_safety_recheck: !safetyEnabled } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
@@ -402,6 +403,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           </select>
         </label>
         <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Badge variant="outline" className="text-[10px]">{effectiveRange.from} → {effectiveRange.to} ({analysisWindowDays}d)</Badge></span>
+        <label
+          className={cn(
+            "text-[11px] flex items-center gap-2 px-2 py-1 rounded border",
+            safetyEnabled ? "border-success/40 bg-success/5 text-success" : "border-warning/50 bg-warning/10 text-warning",
+          )}
+          title="Quando ligada, re-confere o ROI real de cada placement no banco antes de bloquear. Desligue só se já validou manualmente e quer forçar a exclusão."
+        >
+          🛡️ Trava de segurança (ROI real)
+          <Switch checked={safetyEnabled} onCheckedChange={setSafetyEnabled} />
+        </label>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

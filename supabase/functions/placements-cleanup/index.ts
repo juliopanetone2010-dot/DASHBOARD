@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const minDays = Math.max(1, Number(body?.min_days ?? 15));
     const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 20));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
+    const disableSafetyRecheck: boolean = body?.disable_safety_recheck === true;
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
@@ -522,6 +523,12 @@ Deno.serve(async (req) => {
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
+
+      if (disableSafetyRecheck) {
+        // Usuário desligou a trava: aprova tudo direto, sem re-checar ROI real.
+        console.warn(`[safety] DESLIGADA pelo usuário — pulando re-verificação de ${selected.length} placement(s)`);
+        safetyApproved.push(...selected);
+      } else {
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
       const safetyResults = await Promise.all(selected.map(async (it) => {
         const checks = await Promise.all(it.campaigns.map(async (c) => {
@@ -607,6 +614,7 @@ Deno.serve(async (req) => {
           console.warn(`[safety] BLOQUEIO REJEITADO: ${it.placement} — ROI real OK em ${checks.filter(x=>!x.ok).length} campanha(s)`, checks);
         }
       }
+      } // fim do else (trava ligada)
 
       if (safetyApproved.length === 0) {
         return json({
