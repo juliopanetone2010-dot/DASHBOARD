@@ -523,6 +523,12 @@ Deno.serve(async (req) => {
       // ============================================================
       const safetyRejected: any[] = [];
       const safetyApproved: ApplyItem[] = [];
+
+      if (disableSafetyRecheck) {
+        // Usuário desligou a trava: aprova tudo direto, sem re-checar ROI real.
+        console.warn(`[safety] DESLIGADA pelo usuário — pulando re-verificação de ${selected.length} placement(s)`);
+        safetyApproved.push(...selected);
+      } else {
       // Paraleliza re-checagem de segurança (antes era serial — estourava 150s em apply com muitos itens).
       const safetyResults = await Promise.all(selected.map(async (it) => {
         const checks = await Promise.all(it.campaigns.map(async (c) => {
