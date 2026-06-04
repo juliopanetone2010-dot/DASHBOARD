@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const minDays = Math.max(1, Number(body?.min_days ?? 15));
     const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 20));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
+    const disableSafetyRecheck: boolean = body?.disable_safety_recheck === true;
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
