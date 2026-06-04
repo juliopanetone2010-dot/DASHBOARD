@@ -403,6 +403,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           </select>
         </label>
         <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Badge variant="outline" className="text-[10px]">{effectiveRange.from} → {effectiveRange.to} ({analysisWindowDays}d)</Badge></span>
+        <label
+          className={cn(
+            "text-[11px] flex items-center gap-2 px-2 py-1 rounded border",
+            safetyEnabled ? "border-success/40 bg-success/5 text-success" : "border-warning/50 bg-warning/10 text-warning",
+          )}
+          title="Quando ligada, re-confere o ROI real de cada placement no banco antes de bloquear. Desligue só se já validou manualmente e quer forçar a exclusão."
+        >
+          🛡️ Trava de segurança (ROI real)
+          <Switch checked={safetyEnabled} onCheckedChange={setSafetyEnabled} />
+        </label>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
