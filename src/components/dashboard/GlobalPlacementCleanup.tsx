@@ -97,6 +97,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [safetyEnabled, setSafetyEnabled] = useState(true);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("all");
