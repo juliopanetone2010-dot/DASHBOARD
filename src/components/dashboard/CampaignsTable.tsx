@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -45,6 +46,43 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [bulkBusy, setBulkBusy] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
+
+  // ===== Customização de colunas (persistido em localStorage) =====
+  type ColKey = "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
+    { key: "startDate", label: "Início gasto" },
+    { key: "age", label: "Idade" },
+    { key: "lastAction", label: "Última ação" },
+    { key: "spend", label: "Gasto" },
+    { key: "revenue", label: "Receita" },
+    { key: "profit", label: "Lucro" },
+    { key: "roi", label: "ROI" },
+    { key: "roas", label: "ROAS" },
+    { key: "ecpm", label: "eCPM" },
+    { key: "impressions", label: "Impr." },
+    { key: "clicks", label: "Cliques" },
+    { key: "ctr", label: "CTR" },
+    { key: "conversions", label: "Conv." },
+    { key: "convRate", label: "Tx. Conv." },
+    { key: "cpa", label: "CPA" },
+  ];
+  const STORAGE_KEY = "campaigns-table-visible-cols-v1";
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) return new Set(JSON.parse(raw) as ColKey[]);
+    } catch { /* ignore */ }
+    return new Set(ALL_COLUMNS.map((c) => c.key));
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(visibleCols))); } catch { /* ignore */ }
+  }, [visibleCols]);
+  const isVisible = (k: ColKey) => visibleCols.has(k);
+  const toggleCol = (k: ColKey) => setVisibleCols((cur) => {
+    const next = new Set(cur);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
 
   // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
   const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
@@ -292,28 +330,63 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-3 py-2 text-xs">
-          <span className="font-semibold">{selected.size} selecionada(s)</span>
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">Orçamento R$/dia:</span>
-            <Input
-              type="number"
-              min={1}
-              value={bulkBudget}
-              onChange={(e) => setBulkBudget(Math.max(1, Number(e.target.value) || 40))}
-              className="h-7 w-20 text-xs"
-            />
-          </div>
-          <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
-            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-            Reiniciar selecionadas
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          {selected.size > 0 && (
+            <>
+              <span className="font-semibold">{selected.size} selecionada(s)</span>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Orçamento R$/dia:</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={bulkBudget}
+                  onChange={(e) => setBulkBudget(Math.max(1, Number(e.target.value) || 40))}
+                  className="h-7 w-20 text-xs"
+                />
+              </div>
+              <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
+                {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Reiniciar selecionadas
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
+            </>
+          )}
         </div>
-      )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
+              <Columns3 className="h-3.5 w-3.5" />
+              Colunas ({visibleCols.size}/{ALL_COLUMNS.length})
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56 p-2">
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-xs font-semibold">Personalizar colunas</span>
+              <button
+                type="button"
+                className="text-[10px] text-primary hover:underline"
+                onClick={() => setVisibleCols(new Set(ALL_COLUMNS.map((c) => c.key)))}
+              >
+                Mostrar todas
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {ALL_COLUMNS.map((c) => (
+                <label
+                  key={c.key}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted cursor-pointer"
+                >
+                  <Checkbox checked={isVisible(c.key)} onCheckedChange={() => toggleCol(c.key)} />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
       <div className="overflow-x-auto [transform:rotateX(180deg)]">
-        <Table className="min-w-[1880px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
+        <Table className="min-w-[1200px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted/95 border-r border-border shadow-sm">
@@ -326,28 +399,28 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
               <TableHead className="sticky left-[432px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
-              <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
-              <SortHead k="age" label="Idade" />
-              <TableHead className="w-[140px] text-xs">Última ação</TableHead>
-              <SortHead k="spend" label="Gasto" />
-              <SortHead k="revenue" label="Receita" />
-              <SortHead k="profit" label="Lucro" />
-              <SortHead k="roi" label="ROI" />
-              <SortHead k="roas" label="ROAS" />
-              <SortHead k="ecpm" label="eCPM" />
-              <SortHead k="impressions" label="Impr." />
-              <SortHead k="clicks" label="Cliques" />
-              <SortHead k="ctr" label="CTR" />
-              <SortHead k="conversions" label="Conv." />
-              <SortHead k="convRate" label="Tx. Conv." />
-              <SortHead k="cpa" label="CPA" />
+              {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
+              {isVisible("age") && <SortHead k="age" label="Idade" />}
+              {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
+              {isVisible("spend") && <SortHead k="spend" label="Gasto" />}
+              {isVisible("revenue") && <SortHead k="revenue" label="Receita" />}
+              {isVisible("profit") && <SortHead k="profit" label="Lucro" />}
+              {isVisible("roi") && <SortHead k="roi" label="ROI" />}
+              {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
+              {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
+              {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
+              {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
+              {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
+              {isVisible("conversions") && <SortHead k="conversions" label="Conv." />}
+              {isVisible("convRate") && <SortHead k="convRate" label="Tx. Conv." />}
+              {isVisible("cpa") && <SortHead k="cpa" label="CPA" />}
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={20} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={5 + visibleCols.size} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -427,86 +500,116 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs tabular-nums text-muted-foreground">
-                    {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums">
-                    {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {lastAction ? (
-                      <div className="flex flex-col leading-tight">
-                        <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
-                        <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
-                      </div>
-                    ) : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    <div>{fmtUSD(c.revenue)}</div>
-                    {c.revenue_brl != null && (
-                      <div className="text-[10px] text-muted-foreground">
-                        ≈ {fmtCurrency(c.revenue_brl)}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right font-semibold tabular-nums",
-                      positive ? "text-success" : "text-danger",
-                    )}
-                  >
-                    {fmtCurrency(c.profit)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span
+                  {isVisible("startDate") && (
+                    <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
+                    </TableCell>
+                  )}
+                  {isVisible("age") && (
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  )}
+                  {isVisible("lastAction") && (
+                    <TableCell className="text-xs">
+                      {lastAction ? (
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
+                          <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
+                        </div>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  )}
+                  {isVisible("spend") && (
+                    <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
+                  )}
+                  {isVisible("revenue") && (
+                    <TableCell className="text-right tabular-nums">
+                      <div>{fmtUSD(c.revenue)}</div>
+                      {c.revenue_brl != null && (
+                        <div className="text-[10px] text-muted-foreground">
+                          ≈ {fmtCurrency(c.revenue_brl)}
+                        </div>
+                      )}
+                    </TableCell>
+                  )}
+                  {isVisible("profit") && (
+                    <TableCell
                       className={cn(
-                        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                        positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                        "text-right font-semibold tabular-nums",
+                        positive ? "text-success" : "text-danger",
                       )}
                     >
-                      {fmtPercent(c.roi)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(Number(c.roas) || 0).toFixed(2)}x
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="cursor-help inline-block text-right">
-                          <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
-                          {gamMetric && (
-                            <div className="text-[10px] text-muted-foreground">
-                              GAM · {fmtNumber(gamMetric.impressions)} impr.
-                            </div>
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                        {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
-                    {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(c.clicks)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(d?.ctr ?? 0).toFixed(2)}%
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(Math.round(c.conversions))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(d?.convRate ?? 0).toFixed(2)}%
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
-                  </TableCell>
+                      {fmtCurrency(c.profit)}
+                    </TableCell>
+                  )}
+                  {isVisible("roi") && (
+                    <TableCell className="text-right">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
+                          positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                        )}
+                      >
+                        {fmtPercent(c.roi)}
+                      </span>
+                    </TableCell>
+                  )}
+                  {isVisible("roas") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(Number(c.roas) || 0).toFixed(2)}x
+                    </TableCell>
+                  )}
+                  {isVisible("ecpm") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-help inline-block text-right">
+                            <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
+                            {gamMetric && (
+                              <div className="text-[10px] text-muted-foreground">
+                                GAM · {fmtNumber(gamMetric.impressions)} impr.
+                              </div>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                          {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  )}
+                  {isVisible("impressions") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
+                      {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
+                    </TableCell>
+                  )}
+                  {isVisible("clicks") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {fmtNumber(c.clicks)}
+                    </TableCell>
+                  )}
+                  {isVisible("ctr") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(d?.ctr ?? 0).toFixed(2)}%
+                    </TableCell>
+                  )}
+                  {isVisible("conversions") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {fmtNumber(Math.round(c.conversions))}
+                    </TableCell>
+                  )}
+                  {isVisible("convRate") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(d?.convRate ?? 0).toFixed(2)}%
+                    </TableCell>
+                  )}
+                  {isVisible("cpa") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">
                       {loading ? (
