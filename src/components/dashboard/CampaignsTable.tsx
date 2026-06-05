@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
