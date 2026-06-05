@@ -240,15 +240,15 @@ const IndexInner = () => {
     staleTime: 60_000,
   });
 
-  // eCPM por campanha vindo do GAM no período exato. A coluna de campanha não deve usar
-  // impressões do Ads como denominador, porque o eCPM mostrado é da URL/receita do Ad Manager.
+  // eCPM por campanha vindo do GAM no período exato.
+  // Fonte canônica: gam_placement_revenue (mesma usada no histórico/reinício/funil),
+  // para que o valor exibido aqui bata 100% com o detalhe da campanha e com o GAM.
   const campaignGamMetricsQuery = useQuery({
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let q = supabase
-        .from("gam_campaign_source_revenue")
+        .from("gam_placement_revenue")
         .select("campaign_id, revenue_usd, impressions, site_id")
-        .neq("campaign_id", "__aggregate__")
         .gte("date", range.from)
         .lte("date", range.to)
         .limit(50000);
