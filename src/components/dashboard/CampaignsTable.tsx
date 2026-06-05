@@ -47,6 +47,43 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
+  // ===== Customização de colunas (persistido em localStorage) =====
+  type ColKey = "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
+    { key: "startDate", label: "Início gasto" },
+    { key: "age", label: "Idade" },
+    { key: "lastAction", label: "Última ação" },
+    { key: "spend", label: "Gasto" },
+    { key: "revenue", label: "Receita" },
+    { key: "profit", label: "Lucro" },
+    { key: "roi", label: "ROI" },
+    { key: "roas", label: "ROAS" },
+    { key: "ecpm", label: "eCPM" },
+    { key: "impressions", label: "Impr." },
+    { key: "clicks", label: "Cliques" },
+    { key: "ctr", label: "CTR" },
+    { key: "conversions", label: "Conv." },
+    { key: "convRate", label: "Tx. Conv." },
+    { key: "cpa", label: "CPA" },
+  ];
+  const STORAGE_KEY = "campaigns-table-visible-cols-v1";
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) return new Set(JSON.parse(raw) as ColKey[]);
+    } catch { /* ignore */ }
+    return new Set(ALL_COLUMNS.map((c) => c.key));
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(visibleCols))); } catch { /* ignore */ }
+  }, [visibleCols]);
+  const isVisible = (k: ColKey) => visibleCols.has(k);
+  const toggleCol = (k: ColKey) => setVisibleCols((cur) => {
+    const next = new Set(cur);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
+
   // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
   const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
   const finalUrlsQuery = useQuery({
