@@ -500,86 +500,116 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs tabular-nums text-muted-foreground">
-                    {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums">
-                    {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {lastAction ? (
-                      <div className="flex flex-col leading-tight">
-                        <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
-                        <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
-                      </div>
-                    ) : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    <div>{fmtUSD(c.revenue)}</div>
-                    {c.revenue_brl != null && (
-                      <div className="text-[10px] text-muted-foreground">
-                        ≈ {fmtCurrency(c.revenue_brl)}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right font-semibold tabular-nums",
-                      positive ? "text-success" : "text-danger",
-                    )}
-                  >
-                    {fmtCurrency(c.profit)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span
+                  {isVisible("startDate") && (
+                    <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
+                    </TableCell>
+                  )}
+                  {isVisible("age") && (
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  )}
+                  {isVisible("lastAction") && (
+                    <TableCell className="text-xs">
+                      {lastAction ? (
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
+                          <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
+                        </div>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  )}
+                  {isVisible("spend") && (
+                    <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
+                  )}
+                  {isVisible("revenue") && (
+                    <TableCell className="text-right tabular-nums">
+                      <div>{fmtUSD(c.revenue)}</div>
+                      {c.revenue_brl != null && (
+                        <div className="text-[10px] text-muted-foreground">
+                          ≈ {fmtCurrency(c.revenue_brl)}
+                        </div>
+                      )}
+                    </TableCell>
+                  )}
+                  {isVisible("profit") && (
+                    <TableCell
                       className={cn(
-                        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                        positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                        "text-right font-semibold tabular-nums",
+                        positive ? "text-success" : "text-danger",
                       )}
                     >
-                      {fmtPercent(c.roi)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(Number(c.roas) || 0).toFixed(2)}x
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="cursor-help inline-block text-right">
-                          <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
-                          {gamMetric && (
-                            <div className="text-[10px] text-muted-foreground">
-                              GAM · {fmtNumber(gamMetric.impressions)} impr.
-                            </div>
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                        {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
-                    {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(c.clicks)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(d?.ctr ?? 0).toFixed(2)}%
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {fmtNumber(Math.round(c.conversions))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {(d?.convRate ?? 0).toFixed(2)}%
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
-                  </TableCell>
+                      {fmtCurrency(c.profit)}
+                    </TableCell>
+                  )}
+                  {isVisible("roi") && (
+                    <TableCell className="text-right">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
+                          positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                        )}
+                      >
+                        {fmtPercent(c.roi)}
+                      </span>
+                    </TableCell>
+                  )}
+                  {isVisible("roas") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(Number(c.roas) || 0).toFixed(2)}x
+                    </TableCell>
+                  )}
+                  {isVisible("ecpm") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-help inline-block text-right">
+                            <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
+                            {gamMetric && (
+                              <div className="text-[10px] text-muted-foreground">
+                                GAM · {fmtNumber(gamMetric.impressions)} impr.
+                              </div>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                          {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  )}
+                  {isVisible("impressions") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
+                      {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
+                    </TableCell>
+                  )}
+                  {isVisible("clicks") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {fmtNumber(c.clicks)}
+                    </TableCell>
+                  )}
+                  {isVisible("ctr") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(d?.ctr ?? 0).toFixed(2)}%
+                    </TableCell>
+                  )}
+                  {isVisible("conversions") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {fmtNumber(Math.round(c.conversions))}
+                    </TableCell>
+                  )}
+                  {isVisible("convRate") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {(d?.convRate ?? 0).toFixed(2)}%
+                    </TableCell>
+                  )}
+                  {isVisible("cpa") && (
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-1.5 flex-nowrap">
                       {loading ? (
