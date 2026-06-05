@@ -330,28 +330,63 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-3 py-2 text-xs">
-          <span className="font-semibold">{selected.size} selecionada(s)</span>
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">Orçamento R$/dia:</span>
-            <Input
-              type="number"
-              min={1}
-              value={bulkBudget}
-              onChange={(e) => setBulkBudget(Math.max(1, Number(e.target.value) || 40))}
-              className="h-7 w-20 text-xs"
-            />
-          </div>
-          <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
-            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-            Reiniciar selecionadas
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          {selected.size > 0 && (
+            <>
+              <span className="font-semibold">{selected.size} selecionada(s)</span>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Orçamento R$/dia:</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={bulkBudget}
+                  onChange={(e) => setBulkBudget(Math.max(1, Number(e.target.value) || 40))}
+                  className="h-7 w-20 text-xs"
+                />
+              </div>
+              <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
+                {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Reiniciar selecionadas
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
+            </>
+          )}
         </div>
-      )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
+              <Columns3 className="h-3.5 w-3.5" />
+              Colunas ({visibleCols.size}/{ALL_COLUMNS.length})
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56 p-2">
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-xs font-semibold">Personalizar colunas</span>
+              <button
+                type="button"
+                className="text-[10px] text-primary hover:underline"
+                onClick={() => setVisibleCols(new Set(ALL_COLUMNS.map((c) => c.key)))}
+              >
+                Mostrar todas
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {ALL_COLUMNS.map((c) => (
+                <label
+                  key={c.key}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted cursor-pointer"
+                >
+                  <Checkbox checked={isVisible(c.key)} onCheckedChange={() => toggleCol(c.key)} />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
       <div className="overflow-x-auto [transform:rotateX(180deg)]">
-        <Table className="min-w-[1880px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
+        <Table className="min-w-[1200px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted/95 border-r border-border shadow-sm">
@@ -364,21 +399,21 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
               <TableHead className="sticky left-[432px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
-              <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
-              <SortHead k="age" label="Idade" />
-              <TableHead className="w-[140px] text-xs">Última ação</TableHead>
-              <SortHead k="spend" label="Gasto" />
-              <SortHead k="revenue" label="Receita" />
-              <SortHead k="profit" label="Lucro" />
-              <SortHead k="roi" label="ROI" />
-              <SortHead k="roas" label="ROAS" />
-              <SortHead k="ecpm" label="eCPM" />
-              <SortHead k="impressions" label="Impr." />
-              <SortHead k="clicks" label="Cliques" />
-              <SortHead k="ctr" label="CTR" />
-              <SortHead k="conversions" label="Conv." />
-              <SortHead k="convRate" label="Tx. Conv." />
-              <SortHead k="cpa" label="CPA" />
+              {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
+              {isVisible("age") && <SortHead k="age" label="Idade" />}
+              {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
+              {isVisible("spend") && <SortHead k="spend" label="Gasto" />}
+              {isVisible("revenue") && <SortHead k="revenue" label="Receita" />}
+              {isVisible("profit") && <SortHead k="profit" label="Lucro" />}
+              {isVisible("roi") && <SortHead k="roi" label="ROI" />}
+              {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
+              {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
+              {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
+              {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
+              {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
+              {isVisible("conversions") && <SortHead k="conversions" label="Conv." />}
+              {isVisible("convRate") && <SortHead k="convRate" label="Tx. Conv." />}
+              {isVisible("cpa") && <SortHead k="cpa" label="CPA" />}
               <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
