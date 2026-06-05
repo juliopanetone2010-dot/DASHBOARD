@@ -367,11 +367,18 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
               const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
               return (
-                <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20")}>
-                  <TableCell className="sticky left-0 z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
+                <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20", selected.has(c.campaign_id) && "bg-primary/5")}>
+                  <TableCell className="sticky left-0 z-20 w-[40px] min-w-[40px] bg-card border-r border-border shadow-sm">
+                    <Checkbox
+                      checked={selected.has(c.campaign_id)}
+                      onCheckedChange={() => toggleOne(c.campaign_id)}
+                      aria-label={`Selecionar ${c.name}`}
+                    />
+                  </TableCell>
+                  <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[132px] z-20 w-[260px] min-w-[260px] bg-card border-r border-border font-medium shadow-sm">
+                  <TableCell className="sticky left-[172px] z-20 w-[260px] min-w-[260px] bg-card border-r border-border font-medium shadow-sm">
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
@@ -387,7 +394,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
-                  <TableCell className="sticky left-[392px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[432px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[280px]">
                         <Tooltip>
