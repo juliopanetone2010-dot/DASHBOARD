@@ -252,16 +252,80 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     await onRefresh?.();
   };
 
+  const toggleOne = (id: string) => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected((cur) => {
+      if (cur.size === sortedCampaigns.length) return new Set();
+      return new Set(sortedCampaigns.map((c) => c.campaign_id));
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkRestart = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Reiniciar ${selected.size} campanha(s) com R$ ${bulkBudget}/dia?`)) return;
+    setBulkBusy(true);
+    const idToCamp = new Map(campaigns.map((c) => [c.campaign_id, c]));
+    let ok = 0; let fail = 0;
+    for (const id of selected) {
+      const c = idToCamp.get(id);
+      try {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("campaign-restart", {
+          body: { action: "init", campaign_id: id, google_account_id: (c as any)?.google_account_id ?? null, budget_brl: bulkBudget },
+        });
+        if (error || data?.error) fail++; else ok++;
+      } catch { fail++; }
+    }
+    setBulkBusy(false);
+    toast({ title: "Reinício em lote", description: `${ok} ok · ${fail} falha(s)`, variant: fail > 0 ? "destructive" : undefined });
+    clearSelection();
+    restartFlows.refetch();
+    await onRefresh?.();
+  };
+
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-3 py-2 text-xs">
+          <span className="font-semibold">{selected.size} selecionada(s)</span>
+          <div className="flex items-center gap-1">
+            <span className="text-muted-foreground">Orçamento R$/dia:</span>
+            <Input
+              type="number"
+              min={1}
+              value={bulkBudget}
+              onChange={(e) => setBulkBudget(Math.max(1, Number(e.target.value) || 40))}
+              className="h-7 w-20 text-xs"
+            />
+          </div>
+          <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
+            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+            Reiniciar selecionadas
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
+        </div>
+      )}
       <div className="overflow-x-auto [transform:rotateX(180deg)]">
-        <Table className="min-w-[1840px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
+        <Table className="min-w-[1880px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="sticky left-0 z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
-              <TableHead className="sticky left-[132px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[392px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted/95 border-r border-border shadow-sm">
+                <Checkbox
+                  checked={sortedCampaigns.length > 0 && selected.size === sortedCampaigns.length}
+                  onCheckedChange={toggleAll}
+                  aria-label="Selecionar todas"
+                />
+              </TableHead>
+              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
+              <TableHead className="sticky left-[172px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
+              <TableHead className="sticky left-[432px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               <TableHead className="w-[100px] text-xs">Início gasto</TableHead>
               <SortHead k="age" label="Idade" />
               <TableHead className="w-[140px] text-xs">Última ação</TableHead>
