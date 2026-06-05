@@ -40,6 +40,9 @@ interface Props {
 export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBudget, setBulkBudget] = useState<number>(40);
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
