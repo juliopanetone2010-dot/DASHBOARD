@@ -767,7 +767,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
       newState.second_chance_started_at = null;
       newState.second_chance_reason = null;
     }
-    let execStatus: "executed" | "dry_run" | "skipped" | "failed" | "failed_circuit_breaker" = "dry_run";
+    let execStatus: "executed" | "dry_run" | "skipped" | "pending_approval" | "failed" | "failed_circuit_breaker" = "dry_run";
     let execError: string | null = null;
     if (decision.action === "pause" && manuallyResumedProtected) {
       execStatus = "skipped";
@@ -794,6 +794,36 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
           }
         }
         execStatus = "dry_run";
+      } else if (decision.action === "pause") {
+        const { data: existingApproval } = await admin
+          .from("automation_actions")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("campaign_id", agg.campaign_id)
+          .eq("action_type", "auto_pause_review")
+          .eq("status", "pending")
+          .maybeSingle();
+        if (!existingApproval) {
+          await admin.from("automation_actions").insert({
+            user_id: userId,
+            campaign_id: agg.campaign_id,
+            action_type: "auto_pause_review",
+            reason: decision.reason,
+            status: "pending",
+            payload: {
+              name: meta?.name ?? null,
+              site_id: siteId,
+              google_account_id: accountId,
+              roi: Number.isFinite(decision.roi) ? round2(decision.roi) : null,
+              roi_today: (decision as any).roi_today == null ? null : round2((decision as any).roi_today),
+              trend: decision.trend ?? null,
+              delivery_ratio: decision.delivery == null ? null : round2(decision.delivery),
+              spend: round2(agg.spend),
+              source: "automation-run",
+            },
+          });
+        }
+        execStatus = "pending_approval";
       } else {
         try {
           await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, decision, cfg, breaker);
