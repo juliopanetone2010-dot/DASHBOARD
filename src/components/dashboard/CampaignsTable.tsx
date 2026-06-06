@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3 } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -16,6 +16,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtUSD, fmtPercent, fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
@@ -28,6 +31,16 @@ import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age";
 type SortDir = "desc" | "asc";
+
+type PendingPauseAction = {
+  id: string;
+  campaign_id: string;
+  action_type: string;
+  reason: string | null;
+  payload: Record<string, any> | null;
+  status: string;
+  created_at: string;
+};
 
 interface Props {
   campaigns: CampaignAggregate[];
@@ -44,6 +57,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBudget, setBulkBudget] = useState<number>(40);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
@@ -164,6 +178,22 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     },
     staleTime: 60_000,
     enabled: campaignIds.length > 0,
+  });
+
+  const pendingPauseQuery = useQuery({
+    queryKey: ["pending-pause-approvals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("automation_actions")
+        .select("id, campaign_id, action_type, reason, payload, status, created_at")
+        .eq("status", "pending")
+        .eq("action_type", "auto_pause_review")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as PendingPauseAction[];
+    },
+    refetchInterval: 30_000,
   });
 
   const ageInDays = (iso: string | undefined): number | null => {
@@ -327,6 +357,53 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     await onRefresh?.();
   };
 
+  const decidePauseApproval = async (action: PendingPauseAction, approved: boolean) => {
+    const key = `approval:${action.id}`;
+    setBusy(key);
+    try {
+      if (!approved) {
+        const { error } = await supabase
+          .from("automation_actions")
+          .update({ status: "rejected", executed_at: new Date().toISOString() })
+          .eq("id", action.id);
+        if (error) throw error;
+        toast({ title: "Pausa recusada", description: "A campanha continua ativa." });
+      } else {
+        const camp = campaigns.find((c) => c.campaign_id === action.campaign_id);
+        const payload = action.payload ?? {};
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-mutate", {
+          body: {
+            action: "set_status",
+            campaign_id: action.campaign_id,
+            status: "PAUSED",
+            google_account_id: payload.google_account_id ?? (camp as any)?.google_account_id ?? null,
+            site_id: payload.site_id ?? null,
+          },
+        });
+        if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Falha ao pausar");
+        const { error: updErr } = await supabase
+          .from("automation_actions")
+          .update({ status: "executed", executed_at: new Date().toISOString() })
+          .eq("id", action.id);
+        if (updErr) throw updErr;
+        toast({ title: "Pausa aprovada", description: camp?.name ?? action.campaign_id });
+      }
+      await pendingPauseQuery.refetch();
+      await onRefresh?.();
+    } catch (e: any) {
+      toast({ title: approved ? "Erro ao aprovar pausa" : "Erro ao recusar pausa", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pendingPauseActions = pendingPauseQuery.data ?? [];
+  const campaignNameById = new Map(campaigns.map((c) => [c.campaign_id, c.name]));
+
+  useEffect(() => {
+    if (pendingPauseActions.length > 0) setReviewOpen(true);
+  }, [pendingPauseActions.length]);
+
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-card shadow-elegant overflow-hidden">
@@ -353,6 +430,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
             </>
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={pendingPauseActions.length > 0 ? "default" : "outline"}
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => setReviewOpen(true)}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Revisar pausas ({pendingPauseActions.length})
+          </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
@@ -384,7 +471,66 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Aprovar pausas automáticas
+            </DialogTitle>
+            <DialogDescription>
+              Nenhuma campanha será desativada automaticamente sem sua aprovação aqui.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto rounded-md border border-border">
+            {pendingPauseActions.length === 0 ? (
+              <div className="p-6 text-sm text-muted-foreground">Nenhuma pausa pendente de aprovação.</div>
+            ) : (
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead>Campanha</TableHead>
+                    <TableHead>Motivo</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingPauseActions.map((a) => {
+                    const name = campaignNameById.get(a.campaign_id) ?? String(a.payload?.name ?? a.campaign_id);
+                    const rowBusy = busy === `approval:${a.id}`;
+                    return (
+                      <TableRow key={a.id}>
+                        <TableCell className="align-top">
+                          <div className="font-semibold whitespace-normal break-words">{name}</div>
+                          <div className="font-mono text-[10px] text-muted-foreground">{a.campaign_id}</div>
+                        </TableCell>
+                        <TableCell className="align-top text-muted-foreground whitespace-normal break-words">
+                          {a.reason ?? "Pausa sugerida pela automação"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" className="h-8 gap-1" disabled={rowBusy} onClick={() => decidePauseApproval(a, false)}>
+                              <XCircle className="h-3.5 w-3.5" /> Não pausar
+                            </Button>
+                            <Button size="sm" className="h-8 gap-1" disabled={rowBusy} onClick={() => decidePauseApproval(a, true)}>
+                              {rowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                              Pausar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReviewOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="overflow-x-auto [transform:rotateX(180deg)]">
         <Table className="min-w-[1200px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
@@ -397,8 +543,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                 />
               </TableHead>
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
-              <TableHead className="sticky left-[172px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[432px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead className="sticky left-[172px] z-30 w-[420px] min-w-[420px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
+              <TableHead className="sticky left-[592px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
               {isVisible("age") && <SortHead k="age" label="Idade" />}
               {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
@@ -451,14 +597,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                   <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[172px] z-20 w-[260px] min-w-[260px] bg-card border-r border-border font-medium shadow-sm">
-                    <div className="flex items-center gap-2">
+                  <TableCell className="sticky left-[172px] z-20 w-[420px] min-w-[420px] bg-card border-r border-border font-medium shadow-sm">
+                    <div className="flex items-center gap-2 whitespace-normal">
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("truncate max-w-[190px]", accountDown && "text-danger")}>{c.name}</span>
+                      <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
@@ -467,7 +613,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
-                  <TableCell className="sticky left-[432px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[592px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[280px]">
                         <Tooltip>

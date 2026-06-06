@@ -387,6 +387,46 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
       });
       return false;
     }
+    if (isPauseAttempt && !dryRun) {
+      const recentRejectionSince = new Date(Date.now() - 24 * 3600_000).toISOString();
+      const { data: existingApproval } = await admin
+        .from("automation_actions")
+        .select("id, status, created_at")
+        .eq("user_id", userId)
+        .eq("campaign_id", campaignId)
+        .eq("action_type", "auto_pause_review")
+        .in("status", ["pending", "rejected"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const recentlyRejected = existingApproval?.status === "rejected" && String(existingApproval.created_at) >= recentRejectionSince;
+      if (!existingApproval || (existingApproval.status === "rejected" && !recentlyRejected)) {
+        await admin.from("automation_actions").insert({
+          user_id: userId,
+          campaign_id: campaignId,
+          action_type: "auto_pause_review",
+          reason,
+          status: "pending",
+          payload: {
+            name: row.campaign_name ?? null,
+            site_id: row.site_id,
+            google_account_id: row.google_account_id,
+            roi: Number.isFinite(roiPct) ? Number(roiPct.toFixed(2)) : null,
+            delivery_ratio: Number.isFinite(deliveryRate) ? Number(deliveryRate.toFixed(2)) : null,
+            avg_cpa: Number.isFinite(avgCpa) ? Number(avgCpa.toFixed(2)) : null,
+            source: "funnel-smart-run",
+          },
+        });
+      }
+      await logFunnelAction(admin, row, {
+        action: recentlyRejected ? "pause_rejected_recently" : "pause_pending_approval", reason: recentlyRejected ? `Pausa não reenviada: usuário recusou há menos de 24h. Motivo original: ${reason}` : `Pausa enviada para aprovação manual: ${reason}`,
+        status_from: status, status_to: status,
+        roi_pct: roiPct, delivery_rate: deliveryRate, avg_cpa: avgCpa,
+        dry_run: true, error: null,
+        payload: { params, pending_approval: true },
+      });
+      return false;
+    }
     if (!dryRun) {
       try {
         const r = await callMutate(action, { campaign_id: campaignId, site_id: row.site_id, google_account_id: row.google_account_id, ...params }, userJwt, userId);
