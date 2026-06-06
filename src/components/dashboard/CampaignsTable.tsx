@@ -179,6 +179,22 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     enabled: campaignIds.length > 0,
   });
 
+  const pendingPauseQuery = useQuery({
+    queryKey: ["pending-pause-approvals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("automation_actions")
+        .select("id, campaign_id, action_type, reason, payload, status, created_at")
+        .eq("status", "pending")
+        .eq("action_type", "auto_pause_review")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as PendingPauseAction[];
+    },
+    refetchInterval: 30_000,
+  });
+
   const ageInDays = (iso: string | undefined): number | null => {
     if (!iso) return null;
     const start = new Date(iso + "T00:00:00Z").getTime();
@@ -339,6 +355,49 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     restartFlows.refetch();
     await onRefresh?.();
   };
+
+  const decidePauseApproval = async (action: PendingPauseAction, approved: boolean) => {
+    const key = `approval:${action.id}`;
+    setBusy(key);
+    try {
+      if (!approved) {
+        const { error } = await supabase
+          .from("automation_actions")
+          .update({ status: "rejected", executed_at: new Date().toISOString() })
+          .eq("id", action.id);
+        if (error) throw error;
+        toast({ title: "Pausa recusada", description: "A campanha continua ativa." });
+      } else {
+        const camp = campaigns.find((c) => c.campaign_id === action.campaign_id);
+        const payload = action.payload ?? {};
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-mutate", {
+          body: {
+            action: "set_status",
+            campaign_id: action.campaign_id,
+            status: "PAUSED",
+            google_account_id: payload.google_account_id ?? (camp as any)?.google_account_id ?? null,
+            site_id: payload.site_id ?? null,
+          },
+        });
+        if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Falha ao pausar");
+        const { error: updErr } = await supabase
+          .from("automation_actions")
+          .update({ status: "executed", executed_at: new Date().toISOString() })
+          .eq("id", action.id);
+        if (updErr) throw updErr;
+        toast({ title: "Pausa aprovada", description: camp?.name ?? action.campaign_id });
+      }
+      await pendingPauseQuery.refetch();
+      await onRefresh?.();
+    } catch (e: any) {
+      toast({ title: approved ? "Erro ao aprovar pausa" : "Erro ao recusar pausa", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pendingPauseActions = pendingPauseQuery.data ?? [];
+  const campaignNameById = new Map(campaigns.map((c) => [c.campaign_id, c.name]));
 
   return (
     <TooltipProvider delayDuration={150}>
