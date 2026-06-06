@@ -387,7 +387,7 @@ async function evaluateFunnelRow(admin: any, row: any, dryRun: boolean, userJwt:
       });
       return false;
     }
-    if (isPauseAttempt) {
+    if (isPauseAttempt && !dryRun) {
       const { data: existingApproval } = await admin
         .from("automation_actions")
         .select("id")
