@@ -795,15 +795,19 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
         }
         execStatus = "dry_run";
       } else if (decision.action === "pause") {
+        const recentRejectionSince = new Date(Date.now() - 24 * 3600_000).toISOString();
         const { data: existingApproval } = await admin
           .from("automation_actions")
-          .select("id")
+          .select("id, status, created_at")
           .eq("user_id", userId)
           .eq("campaign_id", agg.campaign_id)
           .eq("action_type", "auto_pause_review")
-          .eq("status", "pending")
+          .in("status", ["pending", "rejected"])
+          .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
-        if (!existingApproval) {
+        const recentlyRejected = existingApproval?.status === "rejected" && String(existingApproval.created_at) >= recentRejectionSince;
+        if (!existingApproval || (existingApproval.status === "rejected" && !recentlyRejected)) {
           await admin.from("automation_actions").insert({
             user_id: userId,
             campaign_id: agg.campaign_id,
@@ -823,7 +827,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
             },
           });
         }
-        execStatus = "pending_approval";
+        execStatus = recentlyRejected ? "skipped" : "pending_approval";
       } else {
         try {
           await applyMutation(userJwt, userId, agg.campaign_id, accountId, siteId, decision, cfg, breaker);
