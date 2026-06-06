@@ -430,6 +430,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
             </>
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={pendingPauseActions.length > 0 ? "default" : "outline"}
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => setReviewOpen(true)}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Revisar pausas ({pendingPauseActions.length})
+          </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
@@ -461,7 +471,66 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Aprovar pausas automáticas
+            </DialogTitle>
+            <DialogDescription>
+              Nenhuma campanha será desativada automaticamente sem sua aprovação aqui.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto rounded-md border border-border">
+            {pendingPauseActions.length === 0 ? (
+              <div className="p-6 text-sm text-muted-foreground">Nenhuma pausa pendente de aprovação.</div>
+            ) : (
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead>Campanha</TableHead>
+                    <TableHead>Motivo</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingPauseActions.map((a) => {
+                    const name = campaignNameById.get(a.campaign_id) ?? String(a.payload?.name ?? a.campaign_id);
+                    const rowBusy = busy === `approval:${a.id}`;
+                    return (
+                      <TableRow key={a.id}>
+                        <TableCell className="align-top">
+                          <div className="font-semibold whitespace-normal break-words">{name}</div>
+                          <div className="font-mono text-[10px] text-muted-foreground">{a.campaign_id}</div>
+                        </TableCell>
+                        <TableCell className="align-top text-muted-foreground whitespace-normal break-words">
+                          {a.reason ?? "Pausa sugerida pela automação"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" className="h-8 gap-1" disabled={rowBusy} onClick={() => decidePauseApproval(a, false)}>
+                              <XCircle className="h-3.5 w-3.5" /> Não pausar
+                            </Button>
+                            <Button size="sm" className="h-8 gap-1" disabled={rowBusy} onClick={() => decidePauseApproval(a, true)}>
+                              {rowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                              Pausar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReviewOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="overflow-x-auto [transform:rotateX(180deg)]">
         <Table className="min-w-[1200px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
