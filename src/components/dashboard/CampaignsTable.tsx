@@ -57,6 +57,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBudget, setBulkBudget] = useState<number>(40);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
@@ -398,6 +399,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
 
   const pendingPauseActions = pendingPauseQuery.data ?? [];
   const campaignNameById = new Map(campaigns.map((c) => [c.campaign_id, c.name]));
+
+  useEffect(() => {
+    if (pendingPauseActions.length > 0) setReviewOpen(true);
+  }, [pendingPauseActions.length]);
 
   return (
     <TooltipProvider delayDuration={150}>
