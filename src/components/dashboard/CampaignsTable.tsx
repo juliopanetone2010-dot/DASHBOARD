@@ -543,8 +543,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                 />
               </TableHead>
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
-              <TableHead className="sticky left-[172px] z-30 w-[260px] min-w-[260px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[432px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead className="sticky left-[172px] z-30 w-[420px] min-w-[420px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
+              <TableHead className="sticky left-[592px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
               {isVisible("age") && <SortHead k="age" label="Idade" />}
               {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
@@ -597,14 +597,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                   <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[172px] z-20 w-[260px] min-w-[260px] bg-card border-r border-border font-medium shadow-sm">
-                    <div className="flex items-center gap-2">
+                  <TableCell className="sticky left-[172px] z-20 w-[420px] min-w-[420px] bg-card border-r border-border font-medium shadow-sm">
+                    <div className="flex items-center gap-2 whitespace-normal">
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("truncate max-w-[190px]", accountDown && "text-danger")}>{c.name}</span>
+                      <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
@@ -613,7 +613,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
-                  <TableCell className="sticky left-[432px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[592px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[280px]">
                         <Tooltip>
