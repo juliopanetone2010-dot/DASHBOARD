@@ -85,15 +85,58 @@ const IndexInner = () => {
     staleTime: 30_000,
   });
 
-  const fxQuery = useQuery<number>({
+  const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
     queryFn: async () => {
-      const r = await fetch("https://open.er-api.com/v6/latest/USD");
-      const j = await r.json();
-      const rate = Number(j?.rates?.BRL);
-      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+      // 1) Tenta a tabela exchange_rates (atualizada 1x/dia via fx-sync)
+      try {
+        const { data } = await supabase
+          .from("exchange_rates")
+          .select("rate, updated_at, source")
+          .eq("from_currency", "USD")
+          .eq("to_currency", "BRL")
+          .maybeSingle();
+        const dbRate = Number((data as any)?.rate);
+        const dbAt = (data as any)?.updated_at as string | null;
+        const fresh = dbAt ? (Date.now() - new Date(dbAt).getTime()) < 24 * 60 * 60 * 1000 : false;
+        if (Number.isFinite(dbRate) && dbRate > 0 && fresh) {
+          return { rate: dbRate, updatedAt: dbAt, source: (data as any)?.source ?? "exchange_rates" };
+        }
+        // Tabela existe mas está velha: tenta refresh via edge function
+        try { await supabase.functions.invoke("fx-sync"); } catch {}
+        const { data: data2 } = await supabase
+          .from("exchange_rates")
+          .select("rate, updated_at, source")
+          .eq("from_currency", "USD")
+          .eq("to_currency", "BRL")
+          .maybeSingle();
+        const r2 = Number((data2 as any)?.rate);
+        if (Number.isFinite(r2) && r2 > 0) {
+          return { rate: r2, updatedAt: (data2 as any)?.updated_at ?? null, source: (data2 as any)?.source ?? "fx-sync" };
+        }
+      } catch {}
+      // 2) Fallback direto na awesomeapi (BCB)
+      try {
+        const r = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+        const j = await r.json();
+        const rate = Number(j?.USDBRL?.bid);
+        if (Number.isFinite(rate) && rate > 0) {
+          return { rate, updatedAt: new Date().toISOString(), source: "awesomeapi" };
+        }
+      } catch {}
+      // 3) Último fallback: open.er-api
+      try {
+        const r = await fetch("https://open.er-api.com/v6/latest/USD");
+        const j = await r.json();
+        const rate = Number(j?.rates?.BRL);
+        if (Number.isFinite(rate) && rate > 0) {
+          return { rate, updatedAt: new Date().toISOString(), source: "open.er-api" };
+        }
+      } catch {}
+      return { rate: 5, updatedAt: null, source: "fallback" };
     },
-    staleTime: 60 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
   });
 
   // Google Ads: usa o updated_at do banco (último sync)
@@ -157,7 +200,7 @@ const IndexInner = () => {
       if (import.meta.env.DEV) {
         console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
       }
-      const fxForMetrics = fxQuery.data ?? 5;
+      const fxForMetrics = fxQuery.data?.rate ?? 5;
       const totals = (data ?? []).reduce((a, r: any) => {
         const currency = String(r.currency || "USD").toUpperCase();
         const nativeRevenue = Number(r.revenue_native ?? 0);
@@ -443,7 +486,9 @@ const IndexInner = () => {
   };
 
   const baseTotals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
-  const usdBrl = fxQuery.data ?? 5;
+  const usdBrl = fxQuery.data?.rate ?? 5;
+  const fxUpdatedAt = fxQuery.data?.updatedAt ?? null;
+  const fxSource = fxQuery.data?.source ?? null;
   const extraPushUsd = extraRevQuery.data?.push ?? 0;
   const extraOtherUsd = extraRevQuery.data?.other ?? 0;
   const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
@@ -661,6 +706,30 @@ const IndexInner = () => {
                       {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span className="text-muted-foreground">USD → BRL:</span>
+                    <span className="font-mono font-medium">
+                      R$ {usdBrl.toFixed(4)}
+                    </span>
+                    {fxSource && (
+                      <span className="text-muted-foreground">({fxSource})</span>
+                    )}
+                    {fxUpdatedAt && (
+                      <span className="text-muted-foreground">· {fmtFresh(fxUpdatedAt)}</span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={async () => {
+                        try { await supabase.functions.invoke("fx-sync"); } catch {}
+                        fxQuery.refetch();
+                      }}
+                    >
+                      Atualizar
+                    </Button>
                   </div>
                 </div>
               );
