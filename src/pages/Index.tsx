@@ -200,7 +200,7 @@ const IndexInner = () => {
       if (import.meta.env.DEV) {
         console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
       }
-      const fxForMetrics = fxQuery.data ?? 5;
+      const fxForMetrics = fxQuery.data?.rate ?? 5;
       const totals = (data ?? []).reduce((a, r: any) => {
         const currency = String(r.currency || "USD").toUpperCase();
         const nativeRevenue = Number(r.revenue_native ?? 0);
@@ -486,7 +486,9 @@ const IndexInner = () => {
   };
 
   const baseTotals = engine?.totals ?? { spend: 0, revenue: 0, profit: 0, roi: 0, roas: 0 };
-  const usdBrl = fxQuery.data ?? 5;
+  const usdBrl = fxQuery.data?.rate ?? 5;
+  const fxUpdatedAt = fxQuery.data?.updatedAt ?? null;
+  const fxSource = fxQuery.data?.source ?? null;
   const extraPushUsd = extraRevQuery.data?.push ?? 0;
   const extraOtherUsd = extraRevQuery.data?.other ?? 0;
   const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
