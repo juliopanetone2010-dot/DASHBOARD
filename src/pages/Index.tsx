@@ -707,6 +707,30 @@ const IndexInner = () => {
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span className="text-muted-foreground">USD → BRL:</span>
+                    <span className="font-mono font-medium">
+                      R$ {usdBrl.toFixed(4)}
+                    </span>
+                    {fxSource && (
+                      <span className="text-muted-foreground">({fxSource})</span>
+                    )}
+                    {fxUpdatedAt && (
+                      <span className="text-muted-foreground">· {fmtFresh(fxUpdatedAt)}</span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={async () => {
+                        try { await supabase.functions.invoke("fx-sync"); } catch {}
+                        fxQuery.refetch();
+                      }}
+                    >
+                      Atualizar
+                    </Button>
+                  </div>
                 </div>
               );
             })()}
