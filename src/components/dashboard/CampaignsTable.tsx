@@ -68,6 +68,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [reviewOpen, setReviewOpen] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
+  const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
