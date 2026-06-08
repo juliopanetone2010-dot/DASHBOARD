@@ -70,8 +70,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
+    { key: "score", label: "Saúde" },
     { key: "startDate", label: "Início gasto" },
     { key: "age", label: "Idade" },
     { key: "lastAction", label: "Última ação" },
@@ -79,6 +80,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "revenue", label: "Receita" },
     { key: "profit", label: "Lucro" },
     { key: "roi", label: "ROI" },
+    { key: "trend", label: "Tendência" },
     { key: "roas", label: "ROAS" },
     { key: "ecpm", label: "eCPM" },
     { key: "impressions", label: "Impr." },
