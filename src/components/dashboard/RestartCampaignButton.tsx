@@ -281,7 +281,7 @@ export function RestartStatusBadge({ flow }: { flow: { stage: string; status: st
 
 function badgeFor(f: { stage: string; status: string }) {
   if (f.status === "recovered") return { label: "Recuperada", cls: "bg-success-soft text-success", icon: <CheckCircle2 className="h-3 w-3" /> };
-  if (f.status === "failed") return { label: "Falhou", cls: "bg-danger-soft text-danger", icon: <XCircle className="h-3 w-3" /> };
+  if (f.status === "failed") return { label: "ROI crítico", cls: "bg-danger-soft text-danger", icon: <AlertTriangle className="h-3 w-3" /> };
   if (f.status === "paused") return { label: "Pausada", cls: "bg-muted text-muted-foreground", icon: <XCircle className="h-3 w-3" /> };
   if (f.stage.includes("phase4")) return { label: "Otimizando", cls: "bg-primary/10 text-primary", icon: <Activity className="h-3 w-3" /> };
   if (f.stage.includes("phase3")) return { label: "Aplicando CPA", cls: "bg-primary/10 text-primary", icon: <Activity className="h-3 w-3" /> };

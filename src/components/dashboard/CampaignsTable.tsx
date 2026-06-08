@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -29,8 +29,16 @@ import { AttachHtml5Button } from "./AttachHtml5Button";
 import { CampaignHistoryButton } from "./CampaignHistoryButton";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
+type TrendPeriod = "today" | "yesterday" | "7d" | "15d" | "30d";
+const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = [
+  { key: "today", label: "Hoje vs Ontem", days: 1 },
+  { key: "yesterday", label: "Ontem vs Anteontem", days: 1 },
+  { key: "7d", label: "7d vs 7d ant.", days: 7 },
+  { key: "15d", label: "15d vs 15d ant.", days: 15 },
+  { key: "30d", label: "30d vs 30d ant.", days: 30 },
+];
 
 type PendingPauseAction = {
   id: string;
@@ -60,10 +68,12 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [reviewOpen, setReviewOpen] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
+  const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
+    { key: "score", label: "Saúde" },
     { key: "startDate", label: "Início gasto" },
     { key: "age", label: "Idade" },
     { key: "lastAction", label: "Última ação" },
@@ -71,6 +81,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "revenue", label: "Receita" },
     { key: "profit", label: "Lucro" },
     { key: "roi", label: "ROI" },
+    { key: "trend", label: "Tendência" },
     { key: "roas", label: "ROAS" },
     { key: "ecpm", label: "eCPM" },
     { key: "impressions", label: "Impr." },
@@ -80,7 +91,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "convRate", label: "Tx. Conv." },
     { key: "cpa", label: "CPA" },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v1";
+  const STORAGE_KEY = "campaigns-table-visible-cols-v2";
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -196,6 +207,66 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     refetchInterval: 30_000,
   });
 
+  // === Tendência ROI: atual vs período anterior ===
+  type TrendData = { currentRoi: number; prevRoi: number; diff: number; currentSpend: number; prevSpend: number };
+  const trendQuery = useQuery({
+    queryKey: ["campaign-trend", trendPeriod, campaignIds.join("|")],
+    queryFn: async () => {
+      const out = new Map<string, TrendData>();
+      if (campaignIds.length === 0) return out;
+      const periodCfg = TREND_PERIODS.find((p) => p.key === trendPeriod)!;
+      const totalDays = periodCfg.days * 2;
+      const offsetDays = trendPeriod === "yesterday" ? 1 : 0;
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const endDate = new Date(today.getTime() - offsetDays * 86400000);
+      const startDate = new Date(endDate.getTime() - (totalDays - 1) * 86400000);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, date, spend, revenue")
+        .in("campaign_id", campaignIds)
+        .gte("date", fmt(startDate))
+        .lte("date", fmt(endDate))
+        .limit(50000);
+      const midDate = new Date(endDate.getTime() - (periodCfg.days - 1) * 86400000);
+      const midStr = fmt(midDate);
+      const agg = new Map<string, { curS: number; curR: number; prvS: number; prvR: number }>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; date: string; spend: number; revenue: number }>) {
+        const cur = agg.get(r.campaign_id) ?? { curS: 0, curR: 0, prvS: 0, prvR: 0 };
+        const isCurrent = r.date >= midStr;
+        if (isCurrent) { cur.curS += Number(r.spend) || 0; cur.curR += Number(r.revenue) || 0; }
+        else { cur.prvS += Number(r.spend) || 0; cur.prvR += Number(r.revenue) || 0; }
+        agg.set(r.campaign_id, cur);
+      }
+      for (const [cid, a] of agg) {
+        const currentRoi = a.curS > 0 ? ((a.curR - a.curS) / a.curS) * 100 : 0;
+        const prevRoi = a.prvS > 0 ? ((a.prvR - a.prvS) / a.prvS) * 100 : 0;
+        out.set(cid, { currentRoi, prevRoi, diff: currentRoi - prevRoi, currentSpend: a.curS, prevSpend: a.prvS });
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Health score: 🟢 saudável, 🟡 atenção, 🔴 crítico
+  const computeScore = (c: CampaignAggregate, d: { ctr: number; convRate: number; cpa: number } | undefined, trend?: TrendData) => {
+    const roi = Number(c.roi) || 0;
+    const ctr = d?.ctr ?? 0;
+    let neg = 0; let warn = 0;
+    if (roi < 0) neg++;
+    else if (roi < 15) warn++;
+    if (ctr > 0 && ctr < 0.3) warn++;
+    if (trend && trend.diff < -20) neg++;
+    else if (trend && trend.diff < -5) warn++;
+    if (c.spend > 0 && c.conversions === 0) warn++;
+    if (neg > 0) return { level: "critical" as const, color: "bg-danger", label: "Crítico", emoji: "🔴" };
+    if (warn >= 2) return { level: "warning" as const, color: "bg-warning", label: "Atenção", emoji: "🟡" };
+    return { level: "healthy" as const, color: "bg-success", label: "Saudável", emoji: "🟢" };
+  };
+
+
   const ageInDays = (iso: string | undefined): number | null => {
     if (!iso) return null;
     const start = new Date(iso + "T00:00:00Z").getTime();
@@ -242,6 +313,12 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
         case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
         case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
         case "age": return ageInDays(firstSpendQuery.data?.get(c.campaign_id)) ?? -1;
+        case "trend": return trendQuery.data?.get(c.campaign_id)?.diff ?? 0;
+        case "score": {
+          const t = trendQuery.data?.get(c.campaign_id);
+          const s = computeScore(c, d, t);
+          return s.level === "healthy" ? 2 : s.level === "warning" ? 1 : 0;
+        }
         default: return Number((c as any)[sort.key] ?? 0);
       }
     };
@@ -251,7 +328,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data]);
+  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
 
   const copyToClipboard = async (url: string) => {
     try {
@@ -431,6 +508,19 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
           )}
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" />
+            <span>Tendência:</span>
+            <select
+              value={trendPeriod}
+              onChange={(e) => setTrendPeriod(e.target.value as TrendPeriod)}
+              className="h-7 rounded-md border border-input bg-background px-1.5 text-[11px]"
+            >
+              {TREND_PERIODS.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </div>
           <Button
             size="sm"
             variant={pendingPauseActions.length > 0 ? "default" : "outline"}
@@ -545,6 +635,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[420px] min-w-[420px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
               <TableHead className="sticky left-[592px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              {isVisible("score") && <SortHead k="score" label="Saúde" />}
               {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
               {isVisible("age") && <SortHead k="age" label="Idade" />}
               {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
@@ -552,6 +643,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               {isVisible("revenue") && <SortHead k="revenue" label="Receita" />}
               {isVisible("profit") && <SortHead k="profit" label="Lucro" />}
               {isVisible("roi") && <SortHead k="roi" label="ROI" />}
+              {isVisible("trend") && <SortHead k="trend" label="Tendência" />}
               {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
               {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
               {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
@@ -585,6 +677,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const age = ageInDays(firstSpend);
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
               const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
+              const trend = trendQuery.data?.get(c.campaign_id);
+              const score = computeScore(c, d, trend);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20", selected.has(c.campaign_id) && "bg-primary/5")}>
                   <TableCell className="sticky left-0 z-20 w-[40px] min-w-[40px] bg-card border-r border-border shadow-sm">
@@ -599,6 +693,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                   </TableCell>
                   <TableCell className="sticky left-[172px] z-20 w-[420px] min-w-[420px] bg-card border-r border-border font-medium shadow-sm">
                     <div className="flex items-center gap-2 whitespace-normal">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {score.emoji} <b>{score.label}</b><br />
+                          ROI: {fmtPercent(c.roi)} • CTR: {(d?.ctr ?? 0).toFixed(2)}%
+                          {trend && <> • Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                        </TooltipContent>
+                      </Tooltip>
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         accountDown ? "bg-danger" :
@@ -646,6 +750,29 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  {isVisible("score") && (
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn(
+                            "inline-flex items-center justify-center rounded-full w-6 h-6 text-sm cursor-help",
+                            score.level === "healthy" ? "bg-success-soft" : score.level === "warning" ? "bg-warning/20" : "bg-danger-soft",
+                          )}>
+                            {score.emoji}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs">
+                          <b>{score.label}</b><br />
+                          ROI: {fmtPercent(c.roi)}<br />
+                          CTR: {(d?.ctr ?? 0).toFixed(2)}%<br />
+                          CPA: {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}<br />
+                          Conv: {fmtNumber(Math.round(c.conversions))}<br />
+                          eCPM: {fmtUSD(gamEcpm)}
+                          {trend && <><br />Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  )}
                   {isVisible("startDate") && (
                     <TableCell className="text-xs tabular-nums text-muted-foreground">
                       {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
@@ -699,6 +826,36 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       >
                         {fmtPercent(c.roi)}
                       </span>
+                    </TableCell>
+                  )}
+                  {isVisible("trend") && (
+                    <TableCell className="text-right">
+                      {trendQuery.isLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin inline text-muted-foreground" />
+                      ) : !trend || (trend.currentSpend === 0 && trend.prevSpend === 0) ? (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className={cn(
+                              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
+                              Math.abs(trend.diff) < 2 ? "bg-muted text-muted-foreground" :
+                              trend.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                            )}>
+                              {Math.abs(trend.diff) < 2 ? <Minus className="h-3 w-3" /> :
+                                trend.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                              {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="text-xs">
+                            <b>Tendência ROI</b><br />
+                            ROI atual: {trend.currentRoi.toFixed(1)}%<br />
+                            ROI anterior: {trend.prevRoi.toFixed(1)}%<br />
+                            Diferença: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)} pontos<br />
+                            <span className="text-muted-foreground">Gasto atual: {fmtCurrency(trend.currentSpend)} • ant: {fmtCurrency(trend.prevSpend)}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   )}
                   {isVisible("roas") && (
