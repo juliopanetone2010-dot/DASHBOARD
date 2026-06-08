@@ -90,7 +90,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "convRate", label: "Tx. Conv." },
     { key: "cpa", label: "CPA" },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v1";
+  const STORAGE_KEY = "campaigns-table-visible-cols-v2";
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
