@@ -508,6 +508,19 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
           )}
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" />
+            <span>Tendência:</span>
+            <select
+              value={trendPeriod}
+              onChange={(e) => setTrendPeriod(e.target.value as TrendPeriod)}
+              className="h-7 rounded-md border border-input bg-background px-1.5 text-[11px]"
+            >
+              {TREND_PERIODS.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </div>
           <Button
             size="sm"
             variant={pendingPauseActions.length > 0 ? "default" : "outline"}
