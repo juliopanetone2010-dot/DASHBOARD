@@ -29,8 +29,16 @@ import { AttachHtml5Button } from "./AttachHtml5Button";
 import { CampaignHistoryButton } from "./CampaignHistoryButton";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
+type TrendPeriod = "today" | "yesterday" | "7d" | "15d" | "30d";
+const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = [
+  { key: "today", label: "Hoje vs Ontem", days: 1 },
+  { key: "yesterday", label: "Ontem vs Anteontem", days: 1 },
+  { key: "7d", label: "7d vs 7d ant.", days: 7 },
+  { key: "15d", label: "15d vs 15d ant.", days: 15 },
+  { key: "30d", label: "30d vs 30d ant.", days: 30 },
+];
 
 type PendingPauseAction = {
   id: string;
