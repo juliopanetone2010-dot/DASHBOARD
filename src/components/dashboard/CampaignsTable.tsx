@@ -677,6 +677,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               const age = ageInDays(firstSpend);
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
               const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
+              const trend = trendQuery.data?.get(c.campaign_id);
+              const score = computeScore(c, d, trend);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20", selected.has(c.campaign_id) && "bg-primary/5")}>
                   <TableCell className="sticky left-0 z-20 w-[40px] min-w-[40px] bg-card border-r border-border shadow-sm">
