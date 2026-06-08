@@ -693,6 +693,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                   </TableCell>
                   <TableCell className="sticky left-[172px] z-20 w-[420px] min-w-[420px] bg-card border-r border-border font-medium shadow-sm">
                     <div className="flex items-center gap-2 whitespace-normal">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {score.emoji} <b>{score.label}</b><br />
+                          ROI: {fmtPercent(c.roi)} • CTR: {(d?.ctr ?? 0).toFixed(2)}%
+                          {trend && <> • Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                        </TooltipContent>
+                      </Tooltip>
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         accountDown ? "bg-danger" :
