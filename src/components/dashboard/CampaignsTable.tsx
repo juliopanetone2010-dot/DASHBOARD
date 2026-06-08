@@ -207,6 +207,66 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     refetchInterval: 30_000,
   });
 
+  // === Tendência ROI: atual vs período anterior ===
+  type TrendData = { currentRoi: number; prevRoi: number; diff: number; currentSpend: number; prevSpend: number };
+  const trendQuery = useQuery({
+    queryKey: ["campaign-trend", trendPeriod, campaignIds.join("|")],
+    queryFn: async () => {
+      const out = new Map<string, TrendData>();
+      if (campaignIds.length === 0) return out;
+      const periodCfg = TREND_PERIODS.find((p) => p.key === trendPeriod)!;
+      const totalDays = periodCfg.days * 2;
+      const offsetDays = trendPeriod === "yesterday" ? 1 : 0;
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const endDate = new Date(today.getTime() - offsetDays * 86400000);
+      const startDate = new Date(endDate.getTime() - (totalDays - 1) * 86400000);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, date, spend, revenue")
+        .in("campaign_id", campaignIds)
+        .gte("date", fmt(startDate))
+        .lte("date", fmt(endDate))
+        .limit(50000);
+      const midDate = new Date(endDate.getTime() - (periodCfg.days - 1) * 86400000);
+      const midStr = fmt(midDate);
+      const agg = new Map<string, { curS: number; curR: number; prvS: number; prvR: number }>();
+      for (const r of (data ?? []) as Array<{ campaign_id: string; date: string; spend: number; revenue: number }>) {
+        const cur = agg.get(r.campaign_id) ?? { curS: 0, curR: 0, prvS: 0, prvR: 0 };
+        const isCurrent = r.date >= midStr;
+        if (isCurrent) { cur.curS += Number(r.spend) || 0; cur.curR += Number(r.revenue) || 0; }
+        else { cur.prvS += Number(r.spend) || 0; cur.prvR += Number(r.revenue) || 0; }
+        agg.set(r.campaign_id, cur);
+      }
+      for (const [cid, a] of agg) {
+        const currentRoi = a.curS > 0 ? ((a.curR - a.curS) / a.curS) * 100 : 0;
+        const prevRoi = a.prvS > 0 ? ((a.prvR - a.prvS) / a.prvS) * 100 : 0;
+        out.set(cid, { currentRoi, prevRoi, diff: currentRoi - prevRoi, currentSpend: a.curS, prevSpend: a.prvS });
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
+  // Health score: 🟢 saudável, 🟡 atenção, 🔴 crítico
+  const computeScore = (c: CampaignAggregate, d: { ctr: number; convRate: number; cpa: number } | undefined, trend?: TrendData) => {
+    const roi = Number(c.roi) || 0;
+    const ctr = d?.ctr ?? 0;
+    let neg = 0; let warn = 0;
+    if (roi < 0) neg++;
+    else if (roi < 15) warn++;
+    if (ctr > 0 && ctr < 0.3) warn++;
+    if (trend && trend.diff < -20) neg++;
+    else if (trend && trend.diff < -5) warn++;
+    if (c.spend > 0 && c.conversions === 0) warn++;
+    if (neg > 0) return { level: "critical" as const, color: "bg-danger", label: "Crítico", emoji: "🔴" };
+    if (warn >= 2) return { level: "warning" as const, color: "bg-warning", label: "Atenção", emoji: "🟡" };
+    return { level: "healthy" as const, color: "bg-success", label: "Saudável", emoji: "🟢" };
+  };
+
+
   const ageInDays = (iso: string | undefined): number | null => {
     if (!iso) return null;
     const start = new Date(iso + "T00:00:00Z").getTime();
