@@ -750,6 +750,29 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  {isVisible("score") && (
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn(
+                            "inline-flex items-center justify-center rounded-full w-6 h-6 text-sm cursor-help",
+                            score.level === "healthy" ? "bg-success-soft" : score.level === "warning" ? "bg-warning/20" : "bg-danger-soft",
+                          )}>
+                            {score.emoji}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs">
+                          <b>{score.label}</b><br />
+                          ROI: {fmtPercent(c.roi)}<br />
+                          CTR: {(d?.ctr ?? 0).toFixed(2)}%<br />
+                          CPA: {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}<br />
+                          Conv: {fmtNumber(Math.round(c.conversions))}<br />
+                          eCPM: {fmtUSD(gamEcpm)}
+                          {trend && <><br />Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  )}
                   {isVisible("startDate") && (
                     <TableCell className="text-xs tabular-nums text-muted-foreground">
                       {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
