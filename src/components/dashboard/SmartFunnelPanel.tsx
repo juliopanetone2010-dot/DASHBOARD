@@ -74,7 +74,7 @@ const STATUS_META: Record<FunnelStatus, { label: string; cls: string }> = {
   "advanced-scaling": { label: "Escala Avançada", cls: "bg-success/20 text-success border-success/40" },
   stable: { label: "Estável", cls: "bg-success/30 text-success" },
   graduated: { label: "Graduada", cls: "bg-muted text-muted-foreground" },
-  "failed-learning": { label: "Falhou", cls: "bg-danger-soft text-danger" },
+  "failed-learning": { label: "ROI crítico", cls: "bg-danger-soft text-danger" },
   paused: { label: "Pausada", cls: "bg-warning/10 text-warning border-warning/30" },
 };
 
