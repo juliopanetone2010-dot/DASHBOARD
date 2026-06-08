@@ -828,6 +828,36 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       </span>
                     </TableCell>
                   )}
+                  {isVisible("trend") && (
+                    <TableCell className="text-right">
+                      {trendQuery.isLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin inline text-muted-foreground" />
+                      ) : !trend || (trend.currentSpend === 0 && trend.prevSpend === 0) ? (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className={cn(
+                              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
+                              Math.abs(trend.diff) < 2 ? "bg-muted text-muted-foreground" :
+                              trend.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                            )}>
+                              {Math.abs(trend.diff) < 2 ? <Minus className="h-3 w-3" /> :
+                                trend.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                              {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="text-xs">
+                            <b>Tendência ROI</b><br />
+                            ROI atual: {trend.currentRoi.toFixed(1)}%<br />
+                            ROI anterior: {trend.prevRoi.toFixed(1)}%<br />
+                            Diferença: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)} pontos<br />
+                            <span className="text-muted-foreground">Gasto atual: {fmtCurrency(trend.currentSpend)} • ant: {fmtCurrency(trend.prevSpend)}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  )}
                   {isVisible("roas") && (
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {(Number(c.roas) || 0).toFixed(2)}x
