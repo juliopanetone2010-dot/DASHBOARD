@@ -942,7 +942,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                                 CPA <ChevronDown className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuContent align="end" className="w-52">
                               <DropdownMenuLabel className="text-xs">Target CPA (ad groups)</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
@@ -957,6 +957,29 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
                                 <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  const currentCpa = c.conversions > 0 ? (d?.cpa ?? 0) : 0;
+                                  const input = window.prompt(
+                                    `Definir Target CPA para "${c.name}"\n(valor exato na moeda da conta, ex: 0.15)`,
+                                    currentCpa > 0 ? currentCpa.toFixed(2) : "",
+                                  );
+                                  if (input === null) return;
+                                  const v = Number(String(input).replace(",", "."));
+                                  if (!Number.isFinite(v) || v <= 0) {
+                                    toast.error("Valor inválido");
+                                    return;
+                                  }
+                                  callMutate(
+                                    `Target CPA definido em ${v.toFixed(2)}`,
+                                    { action: "set_target_cpa", campaign_id: c.campaign_id, target_cpa: v },
+                                    rowKey,
+                                  );
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5 mr-2 text-primary" /> Definir valor exato
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
