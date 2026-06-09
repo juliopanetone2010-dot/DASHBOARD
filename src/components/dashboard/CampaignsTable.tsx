@@ -969,7 +969,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                                   if (input === null) return;
                                   const v = Number(String(input).replace(",", "."));
                                   if (!Number.isFinite(v) || v <= 0) {
-                                    toast.error("Valor inválido");
+                                    toast({ title: "Valor inválido", variant: "destructive" });
                                     return;
                                   }
                                   callMutate(
