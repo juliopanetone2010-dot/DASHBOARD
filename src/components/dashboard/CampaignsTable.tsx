@@ -1038,3 +1038,87 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     </TooltipProvider>
   );
 }
+
+function InlineMoneyEdit({
+  label,
+  title,
+  value,
+  disabled,
+  onSave,
+  menu,
+}: {
+  label: string;
+  title: string;
+  value: number;
+  disabled?: boolean;
+  onSave: (v: number) => void;
+  menu?: React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(value > 0 ? value.toFixed(2) : "");
+  useEffect(() => {
+    if (!editing) setDraft(value > 0 ? value.toFixed(2) : "");
+  }, [value, editing]);
+
+  const commit = () => {
+    const v = Number(String(draft).replace(",", "."));
+    setEditing(false);
+    if (!Number.isFinite(v) || v <= 0) {
+      if ((draft ?? "") !== "") toast({ title: "Valor inválido", variant: "destructive" });
+      setDraft(value > 0 ? value.toFixed(2) : "");
+      return;
+    }
+    if (Math.abs(v - value) < 0.005) return;
+    onSave(v);
+  };
+
+  return (
+    <div className="inline-flex items-center h-8 rounded-md border bg-background overflow-hidden">
+      <span className="px-1.5 text-[10px] font-medium text-muted-foreground border-r select-none">{label}</span>
+      {editing ? (
+        <Input
+          autoFocus
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+            if (e.key === "Escape") { setDraft(value > 0 ? value.toFixed(2) : ""); setEditing(false); }
+          }}
+          className="h-8 w-20 border-0 rounded-none px-1.5 text-xs tabular-nums focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
+      ) : (
+        <button
+          type="button"
+          title={`Editar – ${title}`}
+          disabled={disabled}
+          onClick={() => setEditing(true)}
+          className="h-8 px-2 text-xs tabular-nums hover:bg-muted/60 disabled:opacity-50 flex items-center gap-1"
+        >
+          {value > 0 ? value.toFixed(2) : "—"}
+          <Pencil className="h-3 w-3 text-muted-foreground" />
+        </button>
+      )}
+      {menu && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled}
+              className="h-8 px-1.5 border-l hover:bg-muted/60 disabled:opacity-50 flex items-center"
+              title="Ajustes rápidos (±%)"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {menu}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
+}
+
