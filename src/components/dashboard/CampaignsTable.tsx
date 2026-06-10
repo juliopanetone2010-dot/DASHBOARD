@@ -936,109 +936,76 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                             {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
                           </Button>
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1">
-                                CPA <ChevronDown className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-52">
-                              <DropdownMenuLabel className="text-xs">Target CPA (ad groups)</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  const currentCpa = c.conversions > 0 ? (d?.cpa ?? 0) : 0;
-                                  const input = window.prompt(
-                                    `Definir Target CPA para "${c.name}"\n(valor exato na moeda da conta, ex: 0.15)`,
-                                    currentCpa > 0 ? currentCpa.toFixed(2) : "",
-                                  );
-                                  if (input === null) return;
-                                  const v = Number(String(input).replace(",", "."));
-                                  if (!Number.isFinite(v) || v <= 0) {
-                                    toast({ title: "Valor inválido", variant: "destructive" });
-                                    return;
-                                  }
-                                  callMutate(
-                                    `Target CPA (ad groups) = ${v.toFixed(2)}`,
-                                    { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
-                                    rowKey,
-                                  );
-                                }}
-                              >
-                                <Pencil className="h-3.5 w-3.5 mr-2 text-primary" /> Definir valor exato
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <InlineMoneyEdit
+                            label="CPA"
+                            title={`Target CPA (ad groups) – ${c.name}`}
+                            value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
+                            disabled={loading}
+                            onSave={(v) => callMutate(
+                              `Target CPA (ad groups) = ${v.toFixed(2)}`,
+                              { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
+                              rowKey,
+                            )}
+                            menu={
+                              <>
+                                <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
+                                </DropdownMenuItem>
+                              </>
+                            }
+                          />
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1">
-                                Orçamento <ChevronDown className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
-                              <DropdownMenuLabel className="text-xs">Orçamento da campanha</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  const currentBudget = ((c as any)?.budget_micros ?? 0) / 1_000_000;
-                                  const input = window.prompt(
-                                    `Definir orçamento diário para "${c.name}"\n(valor exato na moeda da conta, ex: 5.00)`,
-                                    currentBudget > 0 ? currentBudget.toFixed(2) : "",
-                                  );
-                                  if (input === null) return;
-                                  const v = Number(String(input).replace(",", "."));
-                                  if (!Number.isFinite(v) || v <= 0) {
-                                    toast({ title: "Valor inválido", variant: "destructive" });
-                                    return;
-                                  }
-                                  callMutate(
-                                    `Orçamento definido em ${v.toFixed(2)}`,
-                                    { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
-                                    rowKey,
-                                  );
-                                }}
-                              >
-                                <Pencil className="h-3.5 w-3.5 mr-2 text-primary" /> Definir valor exato
-                              </DropdownMenuItem>
-                              {onBoost && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
-                                    <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <InlineMoneyEdit
+                            label="Orç"
+                            title={`Orçamento diário – ${c.name}`}
+                            value={((c as any)?.budget_micros ?? 0) / 1_000_000}
+                            disabled={loading}
+                            onSave={(v) => callMutate(
+                              `Orçamento definido em ${v.toFixed(2)}`,
+                              { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
+                              rowKey,
+                            )}
+                            menu={
+                              <>
+                                <DropdownMenuLabel className="text-xs">Ajustar orçamento</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
+                                </DropdownMenuItem>
+                                {onBoost && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
+                                      <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </>
+                            }
+                          />
+
 
                           <CampaignHistoryButton
                             campaignId={c.campaign_id}
