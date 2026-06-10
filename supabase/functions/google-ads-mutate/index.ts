@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute"].includes(action)) {
+    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -479,6 +479,59 @@ Deno.serve(async (req) => {
       await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("id", camp.id);
       await logAction("executed", { budget_id: budgetId, to: nextMicros });
       return json({ ok: true, action, budget: newBudget });
+    }
+
+    // set_ad_group_cpa_absolute: define target_cpa_micros em valor absoluto em TODOS os ad groups da campanha
+    // body: { target_cpa: number, ad_group_id?: string }
+    if (action === "set_ad_group_cpa_absolute") {
+      const targetCpa = Number((body as any)?.target_cpa ?? 0);
+      const onlyAdGroupId = String((body as any)?.ad_group_id ?? "").replace(/\D/g, "");
+      if (!Number.isFinite(targetCpa) || targetCpa <= 0) {
+        return json({ error: "target_cpa inválido" });
+      }
+      const targetMicros = Math.max(10_000, Math.round((targetCpa * 1_000_000) / 10000) * 10000);
+      const query = `
+        SELECT ad_group.id, ad_group.name, ad_group.target_cpa_micros, ad_group.status
+        FROM ad_group
+        WHERE ad_group.campaign = 'customers/${acc.customer_id}/campaigns/${camp.campaign_id}'
+          AND ad_group.status != 'REMOVED'
+          ${onlyAdGroupId ? `AND ad_group.id = ${onlyAdGroupId}` : ""}
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers, body: JSON.stringify({ query }),
+      });
+      const sJson = await sRes.json();
+      if (!sRes.ok) {
+        await logAction("failed", { query }, JSON.stringify(sJson));
+        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+      }
+      const rows = (sJson.results ?? []) as Array<{
+        adGroup: { id: string; name: string; targetCpaMicros?: string };
+      }>;
+      if (rows.length === 0) {
+        await logAction("skipped", { reason: "Nenhum ad_group encontrado" });
+        return json({ error: "Nenhum ad group encontrado para essa campanha." });
+      }
+      const ops = rows.map((r) => ({
+        update: {
+          resourceName: `customers/${acc.customer_id}/adGroups/${r.adGroup.id}`,
+          targetCpaMicros: String(targetMicros),
+        },
+        updateMask: "target_cpa_micros",
+        _meta: { ad_group_id: r.adGroup.id, name: r.adGroup.name, from: Number(r.adGroup.targetCpaMicros ?? 0), to: targetMicros },
+      }));
+      const mutateBody = { operations: ops.map(({ _meta, ...o }) => o) };
+      const meta = ops.map((o) => o._meta);
+      const r = await fetch(`${apiBase}/adGroups:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", { meta, body: mutateBody }, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await logAction("executed", { target_cpa: targetCpa, ad_groups: meta });
+      return json({ ok: true, action, target_cpa: targetCpa, ad_groups_updated: meta.length, details: meta });
     }
 
     return json({ error: "unreachable" });

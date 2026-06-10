@@ -973,8 +973,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                                     return;
                                   }
                                   callMutate(
-                                    `Target CPA definido em ${v.toFixed(2)}`,
-                                    { action: "set_target_cpa", campaign_id: c.campaign_id, target_cpa: v },
+                                    `Target CPA (ad groups) = ${v.toFixed(2)}`,
+                                    { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
                                     rowKey,
                                   );
                                 }}
@@ -1005,6 +1005,29 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
                                 <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  const currentBudget = ((c as any)?.budget_micros ?? 0) / 1_000_000;
+                                  const input = window.prompt(
+                                    `Definir orçamento diário para "${c.name}"\n(valor exato na moeda da conta, ex: 5.00)`,
+                                    currentBudget > 0 ? currentBudget.toFixed(2) : "",
+                                  );
+                                  if (input === null) return;
+                                  const v = Number(String(input).replace(",", "."));
+                                  if (!Number.isFinite(v) || v <= 0) {
+                                    toast({ title: "Valor inválido", variant: "destructive" });
+                                    return;
+                                  }
+                                  callMutate(
+                                    `Orçamento definido em ${v.toFixed(2)}`,
+                                    { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
+                                    rowKey,
+                                  );
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5 mr-2 text-primary" /> Definir valor exato
                               </DropdownMenuItem>
                               {onBoost && (
                                 <>
