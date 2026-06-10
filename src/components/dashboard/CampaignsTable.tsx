@@ -973,8 +973,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                                     return;
                                   }
                                   callMutate(
-                                    `Target CPA definido em ${v.toFixed(2)}`,
-                                    { action: "set_target_cpa", campaign_id: c.campaign_id, target_cpa: v },
+                                    `Target CPA (ad groups) = ${v.toFixed(2)}`,
+                                    { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
                                     rowKey,
                                   );
                                 }}
