@@ -222,6 +222,7 @@ Deno.serve(async (req) => {
             campaign.id,
             campaign.name,
             campaign.status,
+            campaign.start_date,
             campaign.advertising_channel_type,
             campaign.final_url_suffix,
             campaign_budget.amount_micros,
