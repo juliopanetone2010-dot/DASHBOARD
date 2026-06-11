@@ -371,6 +371,7 @@ Deno.serve(async (req) => {
                 channel_type: info.channel,
                 budget_micros: info.budget_micros,
                 target_cpa_micros: info.target_cpa_micros,
+                start_date: info.start_date,
               }));
               const { error: campErr } = await admin
                 .from("campaigns")
