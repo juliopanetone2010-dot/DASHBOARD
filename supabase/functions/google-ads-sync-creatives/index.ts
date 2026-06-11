@@ -24,9 +24,8 @@ Deno.serve(async (req) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const today = new Date();
-    // Inclui o dia atual (parcial). Google Ads já retorna métricas de hoje.
-    const toDate = today;
-    const fromDate = new Date(today.getTime() - (lookbackDays - 1) * 86400_000);
+    const toDate = new Date(today.getTime() - 86400_000);
+    const fromDate = new Date(today.getTime() - lookbackDays * 86400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const from = iso(fromDate), to = iso(toDate);
 
