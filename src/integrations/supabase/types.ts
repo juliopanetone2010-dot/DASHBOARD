@@ -1252,6 +1252,7 @@ export type Database = {
           google_account_id: string | null
           id: string
           name: string
+          start_date: string | null
           status: string
           target_cpa_micros: number | null
           updated_at: string
@@ -1265,6 +1266,7 @@ export type Database = {
           google_account_id?: string | null
           id?: string
           name: string
+          start_date?: string | null
           status?: string
           target_cpa_micros?: number | null
           updated_at?: string
@@ -1278,6 +1280,7 @@ export type Database = {
           google_account_id?: string | null
           id?: string
           name?: string
+          start_date?: string | null
           status?: string
           target_cpa_micros?: number | null
           updated_at?: string
