@@ -281,6 +281,7 @@ Deno.serve(async (req) => {
             const results = (camJson.results ?? []) as Array<{
               campaign: {
                 id: string; name: string; status: string; advertisingChannelType?: string;
+                startDate?: string;
                 finalUrlSuffix?: string;
                 targetCpa?: { targetCpaMicros?: string };
                 maximizeConversions?: { targetCpaMicros?: string };
@@ -291,7 +292,7 @@ Deno.serve(async (req) => {
             }>;
 
             // Agrupa campanhas únicas (mantém último budget/cpa visto)
-            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; final_url_suffix: string | null }>();
+            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; final_url_suffix: string | null; start_date: string | null }>();
             for (const r of results) {
               const budgetMicros = r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null;
               const cpaMicros = r.campaign.targetCpa?.targetCpaMicros
@@ -304,6 +305,7 @@ Deno.serve(async (req) => {
                 budget_micros: budgetMicros,
                 target_cpa_micros: cpaMicros,
                 final_url_suffix: r.campaign.finalUrlSuffix ?? null,
+                start_date: r.campaign.startDate ?? null,
               });
             }
 
