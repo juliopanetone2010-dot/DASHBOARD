@@ -134,21 +134,36 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     enabled: campaignIds.length > 0,
   });
 
-  // Primeiro dia com spend > 0 por campanha (idade real desde início do gasto)
+  // Data de início REAL da campanha (campaign.start_date no Google Ads).
+  // Fallback para o primeiro dia com spend > 0 caso o sync ainda não tenha gravado.
   const firstSpendQuery = useQuery({
-    queryKey: ["campaign-first-spend", campaignIds.join("|")],
+    queryKey: ["campaign-start-date", campaignIds.join("|")],
     queryFn: async () => {
       if (campaignIds.length === 0) return new Map<string, string>();
-      const { data } = await supabase
-        .from("daily_metrics")
-        .select("campaign_id, date")
-        .in("campaign_id", campaignIds)
-        .gt("spend", 0)
-        .order("date", { ascending: true })
-        .limit(50000);
       const map = new Map<string, string>();
-      for (const r of (data ?? []) as Array<{ campaign_id: string; date: string }>) {
-        if (!map.has(r.campaign_id)) map.set(r.campaign_id, r.date);
+
+      // 1) start_date oficial do Ads
+      const { data: camps } = await supabase
+        .from("campaigns")
+        .select("campaign_id, start_date")
+        .in("campaign_id", campaignIds);
+      for (const r of (camps ?? []) as Array<{ campaign_id: string; start_date: string | null }>) {
+        if (r.start_date) map.set(r.campaign_id, r.start_date);
+      }
+
+      // 2) fallback: primeiro dia com spend > 0 para campanhas sem start_date
+      const missing = campaignIds.filter((id) => !map.has(id));
+      if (missing.length > 0) {
+        const { data } = await supabase
+          .from("daily_metrics")
+          .select("campaign_id, date")
+          .in("campaign_id", missing)
+          .gt("spend", 0)
+          .order("date", { ascending: true })
+          .limit(50000);
+        for (const r of (data ?? []) as Array<{ campaign_id: string; date: string }>) {
+          if (!map.has(r.campaign_id)) map.set(r.campaign_id, r.date);
+        }
       }
       return map;
     },
