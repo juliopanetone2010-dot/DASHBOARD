@@ -123,6 +123,36 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     return { width: w, minWidth: w, maxWidth: w };
   };
 
+  type HeadDef = { label: string; sortKey?: SortKey; align?: "left" | "right" };
+  const HEAD_DEFS: Record<ColKey, HeadDef> = {
+    score: { label: "Saúde", sortKey: "score", align: "right" },
+    startDate: { label: "Início gasto", align: "left" },
+    age: { label: "Idade", sortKey: "age", align: "right" },
+    lastAction: { label: "Última ação", align: "left" },
+    spend: { label: "Gasto", sortKey: "spend", align: "right" },
+    revenue: { label: "Receita", sortKey: "revenue", align: "right" },
+    profit: { label: "Lucro", sortKey: "profit", align: "right" },
+    roi: { label: "ROI", sortKey: "roi", align: "right" },
+    trend: { label: "Tendência", sortKey: "trend", align: "right" },
+    roas: { label: "ROAS", sortKey: "roas", align: "right" },
+    ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
+    matchRate: { label: "Taxa Corresp.", align: "right" },
+    impressions: { label: "Impr.", sortKey: "impressions", align: "right" },
+    clicks: { label: "Cliques", sortKey: "clicks", align: "right" },
+    ctr: { label: "CTR", sortKey: "ctr", align: "right" },
+    conversions: { label: "Conv.", sortKey: "conversions", align: "right" },
+    convRate: { label: "Tx. Conv.", sortKey: "convRate", align: "right" },
+    cpa: { label: "CPA", sortKey: "cpa", align: "right" },
+    act_pause: { label: "Pausa", align: "left" },
+    act_cpa: { label: "Aj. CPA", align: "left" },
+    act_budget: { label: "Aj. Orç.", align: "left" },
+    act_history: { label: "Histórico", align: "left" },
+    act_restart: { label: "Reiniciar", align: "left" },
+    act_html5: { label: "HTML5", align: "left" },
+  };
+
+
+
 
   // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
   const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
