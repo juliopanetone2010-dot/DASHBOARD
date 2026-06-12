@@ -28,6 +28,8 @@ import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./Re
 import { AttachHtml5Button } from "./AttachHtml5Button";
 import { CampaignHistoryButton } from "./CampaignHistoryButton";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
+import { useColumnLayout } from "@/hooks/useColumnLayout";
+import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
@@ -72,44 +74,85 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
-  const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
-    { key: "score", label: "Saúde" },
-    { key: "startDate", label: "Início gasto" },
-    { key: "age", label: "Idade" },
-    { key: "lastAction", label: "Última ação" },
-    { key: "spend", label: "Gasto" },
-    { key: "revenue", label: "Receita" },
-    { key: "profit", label: "Lucro" },
-    { key: "roi", label: "ROI" },
-    { key: "trend", label: "Tendência" },
-    { key: "roas", label: "ROAS" },
-    { key: "ecpm", label: "eCPM" },
-    { key: "matchRate", label: "Taxa Corresp." },
-    { key: "impressions", label: "Impr." },
-    { key: "clicks", label: "Cliques" },
-    { key: "ctr", label: "CTR" },
-    { key: "conversions", label: "Conv." },
-    { key: "convRate", label: "Tx. Conv." },
-    { key: "cpa", label: "CPA" },
+  type ColKey =
+    | "score" | "startDate" | "age" | "lastAction"
+    | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
+    | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr"
+    | "conversions" | "convRate" | "cpa"
+    | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
+  const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
+    { key: "score", label: "Saúde", width: 60 },
+    { key: "startDate", label: "Início gasto", width: 100 },
+    { key: "age", label: "Idade", width: 70 },
+    { key: "lastAction", label: "Última ação", width: 140 },
+    { key: "spend", label: "Gasto", width: 100 },
+    { key: "revenue", label: "Receita", width: 110 },
+    { key: "profit", label: "Lucro", width: 110 },
+    { key: "roi", label: "ROI", width: 90 },
+    { key: "trend", label: "Tendência", width: 100 },
+    { key: "roas", label: "ROAS", width: 80 },
+    { key: "ecpm", label: "eCPM", width: 100 },
+    { key: "matchRate", label: "Taxa Corresp.", width: 110 },
+    { key: "impressions", label: "Impr.", width: 100 },
+    { key: "clicks", label: "Cliques", width: 80 },
+    { key: "ctr", label: "CTR", width: 70 },
+    { key: "conversions", label: "Conv.", width: 80 },
+    { key: "convRate", label: "Tx. Conv.", width: 90 },
+    { key: "cpa", label: "CPA", width: 90 },
+    { key: "act_pause", label: "Ação · Pause", width: 56 },
+    { key: "act_cpa", label: "Ação · CPA", width: 120 },
+    { key: "act_budget", label: "Ação · Orçamento", width: 120 },
+    { key: "act_history", label: "Ação · Histórico", width: 110 },
+    { key: "act_restart", label: "Ação · Reiniciar", width: 110 },
+    { key: "act_html5", label: "Ação · HTML5", width: 90 },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v4";
-  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
-    try {
-      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-      if (raw) return new Set(JSON.parse(raw) as ColKey[]);
-    } catch { /* ignore */ }
-    return new Set(ALL_COLUMNS.map((c) => c.key));
+  const ALL_KEYS = ALL_COLUMNS.map((c) => c.key);
+  const DEFAULT_WIDTHS = Object.fromEntries(ALL_COLUMNS.map((c) => [c.key, c.width])) as Record<ColKey, number>;
+  const layout = useColumnLayout({
+    storageKeyOrder: "campaigns-table-col-order-v1",
+    storageKeyWidths: "campaigns-table-col-widths-v1",
+    storageKeyVisible: "campaigns-table-visible-cols-v5",
+    allKeys: ALL_KEYS,
+    defaultWidths: DEFAULT_WIDTHS,
   });
-  useEffect(() => {
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(visibleCols))); } catch { /* ignore */ }
-  }, [visibleCols]);
+  const visibleCols = layout.visible as Set<ColKey>;
   const isVisible = (k: ColKey) => visibleCols.has(k);
-  const toggleCol = (k: ColKey) => setVisibleCols((cur) => {
-    const next = new Set(cur);
-    if (next.has(k)) next.delete(k); else next.add(k);
-    return next;
-  });
+  const orderedVisible = (layout.order as ColKey[]).filter((k) => isVisible(k));
+  const widthStyle = (k: ColKey): React.CSSProperties => {
+    const w = layout.widths[k] ?? DEFAULT_WIDTHS[k];
+    return { width: w, minWidth: w, maxWidth: w };
+  };
+
+  type HeadDef = { label: string; sortKey?: SortKey; align?: "left" | "right" };
+  const HEAD_DEFS: Record<ColKey, HeadDef> = {
+    score: { label: "Saúde", sortKey: "score", align: "right" },
+    startDate: { label: "Início gasto", align: "left" },
+    age: { label: "Idade", sortKey: "age", align: "right" },
+    lastAction: { label: "Última ação", align: "left" },
+    spend: { label: "Gasto", sortKey: "spend", align: "right" },
+    revenue: { label: "Receita", sortKey: "revenue", align: "right" },
+    profit: { label: "Lucro", sortKey: "profit", align: "right" },
+    roi: { label: "ROI", sortKey: "roi", align: "right" },
+    trend: { label: "Tendência", sortKey: "trend", align: "right" },
+    roas: { label: "ROAS", sortKey: "roas", align: "right" },
+    ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
+    matchRate: { label: "Taxa Corresp.", align: "right" },
+    impressions: { label: "Impr.", sortKey: "impressions", align: "right" },
+    clicks: { label: "Cliques", sortKey: "clicks", align: "right" },
+    ctr: { label: "CTR", sortKey: "ctr", align: "right" },
+    conversions: { label: "Conv.", sortKey: "conversions", align: "right" },
+    convRate: { label: "Tx. Conv.", sortKey: "convRate", align: "right" },
+    cpa: { label: "CPA", sortKey: "cpa", align: "right" },
+    act_pause: { label: "Pausa", align: "left" },
+    act_cpa: { label: "Aj. CPA", align: "left" },
+    act_budget: { label: "Aj. Orç.", align: "left" },
+    act_history: { label: "Histórico", align: "left" },
+    act_restart: { label: "Reiniciar", align: "left" },
+    act_html5: { label: "HTML5", align: "left" },
+  };
+
+
+
 
   // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
   const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
@@ -547,37 +590,15 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
             <AlertTriangle className="h-3.5 w-3.5" />
             Revisar pausas ({pendingPauseActions.length})
           </Button>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
-              <Columns3 className="h-3.5 w-3.5" />
-              Colunas ({visibleCols.size}/{ALL_COLUMNS.length})
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-56 p-2">
-            <div className="flex items-center justify-between px-1 pb-2">
-              <span className="text-xs font-semibold">Personalizar colunas</span>
-              <button
-                type="button"
-                className="text-[10px] text-primary hover:underline"
-                onClick={() => setVisibleCols(new Set(ALL_COLUMNS.map((c) => c.key)))}
-              >
-                Mostrar todas
-              </button>
-            </div>
-            <div className="max-h-80 overflow-y-auto">
-              {ALL_COLUMNS.map((c) => (
-                <label
-                  key={c.key}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted cursor-pointer"
-                >
-                  <Checkbox checked={isVisible(c.key)} onCheckedChange={() => toggleCol(c.key)} />
-                  <span>{c.label}</span>
-                </label>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+          <ColumnManagerDropdown
+            columns={ALL_COLUMNS.map((c) => ({ key: c.key, label: c.label }))}
+            order={layout.order}
+            visible={layout.visible}
+            onOrderChange={layout.setOrder}
+            onToggleVisible={layout.toggleVisible}
+            onReset={layout.resetAll}
+          />
+
         </div>
       </div>
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
@@ -652,25 +673,45 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
               <TableHead className="sticky left-[732px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
-              {isVisible("score") && <SortHead k="score" label="Saúde" />}
-              {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
-              {isVisible("age") && <SortHead k="age" label="Idade" />}
-              {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
-              {isVisible("spend") && <SortHead k="spend" label="Gasto" />}
-              {isVisible("revenue") && <SortHead k="revenue" label="Receita" />}
-              {isVisible("profit") && <SortHead k="profit" label="Lucro" />}
-              {isVisible("roi") && <SortHead k="roi" label="ROI" />}
-              {isVisible("trend") && <SortHead k="trend" label="Tendência" />}
-              {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
-              {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
-              {isVisible("matchRate") && <TableHead className="text-right text-xs">Taxa Corresp.</TableHead>}
-              {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
-              {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
-              {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
-              {isVisible("conversions") && <SortHead k="conversions" label="Conv." />}
-              {isVisible("convRate") && <SortHead k="convRate" label="Tx. Conv." />}
-              {isVisible("cpa") && <SortHead k="cpa" label="CPA" />}
-              <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
+              {orderedVisible.map((k) => {
+                const def = HEAD_DEFS[k];
+                const active = !!def.sortKey && sort?.key === def.sortKey;
+                return (
+                  <TableHead
+                    key={k}
+                    style={widthStyle(k)}
+                    className={cn(
+                      "relative whitespace-nowrap text-xs",
+                      def.align === "right" ? "text-right" : "text-left",
+                      active && "bg-primary/5",
+                    )}
+                  >
+                    {def.sortKey ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(def.sortKey!)}
+                        className={cn(
+                          "inline-flex items-center gap-1 select-none hover:text-foreground transition-colors",
+                          def.align === "right" && "ml-auto",
+                          active ? "text-foreground font-semibold" : "text-muted-foreground",
+                        )}
+                      >
+                        {def.label}
+                        <SortIcon k={def.sortKey} />
+                      </button>
+                    ) : (
+                      <span className={cn(def.align === "right" && "block text-right")}>{def.label}</span>
+                    )}
+                    <div
+                      onPointerDown={(e) => layout.startResize(k, e)}
+                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/60 active:bg-primary"
+                      role="separator"
+                      aria-label="Redimensionar coluna"
+                    />
+                  </TableHead>
+                );
+              })}
+
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -770,317 +811,311 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  {isVisible("score") && (
-                    <TableCell className="text-right">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className={cn(
-                            "inline-flex items-center justify-center rounded-full w-6 h-6 text-sm cursor-help",
-                            score.level === "healthy" ? "bg-success-soft" : score.level === "warning" ? "bg-warning/20" : "bg-danger-soft",
-                          )}>
-                            {score.emoji}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="text-xs">
-                          <b>{score.label}</b><br />
-                          ROI: {fmtPercent(c.roi)}<br />
-                          CTR: {(d?.ctr ?? 0).toFixed(2)}%<br />
-                          CPA: {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}<br />
-                          Conv: {fmtNumber(Math.round(c.conversions))}<br />
-                          eCPM: {fmtUSD(gamEcpm)}
-                          {trend && <><br />Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TableCell>
-                  )}
-                  {isVisible("startDate") && (
-                    <TableCell className="text-xs tabular-nums text-muted-foreground">
-                      {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
-                    </TableCell>
-                  )}
-                  {isVisible("age") && (
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                  )}
-                  {isVisible("lastAction") && (
-                    <TableCell className="text-xs">
-                      {lastAction ? (
-                        <div className="flex flex-col leading-tight">
-                          <span className="font-medium truncate max-w-[140px]" title={lastAction.label}>{lastAction.label}</span>
-                          <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
-                        </div>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                  )}
-                  {isVisible("spend") && (
-                    <TableCell className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>
-                  )}
-                  {isVisible("revenue") && (
-                    <TableCell className="text-right tabular-nums">
-                      <div>{fmtUSD(c.revenue)}</div>
-                      {c.revenue_brl != null && (
-                        <div className="text-[10px] text-muted-foreground">
-                          ≈ {fmtCurrency(c.revenue_brl)}
-                        </div>
-                      )}
-                    </TableCell>
-                  )}
-                  {isVisible("profit") && (
-                    <TableCell
-                      className={cn(
-                        "text-right font-semibold tabular-nums",
-                        positive ? "text-success" : "text-danger",
-                      )}
-                    >
-                      {fmtCurrency(c.profit)}
-                    </TableCell>
-                  )}
-                  {isVisible("roi") && (
-                    <TableCell className="text-right">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                          positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
-                        )}
-                      >
-                        {fmtPercent(c.roi)}
-                      </span>
-                    </TableCell>
-                  )}
-                  {isVisible("trend") && (
-                    <TableCell className="text-right">
-                      {trendQuery.isLoading ? (
-                        <Loader2 className="h-3 w-3 animate-spin inline text-muted-foreground" />
-                      ) : !trend || (trend.currentSpend === 0 && trend.prevSpend === 0) ? (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      ) : (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                  {orderedVisible.map((k) => {
+                    const ws = widthStyle(k);
+                    switch (k) {
+                      case "score":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className={cn(
+                                  "inline-flex items-center justify-center rounded-full w-6 h-6 text-sm cursor-help",
+                                  score.level === "healthy" ? "bg-success-soft" : score.level === "warning" ? "bg-warning/20" : "bg-danger-soft",
+                                )}>
+                                  {score.emoji}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs">
+                                <b>{score.label}</b><br />
+                                ROI: {fmtPercent(c.roi)}<br />
+                                CTR: {(d?.ctr ?? 0).toFixed(2)}%<br />
+                                CPA: {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}<br />
+                                Conv: {fmtNumber(Math.round(c.conversions))}<br />
+                                eCPM: {fmtUSD(gamEcpm)}
+                                {trend && <><br />Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      case "startDate":
+                        return (
+                          <TableCell key={k} style={ws} className="text-xs tabular-nums text-muted-foreground">
+                            {firstSpend ? firstSpend.slice(5).replace("-", "/") : "—"}
+                          </TableCell>
+                        );
+                      case "age":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right text-xs tabular-nums">
+                            {age != null ? <span className="font-semibold">{age}d</span> : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                        );
+                      case "lastAction":
+                        return (
+                          <TableCell key={k} style={ws} className="text-xs">
+                            {lastAction ? (
+                              <div className="flex flex-col leading-tight">
+                                <span className="font-medium truncate" title={lastAction.label}>{lastAction.label}</span>
+                                <span className="text-[10px] text-muted-foreground tabular-nums">{lastAction.date.slice(0, 10)}</span>
+                              </div>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                        );
+                      case "spend":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums">{fmtCurrency(c.spend)}</TableCell>;
+                      case "revenue":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <div>{fmtUSD(c.revenue)}</div>
+                            {c.revenue_brl != null && (
+                              <div className="text-[10px] text-muted-foreground">≈ {fmtCurrency(c.revenue_brl)}</div>
+                            )}
+                          </TableCell>
+                        );
+                      case "profit":
+                        return (
+                          <TableCell key={k} style={ws} className={cn("text-right font-semibold tabular-nums", positive ? "text-success" : "text-danger")}>
+                            {fmtCurrency(c.profit)}
+                          </TableCell>
+                        );
+                      case "roi":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right">
                             <span className={cn(
-                              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
-                              Math.abs(trend.diff) < 2 ? "bg-muted text-muted-foreground" :
-                              trend.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                              "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
+                              positive ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
                             )}>
-                              {Math.abs(trend.diff) < 2 ? <Minus className="h-3 w-3" /> :
-                                trend.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                              {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp
+                              {fmtPercent(c.roi)}
                             </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" className="text-xs">
-                            <b>Tendência ROI</b><br />
-                            ROI atual: {trend.currentRoi.toFixed(1)}%<br />
-                            ROI anterior: {trend.prevRoi.toFixed(1)}%<br />
-                            Diferença: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)} pontos<br />
-                            <span className="text-muted-foreground">Gasto atual: {fmtCurrency(trend.currentSpend)} • ant: {fmtCurrency(trend.prevSpend)}</span>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  )}
-                  {isVisible("roas") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {(Number(c.roas) || 0).toFixed(2)}x
-                    </TableCell>
-                  )}
-                  {isVisible("ecpm") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="cursor-help inline-block text-right">
-                            <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
-                            {gamMetric && (
-                              <div className="text-[10px] text-muted-foreground">
-                                GAM · {fmtNumber(gamMetric.impressions)} impr.
-                              </div>
+                          </TableCell>
+                        );
+                      case "trend":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right">
+                            {trendQuery.isLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin inline text-muted-foreground" />
+                            ) : !trend || (trend.currentSpend === 0 && trend.prevSpend === 0) ? (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
+                                    Math.abs(trend.diff) < 2 ? "bg-muted text-muted-foreground" :
+                                    trend.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                                  )}>
+                                    {Math.abs(trend.diff) < 2 ? <Minus className="h-3 w-3" /> :
+                                      trend.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                    {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="left" className="text-xs">
+                                  <b>Tendência ROI</b><br />
+                                  ROI atual: {trend.currentRoi.toFixed(1)}%<br />
+                                  ROI anterior: {trend.prevRoi.toFixed(1)}%<br />
+                                  Diferença: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)} pontos<br />
+                                  <span className="text-muted-foreground">Gasto atual: {fmtCurrency(trend.currentSpend)} • ant: {fmtCurrency(trend.prevSpend)}</span>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                          {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TableCell>
-                  )}
-                  {isVisible("matchRate") && (() => {
-                    const mr = campaignMatchRates?.get(c.campaign_id);
-                    const has = !!mr && mr.totalRequests > 0;
-                    const pct = mr?.matchRate ?? 0;
-                    const color = !has
-                      ? "text-muted-foreground"
-                      : pct >= 70 ? "text-success"
-                      : pct >= 40 ? "text-warning"
-                      : "text-danger";
-                    return (
-                      <TableCell className="text-right tabular-nums">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="cursor-help inline-block text-right">
-                              <div className={cn("underline decoration-dotted decoration-muted-foreground/50", color)}>
-                                {has ? `${pct.toFixed(1)}%` : "—"}
-                              </div>
-                              {has && (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
+                          </TableCell>
+                        );
+                      case "roas":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{(Number(c.roas) || 0).toFixed(2)}x</TableCell>;
+                      case "ecpm":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="cursor-help inline-block text-right">
+                                  <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
+                                  {gamMetric && (
+                                    <div className="text-[10px] text-muted-foreground">GAM · {fmtNumber(gamMetric.impressions)} impr.</div>
+                                  )}
                                 </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      case "matchRate": {
+                        const mr = campaignMatchRates?.get(c.campaign_id);
+                        const has = !!mr && mr.totalRequests > 0;
+                        const pct = mr?.matchRate ?? 0;
+                        const color = !has ? "text-muted-foreground" : pct >= 70 ? "text-success" : pct >= 40 ? "text-warning" : "text-danger";
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="cursor-help inline-block text-right">
+                                  <div className={cn("underline decoration-dotted decoration-muted-foreground/50", color)}>
+                                    {has ? `${pct.toFixed(1)}%` : "—"}
+                                  </div>
+                                  {has && (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
+                                    </div>
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {has
+                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign)`
+                                  : "Sem dados de AD_SERVER_TOTAL_REQUESTS para esta campanha no período. Rode uma sincronização do GAM."}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      }
+                      case "impressions":
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">
+                            <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
+                            {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
+                          </TableCell>
+                        );
+                      case "clicks":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{fmtNumber(c.clicks)}</TableCell>;
+                      case "ctr":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{(d?.ctr ?? 0).toFixed(2)}%</TableCell>;
+                      case "conversions":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{fmtNumber(Math.round(c.conversions))}</TableCell>;
+                      case "convRate":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{(d?.convRate ?? 0).toFixed(2)}%</TableCell>;
+                      case "cpa":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}</TableCell>;
+                      case "act_pause":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={loading}
+                              className={cn("h-8 px-2", isPaused ? "text-success hover:text-success" : "text-warning hover:text-warning")}
+                              title={isPaused ? "Ativar campanha" : "Pausar campanha"}
+                              onClick={() => callMutate(
+                                isPaused ? "Campanha ativada" : "Campanha pausada",
+                                { action: "set_status", campaign_id: c.campaign_id, status: isPaused ? "ENABLED" : "PAUSED" },
+                                rowKey,
                               )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                            {has
-                              ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign)`
-                              : "Sem dados de AD_SERVER_TOTAL_REQUESTS para esta campanha no período. Rode uma sincronização do GAM."}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                    );
-                  })()}
-                  {isVisible("impressions") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
-                      {gamMetric && <div className="text-[10px] text-muted-foreground">GAM</div>}
-                    </TableCell>
-                  )}
-                  {isVisible("clicks") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {fmtNumber(c.clicks)}
-                    </TableCell>
-                  )}
-                  {isVisible("ctr") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {(d?.ctr ?? 0).toFixed(2)}%
-                    </TableCell>
-                  )}
-                  {isVisible("conversions") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {fmtNumber(Math.round(c.conversions))}
-                    </TableCell>
-                  )}
-                  {isVisible("convRate") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {(d?.convRate ?? 0).toFixed(2)}%
-                    </TableCell>
-                  )}
-                  {isVisible("cpa") && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
-                    </TableCell>
-                  )}
-                  <TableCell className="text-right pr-6">
-                    <div className="flex justify-end gap-1.5 flex-nowrap">
-                      {loading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className={cn(
-                              "h-8 px-2",
-                              isPaused ? "text-success hover:text-success" : "text-warning hover:text-warning",
-                            )}
-                            title={isPaused ? "Ativar campanha" : "Pausar campanha"}
-                            onClick={() => callMutate(
-                              isPaused ? "Campanha ativada" : "Campanha pausada",
-                              { action: "set_status", campaign_id: c.campaign_id, status: isPaused ? "ENABLED" : "PAUSED" },
-                              rowKey,
-                            )}
-                          >
-                            {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                          </Button>
-
-                          <InlineMoneyEdit
-                            label="CPA"
-                            title={`Target CPA (ad groups) – ${c.name}`}
-                            value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
-                            disabled={loading}
-                            onSave={(v) => callMutate(
-                              `Target CPA (ad groups) = ${v.toFixed(2)}`,
-                              { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
-                              rowKey,
-                            )}
-                            menu={
-                              <>
-                                <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
-                                </DropdownMenuItem>
-                              </>
-                            }
-                          />
-
-                          <InlineMoneyEdit
-                            label="Orç"
-                            title={`Orçamento diário – ${c.name}`}
-                            value={((c as any)?.budget_micros ?? 0) / 1_000_000}
-                            disabled={loading}
-                            onSave={(v) => callMutate(
-                              `Orçamento definido em ${v.toFixed(2)}`,
-                              { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
-                              rowKey,
-                            )}
-                            menu={
-                              <>
-                                <DropdownMenuLabel className="text-xs">Ajustar orçamento</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
-                                </DropdownMenuItem>
-                                {onBoost && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
-                                      <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </>
-                            }
-                          />
-
-                          <CampaignHistoryButton
-                            campaignId={c.campaign_id}
-                            campaignName={c.name}
-                          />
-
-                          <RestartCampaignButton
-                            campaignId={c.campaign_id}
-                            campaignName={c.name}
-                            googleAccountId={(c as any).google_account_id ?? null}
-                            onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
-                          />
-
-                          <AttachHtml5Button
-                            campaignId={c.campaign_id}
-                            campaignName={c.name}
-                            googleAccountId={(c as any).google_account_id ?? null}
-                          />
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
+                            >
+                              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                            </Button>
+                          </TableCell>
+                        );
+                      case "act_cpa":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <InlineMoneyEdit
+                              label="CPA"
+                              title={`Target CPA (ad groups) – ${c.name}`}
+                              value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
+                              disabled={loading}
+                              onSave={(v) => callMutate(
+                                `Target CPA (ad groups) = ${v.toFixed(2)}`,
+                                { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
+                                rowKey,
+                              )}
+                              menu={
+                                <>
+                                  <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
+                                  </DropdownMenuItem>
+                                </>
+                              }
+                            />
+                          </TableCell>
+                        );
+                      case "act_budget":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <InlineMoneyEdit
+                              label="Orç"
+                              title={`Orçamento diário – ${c.name}`}
+                              value={((c as any)?.budget_micros ?? 0) / 1_000_000}
+                              disabled={loading}
+                              onSave={(v) => callMutate(
+                                `Orçamento definido em ${v.toFixed(2)}`,
+                                { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
+                                rowKey,
+                              )}
+                              menu={
+                                <>
+                                  <DropdownMenuLabel className="text-xs">Ajustar orçamento</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
+                                  </DropdownMenuItem>
+                                  {onBoost && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
+                                        <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                </>
+                              }
+                            />
+                          </TableCell>
+                        );
+                      case "act_history":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <CampaignHistoryButton campaignId={c.campaign_id} campaignName={c.name} />
+                          </TableCell>
+                        );
+                      case "act_restart":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <RestartCampaignButton
+                              campaignId={c.campaign_id}
+                              campaignName={c.name}
+                              googleAccountId={(c as any).google_account_id ?? null}
+                              onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
+                            />
+                          </TableCell>
+                        );
+                      case "act_html5":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            <AttachHtml5Button
+                              campaignId={c.campaign_id}
+                              campaignName={c.name}
+                              googleAccountId={(c as any).google_account_id ?? null}
+                            />
+                          </TableCell>
+                        );
+                      default:
+                        return null;
+                    }
+                  })}
                 </TableRow>
+
 
               );
             })}
