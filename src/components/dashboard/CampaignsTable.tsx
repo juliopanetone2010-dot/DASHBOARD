@@ -53,13 +53,14 @@ type PendingPauseAction = {
 interface Props {
   campaigns: CampaignAggregate[];
   campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
+  campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, downAccountIds, onPause, onBoost, onRefresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,7 +72,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
     { key: "score", label: "Saúde" },
     { key: "startDate", label: "Início gasto" },
@@ -84,6 +85,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "trend", label: "Tendência" },
     { key: "roas", label: "ROAS" },
     { key: "ecpm", label: "eCPM" },
+    { key: "matchRate", label: "Taxa Corresp." },
     { key: "impressions", label: "Impr." },
     { key: "clicks", label: "Cliques" },
     { key: "ctr", label: "CTR" },
@@ -91,7 +93,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
     { key: "convRate", label: "Tx. Conv." },
     { key: "cpa", label: "CPA" },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v3";
+  const STORAGE_KEY = "campaigns-table-visible-cols-v4";
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -661,6 +663,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
               {isVisible("trend") && <SortHead k="trend" label="Tendência" />}
               {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
               {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
+              {isVisible("matchRate") && <TableHead className="text-right text-xs">Taxa Corresp.</TableHead>}
               {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
               {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
               {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
@@ -897,6 +900,39 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, downAccountIds, 
                       </Tooltip>
                     </TableCell>
                   )}
+                  {isVisible("matchRate") && (() => {
+                    const mr = campaignMatchRates?.get(c.campaign_id);
+                    const has = !!mr && mr.totalRequests > 0;
+                    const pct = mr?.matchRate ?? 0;
+                    const color = !has
+                      ? "text-muted-foreground"
+                      : pct >= 70 ? "text-success"
+                      : pct >= 40 ? "text-warning"
+                      : "text-danger";
+                    return (
+                      <TableCell className="text-right tabular-nums">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="cursor-help inline-block text-right">
+                              <div className={cn("underline decoration-dotted decoration-muted-foreground/50", color)}>
+                                {has ? `${pct.toFixed(1)}%` : "—"}
+                              </div>
+                              {has && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
+                                </div>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                            {has
+                              ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign)`
+                              : "Sem dados de AD_SERVER_TOTAL_REQUESTS para esta campanha no período. Rode uma sincronização do GAM."}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                    );
+                  })()}
                   {isVisible("impressions") && (
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>

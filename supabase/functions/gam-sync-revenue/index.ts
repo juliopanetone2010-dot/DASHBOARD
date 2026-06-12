@@ -336,6 +336,11 @@ async function runSync(req: Request): Promise<Response> {
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          try {
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+          } catch (e) {
+            debug.push(`[${networkCode}/total_requests] erro=${String(e).slice(0, 400)}`);
+          }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
         }
 
@@ -1060,7 +1065,88 @@ async function debugKeyValuesName(networkCode: string, accessToken: string, rang
   }
 }
 
-async function persistCampaignSourceRevenueFromUtm(
+async function persistCampaignTotalRequests(args: {
+  admin: any;
+  userId: string;
+  siteId: string | undefined;
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  debug: string[];
+  deadlineAt?: number;
+}) {
+  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
+  if (!siteId) return;
+  // Pega DATE + KEY_VALUES_NAME com a métrica AD_SERVER_TOTAL_REQUESTS.
+  // O runReport coloca a primeira métrica em `impressions`. Aqui esse campo = total requests.
+  const reportRows = (await Promise.all(ranges.map((range) =>
+    runReport({
+      networkCode, accessToken, range,
+      dimensions: ["DATE", "KEY_VALUES_NAME"],
+      metrics: ["AD_SERVER_TOTAL_REQUESTS"],
+      debug, deadlineAt,
+    })
+  ))).flat();
+  // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
+  const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
+  for (const r of reportRows) {
+    const date = r.date;
+    if (!date) continue;
+    const kv = parseKeyValueDimension(r.dims[1] ?? "");
+    const cid = (kv.utm_campaign ?? "").trim();
+    if (!cid) continue;
+    const key = `${cid}|${date}`;
+    const cur = agg.get(key) ?? { cid, date, total_requests: 0 };
+    cur.total_requests += Number(r.impressions || 0);
+    agg.set(key, cur);
+  }
+  if (agg.size === 0) {
+    debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
+    return;
+  }
+  // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
+  // Se não existir, faz upsert com revenue/impressions=0 só para guardar o request count.
+  // Lê linhas existentes (utm_source='google') para preservar revenue_usd/impressions no upsert.
+  const cids = [...new Set([...agg.values()].map((b) => b.cid))];
+  const dates = [...new Set([...agg.values()].map((b) => b.date))];
+  const { data: existing } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("campaign_id,date,revenue_usd,impressions")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .eq("utm_source", "google")
+    .in("campaign_id", cids)
+    .in("date", dates);
+  const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
+  for (const r of (existing ?? []) as any[]) {
+    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+  }
+  const rows = [...agg.values()].map((b) => {
+    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
+    return {
+      user_id: userId,
+      site_id: siteId,
+      campaign_id: b.cid,
+      date: b.date,
+      utm_source: "google",
+      revenue_usd: prev.revenue_usd,
+      impressions: prev.impressions,
+      total_requests: b.total_requests,
+    };
+  });
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const slice = rows.slice(i, i + CHUNK);
+    const { error } = await admin
+      .from("gam_campaign_source_revenue")
+      .upsert(slice, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+    if (error) debug.push(`[${networkCode}/total_requests] upsert err=${error.message}`);
+  }
+  debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
+}
+
+
+
   admin: any,
   userId: string,
   siteId: string | undefined,

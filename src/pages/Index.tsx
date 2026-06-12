@@ -330,6 +330,51 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
+  // Taxa de correspondência (Match Rate) por campanha:
+  //   AD_SERVER_IMPRESSIONS / AD_SERVER_TOTAL_REQUESTS, ambos filtrados por utm_campaign=cid.
+  // Fonte: gam_campaign_source_revenue (linhas utm_source='google') no período exato.
+  const campaignMatchRateQuery = useQuery({
+    queryKey: ["campaign-match-rate", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("campaign_id, impressions, total_requests, site_id")
+        .eq("utm_source", "google")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(50000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const selectedAccountIds = new Set(filters.googleAccountIds);
+      const allowedCampaignIds = selectedAccountIds.size > 0
+        ? new Set(data.campaigns
+          .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
+          .map((c) => c.campaign_id))
+        : null;
+      const map = new Map<string, { impressions: number; totalRequests: number }>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
+        cur.impressions += Number((r as any).impressions ?? 0);
+        cur.totalRequests += Number((r as any).total_requests ?? 0);
+        map.set(cid, cur);
+      }
+      const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
+      for (const [cid, v] of map) {
+        out.set(cid, {
+          matchRate: v.totalRequests > 0 ? (v.impressions / v.totalRequests) * 100 : 0,
+          impressions: v.impressions,
+          totalRequests: v.totalRequests,
+        });
+      }
+      return out;
+    },
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000,
+  });
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
@@ -880,6 +925,7 @@ const IndexInner = () => {
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
                 campaignGamMetrics={campaignGamMetricsQuery.data}
+                campaignMatchRates={campaignMatchRateQuery.data}
                 downAccountIds={new Set(
                   (data.googleAccounts ?? [])
                     .filter((a) => a.status === "suspended" || a.status === "canceled")
