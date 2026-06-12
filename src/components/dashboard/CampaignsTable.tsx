@@ -709,143 +709,35 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                   <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[172px] z-20 w-[420px] min-w-[420px] bg-card border-r border-border font-medium shadow-sm">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2 whitespace-normal">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">
-                            {score.emoji} <b>{score.label}</b><br />
-                            ROI: {fmtPercent(c.roi)} • CTR: {(d?.ctr ?? 0).toFixed(2)}%
-                            {trend && <> • Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
-                          </TooltipContent>
-                        </Tooltip>
-                        <span className={cn(
-                          "h-1.5 w-1.5 rounded-full",
-                          accountDown ? "bg-danger" :
-                          c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
-                        )} />
-                        <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
-                        {accountDown && (
-                          <Badge variant="destructive" className="text-[10px] gap-1">
-                            <ShieldX className="h-3 w-3" /> Conta suspensa
-                          </Badge>
-                        )}
-                        <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {loading ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className={cn(
-                                "h-7 px-2",
-                                isPaused ? "text-success hover:text-success" : "text-warning hover:text-warning",
-                              )}
-                              title={isPaused ? "Ativar campanha" : "Pausar campanha"}
-                              onClick={() => callMutate(
-                                isPaused ? "Campanha ativada" : "Campanha pausada",
-                                { action: "set_status", campaign_id: c.campaign_id, status: isPaused ? "ENABLED" : "PAUSED" },
-                                rowKey,
-                              )}
-                            >
-                              {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                            </Button>
-                            <InlineMoneyEdit
-                              label="CPA"
-                              title={`Target CPA (ad groups) – ${c.name}`}
-                              value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
-                              disabled={loading}
-                              onSave={(v) => callMutate(
-                                `Target CPA (ad groups) = ${v.toFixed(2)}`,
-                                { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
-                                rowKey,
-                              )}
-                              menu={
-                                <>
-                                  <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
-                                  </DropdownMenuItem>
-                                </>
-                              }
-                            />
-                            <InlineMoneyEdit
-                              label="Orç"
-                              title={`Orçamento diário – ${c.name}`}
-                              value={((c as any)?.budget_micros ?? 0) / 1_000_000}
-                              disabled={loading}
-                              onSave={(v) => callMutate(
-                                `Orçamento definido em ${v.toFixed(2)}`,
-                                { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
-                                rowKey,
-                              )}
-                              menu={
-                                <>
-                                  <DropdownMenuLabel className="text-xs">Ajustar orçamento</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
-                                  </DropdownMenuItem>
-                                  {onBoost && (
-                                    <>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
-                                        <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
-                                      </DropdownMenuItem>
-                                    </>
-                                  )}
-                                </>
-                              }
-                            />
-                            <CampaignHistoryButton
-                              campaignId={c.campaign_id}
-                              campaignName={c.name}
-                            />
-                            <RestartCampaignButton
-                              campaignId={c.campaign_id}
-                              campaignName={c.name}
-                              googleAccountId={(c as any).google_account_id ?? null}
-                              onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
-                            />
-                            <AttachHtml5Button
-                              campaignId={c.campaign_id}
-                              campaignName={c.name}
-                              googleAccountId={(c as any).google_account_id ?? null}
-                            />
-                          </>
-                        )}
-                      </div>
+                  <TableCell className="sticky left-[172px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border font-medium shadow-sm">
+                    <div className="flex items-center gap-2 whitespace-normal">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {score.emoji} <b>{score.label}</b><br />
+                          ROI: {fmtPercent(c.roi)} • CTR: {(d?.ctr ?? 0).toFixed(2)}%
+                          {trend && <> • Tendência: {trend.diff >= 0 ? "+" : ""}{trend.diff.toFixed(1)}pp</>}
+                        </TooltipContent>
+                      </Tooltip>
+                      <span className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        accountDown ? "bg-danger" :
+                        c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
+                      )} />
+                      <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
+                      {accountDown && (
+                        <Badge variant="destructive" className="text-[10px] gap-1">
+                          <ShieldX className="h-3 w-3" /> Conta suspensa
+                        </Badge>
+                      )}
+                      <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                     </div>
                   </TableCell>
 
-                  <TableCell className="sticky left-[592px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[732px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[280px]">
                         <Tooltip>
