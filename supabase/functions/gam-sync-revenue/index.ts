@@ -1090,6 +1090,7 @@ async function persistCampaignTotalRequests(args: {
       debug, deadlineAt,
     })
   ))).flat();
+  console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
   // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
   const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
   for (const r of reportRows) {
