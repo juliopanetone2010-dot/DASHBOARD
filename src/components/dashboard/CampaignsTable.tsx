@@ -72,44 +72,55 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
-  const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
-    { key: "score", label: "Saúde" },
-    { key: "startDate", label: "Início gasto" },
-    { key: "age", label: "Idade" },
-    { key: "lastAction", label: "Última ação" },
-    { key: "spend", label: "Gasto" },
-    { key: "revenue", label: "Receita" },
-    { key: "profit", label: "Lucro" },
-    { key: "roi", label: "ROI" },
-    { key: "trend", label: "Tendência" },
-    { key: "roas", label: "ROAS" },
-    { key: "ecpm", label: "eCPM" },
-    { key: "matchRate", label: "Taxa Corresp." },
-    { key: "impressions", label: "Impr." },
-    { key: "clicks", label: "Cliques" },
-    { key: "ctr", label: "CTR" },
-    { key: "conversions", label: "Conv." },
-    { key: "convRate", label: "Tx. Conv." },
-    { key: "cpa", label: "CPA" },
+  type ColKey =
+    | "score" | "startDate" | "age" | "lastAction"
+    | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
+    | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr"
+    | "conversions" | "convRate" | "cpa"
+    | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
+  const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
+    { key: "score", label: "Saúde", width: 60 },
+    { key: "startDate", label: "Início gasto", width: 100 },
+    { key: "age", label: "Idade", width: 70 },
+    { key: "lastAction", label: "Última ação", width: 140 },
+    { key: "spend", label: "Gasto", width: 100 },
+    { key: "revenue", label: "Receita", width: 110 },
+    { key: "profit", label: "Lucro", width: 110 },
+    { key: "roi", label: "ROI", width: 90 },
+    { key: "trend", label: "Tendência", width: 100 },
+    { key: "roas", label: "ROAS", width: 80 },
+    { key: "ecpm", label: "eCPM", width: 100 },
+    { key: "matchRate", label: "Taxa Corresp.", width: 110 },
+    { key: "impressions", label: "Impr.", width: 100 },
+    { key: "clicks", label: "Cliques", width: 80 },
+    { key: "ctr", label: "CTR", width: 70 },
+    { key: "conversions", label: "Conv.", width: 80 },
+    { key: "convRate", label: "Tx. Conv.", width: 90 },
+    { key: "cpa", label: "CPA", width: 90 },
+    { key: "act_pause", label: "Ação · Pause", width: 56 },
+    { key: "act_cpa", label: "Ação · CPA", width: 120 },
+    { key: "act_budget", label: "Ação · Orçamento", width: 120 },
+    { key: "act_history", label: "Ação · Histórico", width: 110 },
+    { key: "act_restart", label: "Ação · Reiniciar", width: 110 },
+    { key: "act_html5", label: "Ação · HTML5", width: 90 },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v4";
-  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
-    try {
-      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-      if (raw) return new Set(JSON.parse(raw) as ColKey[]);
-    } catch { /* ignore */ }
-    return new Set(ALL_COLUMNS.map((c) => c.key));
+  const ALL_KEYS = ALL_COLUMNS.map((c) => c.key);
+  const DEFAULT_WIDTHS = Object.fromEntries(ALL_COLUMNS.map((c) => [c.key, c.width])) as Record<ColKey, number>;
+  const layout = useColumnLayout({
+    storageKeyOrder: "campaigns-table-col-order-v1",
+    storageKeyWidths: "campaigns-table-col-widths-v1",
+    storageKeyVisible: "campaigns-table-visible-cols-v5",
+    allKeys: ALL_KEYS,
+    defaultWidths: DEFAULT_WIDTHS,
   });
-  useEffect(() => {
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(visibleCols))); } catch { /* ignore */ }
-  }, [visibleCols]);
+  const visibleCols = layout.visible as Set<ColKey>;
   const isVisible = (k: ColKey) => visibleCols.has(k);
-  const toggleCol = (k: ColKey) => setVisibleCols((cur) => {
-    const next = new Set(cur);
-    if (next.has(k)) next.delete(k); else next.add(k);
-    return next;
-  });
+  const orderedVisible = (layout.order as ColKey[]).filter((k) => isVisible(k));
+  const widthStyle = (k: ColKey): React.CSSProperties => {
+    const w = layout.widths[k] ?? DEFAULT_WIDTHS[k];
+    return { width: w, minWidth: w, maxWidth: w };
+  };
+
 
   // Final URLs por campaign_id — fonte: campo final_urls do Google Ads API (tabela campaign_final_urls).
   const campaignIds = useMemo(() => campaigns.map((c) => c.campaign_id), [campaigns]);
