@@ -650,8 +650,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                 />
               </TableHead>
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
-              <TableHead className="sticky left-[172px] z-30 w-[420px] min-w-[420px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[592px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead className="sticky left-[172px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
+              <TableHead className="sticky left-[732px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               {isVisible("score") && <SortHead k="score" label="Saúde" />}
               {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
               {isVisible("age") && <SortHead k="age" label="Idade" />}
