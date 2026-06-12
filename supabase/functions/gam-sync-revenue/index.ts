@@ -1149,8 +1149,7 @@ async function persistCampaignTotalRequests(args: {
   debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
 }
 
-
-
+async function persistCampaignSourceRevenueFromUtm(
   admin: any,
   userId: string,
   siteId: string | undefined,
