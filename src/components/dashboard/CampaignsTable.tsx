@@ -643,25 +643,45 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
               <TableHead className="sticky left-[732px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
-              {isVisible("score") && <SortHead k="score" label="Saúde" />}
-              {isVisible("startDate") && <TableHead className="w-[100px] text-xs">Início gasto</TableHead>}
-              {isVisible("age") && <SortHead k="age" label="Idade" />}
-              {isVisible("lastAction") && <TableHead className="w-[140px] text-xs">Última ação</TableHead>}
-              {isVisible("spend") && <SortHead k="spend" label="Gasto" />}
-              {isVisible("revenue") && <SortHead k="revenue" label="Receita" />}
-              {isVisible("profit") && <SortHead k="profit" label="Lucro" />}
-              {isVisible("roi") && <SortHead k="roi" label="ROI" />}
-              {isVisible("trend") && <SortHead k="trend" label="Tendência" />}
-              {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
-              {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
-              {isVisible("matchRate") && <TableHead className="text-right text-xs">Taxa Corresp.</TableHead>}
-              {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
-              {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
-              {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
-              {isVisible("conversions") && <SortHead k="conversions" label="Conv." />}
-              {isVisible("convRate") && <SortHead k="convRate" label="Tx. Conv." />}
-              {isVisible("cpa") && <SortHead k="cpa" label="CPA" />}
-              <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
+              {orderedVisible.map((k) => {
+                const def = HEAD_DEFS[k];
+                const active = !!def.sortKey && sort?.key === def.sortKey;
+                return (
+                  <TableHead
+                    key={k}
+                    style={widthStyle(k)}
+                    className={cn(
+                      "relative whitespace-nowrap text-xs",
+                      def.align === "right" ? "text-right" : "text-left",
+                      active && "bg-primary/5",
+                    )}
+                  >
+                    {def.sortKey ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(def.sortKey!)}
+                        className={cn(
+                          "inline-flex items-center gap-1 select-none hover:text-foreground transition-colors",
+                          def.align === "right" && "ml-auto",
+                          active ? "text-foreground font-semibold" : "text-muted-foreground",
+                        )}
+                      >
+                        {def.label}
+                        <SortIcon k={def.sortKey} />
+                      </button>
+                    ) : (
+                      <span className={cn(def.align === "right" && "block text-right")}>{def.label}</span>
+                    )}
+                    <div
+                      onPointerDown={(e) => layout.startResize(k, e)}
+                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/60 active:bg-primary"
+                      role="separator"
+                      aria-label="Redimensionar coluna"
+                    />
+                  </TableHead>
+                );
+              })}
+
             </TableRow>
           </TableHeader>
           <TableBody>
