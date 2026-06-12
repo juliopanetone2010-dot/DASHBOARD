@@ -1141,28 +1141,34 @@ function InlineMoneyEdit({
 }: {
   label: string;
   title: string;
-  value: number;
+  value: number | null | undefined;
   disabled?: boolean;
   onSave: (v: number) => void;
   menu?: React.ReactNode;
 }) {
+  const numeric = value ?? 0;
+  const hasValue = numeric > 0;
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<string>(value > 0 ? value.toFixed(2) : "");
+  const [draft, setDraft] = useState<string>(hasValue ? numeric.toFixed(2) : "");
   useEffect(() => {
-    if (!editing) setDraft(value > 0 ? value.toFixed(2) : "");
-  }, [value, editing]);
+    if (!editing) setDraft(hasValue ? numeric.toFixed(2) : "");
+  }, [numeric, editing]);
 
   const commit = () => {
     const v = Number(String(draft).replace(",", "."));
     setEditing(false);
     if (!Number.isFinite(v) || v <= 0) {
       if ((draft ?? "") !== "") toast({ title: "Valor inválido", variant: "destructive" });
-      setDraft(value > 0 ? value.toFixed(2) : "");
+      setDraft(hasValue ? numeric.toFixed(2) : "");
       return;
     }
-    if (Math.abs(v - value) < 0.005) return;
+    if (Math.abs(v - numeric) < 0.005) return;
     onSave(v);
   };
+
+  if (!hasValue) {
+    return <span className="px-2 text-xs text-muted-foreground tabular-nums">—</span>;
+  }
 
   return (
     <div className="inline-flex items-center h-8 rounded-md border bg-background overflow-hidden">
@@ -1177,7 +1183,7 @@ function InlineMoneyEdit({
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
-            if (e.key === "Escape") { setDraft(value > 0 ? value.toFixed(2) : ""); setEditing(false); }
+            if (e.key === "Escape") { setDraft(hasValue ? numeric.toFixed(2) : ""); setEditing(false); }
           }}
           className="h-8 w-20 border-0 rounded-none px-1.5 text-xs tabular-nums focus-visible:ring-0 focus-visible:ring-offset-0"
         />
@@ -1189,7 +1195,7 @@ function InlineMoneyEdit({
           onClick={() => setEditing(true)}
           className="h-8 px-2 text-xs tabular-nums hover:bg-muted/60 disabled:opacity-50 flex items-center gap-1"
         >
-          {value > 0 ? value.toFixed(2) : "—"}
+          {numeric.toFixed(2)}
           <Pencil className="h-3 w-3 text-muted-foreground" />
         </button>
       )}
