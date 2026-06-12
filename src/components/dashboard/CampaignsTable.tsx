@@ -560,37 +560,15 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
             <AlertTriangle className="h-3.5 w-3.5" />
             Revisar pausas ({pendingPauseActions.length})
           </Button>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
-              <Columns3 className="h-3.5 w-3.5" />
-              Colunas ({visibleCols.size}/{ALL_COLUMNS.length})
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-56 p-2">
-            <div className="flex items-center justify-between px-1 pb-2">
-              <span className="text-xs font-semibold">Personalizar colunas</span>
-              <button
-                type="button"
-                className="text-[10px] text-primary hover:underline"
-                onClick={() => setVisibleCols(new Set(ALL_COLUMNS.map((c) => c.key)))}
-              >
-                Mostrar todas
-              </button>
-            </div>
-            <div className="max-h-80 overflow-y-auto">
-              {ALL_COLUMNS.map((c) => (
-                <label
-                  key={c.key}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted cursor-pointer"
-                >
-                  <Checkbox checked={isVisible(c.key)} onCheckedChange={() => toggleCol(c.key)} />
-                  <span>{c.label}</span>
-                </label>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+          <ColumnManagerDropdown
+            columns={ALL_COLUMNS.map((c) => ({ key: c.key, label: c.label }))}
+            order={layout.order}
+            visible={layout.visible}
+            onOrderChange={layout.setOrder}
+            onToggleVisible={layout.toggleVisible}
+            onReset={layout.resetAll}
+          />
+
         </div>
       </div>
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
