@@ -1106,25 +1106,45 @@ async function persistCampaignTotalRequests(args: {
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
   // Se não existir, faz upsert com revenue/impressions=0 só para guardar o request count.
-  const rows = [...agg.values()].map((b) => ({
-    user_id: userId,
-    site_id: siteId,
-    campaign_id: b.cid,
-    date: b.date,
-    utm_source: "google",
-    total_requests: b.total_requests,
-  }));
+  // Lê linhas existentes (utm_source='google') para preservar revenue_usd/impressions no upsert.
+  const cids = [...new Set([...agg.values()].map((b) => b.cid))];
+  const dates = [...new Set([...agg.values()].map((b) => b.date))];
+  const { data: existing } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("campaign_id,date,revenue_usd,impressions")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .eq("utm_source", "google")
+    .in("campaign_id", cids)
+    .in("date", dates);
+  const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
+  for (const r of (existing ?? []) as any[]) {
+    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+  }
+  const rows = [...agg.values()].map((b) => {
+    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
+    return {
+      user_id: userId,
+      site_id: siteId,
+      campaign_id: b.cid,
+      date: b.date,
+      utm_source: "google",
+      revenue_usd: prev.revenue_usd,
+      impressions: prev.impressions,
+      total_requests: b.total_requests,
+    };
+  });
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
-    // Atualiza only total_requests via update por chave; usa upsert defensivo.
     const { error } = await admin
       .from("gam_campaign_source_revenue")
-      .upsert(slice, { onConflict: "user_id,site_id,campaign_id,date,utm_source", ignoreDuplicates: false });
+      .upsert(slice, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
     if (error) debug.push(`[${networkCode}/total_requests] upsert err=${error.message}`);
   }
   debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
 }
+
 
 
   admin: any,
