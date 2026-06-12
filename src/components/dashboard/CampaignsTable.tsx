@@ -900,6 +900,39 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                       </Tooltip>
                     </TableCell>
                   )}
+                  {isVisible("matchRate") && (() => {
+                    const mr = campaignMatchRates?.get(c.campaign_id);
+                    const has = !!mr && mr.totalRequests > 0;
+                    const pct = mr?.matchRate ?? 0;
+                    const color = !has
+                      ? "text-muted-foreground"
+                      : pct >= 70 ? "text-success"
+                      : pct >= 40 ? "text-warning"
+                      : "text-danger";
+                    return (
+                      <TableCell className="text-right tabular-nums">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="cursor-help inline-block text-right">
+                              <div className={cn("underline decoration-dotted decoration-muted-foreground/50", color)}>
+                                {has ? `${pct.toFixed(1)}%` : "—"}
+                              </div>
+                              {has && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
+                                </div>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                            {has
+                              ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign)`
+                              : "Sem dados de AD_SERVER_TOTAL_REQUESTS para esta campanha no período. Rode uma sincronização do GAM."}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                    );
+                  })()}
                   {isVisible("impressions") && (
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       <div>{fmtNumber(gamMetric?.impressions ?? c.impressions)}</div>
