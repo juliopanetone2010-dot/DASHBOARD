@@ -597,6 +597,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
             onOrderChange={layout.setOrder}
             onToggleVisible={layout.toggleVisible}
             onReset={layout.resetAll}
+            presets={layout.presets}
+            onSavePreset={layout.savePreset}
+            onApplyPreset={layout.applyPreset}
+            onDeletePreset={layout.deletePreset}
           />
 
         </div>

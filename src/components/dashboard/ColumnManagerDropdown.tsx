@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Columns3, GripVertical, RotateCcw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Columns3, GripVertical, RotateCcw, Save, Trash2, Check } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -17,6 +19,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { ColumnPreset } from "@/hooks/useColumnLayout";
 
 export interface ColumnOption {
   key: string;
@@ -30,6 +33,10 @@ interface Props {
   onOrderChange: (next: string[]) => void;
   onToggleVisible: (key: string) => void;
   onReset: () => void;
+  presets?: ColumnPreset[];
+  onSavePreset?: (name: string) => void;
+  onApplyPreset?: (name: string) => void;
+  onDeletePreset?: (name: string) => void;
 }
 
 function SortableItem({
@@ -77,8 +84,13 @@ export function ColumnManagerDropdown({
   onOrderChange,
   onToggleVisible,
   onReset,
+  presets = [],
+  onSavePreset,
+  onApplyPreset,
+  onDeletePreset,
 }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const [newName, setNewName] = useState("");
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
@@ -88,10 +100,15 @@ export function ColumnManagerDropdown({
     onOrderChange(arrayMove(order, oldIdx, newIdx));
   };
 
-  // Render in current order
   const orderedCols = order
     .map((k) => columns.find((c) => c.key === k))
     .filter((x): x is ColumnOption => !!x);
+
+  const handleSave = () => {
+    if (!newName.trim() || !onSavePreset) return;
+    onSavePreset(newName);
+    setNewName("");
+  };
 
   return (
     <Popover>
@@ -101,7 +118,7 @@ export function ColumnManagerDropdown({
           Colunas ({visible.size}/{columns.length})
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2">
+      <PopoverContent align="end" className="w-72 p-2">
         <div className="flex items-center justify-between px-1 pb-2">
           <span className="text-xs font-semibold">Personalizar colunas</span>
           <button
@@ -112,10 +129,78 @@ export function ColumnManagerDropdown({
             <RotateCcw className="h-3 w-3" /> Restaurar
           </button>
         </div>
+
+        {onSavePreset && (
+          <div className="mb-2 rounded-md border bg-muted/30 p-2">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Minhas visões salvas
+            </div>
+            {presets.length === 0 && (
+              <p className="px-0.5 pb-1.5 text-[10px] text-muted-foreground">
+                Nenhuma visão salva ainda.
+              </p>
+            )}
+            {presets.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {presets.map((p) => (
+                  <div
+                    key={p.name}
+                    className="flex items-center gap-1 rounded-md bg-background px-1.5 py-1 text-xs"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onApplyPreset?.(p.name)}
+                      className="flex flex-1 items-center gap-1 truncate text-left hover:text-primary"
+                      title={`Aplicar visão "${p.name}"`}
+                    >
+                      <Check className="h-3 w-3 shrink-0 text-primary" />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeletePreset?.(p.name)}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Apagar visão ${p.name}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1">
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSave();
+                  }
+                }}
+                placeholder="Nome da visão"
+                className="h-7 text-xs"
+              />
+              <Button
+                size="sm"
+                variant="default"
+                className="h-7 gap-1 px-2 text-[11px]"
+                onClick={handleSave}
+                disabled={!newName.trim()}
+              >
+                <Save className="h-3 w-3" /> Salvar
+              </Button>
+            </div>
+            <p className="mt-1 px-0.5 text-[10px] text-muted-foreground">
+              Salva ordem, largura e colunas visíveis.
+            </p>
+          </div>
+        )}
+
         <p className="px-1 pb-2 text-[10px] text-muted-foreground">
           Arraste para reordenar. Desmarque para ocultar.
         </p>
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-80 overflow-y-auto">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={order} strategy={verticalListSortingStrategy}>
               {orderedCols.map((col) => (

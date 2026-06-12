@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 
+export interface ColumnPreset {
+  name: string;
+  order: string[];
+  widths: Record<string, number>;
+  visible: string[];
+}
+
 interface Options {
   storageKeyOrder: string;
   storageKeyWidths: string;
   storageKeyVisible: string;
+  storageKeyPresets?: string;
   allKeys: string[];
   defaultWidths: Record<string, number>;
   minWidth?: number;
@@ -14,6 +22,7 @@ export function useColumnLayout({
   storageKeyOrder,
   storageKeyWidths,
   storageKeyVisible,
+  storageKeyPresets,
   allKeys,
   defaultWidths,
   minWidth = 60,
@@ -100,5 +109,48 @@ export function useColumnLayout({
     window.addEventListener("pointerup", onUp);
   };
 
-  return { order, setOrder, widths, setWidth, visible, toggleVisible, resetAll, startResize };
+  // ---- Presets (named saved views) ----
+  const presetsKey = storageKeyPresets ?? `${storageKeyOrder}::presets`;
+  const [presets, setPresets] = useState<ColumnPreset[]>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(presetsKey) : null;
+      if (raw) return JSON.parse(raw) as ColumnPreset[];
+    } catch { /* ignore */ }
+    return [];
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(presetsKey, JSON.stringify(presets)); } catch { /* ignore */ }
+  }, [presets, presetsKey]);
+
+  const savePreset = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const snapshot: ColumnPreset = {
+      name: trimmed,
+      order: [...order],
+      widths: { ...widths },
+      visible: Array.from(visible),
+    };
+    setPresets((cur) => {
+      const without = cur.filter((p) => p.name !== trimmed);
+      return [...without, snapshot];
+    });
+  };
+
+  const applyPreset = (name: string) => {
+    const p = presets.find((x) => x.name === name);
+    if (!p) return;
+    const known = new Set(allKeys);
+    const persisted = p.order.filter((k) => known.has(k));
+    const missing = allKeys.filter((k) => !persisted.includes(k));
+    setOrder([...persisted, ...missing]);
+    setWidths({ ...defaultWidths, ...p.widths });
+    setVisible(new Set(p.visible.filter((k) => known.has(k))));
+  };
+
+  const deletePreset = (name: string) => {
+    setPresets((cur) => cur.filter((p) => p.name !== name));
+  };
+
+  return { order, setOrder, widths, setWidth, visible, toggleVisible, resetAll, startResize, presets, savePreset, applyPreset, deletePreset };
 }
