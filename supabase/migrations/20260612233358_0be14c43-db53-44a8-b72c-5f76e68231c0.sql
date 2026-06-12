@@ -1,0 +1,1 @@
+UPDATE public.campaigns SET target_cpa_micros = NULL WHERE target_cpa_micros IS NOT NULL;
