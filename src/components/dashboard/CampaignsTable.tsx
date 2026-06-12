@@ -1015,7 +1015,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                             <InlineMoneyEdit
                               label="CPA"
                               title={`Target CPA (ad groups) – ${c.name}`}
-                              value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
+                              value={(c as any)?.target_cpa_micros ? ((c as any).target_cpa_micros / 1_000_000) : null}
                               disabled={loading}
                               onSave={(v) => callMutate(
                                 `Target CPA (ad groups) = ${v.toFixed(2)}`,
