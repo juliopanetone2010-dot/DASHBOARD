@@ -337,8 +337,11 @@ async function runSync(req: Request): Promise<Response> {
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           try {
+            console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests`);
             await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+            console.log(`[${networkCode}/total_requests] completed`);
           } catch (e) {
+            console.error(`[${networkCode}/total_requests] erro`, e);
             debug.push(`[${networkCode}/total_requests] erro=${String(e).slice(0, 400)}`);
           }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
@@ -1087,6 +1090,7 @@ async function persistCampaignTotalRequests(args: {
       debug, deadlineAt,
     })
   ))).flat();
+  console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
   // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
   const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
   for (const r of reportRows) {
@@ -1145,8 +1149,7 @@ async function persistCampaignTotalRequests(args: {
   debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
 }
 
-
-
+async function persistCampaignSourceRevenueFromUtm(
   admin: any,
   userId: string,
   siteId: string | undefined,
