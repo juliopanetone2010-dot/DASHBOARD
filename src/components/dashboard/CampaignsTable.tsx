@@ -663,6 +663,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               {isVisible("trend") && <SortHead k="trend" label="Tendência" />}
               {isVisible("roas") && <SortHead k="roas" label="ROAS" />}
               {isVisible("ecpm") && <SortHead k="ecpm" label="eCPM" />}
+              {isVisible("matchRate") && <TableHead className="text-right text-xs">Taxa Corresp.</TableHead>}
               {isVisible("impressions") && <SortHead k="impressions" label="Impr." />}
               {isVisible("clicks") && <SortHead k="clicks" label="Cliques" />}
               {isVisible("ctr") && <SortHead k="ctr" label="CTR" />}
