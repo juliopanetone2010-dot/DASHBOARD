@@ -670,7 +670,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               {isVisible("conversions") && <SortHead k="conversions" label="Conv." />}
               {isVisible("convRate") && <SortHead k="convRate" label="Tx. Conv." />}
               {isVisible("cpa") && <SortHead k="cpa" label="CPA" />}
-              
+              <TableHead className="w-[320px] text-right pr-6">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
