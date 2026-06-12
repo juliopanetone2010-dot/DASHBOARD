@@ -189,6 +189,23 @@ async function runSync(req: Request): Promise<Response> {
           }
         }
 
+        // PRIORIDADE: roda persistCampaignTotalRequests primeiro, pois é o que
+        // alimenta a coluna "Taxa de Correspondência" e era frequentemente cortado
+        // pelo IDLE_TIMEOUT de 150s quando vinha depois do trabalho pesado abaixo.
+        if (!testMode && hasBudget(25_000)) {
+          try {
+            console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests (early)`);
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+            console.log(`[${networkCode}/total_requests] completed (early)`);
+          } catch (e) {
+            console.error(`[${networkCode}/total_requests] erro (early)`, e);
+            debug.push(`[${networkCode}/total_requests] erro=${String(e).slice(0, 400)}`);
+          }
+        } else {
+          debug.push(`[${networkCode}/total_requests] skipped (budget low)`);
+        }
+
+
         // Reports legados (ad unit + placement) são pesados e não entram no ROI.
         // Em sincronizações automáticas usamos revenue_only para evitar timeout de 150s.
         let adUnitRows: Array<ReportRow & { name: string }> = [];
@@ -336,15 +353,8 @@ async function runSync(req: Request): Promise<Response> {
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
-          try {
-            console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests`);
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
-            console.log(`[${networkCode}/total_requests] completed`);
-          } catch (e) {
-            console.error(`[${networkCode}/total_requests] erro`, e);
-            debug.push(`[${networkCode}/total_requests] erro=${String(e).slice(0, 400)}`);
-          }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+
         }
 
         const vTot = viewabilityRows.reduce((a, r) => ({
