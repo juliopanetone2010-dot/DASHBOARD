@@ -1,49 +1,66 @@
 ## Objetivo
-Melhorar a análise por campanha direto na tabela do dashboard, sem precisar abrir o modal "Reiniciar". Adicionar histórico, idade, padronizar eCPM e mostrar última ação.
+
+Tornar a `CampaignsTable` totalmente customizável: permitir **reordenar** e **redimensionar** todas as colunas (incluindo a coluna de "Ações" — Pause / CPA / Orç / Histórico / Reiniciar / HTML5, que passam a ser tratadas como colunas independentes).
 
 ## Mudanças
 
-### 1. Novo helper compartilhado de eCPM
-Criar `src/lib/campaignEcpm.ts` com `calculateCampaignEcpm(revenueGam, impressionsGam)` retornando `{ ecpm, revenue, impressions, formula }`. Usar em:
-- `CampaignsTable.tsx`
-- `RestartCampaignButton.tsx` (preview modal)
-- Dashboard / Funil
+### 1. Tratar cada ação como coluna independente
 
-Fonte única: `gam_campaign_source_revenue` (receita + impressões GAM por campanha/dia). Já é o que alimenta `campaignGamMetrics` no dashboard, garantindo consistência.
+Hoje as 6 ações vivem dentro de um único `<TableCell>` fixo no fim. Vou separá-las em colunas próprias:
 
-### 2. Novas colunas na CampaignsTable
-- **Início gasto**: primeiro `daily_metrics.date` com `spend > 0` (por `campaign_id`)
-- **Idade**: `today - inicio_gasto` em dias
-- **Última ação**: mais recente entre `campaign_automation.last_action_date`, `last_cpa_action_date`, `last_scale_date`, e `campaign_restart_flow.last_action_at`
+- `act_pause` — botão Pause/Play
+- `act_cpa` — InlineMoneyEdit CPA
+- `act_budget` — InlineMoneyEdit Orçamento
+- `act_history` — botão Histórico
+- `act_restart` — botão Reiniciar
+- `act_html5` — botão HTML5
 
-Query em paralelo (React Query) buscando esses agregados por lista de `campaign_ids` visíveis.
+Cada uma vira opção no menu "Colunas" (já existente) e pode ser ocultada individualmente.
 
-### 3. Novo botão "Histórico" separado do "Reiniciar"
-Componente `CampaignHistoryButton.tsx` abre Drawer com:
-- Seletor 7d / 15d / 30d
-- Tabela dia-a-dia: data, custo, receita, lucro, ROI, conversões, impressões (GAM), eCPM (helper), CPA
-- Banner destacando: início do gasto, última alteração, entrada no funil, última ação automação
-- Dados 100% do banco (`daily_metrics` + `gam_campaign_source_revenue` + `campaign_funnel` + `automation_logs`). Zero chamada Google Ads.
+### 2. Reordenar colunas (drag & drop)
 
-### 4. eCPM com tooltip de debug
-Tooltip no valor de eCPM mostrando:
-```
-Receita GAM: $X
-Impressões GAM: Y
-eCPM = X / Y * 1000
-Fonte: gam_campaign_source_revenue
-```
+No dropdown **Colunas (X/Y)** que já existe, cada item passa a ter:
+- Checkbox de visibilidade (já existe)
+- **Handle de drag** (ícone `GripVertical`) para reordenar
+- Setas ▲ ▼ como fallback acessível
 
-### 5. Padronizar eCPM no modal Reiniciar
-`RestartCampaignButton` passa a usar o mesmo helper. Sem mais cálculos divergentes.
+Drag implementado com `@dnd-kit/core` + `@dnd-kit/sortable` (libs já leves, sem dependência nova pesada — se não estiverem instaladas, adicionar).
+
+Ordem persistida em `localStorage` (`campaigns-table-column-order-v1`) junto com a visibilidade já persistida.
+
+Colunas **fixas** (não reordenáveis nem ocultáveis): Checkbox, Campaign ID, Nome, Final URL. As demais (incluindo Score, métricas e todas as ações) entram no pool reordenável.
+
+### 3. Redimensionar colunas
+
+Adicionar handle de resize (`col-resize` cursor) na borda direita de cada `<TableHead>` reordenável. Mouse drag ajusta a largura. Larguras persistidas em `localStorage` (`campaigns-table-column-widths-v1`).
+
+- Width mínima: 60px, máxima: 600px.
+- Reset disponível no menu "Colunas" → "Restaurar padrão" (já podemos adicionar).
+- Aplicado via `style={{ width, minWidth }}` no `<TableHead>` e no `<TableCell>` correspondente.
+
+### 4. Renderização dinâmica das linhas
+
+Hoje as células de cada linha estão hardcoded em ordem. Refatorar para um map sobre `orderedVisibleColumns`, onde cada coluna tem um `renderCell(c, ctx)` que retorna o JSX da célula. Isso permite a renderização respeitar a ordem escolhida pelo usuário.
+
+Mantém as 4 colunas sticky iniciais como hoje (sem reorder, fora do map).
 
 ## Arquivos
-- novo: `src/lib/campaignEcpm.ts`
-- novo: `src/components/dashboard/CampaignHistoryButton.tsx`
-- editar: `src/components/dashboard/CampaignsTable.tsx` (colunas + botão + tooltip eCPM)
-- editar: `src/components/dashboard/RestartCampaignButton.tsx` (usar helper)
 
-## Não escopo
-- Sem mudanças de schema (todas as tabelas necessárias já existem).
-- Sem novas edge functions (tudo via `supabase.from(...)` no client).
-- Sem mexer em Funil/Automation além de leitura.
+- editar: `src/components/dashboard/CampaignsTable.tsx` (refator principal)
+- novo: `src/components/dashboard/campaignsTableColumns.tsx` — definição declarativa de cada coluna (`{ key, label, sortKey?, render(c, ctx), defaultWidth, headerAlign }`)
+- novo: `src/components/dashboard/ColumnManagerDropdown.tsx` — dropdown reusável com drag (dnd-kit) + checkboxes + reset
+- novo (se necessário): instalar `@dnd-kit/core` e `@dnd-kit/sortable`
+
+## Detalhes técnicos
+
+- `useColumnLayout()` hook retorna `{ order, widths, visible, setOrder, setWidth, toggleVisible, resetAll }` com persistência em localStorage.
+- Drag-resize: `onPointerDown` no handle → captura `pointermove`/`pointerup` no window, calcula `newWidth = startWidth + (e.clientX - startX)`, clamped 60–600.
+- Para evitar pulo visual durante o resize, aplicar a largura via state diretamente (sem debounce); persistir no `pointerup`.
+- A coluna "Ações" deixa de existir como bloco único; cada botão é uma coluna estreita (default 56px para botões simples, 110px para `InlineMoneyEdit`).
+- Sort permanece igual nas colunas que já tinham `SortHead`; ações não são ordenáveis.
+
+## Fora do escopo
+
+- Não vamos permitir reordenar/ocultar Checkbox, Campaign ID, Nome ou Final URL (essas seguem sticky).
+- Sem mudanças em dados, queries, edge functions ou schema.
+- Sem mudar a lógica de filtros, sort default, ou tendência.
