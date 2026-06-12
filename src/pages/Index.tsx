@@ -387,9 +387,6 @@ const IndexInner = () => {
       if (v.totalRequests > 0) { anyHasRequests = true; break; }
     }
     if (anyHasRequests) return;
-    // Só dispara se houver campanhas na visão atual (caso contrário não há nada para sync).
-    const hasCampaigns = (engine?.aggregates?.length ?? 0) > 0;
-    if (!hasCampaigns) return;
     const key = `gam-auto-sync:${filters.siteId}:${range.from}:${range.to}`;
     if (matchRateAutoSyncRef.current.has(key)) return;
     try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
