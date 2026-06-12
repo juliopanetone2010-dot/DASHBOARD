@@ -353,15 +353,8 @@ async function runSync(req: Request): Promise<Response> {
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
-          try {
-            console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests`);
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
-            console.log(`[${networkCode}/total_requests] completed`);
-          } catch (e) {
-            console.error(`[${networkCode}/total_requests] erro`, e);
-            debug.push(`[${networkCode}/total_requests] erro=${String(e).slice(0, 400)}`);
-          }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+
         }
 
         const vTot = viewabilityRows.reduce((a, r) => ({
