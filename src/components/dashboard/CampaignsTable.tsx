@@ -72,7 +72,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
 
   // ===== Customização de colunas (persistido em localStorage) =====
-  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
+  type ColKey = "score" | "startDate" | "age" | "lastAction" | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas" | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr" | "conversions" | "convRate" | "cpa";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string }> = [
     { key: "score", label: "Saúde" },
     { key: "startDate", label: "Início gasto" },
@@ -85,6 +85,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "trend", label: "Tendência" },
     { key: "roas", label: "ROAS" },
     { key: "ecpm", label: "eCPM" },
+    { key: "matchRate", label: "Taxa Corresp." },
     { key: "impressions", label: "Impr." },
     { key: "clicks", label: "Cliques" },
     { key: "ctr", label: "CTR" },
@@ -92,7 +93,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "convRate", label: "Tx. Conv." },
     { key: "cpa", label: "CPA" },
   ];
-  const STORAGE_KEY = "campaigns-table-visible-cols-v3";
+  const STORAGE_KEY = "campaigns-table-visible-cols-v4";
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
