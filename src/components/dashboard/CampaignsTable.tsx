@@ -966,7 +966,122 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                       {c.conversions > 0 ? fmtCurrency(d?.cpa ?? 0) : "—"}
                     </TableCell>
                   )}
+                  <TableCell className="text-right pr-6">
+                    <div className="flex justify-end gap-1.5 flex-nowrap">
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={cn(
+                              "h-8 px-2",
+                              isPaused ? "text-success hover:text-success" : "text-warning hover:text-warning",
+                            )}
+                            title={isPaused ? "Ativar campanha" : "Pausar campanha"}
+                            onClick={() => callMutate(
+                              isPaused ? "Campanha ativada" : "Campanha pausada",
+                              { action: "set_status", campaign_id: c.campaign_id, status: isPaused ? "ENABLED" : "PAUSED" },
+                              rowKey,
+                            )}
+                          >
+                            {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                          </Button>
+
+                          <InlineMoneyEdit
+                            label="CPA"
+                            title={`Target CPA (ad groups) – ${c.name}`}
+                            value={((c as any)?.target_cpa_micros ?? 0) / 1_000_000}
+                            disabled={loading}
+                            onSave={(v) => callMutate(
+                              `Target CPA (ad groups) = ${v.toFixed(2)}`,
+                              { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
+                              rowKey,
+                            )}
+                            menu={
+                              <>
+                                <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
+                                </DropdownMenuItem>
+                              </>
+                            }
+                          />
+
+                          <InlineMoneyEdit
+                            label="Orç"
+                            title={`Orçamento diário – ${c.name}`}
+                            value={((c as any)?.budget_micros ?? 0) / 1_000_000}
+                            disabled={loading}
+                            onSave={(v) => callMutate(
+                              `Orçamento definido em ${v.toFixed(2)}`,
+                              { action: "set_budget_absolute", campaign_id: c.campaign_id, budget: v },
+                              rowKey,
+                            )}
+                            menu={
+                              <>
+                                <DropdownMenuLabel className="text-xs">Ajustar orçamento</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento +20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 20%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento +10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                  <ChevronUp className="h-3.5 w-3.5 mr-2 text-success" /> Aumentar 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento -10%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 10%
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => callMutate("Orçamento -20%", { action: "adjust_budget", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                  <ChevronDown className="h-3.5 w-3.5 mr-2 text-warning" /> Reduzir 20%
+                                </DropdownMenuItem>
+                                {onBoost && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => onBoost(c.campaign_id)}>
+                                      <TrendingUp className="h-3.5 w-3.5 mr-2 text-primary" /> Boost (regra interna)
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </>
+                            }
+                          />
+
+                          <CampaignHistoryButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                          />
+
+                          <RestartCampaignButton
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                            googleAccountId={(c as any).google_account_id ?? null}
+                            onChanged={() => { restartFlows.refetch(); onRefresh?.(); }}
+                          />
+
+                          <AttachHtml5Button
+                            campaignId={c.campaign_id}
+                            campaignName={c.name}
+                            googleAccountId={(c as any).google_account_id ?? null}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
                 </TableRow>
+
               );
             })}
           </TableBody>
