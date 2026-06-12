@@ -1649,6 +1649,7 @@ export type Database = {
           impressions: number
           revenue_usd: number
           site_id: string | null
+          total_requests: number
           user_id: string
           utm_source: string
         }
@@ -1660,6 +1661,7 @@ export type Database = {
           impressions?: number
           revenue_usd?: number
           site_id?: string | null
+          total_requests?: number
           user_id: string
           utm_source: string
         }
@@ -1671,6 +1673,7 @@ export type Database = {
           impressions?: number
           revenue_usd?: number
           site_id?: string | null
+          total_requests?: number
           user_id?: string
           utm_source?: string
         }
