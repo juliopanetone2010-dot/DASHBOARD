@@ -156,4 +156,6 @@ export interface CampaignAggregate {
   impressions: number;
   ecpm: number;
   days: number;
+  budget_micros?: number | null;
+  target_cpa_micros?: number | null;
 }
