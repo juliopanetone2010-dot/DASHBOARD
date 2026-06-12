@@ -375,6 +375,43 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
+  // Auto-trigger GAM sync se a Taxa de Correspondência está vazia para o site/período atual.
+  // Roda no máximo 1x por sessão+site+intervalo (controlado via sessionStorage).
+  const matchRateAutoSyncRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const map = campaignMatchRateQuery.data;
+    if (!map || campaignMatchRateQuery.isLoading) return;
+    // Se já existe ao menos uma campanha com requests, não precisa sincronizar.
+    let anyHasRequests = false;
+    for (const v of map.values()) {
+      if (v.totalRequests > 0) { anyHasRequests = true; break; }
+    }
+    if (anyHasRequests) return;
+    const key = `gam-auto-sync:${filters.siteId}:${range.from}:${range.to}`;
+    if (matchRateAutoSyncRef.current.has(key)) return;
+    try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
+    matchRateAutoSyncRef.current.add(key);
+    try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+    (async () => {
+      try {
+        await supabase.functions.invoke("gam-sync-revenue", {
+          body: {
+            date_preset: "CUSTOM",
+            date_from: range.from,
+            date_to: range.to,
+            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
+            revenue_only: true,
+          },
+        });
+        // refresca a query para puxar os novos total_requests
+        campaignMatchRateQuery.refetch();
+      } catch (e) {
+        console.warn("[gam-auto-sync] falhou", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, filters.siteId, range.from, range.to]);
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
