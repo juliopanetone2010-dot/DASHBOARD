@@ -359,16 +359,16 @@ Deno.serve(async (req) => {
               debugLogs.push(`auto-utm exception ${leaf.customer_id}: ${String(e)}`);
             }
 
-            // ===== FALLBACK: Target CPA por ad_group =====
-            // Muitas campanhas (especialmente Maximize Conversions) não têm target_cpa
-            // no nível da campanha, mas sim no ad_group. Pega o maior valor visto.
+            // ===== FALLBACK: Target CPA por ad_group (APENAS explícito) =====
+            // Só considera ad_group.target_cpa_micros (definido pelo usuário).
+            // NÃO usa effective_target_cpa_micros — esse é calculado pelo Google
+            // mesmo para Maximize Conversions sem CPA, gerando valores falsos.
             try {
               const agQuery = `
                 SELECT
                   campaign.id,
                   ad_group.id,
-                  ad_group.target_cpa_micros,
-                  ad_group.effective_target_cpa_micros
+                  ad_group.target_cpa_micros
                 FROM ad_group
                 WHERE ad_group.status != 'REMOVED'
                   AND campaign.status != 'REMOVED'
@@ -381,14 +381,12 @@ Deno.serve(async (req) => {
               if (agRes.ok) {
                 const rows = (agJson.results ?? []) as Array<{
                   campaign: { id: string };
-                  adGroup: { targetCpaMicros?: string; effectiveTargetCpaMicros?: string };
+                  adGroup: { targetCpaMicros?: string };
                 }>;
                 const perCampaign = new Map<string, number>();
                 for (const r of rows) {
                   const cid = r.campaign.id;
-                  const v = r.adGroup?.targetCpaMicros
-                    ? Number(r.adGroup.targetCpaMicros)
-                    : (r.adGroup?.effectiveTargetCpaMicros ? Number(r.adGroup.effectiveTargetCpaMicros) : 0);
+                  const v = r.adGroup?.targetCpaMicros ? Number(r.adGroup.targetCpaMicros) : 0;
                   if (v > 0) {
                     const prev = perCampaign.get(cid) ?? 0;
                     if (v > prev) perCampaign.set(cid, v);
@@ -401,7 +399,7 @@ Deno.serve(async (req) => {
                     if (v && v > 0) info.target_cpa_micros = v;
                   }
                 }
-                debugLogs.push(`ad_group cpa ${leaf.customer_id}: ${perCampaign.size} campanhas com cpa`);
+                debugLogs.push(`ad_group cpa ${leaf.customer_id}: ${perCampaign.size} campanhas com cpa explícito`);
               } else {
                 debugLogs.push(`ad_group cpa err ${leaf.customer_id}: ${agJson?.error?.message ?? "?"}`);
               }
