@@ -28,6 +28,8 @@ import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./Re
 import { AttachHtml5Button } from "./AttachHtml5Button";
 import { CampaignHistoryButton } from "./CampaignHistoryButton";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
+import { useColumnLayout } from "@/hooks/useColumnLayout";
+import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
