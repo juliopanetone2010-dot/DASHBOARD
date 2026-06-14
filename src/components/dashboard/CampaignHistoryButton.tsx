@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { cn } from "@/lib/utils";
+import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 
 interface Props {
   campaignId: string;
