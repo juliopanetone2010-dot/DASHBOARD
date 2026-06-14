@@ -82,18 +82,23 @@ Deno.serve(async (req) => {
 
     for (const site of sites ?? []) {
       try {
-        // Skip se já existe e não é force
+        // Skip se já existe e não é force — MAS regera se o snapshot está zerado
+        // (provavelmente criado antes do GAM/Ads ter sincronizado os dados do dia).
         if (!force) {
           const { data: existing } = await admin
             .from("daily_financial_snapshots")
-            .select("id")
+            .select("id, gross_revenue, total_cost")
             .eq("user_id", site.user_id)
             .eq("site_id", site.id)
             .eq("date", targetDate)
             .maybeSingle();
           if (existing) {
-            results.push({ site: site.name, date: targetDate, status: "skipped_existing" });
-            continue;
+            const isEmpty = Number(existing.gross_revenue ?? 0) === 0 && Number(existing.total_cost ?? 0) === 0;
+            if (!isEmpty) {
+              results.push({ site: site.name, date: targetDate, status: "skipped_existing" });
+              continue;
+            }
+            // se está zerado, deixa seguir o fluxo para regenerar com dados frescos
           }
         }
 
