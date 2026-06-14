@@ -99,17 +99,17 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         const cost = Number(d.spend) || 0;
         // Aplica revshare (6,5%) igual ao agregado da tabela de campanhas.
         // daily_metrics.revenue = USD bruto; daily_metrics.profit = BRL bruto (revenue_brl - spend).
-        const grossRevUsd = Number(d.revenue) || 0;
+        // Exibimos tudo em BRL (custo já é BRL) para evitar mistura de moedas.
         const grossProfitBrl = Number(d.profit) || 0;
         const grossRevBrl = grossProfitBrl + cost;
         const shareBrl = grossRevBrl * REV_SHARE_PCT;
-        const netRevUsd = grossRevUsd * NET_FACTOR;
+        const netRevBrl = grossRevBrl * NET_FACTOR;
         const netProfit = grossProfitBrl - shareBrl;
         const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
         return {
           date: String(d.date),
           cost,
-          revenue: netRevUsd,
+          revenue: netRevBrl,
           profit: netProfit,
           roi: netRoi,
           conversions: conv,
