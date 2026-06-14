@@ -97,12 +97,21 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         const ecpm = calculateCampaignEcpm(g.revenue, g.impressions).ecpm;
         const conv = Number(d.conversions) || 0;
         const cost = Number(d.spend) || 0;
+        // Aplica revshare (6,5%) igual ao agregado da tabela de campanhas.
+        // daily_metrics.revenue = USD bruto; daily_metrics.profit = BRL bruto (revenue_brl - spend).
+        const grossRevUsd = Number(d.revenue) || 0;
+        const grossProfitBrl = Number(d.profit) || 0;
+        const grossRevBrl = grossProfitBrl + cost;
+        const shareBrl = grossRevBrl * REV_SHARE_PCT;
+        const netRevUsd = grossRevUsd * NET_FACTOR;
+        const netProfit = grossProfitBrl - shareBrl;
+        const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
         return {
           date: String(d.date),
           cost,
-          revenue: Number(d.revenue) || 0,
-          profit: Number(d.profit) || 0,
-          roi: Number(d.roi) || 0,
+          revenue: netRevUsd,
+          profit: netProfit,
+          roi: netRoi,
           conversions: conv,
           impressions: Number(g.impressions || d.impressions) || 0,
           ecpm,
