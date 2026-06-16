@@ -394,8 +394,14 @@ const IndexInner = () => {
     for (const [cid, v] of map) {
       if (v.totalRequests > 0 && (!expectedCampaigns.size || expectedCampaigns.has(cid))) campaignsWithRequests++;
     }
+    let totalImpressions = 0;
+    let totalRequests = 0;
+    for (const v of map.values()) {
+      totalImpressions += Number(v.impressions ?? 0);
+      totalRequests += Number(v.totalRequests ?? 0);
+    }
     const expected = expectedCampaigns.size;
-    if (expected > 0 && campaignsWithRequests >= Math.ceil(expected * 0.95)) return;
+    if (expected > 0 && campaignsWithRequests >= Math.ceil(expected * 0.95) && totalRequests >= totalImpressions * 0.9) return;
     if (expected === 0 && campaignsWithRequests > 0) return;
     const key = `gam-auto-sync-v3:${filters.siteId}:${range.from}:${range.to}`;
     if (matchRateAutoSyncRef.current.has(key)) return;
