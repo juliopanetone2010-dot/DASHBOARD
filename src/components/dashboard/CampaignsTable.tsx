@@ -895,6 +895,74 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         </Badge>
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
+                      {(() => {
+                        const op = opStatusQuery.data?.get(c.campaign_id);
+                        const def = op?.operational_status ? OP_STATUS_MAP[op.operational_status] : null;
+                        return (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              {def ? (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none transition-opacity hover:opacity-80",
+                                    def.className,
+                                  )}
+                                  title={`${def.label} · marcado ${timeAgoPt(op!.operational_status_at)}${op!.operational_status_expires_at ? ` · expira ${timeAgoPt(op!.operational_status_expires_at).replace("há ", "em ").replace("em -", "há ")}` : ""}`}
+                                >
+                                  <span>{def.emoji}</span>
+                                  <span>{def.label}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="inline-flex h-5 items-center gap-1 rounded-full border border-dashed border-muted-foreground/40 px-1.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100"
+                                  title="Marcar status"
+                                >
+                                  <Tag className="h-3 w-3" /> marcar
+                                </button>
+                              )}
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-56">
+                              <DropdownMenuLabel className="text-[11px]">Marcar status</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              {OP_STATUS_OPTIONS.map((o) => (
+                                <DropdownMenuItem
+                                  key={o.key}
+                                  className="text-xs"
+                                  onClick={() => setOpStatus(c.campaign_id, o.key, null)}
+                                >
+                                  <span className="mr-2">{o.emoji}</span>
+                                  <span className="flex-1">{o.label}</span>
+                                  {def?.key === o.key && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
+                                </DropdownMenuItem>
+                              ))}
+                              {def && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground">Expirar marcador em</DropdownMenuLabel>
+                                  {[1, 3, 7, 14].map((d) => (
+                                    <DropdownMenuItem
+                                      key={d}
+                                      className="text-xs"
+                                      onClick={() => setOpStatus(c.campaign_id, def.key, d)}
+                                    >
+                                      em {d} {d === 1 ? "dia" : "dias"}
+                                    </DropdownMenuItem>
+                                  ))}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-xs text-danger focus:text-danger"
+                                    onClick={() => setOpStatus(c.campaign_id, null)}
+                                  >
+                                    <X className="mr-2 h-3.5 w-3.5" /> Remover marcador
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        );
+                      })()}
                     </div>
                   </TableCell>
 
