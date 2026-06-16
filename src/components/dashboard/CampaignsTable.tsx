@@ -285,6 +285,58 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     enabled: campaignIds.length > 0,
   });
 
+  // === Marcador operacional (manual) por campanha ===
+  type OpStatusRow = {
+    operational_status: string | null;
+    operational_status_at: string | null;
+    operational_status_expires_at: string | null;
+    operational_note: string | null;
+  };
+  const [opStatusFilter, setOpStatusFilter] = useState<OpStatusKey | "all">("all");
+  const opStatusQuery = useQuery({
+    queryKey: ["campaign-op-status", campaignIds.join("|")],
+    queryFn: async () => {
+      const out = new Map<string, OpStatusRow>();
+      if (campaignIds.length === 0) return out;
+      const { data } = await supabase
+        .from("campaigns")
+        .select("campaign_id, operational_status, operational_status_at, operational_status_expires_at, operational_note")
+        .in("campaign_id", campaignIds)
+        .not("operational_status", "is", null);
+      const now = Date.now();
+      for (const r of (data ?? []) as any[]) {
+        if (r.operational_status_expires_at && new Date(r.operational_status_expires_at).getTime() < now) continue;
+        out.set(r.campaign_id, {
+          operational_status: r.operational_status,
+          operational_status_at: r.operational_status_at,
+          operational_status_expires_at: r.operational_status_expires_at,
+          operational_note: r.operational_note,
+        });
+      }
+      return out;
+    },
+    staleTime: 30_000,
+    enabled: campaignIds.length > 0,
+  });
+  const setOpStatus = async (campaign_id: string, status: OpStatusKey | null, expiresDays: number | null = null) => {
+    const patch: any = {
+      operational_status: status,
+      operational_status_at: status ? new Date().toISOString() : null,
+      operational_status_expires_at: status && expiresDays
+        ? new Date(Date.now() + expiresDays * 86400000).toISOString()
+        : null,
+    };
+    const { error } = await supabase.from("campaigns").update(patch).eq("campaign_id", campaign_id);
+    if (error) {
+      toast({ title: "Erro ao marcar status", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: status ? `Marcado: ${OP_STATUS_MAP[status].label}` : "Marcador removido" });
+    await opStatusQuery.refetch();
+  };
+
+
+
   const pendingPauseQuery = useQuery({
     queryKey: ["pending-pause-approvals"],
     queryFn: async () => {
