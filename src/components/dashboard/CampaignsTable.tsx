@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity, Pencil } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity, Pencil, Tag, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -41,6 +41,40 @@ const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = 
   { key: "15d", label: "15d vs 15d ant.", days: 15 },
   { key: "30d", label: "30d vs 30d ant.", days: 30 },
 ];
+
+// === Marcadores operacionais manuais ===
+export type OpStatusKey =
+  | "observation" | "scaling" | "recovering" | "restarted" | "attention"
+  | "waiting_data" | "recovered" | "pricing_change" | "new_creative" | "new_budget";
+export const OP_STATUS_OPTIONS: Array<{ key: OpStatusKey; label: string; emoji: string; className: string }> = [
+  { key: "observation",    label: "Em observação",            emoji: "🟠", className: "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/40" },
+  { key: "scaling",        label: "Escalando",                emoji: "🔵", className: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/40" },
+  { key: "recovering",     label: "Recuperando",              emoji: "🟡", className: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-500/15 dark:text-yellow-300 dark:border-yellow-500/40" },
+  { key: "restarted",      label: "Reiniciada",               emoji: "🟣", className: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/40" },
+  { key: "attention",      label: "Atenção",                  emoji: "🔴", className: "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/40" },
+  { key: "waiting_data",   label: "Aguardando dados",         emoji: "⚪", className: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-500/15 dark:text-zinc-300 dark:border-zinc-500/40" },
+  { key: "recovered",      label: "Recuperada",               emoji: "🟢", className: "bg-green-100 text-green-700 border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40" },
+  { key: "pricing_change", label: "Mudança de precificação",  emoji: "🟤", className: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-700/20 dark:text-amber-300 dark:border-amber-700/40" },
+  { key: "new_creative",   label: "Novo criativo",            emoji: "🟦", className: "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/40" },
+  { key: "new_budget",     label: "Novo orçamento",           emoji: "🟨", className: "bg-yellow-200 text-yellow-900 border-yellow-400 dark:bg-yellow-600/20 dark:text-yellow-200 dark:border-yellow-600/40" },
+];
+const OP_STATUS_MAP: Record<string, (typeof OP_STATUS_OPTIONS)[number]> =
+  Object.fromEntries(OP_STATUS_OPTIONS.map((o) => [o.key, o])) as any;
+
+function timeAgoPt(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "agora";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "agora";
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days === 0) return "hoje";
+  if (days === 1) return "há 1 dia";
+  return `há ${days} dias`;
+}
 
 type PendingPauseAction = {
   id: string;
@@ -251,6 +285,58 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     enabled: campaignIds.length > 0,
   });
 
+  // === Marcador operacional (manual) por campanha ===
+  type OpStatusRow = {
+    operational_status: string | null;
+    operational_status_at: string | null;
+    operational_status_expires_at: string | null;
+    operational_note: string | null;
+  };
+  const [opStatusFilter, setOpStatusFilter] = useState<OpStatusKey | "all">("all");
+  const opStatusQuery = useQuery({
+    queryKey: ["campaign-op-status", campaignIds.join("|")],
+    queryFn: async () => {
+      const out = new Map<string, OpStatusRow>();
+      if (campaignIds.length === 0) return out;
+      const { data } = await supabase
+        .from("campaigns")
+        .select("campaign_id, operational_status, operational_status_at, operational_status_expires_at, operational_note")
+        .in("campaign_id", campaignIds)
+        .not("operational_status", "is", null);
+      const now = Date.now();
+      for (const r of (data ?? []) as any[]) {
+        if (r.operational_status_expires_at && new Date(r.operational_status_expires_at).getTime() < now) continue;
+        out.set(r.campaign_id, {
+          operational_status: r.operational_status,
+          operational_status_at: r.operational_status_at,
+          operational_status_expires_at: r.operational_status_expires_at,
+          operational_note: r.operational_note,
+        });
+      }
+      return out;
+    },
+    staleTime: 30_000,
+    enabled: campaignIds.length > 0,
+  });
+  const setOpStatus = async (campaign_id: string, status: OpStatusKey | null, expiresDays: number | null = null) => {
+    const patch: any = {
+      operational_status: status,
+      operational_status_at: status ? new Date().toISOString() : null,
+      operational_status_expires_at: status && expiresDays
+        ? new Date(Date.now() + expiresDays * 86400000).toISOString()
+        : null,
+    };
+    const { error } = await supabase.from("campaigns").update(patch).eq("campaign_id", campaign_id);
+    if (error) {
+      toast({ title: "Erro ao marcar status", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: status ? `Marcado: ${OP_STATUS_MAP[status].label}` : "Marcador removido" });
+    await opStatusQuery.refetch();
+  };
+
+
+
   const pendingPauseQuery = useQuery({
     queryKey: ["pending-pause-approvals"],
     queryFn: async () => {
@@ -360,9 +446,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     });
   };
 
+  const filteredCampaigns = useMemo(() => {
+    if (opStatusFilter === "all") return campaigns;
+    return campaigns.filter((c) => opStatusQuery.data?.get(c.campaign_id)?.operational_status === opStatusFilter);
+  }, [campaigns, opStatusFilter, opStatusQuery.data]);
+
   const sortedCampaigns = useMemo(() => {
-    if (!sort) return campaigns;
-    const arr = [...campaigns];
+    if (!sort) return filteredCampaigns;
+    const arr = [...filteredCampaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
     const valueOf = (c: CampaignAggregate): number => {
       const d = derived.get(c.campaign_id);
@@ -388,7 +479,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
+  }, [filteredCampaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
+
 
   const copyToClipboard = async (url: string) => {
     try {
@@ -568,6 +660,31 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
           )}
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Tag className="h-3.5 w-3.5" />
+            <span>Marcador:</span>
+            <select
+              value={opStatusFilter}
+              onChange={(e) => setOpStatusFilter(e.target.value as any)}
+              className="h-7 rounded-md border border-input bg-background px-1.5 text-[11px]"
+            >
+              <option value="all">Todos</option>
+              {OP_STATUS_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>{o.emoji} {o.label}</option>
+              ))}
+            </select>
+            {opStatusFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setOpStatusFilter("all")}
+                className="ml-1 inline-flex items-center text-muted-foreground hover:text-foreground"
+                title="Limpar filtro"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Activity className="h-3.5 w-3.5" />
             <span>Tendência:</span>
@@ -778,6 +895,74 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         </Badge>
                       )}
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
+                      {(() => {
+                        const op = opStatusQuery.data?.get(c.campaign_id);
+                        const def = op?.operational_status ? OP_STATUS_MAP[op.operational_status] : null;
+                        return (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              {def ? (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none transition-opacity hover:opacity-80",
+                                    def.className,
+                                  )}
+                                  title={`${def.label} · marcado ${timeAgoPt(op!.operational_status_at)}${op!.operational_status_expires_at ? ` · expira ${timeAgoPt(op!.operational_status_expires_at).replace("há ", "em ").replace("em -", "há ")}` : ""}`}
+                                >
+                                  <span>{def.emoji}</span>
+                                  <span>{def.label}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="inline-flex h-5 items-center gap-1 rounded-full border border-dashed border-muted-foreground/40 px-1.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100"
+                                  title="Marcar status"
+                                >
+                                  <Tag className="h-3 w-3" /> marcar
+                                </button>
+                              )}
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-56">
+                              <DropdownMenuLabel className="text-[11px]">Marcar status</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              {OP_STATUS_OPTIONS.map((o) => (
+                                <DropdownMenuItem
+                                  key={o.key}
+                                  className="text-xs"
+                                  onClick={() => setOpStatus(c.campaign_id, o.key, null)}
+                                >
+                                  <span className="mr-2">{o.emoji}</span>
+                                  <span className="flex-1">{o.label}</span>
+                                  {def?.key === o.key && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
+                                </DropdownMenuItem>
+                              ))}
+                              {def && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground">Expirar marcador em</DropdownMenuLabel>
+                                  {[1, 3, 7, 14].map((d) => (
+                                    <DropdownMenuItem
+                                      key={d}
+                                      className="text-xs"
+                                      onClick={() => setOpStatus(c.campaign_id, def.key, d)}
+                                    >
+                                      em {d} {d === 1 ? "dia" : "dias"}
+                                    </DropdownMenuItem>
+                                  ))}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-xs text-danger focus:text-danger"
+                                    onClick={() => setOpStatus(c.campaign_id, null)}
+                                  >
+                                    <X className="mr-2 h-3.5 w-3.5" /> Remover marcador
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        );
+                      })()}
                     </div>
                   </TableCell>
 

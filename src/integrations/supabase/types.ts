@@ -1252,6 +1252,10 @@ export type Database = {
           google_account_id: string | null
           id: string
           name: string
+          operational_note: string | null
+          operational_status: string | null
+          operational_status_at: string | null
+          operational_status_expires_at: string | null
           start_date: string | null
           status: string
           target_cpa_micros: number | null
@@ -1266,6 +1270,10 @@ export type Database = {
           google_account_id?: string | null
           id?: string
           name: string
+          operational_note?: string | null
+          operational_status?: string | null
+          operational_status_at?: string | null
+          operational_status_expires_at?: string | null
           start_date?: string | null
           status?: string
           target_cpa_micros?: number | null
@@ -1280,6 +1288,10 @@ export type Database = {
           google_account_id?: string | null
           id?: string
           name?: string
+          operational_note?: string | null
+          operational_status?: string | null
+          operational_status_at?: string | null
+          operational_status_expires_at?: string | null
           start_date?: string | null
           status?: string
           target_cpa_micros?: number | null
