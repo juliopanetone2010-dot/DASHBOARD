@@ -1110,6 +1110,7 @@ async function persistCampaignTotalRequests(args: {
       networkCode, accessToken, range,
       dimensions: ["DATE", "KEY_VALUES_NAME"],
       metrics: ["AD_REQUESTS"],
+        expandedCompatibility: true,
       debug, deadlineAt,
     })
   ))).flat();
