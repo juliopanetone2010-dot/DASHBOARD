@@ -42,6 +42,40 @@ const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = 
   { key: "30d", label: "30d vs 30d ant.", days: 30 },
 ];
 
+// === Marcadores operacionais manuais ===
+export type OpStatusKey =
+  | "observation" | "scaling" | "recovering" | "restarted" | "attention"
+  | "waiting_data" | "recovered" | "pricing_change" | "new_creative" | "new_budget";
+export const OP_STATUS_OPTIONS: Array<{ key: OpStatusKey; label: string; emoji: string; className: string }> = [
+  { key: "observation",    label: "Em observação",            emoji: "🟠", className: "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/40" },
+  { key: "scaling",        label: "Escalando",                emoji: "🔵", className: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/40" },
+  { key: "recovering",     label: "Recuperando",              emoji: "🟡", className: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-500/15 dark:text-yellow-300 dark:border-yellow-500/40" },
+  { key: "restarted",      label: "Reiniciada",               emoji: "🟣", className: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/40" },
+  { key: "attention",      label: "Atenção",                  emoji: "🔴", className: "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/40" },
+  { key: "waiting_data",   label: "Aguardando dados",         emoji: "⚪", className: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-500/15 dark:text-zinc-300 dark:border-zinc-500/40" },
+  { key: "recovered",      label: "Recuperada",               emoji: "🟢", className: "bg-green-100 text-green-700 border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40" },
+  { key: "pricing_change", label: "Mudança de precificação",  emoji: "🟤", className: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-700/20 dark:text-amber-300 dark:border-amber-700/40" },
+  { key: "new_creative",   label: "Novo criativo",            emoji: "🟦", className: "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/40" },
+  { key: "new_budget",     label: "Novo orçamento",           emoji: "🟨", className: "bg-yellow-200 text-yellow-900 border-yellow-400 dark:bg-yellow-600/20 dark:text-yellow-200 dark:border-yellow-600/40" },
+];
+const OP_STATUS_MAP: Record<string, (typeof OP_STATUS_OPTIONS)[number]> =
+  Object.fromEntries(OP_STATUS_OPTIONS.map((o) => [o.key, o])) as any;
+
+function timeAgoPt(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "agora";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "agora";
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days === 0) return "hoje";
+  if (days === 1) return "há 1 dia";
+  return `há ${days} dias`;
+}
+
 type PendingPauseAction = {
   id: string;
   campaign_id: string;
