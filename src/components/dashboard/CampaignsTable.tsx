@@ -661,6 +661,31 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Tag className="h-3.5 w-3.5" />
+            <span>Marcador:</span>
+            <select
+              value={opStatusFilter}
+              onChange={(e) => setOpStatusFilter(e.target.value as any)}
+              className="h-7 rounded-md border border-input bg-background px-1.5 text-[11px]"
+            >
+              <option value="all">Todos</option>
+              {OP_STATUS_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>{o.emoji} {o.label}</option>
+              ))}
+            </select>
+            {opStatusFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setOpStatusFilter("all")}
+                className="ml-1 inline-flex items-center text-muted-foreground hover:text-foreground"
+                title="Limpar filtro"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Activity className="h-3.5 w-3.5" />
             <span>Tendência:</span>
             <select
