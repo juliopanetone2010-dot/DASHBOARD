@@ -1101,20 +1101,33 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
   if (!siteId) return;
-  // Pega DATE + KEY_VALUES_NAME com a métrica AD_REQUESTS (nome oficial REST v1).
-  // O runReport coloca a primeira métrica em `impressions`. Aqui esse campo = ad requests.
-  // Nota: na API REST v1 do Ad Manager, o nome correto é simplesmente AD_REQUESTS
-  // (não "AD_SERVER_TOTAL_REQUESTS" do SOAP nem "TOTAL_AD_REQUESTS").
-  const reportRows = (await Promise.all(ranges.map((range) =>
-    runReport({
-      networkCode, accessToken, range,
-      dimensions: ["DATE", "KEY_VALUES_NAME"],
-      metrics: ["AD_REQUESTS"],
+  let reportRows: ReportRow[] = [];
+  let matchRateRows: ReportRow[] = [];
+  try {
+    reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
+        metrics: ["AD_REQUESTS"],
         expandedCompatibility: true,
-      debug, deadlineAt,
-    })
-  ))).flat();
-  console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/total_requests] AD_REQUESTS incompatível; tentando AD_EXCHANGE_MATCH_RATE: ${String(e).slice(0, 220)}`);
+    matchRateRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
+        metrics: ["AD_EXCHANGE_MATCH_RATE"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
+  }
+
   // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
   const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
   for (const r of reportRows) {
