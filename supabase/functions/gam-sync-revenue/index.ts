@@ -1141,6 +1141,37 @@ async function persistCampaignTotalRequests(args: {
     cur.total_requests += Number(r.impressions || 0);
     agg.set(key, cur);
   }
+  if (agg.size === 0 && matchRateRows.length > 0) {
+    const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    for (const r of matchRateRows) {
+      const date = r.date;
+      if (!date) continue;
+      const kv = parseKeyValueDimension(r.dims[1] ?? "");
+      const cid = (kv.utm_campaign ?? "").trim();
+      const rawRate = Number(r.impressions || 0);
+      const rate = rawRate > 1 ? rawRate / 100 : rawRate;
+      if (!cid || rate <= 0) continue;
+      rateByKey.set(`${cid}|${date}`, { cid, date, rate });
+    }
+    const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
+    const datesForRate = [...new Set([...rateByKey.values()].map((b) => b.date))];
+    const { data: existingForRate } = cidsForRate.length && datesForRate.length ? await admin
+      .from("gam_campaign_source_revenue")
+      .select("campaign_id,date,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .eq("utm_source", "google")
+      .in("campaign_id", cidsForRate)
+      .in("date", datesForRate) : { data: [] };
+    for (const r of (existingForRate ?? []) as any[]) {
+      const key = `${r.campaign_id}|${r.date}`;
+      const rateRow = rateByKey.get(key);
+      const impressions = Number(r.impressions ?? 0);
+      if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate) });
+    }
+    debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
+  }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
     return;
