@@ -1151,8 +1151,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
-                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign, utm_source=google)\nMétrica GAM: AD_REQUESTS`
-                                  : "Sem dados de AD_REQUESTS para esta campanha no período. Sincronizando GAM automaticamente — recarregue em alguns instantes."}
+                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign, utm_source=google)\nMétrica GAM: AD_REQUESTS; fallback AD_EXCHANGE_MATCH_RATE quando necessário`
+                                  : "Sem dados de requests para esta campanha no período. Sincronizando GAM automaticamente — recarregue em alguns instantes."}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>
