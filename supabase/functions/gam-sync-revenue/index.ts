@@ -84,6 +84,7 @@ async function runSync(req: Request): Promise<Response> {
     let skipLegacyReports = true;
     let skipViewability = false;
     let skipSnapshotRegen = false;
+    let totalRequestsOnly = false;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -91,8 +92,8 @@ async function runSync(req: Request): Promise<Response> {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
-      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
-      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
+      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : (typeof (body as any)?.date_from === "string" ? (body as any).date_from : null);
+      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : (typeof (body as any)?.date_to === "string" ? (body as any).date_to : null);
       requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
       requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
       requestedAccountIds = Array.isArray((body as any)?.account_ids)
@@ -107,6 +108,7 @@ async function runSync(req: Request): Promise<Response> {
       // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
       skipViewability = Boolean((body as any)?.skip_viewability);
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
+      totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -203,6 +205,15 @@ async function runSync(req: Request): Promise<Response> {
           }
         } else {
           debug.push(`[${networkCode}/total_requests] skipped (budget low)`);
+        }
+
+        if (totalRequestsOnly) {
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "total_requests_only",
+          });
+          continue;
         }
 
 
