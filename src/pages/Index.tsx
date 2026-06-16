@@ -284,14 +284,18 @@ const IndexInner = () => {
   });
 
   // eCPM por campanha vindo do GAM no período exato.
-  // Fonte canônica: gam_placement_revenue (mesma usada no histórico/reinício/funil),
-  // para que o valor exibido aqui bata 100% com o detalhe da campanha e com o GAM.
+  // Fonte canônica: gam_campaign_source_revenue filtrada por utm_source='google'.
+  // Esta é a mesma agregação que o GAM expõe quando consultamos por utm_campaign
+  // (cruzamento oficial Google Ads campaign.id ↔ GAM utm_campaign).
+  // gam_placement_revenue é placement-level e pode diferir levemente do total por campanha,
+  // por isso usamos a fonte canônica por source para o eCPM da tabela principal.
   const campaignGamMetricsQuery = useQuery({
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
       let q = supabase
-        .from("gam_placement_revenue")
+        .from("gam_campaign_source_revenue")
         .select("campaign_id, revenue_usd, impressions, site_id")
+        .eq("utm_source", "google")
         .gte("date", range.from)
         .lte("date", range.to)
         .limit(50000);
@@ -309,7 +313,8 @@ const IndexInner = () => {
       const map = new Map<string, { revenueUsd: number; impressions: number }>();
       for (const r of rows ?? []) {
         const cid = String((r as any).campaign_id ?? "");
-        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        if (!cid || cid === "__aggregate__") continue;
+        if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         const cur = map.get(cid) ?? { revenueUsd: 0, impressions: 0 };
         cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
         cur.impressions += Number((r as any).impressions ?? 0);

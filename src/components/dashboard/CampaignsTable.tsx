@@ -856,7 +856,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               const firstSpend = firstSpendQuery.data?.get(c.campaign_id);
               const age = ageInDays(firstSpend);
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
-              const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0);
+              const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0, "gam_campaign_source_revenue (utm_source=google)");
               const trend = trendQuery.data?.get(c.campaign_id);
               const score = computeScore(c, d, trend);
               return (
@@ -1151,8 +1151,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
-                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign)`
-                                  : "Sem dados de AD_SERVER_TOTAL_REQUESTS para esta campanha no período. Rode uma sincronização do GAM."}
+                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign, utm_source=google)\nMétrica GAM: TOTAL_AD_REQUESTS`
+                                  : "Sem dados de TOTAL_AD_REQUESTS para esta campanha no período. Sincronizando GAM automaticamente — recarregue em alguns instantes."}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>
