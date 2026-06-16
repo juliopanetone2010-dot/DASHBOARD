@@ -392,7 +392,7 @@ const IndexInner = () => {
       if (v.totalRequests > 0) { anyHasRequests = true; break; }
     }
     if (anyHasRequests) return;
-    const key = `gam-auto-sync:${filters.siteId}:${range.from}:${range.to}`;
+    const key = `gam-auto-sync-v2:${filters.siteId}:${range.from}:${range.to}`;
     if (matchRateAutoSyncRef.current.has(key)) return;
     try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
     matchRateAutoSyncRef.current.add(key);
@@ -401,11 +401,13 @@ const IndexInner = () => {
       try {
         await supabase.functions.invoke("gam-sync-revenue", {
           body: {
-            date_preset: "CUSTOM",
-            date_from: range.from,
-            date_to: range.to,
-            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
-            revenue_only: true,
+              from: range.from,
+              to: range.to,
+              site_id: filters.siteId !== "all" ? filters.siteId : undefined,
+              total_requests_only: true,
+              skip_viewability: true,
+              skip_snapshot_regen: true,
+              sync: true,
           },
         });
         // refresca a query para puxar os novos total_requests
