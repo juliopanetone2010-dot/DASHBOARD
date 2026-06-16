@@ -1090,14 +1090,15 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
   if (!siteId) return;
-  // Pega DATE + KEY_VALUES_NAME com a métrica TOTAL_AD_REQUESTS (nome oficial REST v1).
-  // O runReport coloca a primeira métrica em `impressions`. Aqui esse campo = total ad requests.
-  // Nota: a métrica antiga "AD_SERVER_TOTAL_REQUESTS" não existe na API v1 e retorna 400.
+  // Pega DATE + KEY_VALUES_NAME com a métrica AD_REQUESTS (nome oficial REST v1).
+  // O runReport coloca a primeira métrica em `impressions`. Aqui esse campo = ad requests.
+  // Nota: na API REST v1 do Ad Manager, o nome correto é simplesmente AD_REQUESTS
+  // (não "AD_SERVER_TOTAL_REQUESTS" do SOAP nem "TOTAL_AD_REQUESTS").
   const reportRows = (await Promise.all(ranges.map((range) =>
     runReport({
       networkCode, accessToken, range,
       dimensions: ["DATE", "KEY_VALUES_NAME"],
-      metrics: ["TOTAL_AD_REQUESTS"],
+      metrics: ["AD_REQUESTS"],
       debug, deadlineAt,
     })
   ))).flat();
