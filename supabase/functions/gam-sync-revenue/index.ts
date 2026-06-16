@@ -84,6 +84,7 @@ async function runSync(req: Request): Promise<Response> {
     let skipLegacyReports = true;
     let skipViewability = false;
     let skipSnapshotRegen = false;
+    let totalRequestsOnly = false;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -91,8 +92,8 @@ async function runSync(req: Request): Promise<Response> {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
-      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : null;
-      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : null;
+      dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : (typeof (body as any)?.date_from === "string" ? (body as any).date_from : null);
+      dateTo = typeof (body as any)?.to === "string" ? (body as any).to : (typeof (body as any)?.date_to === "string" ? (body as any).date_to : null);
       requestedSiteId = typeof (body as any)?.site_id === "string" ? (body as any).site_id : null;
       requestedUserId = typeof (body as any)?.user_id === "string" ? (body as any).user_id : null;
       requestedAccountIds = Array.isArray((body as any)?.account_ids)
@@ -107,6 +108,7 @@ async function runSync(req: Request): Promise<Response> {
       // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
       skipViewability = Boolean((body as any)?.skip_viewability);
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
+      totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -203,6 +205,15 @@ async function runSync(req: Request): Promise<Response> {
           }
         } else {
           debug.push(`[${networkCode}/total_requests] skipped (budget low)`);
+        }
+
+        if (totalRequestsOnly) {
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "total_requests_only",
+          });
+          continue;
         }
 
 
@@ -1090,19 +1101,33 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
   if (!siteId) return;
-  // Pega DATE + KEY_VALUES_NAME com a métrica AD_REQUESTS (nome oficial REST v1).
-  // O runReport coloca a primeira métrica em `impressions`. Aqui esse campo = ad requests.
-  // Nota: na API REST v1 do Ad Manager, o nome correto é simplesmente AD_REQUESTS
-  // (não "AD_SERVER_TOTAL_REQUESTS" do SOAP nem "TOTAL_AD_REQUESTS").
-  const reportRows = (await Promise.all(ranges.map((range) =>
-    runReport({
-      networkCode, accessToken, range,
-      dimensions: ["DATE", "KEY_VALUES_NAME"],
-      metrics: ["AD_REQUESTS"],
-      debug, deadlineAt,
-    })
-  ))).flat();
-  console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
+  let reportRows: ReportRow[] = [];
+  let matchRateRows: ReportRow[] = [];
+  try {
+    reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
+        metrics: ["AD_REQUESTS"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/total_requests] AD_REQUESTS incompatível; tentando AD_EXCHANGE_MATCH_RATE: ${String(e).slice(0, 220)}`);
+    matchRateRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
+        metrics: ["AD_EXCHANGE_MATCH_RATE"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
+  }
+
   // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
   const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
   for (const r of reportRows) {
@@ -1115,6 +1140,37 @@ async function persistCampaignTotalRequests(args: {
     const cur = agg.get(key) ?? { cid, date, total_requests: 0 };
     cur.total_requests += Number(r.impressions || 0);
     agg.set(key, cur);
+  }
+  if (agg.size === 0 && matchRateRows.length > 0) {
+    const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    for (const r of matchRateRows) {
+      const date = r.date;
+      if (!date) continue;
+      const kv = parseKeyValueDimension(r.dims[1] ?? "");
+      const cid = (kv.utm_campaign ?? "").trim();
+      const rawRate = Number(r.impressions || 0);
+      const rate = rawRate > 1 ? rawRate / 100 : rawRate;
+      if (!cid || rate <= 0) continue;
+      rateByKey.set(`${cid}|${date}`, { cid, date, rate });
+    }
+    const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
+    const datesForRate = [...new Set([...rateByKey.values()].map((b) => b.date))];
+    const { data: existingForRate } = cidsForRate.length && datesForRate.length ? await admin
+      .from("gam_campaign_source_revenue")
+      .select("campaign_id,date,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .eq("utm_source", "google")
+      .in("campaign_id", cidsForRate)
+      .in("date", datesForRate) : { data: [] };
+    for (const r of (existingForRate ?? []) as any[]) {
+      const key = `${r.campaign_id}|${r.date}`;
+      const rateRow = rateByKey.get(key);
+      const impressions = Number(r.impressions ?? 0);
+      if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate) });
+    }
+    debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
@@ -1172,7 +1228,7 @@ async function persistCampaignSourceRevenueFromUtm(
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
@@ -1187,6 +1243,18 @@ async function persistCampaignSourceRevenueFromUtm(
   }
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
+  const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
+    .select("campaign_id,date,utm_source,total_requests")
+    .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  const requestsByKey = new Map<string, number>();
+  for (const r of (existingRequests ?? []) as any[]) {
+    const req = Number(r.total_requests ?? 0);
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, req);
+  }
+  for (const b of buckets.values()) {
+    const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
+    if (req && req > 0) b.total_requests = req;
+  }
   await admin.from("gam_campaign_source_revenue")
     .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const arr = [...buckets.values()];
@@ -1364,12 +1432,13 @@ interface RunReportArgs {
   metrics?: string[];
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
+  expandedCompatibility?: boolean;
   debug: string[];
   deadlineAt?: number;
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, debug, deadlineAt } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, expandedCompatibility, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const ensureBudget = (minimumMs = 8_000) => {
     if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
@@ -1391,6 +1460,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     ],
     dateRange: range.dateRange,
   };
+  if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
   const reportBody = { visibility: "DRAFT", reportDefinition };

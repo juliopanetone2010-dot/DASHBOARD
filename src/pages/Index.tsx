@@ -386,13 +386,24 @@ const IndexInner = () => {
   useEffect(() => {
     const map = campaignMatchRateQuery.data;
     if (!map || campaignMatchRateQuery.isLoading) return;
-    // Se já existe ao menos uma campanha com requests, não precisa sincronizar.
-    let anyHasRequests = false;
-    for (const v of map.values()) {
-      if (v.totalRequests > 0) { anyHasRequests = true; break; }
+    const expectedCampaigns = new Set<string>();
+    for (const [cid, v] of campaignGamMetricsQuery.data ?? new Map()) {
+      if ((v?.impressions ?? 0) > 0) expectedCampaigns.add(cid);
     }
-    if (anyHasRequests) return;
-    const key = `gam-auto-sync:${filters.siteId}:${range.from}:${range.to}`;
+    let campaignsWithRequests = 0;
+    for (const [cid, v] of map) {
+      if (v.totalRequests > 0 && (!expectedCampaigns.size || expectedCampaigns.has(cid))) campaignsWithRequests++;
+    }
+    let totalImpressions = 0;
+    let totalRequests = 0;
+    for (const v of map.values()) {
+      totalImpressions += Number(v.impressions ?? 0);
+      totalRequests += Number(v.totalRequests ?? 0);
+    }
+    const expected = expectedCampaigns.size;
+    if (expected > 0 && campaignsWithRequests >= Math.ceil(expected * 0.95) && totalRequests >= totalImpressions * 0.9) return;
+    if (expected === 0 && campaignsWithRequests > 0) return;
+    const key = `gam-auto-sync-v3:${filters.siteId}:${range.from}:${range.to}`;
     if (matchRateAutoSyncRef.current.has(key)) return;
     try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
     matchRateAutoSyncRef.current.add(key);
@@ -401,11 +412,13 @@ const IndexInner = () => {
       try {
         await supabase.functions.invoke("gam-sync-revenue", {
           body: {
-            date_preset: "CUSTOM",
-            date_from: range.from,
-            date_to: range.to,
+            from: range.from,
+            to: range.to,
             site_id: filters.siteId !== "all" ? filters.siteId : undefined,
-            revenue_only: true,
+            total_requests_only: true,
+            skip_viewability: true,
+            skip_snapshot_regen: true,
+            sync: true,
           },
         });
         // refresca a query para puxar os novos total_requests
@@ -415,7 +428,7 @@ const IndexInner = () => {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, filters.siteId, range.from, range.to]);
+  }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, campaignGamMetricsQuery.data, filters.siteId, range.from, range.to]);
 
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
