@@ -14,7 +14,11 @@ export interface EcpmResult {
   source: string;
 }
 
-export function calculateCampaignEcpm(revenueUsd: number, impressions: number): EcpmResult {
+export function calculateCampaignEcpm(
+  revenueUsd: number,
+  impressions: number,
+  source: string = "gam_placement_revenue",
+): EcpmResult {
   const rev = Number(revenueUsd) || 0;
   const imp = Number(impressions) || 0;
   const ecpm = imp > 0 ? (rev / imp) * 1000 : 0;
@@ -23,7 +27,7 @@ export function calculateCampaignEcpm(revenueUsd: number, impressions: number): 
     revenueUsd: rev,
     impressions: imp,
     formula: "eCPM = receita_gam / impressões_gam * 1000",
-    source: "gam_placement_revenue",
+    source,
   };
 }
 
