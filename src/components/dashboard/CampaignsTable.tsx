@@ -446,9 +446,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     });
   };
 
+  const filteredCampaigns = useMemo(() => {
+    if (opStatusFilter === "all") return campaigns;
+    return campaigns.filter((c) => opStatusQuery.data?.get(c.campaign_id)?.operational_status === opStatusFilter);
+  }, [campaigns, opStatusFilter, opStatusQuery.data]);
+
   const sortedCampaigns = useMemo(() => {
-    if (!sort) return campaigns;
-    const arr = [...campaigns];
+    if (!sort) return filteredCampaigns;
+    const arr = [...filteredCampaigns];
     const mult = sort.dir === "desc" ? -1 : 1;
     const valueOf = (c: CampaignAggregate): number => {
       const d = derived.get(c.campaign_id);
@@ -474,7 +479,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [campaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
+  }, [filteredCampaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
+
 
   const copyToClipboard = async (url: string) => {
     try {
