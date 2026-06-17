@@ -1203,7 +1203,9 @@ async function persistCampaignTotalRequests(args: {
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
       const target = campaignCid ? campaignRateByKey : placementRateByKey;
-      target.set(`${cid}|${date}`, { cid, date, rate });
+      const key = `${cid}|${date}`;
+      const prev = target.get(key);
+      if (!prev || rate > prev.rate) target.set(key, { cid, date, rate });
     }
     const rateByKey = new Map([...placementRateByKey, ...campaignRateByKey]);
     const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
