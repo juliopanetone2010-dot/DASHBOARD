@@ -330,9 +330,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         <TableCell className="text-right tabular-nums">{fmtNumber(Math.round(d.conversions))}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(d.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{d.matchedRequests > 0 ? fmtNumber(d.matchedRequests) : "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums">{d.totalRequests > 0 ? fmtNumber(d.totalRequests) : "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums font-medium">
-                          {d.matchRate != null ? `${d.matchRate.toFixed(2)}%` : "—"}
+                        <TableCell className={cn("text-right tabular-nums", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "GAM não retornou total_requests para esta data — estimado pelo total_requests do período" : undefined}>
+                          {d.totalRequests > 0 ? (d.matchRateEstimated ? `~${fmtNumber(d.totalRequests)}` : fmtNumber(d.totalRequests)) : "—"}
+                        </TableCell>
+                        <TableCell className={cn("text-right tabular-nums font-medium", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "Estimado (média ponderada dos dias com dados de match no período)" : undefined}>
+                          {d.matchRate != null ? `${d.matchRateEstimated ? "~" : ""}${d.matchRate.toFixed(2)}%` : "—"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
