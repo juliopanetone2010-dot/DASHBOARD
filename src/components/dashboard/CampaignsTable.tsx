@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity, Pencil, Tag, X } from "lucide-react";
+import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsLeft, ChevronsRight, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity, Pencil, Tag, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -110,6 +110,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
   const [matchRateDebug, setMatchRateDebug] = useState<{ campaignId: string; campaignName?: string | null } | null>(null);
+  const [compactNameUrl, setCompactNameUrl] = useState(false);
+  const NAME_W = compactNameUrl ? 220 : 560;
+  const URL_W = compactNameUrl ? 220 : 560;
+  const NAME_LEFT = 172;
+  const URL_LEFT = NAME_LEFT + NAME_W;
 
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey =
@@ -795,8 +800,38 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                 />
               </TableHead>
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
-              <TableHead className="sticky left-[172px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[732px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead
+                style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
+                className="sticky z-30 bg-muted/95 border-r border-border shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>Nome</span>
+                  <button
+                    type="button"
+                    onClick={() => setCompactNameUrl((v) => !v)}
+                    title={compactNameUrl ? "Expandir colunas Nome / Final URL" : "Encurtar colunas Nome / Final URL"}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground"
+                  >
+                    {compactNameUrl ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
+                  </button>
+                </div>
+              </TableHead>
+              <TableHead
+                style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
+                className="sticky z-30 bg-muted/95 border-r border-border shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>Final URL</span>
+                  <button
+                    type="button"
+                    onClick={() => setCompactNameUrl((v) => !v)}
+                    title={compactNameUrl ? "Expandir colunas Nome / Final URL" : "Encurtar colunas Nome / Final URL"}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground"
+                  >
+                    {compactNameUrl ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
+                  </button>
+                </div>
+              </TableHead>
               {orderedVisible.map((k) => {
                 const def = HEAD_DEFS[k];
                 const active = !!def.sortKey && sort?.key === def.sortKey;
@@ -874,7 +909,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                   <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[172px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border font-medium shadow-sm">
+                  <TableCell
+                    style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
+                    className="sticky z-20 bg-card border-r border-border font-medium shadow-sm"
+                  >
                     <div className="flex items-center gap-2 whitespace-normal">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -969,7 +1007,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell className="sticky left-[732px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell
+                    style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
+                    className="sticky z-20 bg-card border-r border-border text-xs shadow-sm"
+                  >
 
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[540px]">
