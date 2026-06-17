@@ -185,6 +185,21 @@ export function RetentionTab(_props: Props) {
     staleTime: 30_000,
   });
 
+  const fxQuery = useQuery({
+    queryKey: ["fx-usd-brl"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("exchange_rates")
+        .select("rate")
+        .eq("from_currency", "USD")
+        .eq("to_currency", "BRL")
+        .maybeSingle();
+      const rate = Number((data as any)?.rate);
+      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
   const syncStateQuery = useQuery({
     queryKey: ["push-sync-state", siteId ?? "all"],
     queryFn: async () => {
@@ -225,12 +240,28 @@ export function RetentionTab(_props: Props) {
   }, [pushRows]);
 
   const totals = useMemo(() => {
-    const total = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const tablePushTotal = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
     const impressions = pushRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
     const unattribTotal = unattrib.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    let google = 0, explicitPush = 0, other = 0;
+    for (const r of sourceRevenueQuery.data ?? []) {
+      const usd = Number(r.revenue_usd || 0);
+      const src = String(r.utm_source || "").toLowerCase();
+      if (src === "google") google += usd;
+      else if (src === "push") explicitPush += usd;
+      else other += usd;
+    }
+    const fx = fxQuery.data ?? 5;
+    const totalGamUsd = (siteMetricsQuery.data ?? []).reduce((s, r) => {
+      const native = Number(r.revenue_native || 0);
+      return s + (String(r.currency || "USD").toUpperCase() === "BRL" ? native / fx : native);
+    }, 0);
+    const residualPush = Math.max(0, totalGamUsd - google - explicitPush - other);
+    const explicitOrTablePush = explicitPush > 0 ? explicitPush : tablePushTotal;
+    const total = explicitOrTablePush + residualPush;
     const ecpm = impressions > 0 ? (total / impressions) * 1000 : 0;
-    return { total, impressions, push: total, unattribTotal, ecpm };
-  }, [pushRows, unattrib]);
+    return { total, impressions, push: total, unattribTotal, ecpm, residualPush, explicitPush: explicitOrTablePush };
+  }, [pushRows, unattrib, sourceRevenueQuery.data, siteMetricsQuery.data, fxQuery.data]);
 
   const syncOne = async (sid: string) => {
     const { data, error } = await supabase.functions.invoke("gam-sync-push-retention", {
