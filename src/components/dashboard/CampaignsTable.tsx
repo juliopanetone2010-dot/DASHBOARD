@@ -94,9 +94,11 @@ interface Props {
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
   onRefresh?: () => Promise<void> | void;
+  dateRange?: { from: string; to: string };
+  siteId?: string;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, downAccountIds, onPause, onBoost, onRefresh }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
