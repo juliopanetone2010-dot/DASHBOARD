@@ -1307,10 +1307,10 @@ async function persistCampaignTotalRequests(args: {
     placementTotalsForExisting.set(key, cur);
   }
   for (const [key, placement] of placementTotalsForExisting) {
-    if (placement.impressions > 0) existingMap.set(key, placement);
+    if (placement.impressions > 0) existingMap.set(key, { ...placement, match_rate_pct: existingMap.get(key)?.match_rate_pct ?? null });
   }
   const rows = [...agg.values()].map((b) => {
-    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
+    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     return {
       user_id: userId,
       site_id: siteId,
@@ -1320,6 +1320,7 @@ async function persistCampaignTotalRequests(args: {
       revenue_usd: prev.revenue_usd,
       impressions: prev.impressions,
       total_requests: b.total_requests,
+      match_rate_pct: b.match_rate_pct ?? prev.match_rate_pct,
     };
   });
   const CHUNK = 500;
