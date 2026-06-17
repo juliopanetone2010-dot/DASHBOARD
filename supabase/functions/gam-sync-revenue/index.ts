@@ -1219,10 +1219,28 @@ async function persistCampaignTotalRequests(args: {
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (rate > 0) siteRateByDate.set(r.date, rate);
     }
-    for (const b of agg.values()) {
-      if (b.total_requests > 0) continue;
-      const siteRate = siteRateByDate.get(b.date);
-      if (siteRate && siteRate > 0) b.total_requests = Math.round(Number((b as any).impressions ?? 0) / siteRate);
+    const siteRateDates = [...siteRateByDate.keys()];
+    const { data: placementForRate } = siteRateDates.length ? await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id,date,revenue_usd,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("date", siteRateDates) : { data: [] };
+    const placementTotals = new Map<string, { cid: string; date: string; impressions: number; revenue_usd: number }>();
+    for (const r of (placementForRate ?? []) as any[]) {
+      const cid = String(r.campaign_id ?? "");
+      const date = String(r.date ?? "");
+      if (!cid || !date || cid === "__aggregate__") continue;
+      const key = `${cid}|${date}`;
+      const cur = placementTotals.get(key) ?? { cid, date, impressions: 0, revenue_usd: 0 };
+      cur.impressions += Number(r.impressions || 0);
+      cur.revenue_usd += Number(r.revenue_usd || 0);
+      placementTotals.set(key, cur);
+    }
+    for (const [key, p] of placementTotals) {
+      if (agg.has(key) || p.impressions <= 0) continue;
+      const siteRate = siteRateByDate.get(p.date);
+      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd });
     }
   }
   if (agg.size === 0) {
