@@ -1185,17 +1185,22 @@ async function persistCampaignTotalRequests(args: {
     agg.set(`${row.cid}|${row.date}`, row);
   }
   if (agg.size === 0 && matchRateRows.length > 0) {
-    const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    const campaignRateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    const placementRateByKey = new Map<string, { cid: string; date: string; rate: number }>();
     for (const r of matchRateRows) {
       const date = r.date;
       if (!date) continue;
       const kv = parseKeyValueDimension(r.dims[1] ?? "");
-      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+      const campaignCid = extractCampaignId(kv.utm_campaign);
+      const placementCid = extractCampaignId(kv.utm_placement);
+      const cid = campaignCid ?? placementCid;
       const rawRate = Number(r.impressions || 0);
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
-      rateByKey.set(`${cid}|${date}`, { cid, date, rate });
+      const target = campaignCid ? campaignRateByKey : placementRateByKey;
+      target.set(`${cid}|${date}`, { cid, date, rate });
     }
+    const rateByKey = new Map([...placementRateByKey, ...campaignRateByKey]);
     const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
     const datesForRate = [...new Set([...rateByKey.values()].map((b) => b.date))];
     const { data: existingForRate } = cidsForRate.length && datesForRate.length ? await admin
@@ -1206,10 +1211,28 @@ async function persistCampaignTotalRequests(args: {
       .eq("utm_source", "google")
       .in("campaign_id", cidsForRate)
       .in("date", datesForRate) : { data: [] };
+    const { data: placementForRate } = cidsForRate.length && datesForRate.length ? await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id,date,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("campaign_id", cidsForRate)
+      .in("date", datesForRate) : { data: [] };
+    const existingImpressionsByRateKey = new Map<string, number>();
+    const placementImpressionsByRateKey = new Map<string, number>();
     for (const r of (existingForRate ?? []) as any[]) {
       const key = `${r.campaign_id}|${r.date}`;
+      existingImpressionsByRateKey.set(key, Math.max(existingImpressionsByRateKey.get(key) ?? 0, Number(r.impressions ?? 0)));
+    }
+    for (const r of (placementForRate ?? []) as any[]) {
+      const key = `${r.campaign_id}|${r.date}`;
+      placementImpressionsByRateKey.set(key, (placementImpressionsByRateKey.get(key) ?? 0) + Number(r.impressions ?? 0));
+    }
+    const allImpressionKeys = new Set([...existingImpressionsByRateKey.keys(), ...placementImpressionsByRateKey.keys()]);
+    for (const key of allImpressionKeys) {
+      const placementImpressions = placementImpressionsByRateKey.get(key) ?? 0;
+      const impressions = placementImpressions > 0 ? placementImpressions : (existingImpressionsByRateKey.get(key) ?? 0);
       const rateRow = rateByKey.get(key);
-      const impressions = Number(r.impressions ?? 0);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
       agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
     }
@@ -1275,14 +1298,16 @@ async function persistCampaignTotalRequests(args: {
   for (const r of (existing ?? []) as any[]) {
     existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
   }
+  const placementTotalsForExisting = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (placementExisting ?? []) as any[]) {
     const key = `${r.campaign_id}|${r.date}`;
-    const cur = existingMap.get(key) ?? { revenue_usd: 0, impressions: 0 };
-    if (cur.impressions <= 0) {
-      cur.revenue_usd += Number(r.revenue_usd || 0);
-      cur.impressions += Number(r.impressions || 0);
-      existingMap.set(key, cur);
-    }
+    const cur = placementTotalsForExisting.get(key) ?? { revenue_usd: 0, impressions: 0 };
+    cur.revenue_usd += Number(r.revenue_usd || 0);
+    cur.impressions += Number(r.impressions || 0);
+    placementTotalsForExisting.set(key, cur);
+  }
+  for (const [key, placement] of placementTotalsForExisting) {
+    if (placement.impressions > 0) existingMap.set(key, placement);
   }
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
@@ -1425,6 +1450,32 @@ async function applyGoogleUtmRevenue(
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
     }
     debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
+
+    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
+    for (const p of arr) {
+      const key = `${p.campaign_id}|${p.date}`;
+      const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += Number(p.revenue_usd || 0);
+      cur.impressions += Number(p.impressions || 0);
+      sourceByCampaign.set(key, cur);
+    }
+    const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
+    const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
+      .select("campaign_id,date,total_requests")
+      .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
+    for (const r of (existingSourceRequests ?? []) as any[]) {
+      const req = Number(r.total_requests ?? 0);
+      if (req > 0) {
+        const key = `${r.campaign_id}|${r.date}`;
+        const cur = sourceByCampaign.get(key);
+        if (cur) cur.total_requests = req;
+      }
+    }
+    const sourceRows = [...sourceByCampaign.values()];
+    for (let i = 0; i < sourceRows.length; i += CHUNK) {
+      await admin.from("gam_campaign_source_revenue").upsert(sourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+    }
+    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas por placement`);
   }
 
   const { data: links } = await admin
