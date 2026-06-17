@@ -367,7 +367,7 @@ const IndexInner = () => {
     queryFn: async () => {
       let q = supabase
         .from("gam_campaign_source_revenue")
-        .select("campaign_id, impressions, total_requests, site_id")
+        .select("campaign_id, impressions, total_requests, match_rate_pct, site_id")
         .eq("utm_source", "google")
         .gte("date", range.from)
         .lte("date", range.to)
@@ -392,13 +392,20 @@ const IndexInner = () => {
           .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
           .map((c) => c.campaign_id))
         : null;
-      const map = new Map<string, { impressions: number; totalRequests: number }>();
+      const map = new Map<string, { impressions: number; totalRequests: number; exactImpressions: number; exactRequests: number }>();
       for (const r of rows ?? []) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
-        cur.impressions += Number((r as any).impressions ?? 0);
-        cur.totalRequests += Number((r as any).total_requests ?? 0);
+        const impressions = Number((r as any).impressions ?? 0);
+        const totalRequests = Number((r as any).total_requests ?? 0);
+        const exactRatePct = Number((r as any).match_rate_pct ?? 0);
+        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, exactImpressions: 0, exactRequests: 0 };
+        cur.impressions += impressions;
+        cur.totalRequests += totalRequests;
+        if (impressions > 0 && exactRatePct > 0) {
+          cur.exactImpressions += impressions;
+          cur.exactRequests += impressions / (exactRatePct / 100);
+        }
         map.set(cid, cur);
       }
       const placementImpressions = new Map<string, number>();
@@ -408,16 +415,17 @@ const IndexInner = () => {
         placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
       }
       for (const [cid, impressions] of placementImpressions) {
-        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
-        if (impressions > 0) cur.impressions = impressions;
-        map.set(cid, cur);
+        const cur = map.get(cid);
+        if (cur && (cur.totalRequests > 0 || cur.exactRequests > 0)) continue;
+        if (impressions > 0) map.set(cid, { impressions, totalRequests: 0, exactImpressions: 0, exactRequests: 0 });
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
       for (const [cid, v] of map) {
+        const hasExactRate = v.exactRequests > 0;
         out.set(cid, {
-          matchRate: v.totalRequests > 0 ? (v.impressions / v.totalRequests) * 100 : 0,
-          impressions: v.impressions,
-          totalRequests: v.totalRequests,
+          matchRate: hasExactRate ? (v.exactImpressions / v.exactRequests) * 100 : (v.totalRequests > 0 ? (v.impressions / v.totalRequests) * 100 : 0),
+          impressions: hasExactRate ? v.exactImpressions : v.impressions,
+          totalRequests: hasExactRate ? Math.round(v.exactRequests) : v.totalRequests,
         });
       }
       return out;
