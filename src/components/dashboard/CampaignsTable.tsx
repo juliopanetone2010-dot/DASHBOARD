@@ -494,10 +494,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const shortenUrl = (url: string): string => {
     try {
       const u = new URL(url);
-      const path = u.pathname.length > 22 ? u.pathname.slice(0, 22) + "…" : u.pathname;
-      return `${u.hostname.replace(/^www\./, "")}${path}`;
+      return `${u.hostname.replace(/^www\./, "")}${u.pathname}`;
     } catch {
-      return url.length > 32 ? url.slice(0, 32) + "…" : url;
+      return url;
     }
   };
 
@@ -793,7 +792,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               </TableHead>
               <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead className="sticky left-[172px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Nome</TableHead>
-              <TableHead className="sticky left-[732px] z-30 w-[300px] min-w-[300px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
+              <TableHead className="sticky left-[732px] z-30 w-[560px] min-w-[560px] bg-muted/95 border-r border-border shadow-sm">Final URL</TableHead>
               {orderedVisible.map((k) => {
                 const def = HEAD_DEFS[k];
                 const active = !!def.sortKey && sort?.key === def.sortKey;
@@ -966,10 +965,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell className="sticky left-[732px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[732px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border text-xs shadow-sm">
 
                     {finalUrl ? (
-                      <div className="flex items-center gap-1 max-w-[280px]">
+                      <div className="flex items-center gap-1 max-w-[540px]">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <a
