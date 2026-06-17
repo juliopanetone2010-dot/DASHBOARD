@@ -909,7 +909,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                   <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
                     {c.campaign_id}
                   </TableCell>
-                  <TableCell className="sticky left-[172px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border font-medium shadow-sm">
+                  <TableCell
+                    style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
+                    className="sticky z-20 bg-card border-r border-border font-medium shadow-sm"
+                  >
                     <div className="flex items-center gap-2 whitespace-normal">
                       <Tooltip>
                         <TooltipTrigger asChild>
