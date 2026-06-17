@@ -1319,6 +1319,20 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
         </Table>
       </div>
     </div>
+    {matchRateDebug && dateRange && (
+      <MatchRateDebugDialog
+        open={!!matchRateDebug}
+        onOpenChange={(v) => { if (!v) setMatchRateDebug(null); }}
+        campaignId={matchRateDebug.campaignId}
+        campaignName={matchRateDebug.campaignName}
+        from={dateRange.from}
+        to={dateRange.to}
+        siteId={siteId}
+        dashboardRate={campaignMatchRates?.get(matchRateDebug.campaignId)?.matchRate ?? null}
+        dashboardImpressions={campaignMatchRates?.get(matchRateDebug.campaignId)?.impressions ?? null}
+        dashboardTotalRequests={campaignMatchRates?.get(matchRateDebug.campaignId)?.totalRequests ?? null}
+      />
+    )}
     </TooltipProvider>
   );
 }
