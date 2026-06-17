@@ -92,7 +92,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .maybeSingle(),
       ]);
 
-      // GAM aggregated by day
+      // GAM placement aggregated by day
       const gamByDay = new Map<string, { revenue: number; impressions: number }>();
       for (const r of gam.data ?? []) {
         const k = String((r as any).date);
@@ -100,6 +100,21 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         cur.revenue += Number((r as any).revenue_usd ?? 0);
         cur.impressions += Number((r as any).impressions ?? 0);
         gamByDay.set(k, cur);
+      }
+
+      // GAM campaign source (match rate) aggregated by day
+      const gamSourceByDay = new Map<string, { impressions: number; totalRequests: number; matchRatePct: number | null }>();
+      for (const r of gamSource.data ?? []) {
+        const k = String((r as any).date);
+        const cur = gamSourceByDay.get(k) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
+        cur.impressions += Number((r as any).impressions ?? 0);
+        cur.totalRequests += Number((r as any).total_requests ?? 0);
+        const pct = (r as any).match_rate_pct;
+        if (pct != null) {
+          // keep the latest non-null match_rate_pct for the day (they should be identical per day)
+          cur.matchRatePct = Number(pct);
+        }
+        gamSourceByDay.set(k, cur);
       }
 
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
