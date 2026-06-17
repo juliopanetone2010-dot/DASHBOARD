@@ -480,6 +480,7 @@ interface ReportRow { date: string | null; dims: string[]; impressions: number; 
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
+type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "site_match_rate"; impressions?: number; revenue_usd?: number };
 interface AttributionResult {
   retentionRows: AttributedRow[];
   googleCampaignRows: AttributedRow[];
@@ -655,6 +656,29 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
   return out;
 }
 
+function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests"): MatchRateRow[] {
+  const campaignAgg = new Map<string, MatchRateRow>();
+  const placementAgg = new Map<string, MatchRateRow>();
+  for (const r of reportRows) {
+    const date = r.date;
+    if (!date) continue;
+    const kv = parseKeyValueDimension(r.dims[1] ?? "");
+    const campaignCid = extractCampaignId(kv.utm_campaign);
+    const placementCid = extractCampaignId(kv.utm_placement);
+    const cid = campaignCid ?? placementCid;
+    if (!cid) continue;
+    const key = `${cid}|${date}`;
+    const target = campaignCid ? campaignAgg : placementAgg;
+    const cur = target.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
+    cur.total_requests += Number(r.impressions || 0);
+    target.set(key, cur);
+  }
+  for (const [key, row] of placementAgg) {
+    if (!campaignAgg.has(key)) campaignAgg.set(key, row);
+  }
+  return [...campaignAgg.values()];
+}
+
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   const value = safeDecode(String(raw ?? ""));
@@ -820,7 +844,13 @@ async function collectUtmAttribution(args: {
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
   // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  const googleCampaignRows = campaignRows;
+  // Linha oficial por campanha: primeiro usa utm_campaign. Quando o GAM só
+  // trouxe utm_placement no formato "{campaign_id}_{placement}", usamos esse
+  // ID como fallback por (data,campanha), sem somar por cima de utm_campaign
+  // para evitar dupla contagem.
+  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
+  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
   const googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
@@ -1103,6 +1133,7 @@ async function persistCampaignTotalRequests(args: {
   if (!siteId) return;
   let reportRows: ReportRow[] = [];
   let matchRateRows: ReportRow[] = [];
+  let siteMatchRateRows: ReportRow[] = [];
   try {
     reportRows = (await Promise.all(ranges.map((range) =>
       runReport({
@@ -1126,20 +1157,28 @@ async function persistCampaignTotalRequests(args: {
       })
     ))).flat();
     console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
+    try {
+      siteMatchRateRows = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE"],
+          metrics: ["AD_EXCHANGE_MATCH_RATE"],
+          expandedCompatibility: true,
+          debug, deadlineAt,
+        })
+      ))).flat();
+      console.log(`[${networkCode}/match_rate_site] reportRows=${siteMatchRateRows.length}`);
+    } catch (siteRateErr) {
+      debug.push(`[${networkCode}/match_rate_site] erro=${String(siteRateErr).slice(0, 220)}`);
+    }
   }
 
-  // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
-  const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
-  for (const r of reportRows) {
-    const date = r.date;
-    if (!date) continue;
-    const kv = parseKeyValueDimension(r.dims[1] ?? "");
-    const cid = (kv.utm_campaign ?? "").trim();
-    if (!cid) continue;
-    const key = `${cid}|${date}`;
-    const cur = agg.get(key) ?? { cid, date, total_requests: 0 };
-    cur.total_requests += Number(r.impressions || 0);
-    agg.set(key, cur);
+  // Agrega por (cid, date) usando a regra oficial:
+  // Google Ads campaign.id ↔ GAM utm_campaign; se não houver utm_campaign,
+  // extrai o ID de utm_placement ({campaign_id}_{placement}).
+  const agg = new Map<string, MatchRateRow>();
+  for (const row of buildRequestRowsFromReportRows(reportRows, "ad_requests")) {
+    agg.set(`${row.cid}|${row.date}`, row);
   }
   if (agg.size === 0 && matchRateRows.length > 0) {
     const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
@@ -1147,7 +1186,7 @@ async function persistCampaignTotalRequests(args: {
       const date = r.date;
       if (!date) continue;
       const kv = parseKeyValueDimension(r.dims[1] ?? "");
-      const cid = (kv.utm_campaign ?? "").trim();
+      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
       const rawRate = Number(r.impressions || 0);
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
@@ -1168,9 +1207,41 @@ async function persistCampaignTotalRequests(args: {
       const rateRow = rateByKey.get(key);
       const impressions = Number(r.impressions ?? 0);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
-      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate) });
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
+  }
+  if (siteMatchRateRows.length > 0 && agg.size > 0) {
+    const siteRateByDate = new Map<string, number>();
+    for (const r of siteMatchRateRows) {
+      if (!r.date) continue;
+      const rawRate = Number(r.impressions || 0);
+      const rate = rawRate > 1 ? rawRate / 100 : rawRate;
+      if (rate > 0) siteRateByDate.set(r.date, rate);
+    }
+    const siteRateDates = [...siteRateByDate.keys()];
+    const { data: placementForRate } = siteRateDates.length ? await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id,date,revenue_usd,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("date", siteRateDates) : { data: [] };
+    const placementTotals = new Map<string, { cid: string; date: string; impressions: number; revenue_usd: number }>();
+    for (const r of (placementForRate ?? []) as any[]) {
+      const cid = String(r.campaign_id ?? "");
+      const date = String(r.date ?? "");
+      if (!cid || !date || cid === "__aggregate__") continue;
+      const key = `${cid}|${date}`;
+      const cur = placementTotals.get(key) ?? { cid, date, impressions: 0, revenue_usd: 0 };
+      cur.impressions += Number(r.impressions || 0);
+      cur.revenue_usd += Number(r.revenue_usd || 0);
+      placementTotals.set(key, cur);
+    }
+    for (const [key, p] of placementTotals) {
+      if (agg.has(key) || p.impressions <= 0) continue;
+      const siteRate = siteRateByDate.get(p.date);
+      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd });
+    }
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
@@ -1189,9 +1260,25 @@ async function persistCampaignTotalRequests(args: {
     .eq("utm_source", "google")
     .in("campaign_id", cids)
     .in("date", dates);
+  const { data: placementExisting } = await admin
+    .from("gam_placement_revenue")
+    .select("campaign_id,date,revenue_usd,impressions")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .in("campaign_id", cids)
+    .in("date", dates);
   const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (existing ?? []) as any[]) {
     existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+  }
+  for (const r of (placementExisting ?? []) as any[]) {
+    const key = `${r.campaign_id}|${r.date}`;
+    const cur = existingMap.get(key) ?? { revenue_usd: 0, impressions: 0 };
+    if (cur.impressions <= 0) {
+      cur.revenue_usd += Number(r.revenue_usd || 0);
+      cur.impressions += Number(r.impressions || 0);
+      existingMap.set(key, cur);
+    }
   }
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
@@ -1255,9 +1342,13 @@ async function persistCampaignSourceRevenueFromUtm(
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
     if (req && req > 0) b.total_requests = req;
   }
+  const arr = [...buckets.values()];
+  if (arr.length === 0) {
+    debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
+    return;
+  }
   await admin.from("gam_campaign_source_revenue")
     .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const arr = [...buckets.values()];
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
