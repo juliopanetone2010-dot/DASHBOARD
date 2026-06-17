@@ -364,6 +364,11 @@ async function runSync(req: Request): Promise<Response> {
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          if (hasBudget(25_000)) {
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+          } else {
+            debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
+          }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
 
         }
