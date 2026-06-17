@@ -1063,6 +1063,8 @@ const IndexInner = () => {
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
                 onRefresh={data.refresh}
+                dateRange={{ from: range.from, to: range.to }}
+                siteId={filters.siteId}
               />
             </section>
             </DashboardErrorBoundary>
