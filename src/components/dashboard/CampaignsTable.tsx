@@ -965,10 +965,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell className="sticky left-[732px] z-20 w-[300px] min-w-[300px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell className="sticky left-[732px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border text-xs shadow-sm">
 
                     {finalUrl ? (
-                      <div className="flex items-center gap-1 max-w-[280px]">
+                      <div className="flex items-center gap-1 max-w-[540px]">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <a
