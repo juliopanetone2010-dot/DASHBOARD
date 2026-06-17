@@ -1273,8 +1273,13 @@ async function persistCampaignSourceRevenueFromUtm(
     if (req && req > 0) b.total_requests = req;
   }
   await admin.from("gam_campaign_source_revenue")
-    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const arr = [...buckets.values()];
+  if (arr.length === 0) {
+    debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
+    return;
+  }
+  await admin.from("gam_campaign_source_revenue")
+    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
