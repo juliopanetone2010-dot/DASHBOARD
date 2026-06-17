@@ -30,6 +30,7 @@ import { CampaignHistoryButton } from "./CampaignHistoryButton";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { useColumnLayout } from "@/hooks/useColumnLayout";
 import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
+import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
