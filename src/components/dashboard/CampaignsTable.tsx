@@ -913,7 +913,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                     className="sticky z-20 bg-card border-r border-border font-medium shadow-sm"
                   >
-                    <div className="flex items-center gap-2 whitespace-normal">
+                    <div className={cn("flex items-center gap-2", compactNameUrl ? "whitespace-nowrap" : "whitespace-normal")}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
@@ -929,7 +929,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
+                      <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
