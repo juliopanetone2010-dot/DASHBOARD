@@ -392,22 +392,27 @@ const IndexInner = () => {
           .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
           .map((c) => c.campaign_id))
         : null;
-      const map = new Map<string, { impressions: number; totalRequests: number; exactImpressions: number; exactRequests: number }>();
+      // Agregação por campanha usando média ponderada do match_rate_pct canônico do GAM:
+      //   rate = Σ(rate_i * impressions_i) / Σ(impressions_i)
+      // Quando match_rate_pct não está disponível, fallback para Σ impr / Σ requests.
+      const map = new Map<string, {
+        impressions: number;
+        totalRequests: number;
+        ratedImpressions: number;
+        weightedRateSum: number;
+      }>();
       for (const r of rows ?? []) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         const impressions = Number((r as any).impressions ?? 0);
         const totalRequests = Number((r as any).total_requests ?? 0);
         const exactRatePct = Number((r as any).match_rate_pct ?? 0);
-        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, exactImpressions: 0, exactRequests: 0 };
+        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0 };
         cur.impressions += impressions;
         cur.totalRequests += totalRequests;
         if (impressions > 0 && exactRatePct > 0) {
-          cur.exactImpressions += impressions;
-          cur.exactRequests += impressions / (exactRatePct / 100);
-        } else if (impressions > 0 && totalRequests > 0) {
-          cur.exactImpressions += impressions;
-          cur.exactRequests += totalRequests;
+          cur.ratedImpressions += impressions;
+          cur.weightedRateSum += exactRatePct * impressions;
         }
         map.set(cid, cur);
       }
@@ -419,17 +424,27 @@ const IndexInner = () => {
       }
       for (const [cid, impressions] of placementImpressions) {
         const cur = map.get(cid);
-        if (cur && (cur.totalRequests > 0 || cur.exactRequests > 0)) continue;
-        if (impressions > 0) map.set(cid, { impressions, totalRequests: 0, exactImpressions: 0, exactRequests: 0 });
+        if (cur && (cur.totalRequests > 0 || cur.ratedImpressions > 0)) continue;
+        if (impressions > 0) map.set(cid, { impressions, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0 });
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
       for (const [cid, v] of map) {
-        const hasExactRate = v.exactRequests > 0;
-        out.set(cid, {
-          matchRate: hasExactRate ? (v.exactImpressions / v.exactRequests) * 100 : (v.totalRequests > 0 ? (v.impressions / v.totalRequests) * 100 : 0),
-          impressions: hasExactRate ? v.exactImpressions : v.impressions,
-          totalRequests: hasExactRate ? Math.round(v.exactRequests) : v.totalRequests,
-        });
+        if (v.ratedImpressions > 0) {
+          const rate = v.weightedRateSum / v.ratedImpressions;
+          out.set(cid, {
+            matchRate: rate,
+            impressions: v.impressions,
+            totalRequests: v.totalRequests > 0 ? v.totalRequests : Math.round(v.ratedImpressions / (rate / 100)),
+          });
+        } else if (v.totalRequests > 0) {
+          out.set(cid, {
+            matchRate: (v.impressions / v.totalRequests) * 100,
+            impressions: v.impressions,
+            totalRequests: v.totalRequests,
+          });
+        } else {
+          out.set(cid, { matchRate: 0, impressions: v.impressions, totalRequests: 0 });
+        }
       }
       return out;
     },
@@ -1048,6 +1063,8 @@ const IndexInner = () => {
                 onPause={(id) => queueAction(id, "pause", "Ação manual")}
                 onBoost={(id) => queueAction(id, "increase_budget", "Ação manual")}
                 onRefresh={data.refresh}
+                dateRange={{ from: range.from, to: range.to }}
+                siteId={filters.siteId}
               />
             </section>
             </DashboardErrorBoundary>
