@@ -1151,18 +1151,12 @@ async function persistCampaignTotalRequests(args: {
     console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
   }
 
-  // Agrega por (cid, date) somando apenas linhas de utm_campaign para evitar dupla contagem.
-  const agg = new Map<string, { cid: string; date: string; total_requests: number }>();
-  for (const r of reportRows) {
-    const date = r.date;
-    if (!date) continue;
-    const kv = parseKeyValueDimension(r.dims[1] ?? "");
-    const cid = (kv.utm_campaign ?? "").trim();
-    if (!cid) continue;
-    const key = `${cid}|${date}`;
-    const cur = agg.get(key) ?? { cid, date, total_requests: 0 };
-    cur.total_requests += Number(r.impressions || 0);
-    agg.set(key, cur);
+  // Agrega por (cid, date) usando a regra oficial:
+  // Google Ads campaign.id ↔ GAM utm_campaign; se não houver utm_campaign,
+  // extrai o ID de utm_placement ({campaign_id}_{placement}).
+  const agg = new Map<string, MatchRateRow>();
+  for (const row of buildRequestRowsFromReportRows(reportRows, "ad_requests")) {
+    agg.set(`${row.cid}|${row.date}`, row);
   }
   if (agg.size === 0 && matchRateRows.length > 0) {
     const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
@@ -1170,7 +1164,7 @@ async function persistCampaignTotalRequests(args: {
       const date = r.date;
       if (!date) continue;
       const kv = parseKeyValueDimension(r.dims[1] ?? "");
-      const cid = (kv.utm_campaign ?? "").trim();
+      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
       const rawRate = Number(r.impressions || 0);
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
@@ -1191,7 +1185,7 @@ async function persistCampaignTotalRequests(args: {
       const rateRow = rateByKey.get(key);
       const impressions = Number(r.impressions ?? 0);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
-      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate) });
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
