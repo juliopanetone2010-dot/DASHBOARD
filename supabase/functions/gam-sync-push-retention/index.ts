@@ -207,7 +207,8 @@ Deno.serve(async (req) => {
 
     // Upsert
     const inserts = [...buckets.values()].map((b) => {
-      const ecpm = b.impressions > 0 ? (b.revenue_usd / b.impressions) * 1000 : 0;
+      const normalizedRevenueUsd = b.revenue_usd / ingestionDivisor;
+      const ecpm = b.impressions > 0 ? (normalizedRevenueUsd / b.impressions) * 1000 : 0;
       if (ecpm > 1000 || (b.revenue_usd > 0 && ecpm < 0.01)) debug.ecpmAnomalies++;
       return {
         user_id: site.user_id,
@@ -216,7 +217,7 @@ Deno.serve(async (req) => {
         url: b.url,
         normalized_url: b.normalized_url,
         utm_source: b.utm_source,
-        revenue_usd: b.revenue_usd / ingestionDivisor,
+        revenue_usd: normalizedRevenueUsd,
         impressions: b.impressions,
         ecpm,
         source: "gam-sync-push-retention",
