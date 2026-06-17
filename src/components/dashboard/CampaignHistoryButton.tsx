@@ -268,6 +268,9 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                       <TableHead className="text-right">ROI</TableHead>
                       <TableHead className="text-right">Conv.</TableHead>
                       <TableHead className="text-right">Impr.</TableHead>
+                      <TableHead className="text-right">Matched</TableHead>
+                      <TableHead className="text-right">Requests</TableHead>
+                      <TableHead className="text-right">Match Rate</TableHead>
                       <TableHead className="text-right">eCPM</TableHead>
                       <TableHead className="text-right">CPA</TableHead>
                     </TableRow>
