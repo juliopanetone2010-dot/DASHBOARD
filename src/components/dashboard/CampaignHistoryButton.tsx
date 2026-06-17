@@ -51,7 +51,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     queryKey: ["campaign-history", campaignId, days],
     enabled: open,
     queryFn: async () => {
-      const [dm, gam, autom, restart, funnel] = await Promise.all([
+      const [dm, gam, gamSource, autom, restart, funnel] = await Promise.all([
         supabase
           .from("daily_metrics")
           .select("date, spend, revenue, profit, roi, conversions, impressions")
@@ -66,6 +66,13 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .gte("date", from)
           .lte("date", to)
           .limit(20000),
+        supabase
+          .from("gam_campaign_source_revenue")
+          .select("date, impressions, total_requests, match_rate_pct")
+          .eq("campaign_id", campaignId)
+          .eq("utm_source", "google")
+          .gte("date", from)
+          .lte("date", to),
         supabase
           .from("campaign_automation")
           .select("last_action, last_action_date, last_cpa_action, last_cpa_action_date, last_scale_date, entered_standby_at")
