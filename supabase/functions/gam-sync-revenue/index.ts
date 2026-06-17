@@ -1185,17 +1185,22 @@ async function persistCampaignTotalRequests(args: {
     agg.set(`${row.cid}|${row.date}`, row);
   }
   if (agg.size === 0 && matchRateRows.length > 0) {
-    const rateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    const campaignRateByKey = new Map<string, { cid: string; date: string; rate: number }>();
+    const placementRateByKey = new Map<string, { cid: string; date: string; rate: number }>();
     for (const r of matchRateRows) {
       const date = r.date;
       if (!date) continue;
       const kv = parseKeyValueDimension(r.dims[1] ?? "");
-      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+      const campaignCid = extractCampaignId(kv.utm_campaign);
+      const placementCid = extractCampaignId(kv.utm_placement);
+      const cid = campaignCid ?? placementCid;
       const rawRate = Number(r.impressions || 0);
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
-      rateByKey.set(`${cid}|${date}`, { cid, date, rate });
+      const target = campaignCid ? campaignRateByKey : placementRateByKey;
+      target.set(`${cid}|${date}`, { cid, date, rate });
     }
+    const rateByKey = new Map([...placementRateByKey, ...campaignRateByKey]);
     const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
     const datesForRate = [...new Set([...rateByKey.values()].map((b) => b.date))];
     const { data: existingForRate } = cidsForRate.length && datesForRate.length ? await admin
@@ -1292,13 +1297,9 @@ async function persistCampaignTotalRequests(args: {
   for (const r of (placementExisting ?? []) as any[]) {
     const key = `${r.campaign_id}|${r.date}`;
     const cur = existingMap.get(key) ?? { revenue_usd: 0, impressions: 0 };
-    const placementRevenue = Number(r.revenue_usd || 0);
-    const placementImpressions = Number(r.impressions || 0);
-    if (placementImpressions > cur.impressions) {
-      cur.revenue_usd = placementRevenue;
-      cur.impressions = placementImpressions;
-      existingMap.set(key, cur);
-    }
+    cur.revenue_usd += Number(r.revenue_usd || 0);
+    cur.impressions += Number(r.impressions || 0);
+    existingMap.set(key, cur);
   }
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
