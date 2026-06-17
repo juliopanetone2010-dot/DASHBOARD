@@ -117,48 +117,27 @@ const IndexInner = () => {
   });
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS.
-  // Quando o GAM não entrega mais utm_source=push no relatório por key-value, estimamos o push
-  // pelo residual do Ad Manager: receita total do site - receita atribuída ao Google/Outras.
+  // Usa somente o que o GAM marca explicitamente como utm_source=push; não estima por residual.
   const extraRevQuery = useQuery({
-    queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|"), fxQuery.data?.rate],
+    queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let sourceQ = supabase
+      let q = supabase
         .from("gam_campaign_source_revenue")
         .select("utm_source, revenue_usd, date")
         .gte("date", range.from)
         .lte("date", range.to);
-      let siteQ = supabase
-        .from("site_metrics_daily")
-        .select("revenue_native, currency")
-        .gte("date", range.from)
-        .lte("date", range.to);
-      if (filters.siteId !== "all") {
-        sourceQ = sourceQ.eq("site_id", filters.siteId);
-        siteQ = siteQ.eq("site_id", filters.siteId);
-      }
-      const [{ data: rows, error: sourceError }, { data: siteRows, error: siteError }] = await Promise.all([
-        sourceQ.limit(50000),
-        siteQ.limit(5000),
-      ]);
-      if (sourceError) throw sourceError;
-      if (siteError) throw siteError;
-      const fxForExtra = fxQuery.data?.rate ?? 5;
-      let push = 0, other = 0, google = 0;
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q.limit(50000);
+      if (error) throw error;
+      let push = 0, other = 0;
       for (const r of rows ?? []) {
         const usd = Number((r as any).revenue_usd) || 0;
         const src = String((r as any).utm_source ?? "").toLowerCase();
-        if (src === "google") { google += usd; continue; }
+        if (src === "google") continue;
         if (src === "push") push += usd; else other += usd;
       }
-      const totalGamUsd = (siteRows ?? []).reduce((sum, r: any) => {
-        const cur = String(r.currency || "USD").toUpperCase();
-        const native = Number(r.revenue_native ?? 0) || 0;
-        return sum + (cur === "BRL" ? native / fxForExtra : native);
-      }, 0);
-      const residualPush = Math.max(0, totalGamUsd - google - push - other);
-      return { push: push + residualPush, other, residualPush, explicitPush: push };
+      return { push, other };
     },
-    enabled: fxQuery.isSuccess,
     staleTime: 30_000,
   });
 
