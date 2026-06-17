@@ -364,6 +364,11 @@ async function runSync(req: Request): Promise<Response> {
           await persistRows(placementRows, "placement");
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          if (hasBudget(25_000)) {
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+          } else {
+            debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
+          }
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
 
         }
@@ -480,7 +485,7 @@ interface ReportRow { date: string | null; dims: string[]; impressions: number; 
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
-type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "site_match_rate"; impressions?: number; revenue_usd?: number };
+type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "site_match_rate"; impressions?: number; revenue_usd?: number; match_rate_pct?: number };
 interface AttributionResult {
   retentionRows: AttributedRow[];
   googleCampaignRows: AttributedRow[];
@@ -1198,7 +1203,9 @@ async function persistCampaignTotalRequests(args: {
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
       const target = campaignCid ? campaignRateByKey : placementRateByKey;
-      target.set(`${cid}|${date}`, { cid, date, rate });
+      const key = `${cid}|${date}`;
+      const prev = target.get(key);
+      if (!prev || rate > prev.rate) target.set(key, { cid, date, rate });
     }
     const rateByKey = new Map([...placementRateByKey, ...campaignRateByKey]);
     const cidsForRate = [...new Set([...rateByKey.values()].map((b) => b.cid))];
@@ -1234,7 +1241,7 @@ async function persistCampaignTotalRequests(args: {
       const impressions = placementImpressions > 0 ? placementImpressions : (existingImpressionsByRateKey.get(key) ?? 0);
       const rateRow = rateByKey.get(key);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
-      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate", match_rate_pct: rateRow.rate * 100 });
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
@@ -1267,7 +1274,7 @@ async function persistCampaignTotalRequests(args: {
     for (const [key, p] of placementTotals) {
       if (agg.has(key) || p.impressions <= 0) continue;
       const siteRate = siteRateByDate.get(p.date);
-      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd });
+      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd, match_rate_pct: siteRate * 100 });
     }
   }
   if (agg.size === 0) {
@@ -1281,7 +1288,7 @@ async function persistCampaignTotalRequests(args: {
   const dates = [...new Set([...agg.values()].map((b) => b.date))];
   const { data: existing } = await admin
     .from("gam_campaign_source_revenue")
-    .select("campaign_id,date,revenue_usd,impressions")
+    .select("campaign_id,date,revenue_usd,impressions,match_rate_pct")
     .eq("user_id", userId)
     .eq("site_id", siteId)
     .eq("utm_source", "google")
@@ -1294,9 +1301,9 @@ async function persistCampaignTotalRequests(args: {
     .eq("site_id", siteId)
     .in("campaign_id", cids)
     .in("date", dates);
-  const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
+  const existingMap = new Map<string, { revenue_usd: number; impressions: number; match_rate_pct: number | null }>();
   for (const r of (existing ?? []) as any[]) {
-    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0), match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
   const placementTotalsForExisting = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (placementExisting ?? []) as any[]) {
@@ -1307,10 +1314,10 @@ async function persistCampaignTotalRequests(args: {
     placementTotalsForExisting.set(key, cur);
   }
   for (const [key, placement] of placementTotalsForExisting) {
-    if (placement.impressions > 0) existingMap.set(key, placement);
+    if (placement.impressions > 0) existingMap.set(key, { ...placement, match_rate_pct: existingMap.get(key)?.match_rate_pct ?? null });
   }
   const rows = [...agg.values()].map((b) => {
-    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
+    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     return {
       user_id: userId,
       site_id: siteId,
@@ -1320,6 +1327,7 @@ async function persistCampaignTotalRequests(args: {
       revenue_usd: prev.revenue_usd,
       impressions: prev.impressions,
       total_requests: b.total_requests,
+      match_rate_pct: b.match_rate_pct ?? prev.match_rate_pct,
     };
   });
   const CHUNK = 500;
@@ -1344,7 +1352,7 @@ async function persistCampaignSourceRevenueFromUtm(
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
@@ -1360,16 +1368,19 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const requestsByKey = new Map<string, number>();
+  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
   for (const r of (existingRequests ?? []) as any[]) {
     const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, req);
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
-    if (req && req > 0) b.total_requests = req;
+    if (req && req.total_requests > 0) {
+      b.total_requests = req.total_requests;
+      b.match_rate_pct = req.match_rate_pct;
+    }
   }
   const arr = [...buckets.values()];
   if (arr.length === 0) {
@@ -1451,7 +1462,7 @@ async function applyGoogleUtmRevenue(
     }
     debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
 
-    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
+    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
     for (const p of arr) {
       const key = `${p.campaign_id}|${p.date}`;
       const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
@@ -1461,14 +1472,17 @@ async function applyGoogleUtmRevenue(
     }
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
     const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
-      .select("campaign_id,date,total_requests")
+      .select("campaign_id,date,total_requests,match_rate_pct")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
     for (const r of (existingSourceRequests ?? []) as any[]) {
       const req = Number(r.total_requests ?? 0);
       if (req > 0) {
         const key = `${r.campaign_id}|${r.date}`;
         const cur = sourceByCampaign.get(key);
-        if (cur) cur.total_requests = req;
+        if (cur) {
+          cur.total_requests = req;
+          cur.match_rate_pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
+        }
       }
     }
     const sourceRows = [...sourceByCampaign.values()];
