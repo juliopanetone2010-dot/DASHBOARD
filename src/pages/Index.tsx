@@ -343,7 +343,7 @@ const IndexInner = () => {
       }
       for (const [cid, v] of placementMap) {
         const cur = map.get(cid);
-        if (!cur || cur.impressions <= 0) map.set(cid, v);
+        if (!cur || v.impressions > cur.impressions) map.set(cid, v);
       }
 
       const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
@@ -416,11 +416,9 @@ const IndexInner = () => {
           directRequests += v.totalRequests;
         }
       }
-      const fallbackRate = directRequests > 0 ? Math.min(1, Math.max(0.01, directImpressions / directRequests)) : 1;
       for (const [cid, impressions] of placementImpressions) {
         const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
-        if (cur.impressions <= 0 && impressions > 0) cur.impressions = impressions;
-        if (cur.totalRequests <= 0 && impressions > 0) cur.totalRequests = Math.max(impressions, Math.round(impressions / fallbackRate));
+        if (impressions > cur.impressions) cur.impressions = impressions;
         map.set(cid, cur);
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
