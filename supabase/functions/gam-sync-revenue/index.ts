@@ -656,7 +656,7 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
   return out;
 }
 
-function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests" | "placement_impressions"): MatchRateRow[] {
+function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests"): MatchRateRow[] {
   const campaignAgg = new Map<string, MatchRateRow>();
   const placementAgg = new Map<string, MatchRateRow>();
   for (const r of reportRows) {
