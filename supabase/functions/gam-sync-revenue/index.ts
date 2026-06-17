@@ -820,7 +820,13 @@ async function collectUtmAttribution(args: {
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
   // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  const googleCampaignRows = campaignRows;
+  // Linha oficial por campanha: primeiro usa utm_campaign. Quando o GAM só
+  // trouxe utm_placement no formato "{campaign_id}_{placement}", usamos esse
+  // ID como fallback por (data,campanha), sem somar por cima de utm_campaign
+  // para evitar dupla contagem.
+  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
+  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
   const googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
