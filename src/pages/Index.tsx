@@ -408,9 +408,20 @@ const IndexInner = () => {
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
       }
+      let directImpressions = 0;
+      let directRequests = 0;
+      for (const v of map.values()) {
+        if (v.impressions > 0 && v.totalRequests > 0) {
+          directImpressions += v.impressions;
+          directRequests += v.totalRequests;
+        }
+      }
+      const fallbackRate = directRequests > 0 ? Math.min(1, Math.max(0.01, directImpressions / directRequests)) : 1;
       for (const [cid, impressions] of placementImpressions) {
-        const cur = map.get(cid);
-        if (cur && cur.impressions <= 0 && impressions > 0) cur.impressions = impressions;
+        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
+        if (cur.impressions <= 0 && impressions > 0) cur.impressions = impressions;
+        if (cur.totalRequests <= 0 && impressions > 0) cur.totalRequests = Math.max(impressions, Math.round(impressions / fallbackRate));
+        map.set(cid, cur);
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
       for (const [cid, v] of map) {
