@@ -180,7 +180,18 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     const imp = r.reduce((a, x) => a + x.impressions, 0);
     const profit = rev - cost;
     const roi = cost > 0 ? (profit / cost) * 100 : 0;
-    return { cost, rev, conv, imp, profit, roi };
+    const matched = r.reduce((a, x) => a + x.matchedRequests, 0);
+    const requests = r.reduce((a, x) => a + x.totalRequests, 0);
+    let weightedRate = 0;
+    let ratedImp = 0;
+    for (const x of r) {
+      if (x.matchRate != null && x.matchedRequests > 0) {
+        weightedRate += x.matchRate * x.matchedRequests;
+        ratedImp += x.matchedRequests;
+      }
+    }
+    const matchRate = ratedImp > 0 ? weightedRate / ratedImp : (requests > 0 ? (matched / requests) * 100 : null);
+    return { cost, rev, conv, imp, profit, roi, matched, requests, matchRate };
   }, [histQ.data]);
 
   const milestones = useMemo(() => {
