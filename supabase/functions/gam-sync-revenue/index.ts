@@ -1211,6 +1211,20 @@ async function persistCampaignTotalRequests(args: {
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
+  if (siteMatchRateRows.length > 0 && agg.size > 0) {
+    const siteRateByDate = new Map<string, number>();
+    for (const r of siteMatchRateRows) {
+      if (!r.date) continue;
+      const rawRate = Number(r.impressions || 0);
+      const rate = rawRate > 1 ? rawRate / 100 : rawRate;
+      if (rate > 0) siteRateByDate.set(r.date, rate);
+    }
+    for (const b of agg.values()) {
+      if (b.total_requests > 0) continue;
+      const siteRate = siteRateByDate.get(b.date);
+      if (siteRate && siteRate > 0) b.total_requests = Math.round(Number((b as any).impressions ?? 0) / siteRate);
+    }
+  }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
     return;
