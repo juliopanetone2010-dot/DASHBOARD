@@ -40,6 +40,18 @@ interface UnattribRow {
   reason: string;
 }
 
+interface SourceRevenueRow {
+  site_id: string;
+  utm_source: string;
+  revenue_usd: number;
+}
+
+interface SiteMetricRow {
+  site_id: string;
+  revenue_native: number;
+  currency: string;
+}
+
 interface PushDebugReport {
   rowsReceivedGam?: number;
   totalRowsFromGam?: number;
@@ -135,6 +147,40 @@ export function RetentionTab(_props: Props) {
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as UnattribRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const sourceRevenueQuery = useQuery<SourceRevenueRow[]>({
+    queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("site_id, utm_source, revenue_usd")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(50000);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as SourceRevenueRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const siteMetricsQuery = useQuery<SiteMetricRow[]>({
+    queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("site_metrics_daily")
+        .select("site_id, revenue_native, currency")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(5000);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as SiteMetricRow[];
     },
     staleTime: 30_000,
   });
