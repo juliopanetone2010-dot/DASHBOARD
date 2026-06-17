@@ -1455,7 +1455,7 @@ async function applyGoogleUtmRevenue(
     }
     debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
 
-    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
+    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
     for (const p of arr) {
       const key = `${p.campaign_id}|${p.date}`;
       const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
@@ -1465,14 +1465,17 @@ async function applyGoogleUtmRevenue(
     }
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
     const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
-      .select("campaign_id,date,total_requests")
+      .select("campaign_id,date,total_requests,match_rate_pct")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
     for (const r of (existingSourceRequests ?? []) as any[]) {
       const req = Number(r.total_requests ?? 0);
       if (req > 0) {
         const key = `${r.campaign_id}|${r.date}`;
         const cur = sourceByCampaign.get(key);
-        if (cur) cur.total_requests = req;
+        if (cur) {
+          cur.total_requests = req;
+          cur.match_rate_pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
+        }
       }
     }
     const sourceRows = [...sourceByCampaign.values()];
