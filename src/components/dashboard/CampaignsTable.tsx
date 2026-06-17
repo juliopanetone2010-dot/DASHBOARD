@@ -1134,28 +1134,32 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         );
                       case "matchRate": {
                         const mr = campaignMatchRates?.get(c.campaign_id);
-                        const has = !!mr && mr.totalRequests > 0;
+                        const has = !!mr && (mr.totalRequests > 0 || mr.matchRate > 0);
                         const pct = mr?.matchRate ?? 0;
                         const color = !has ? "text-muted-foreground" : pct >= 70 ? "text-success" : pct >= 40 ? "text-warning" : "text-danger";
                         return (
                           <TableCell key={k} style={ws} className="text-right tabular-nums">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div className="cursor-help inline-block text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => setMatchRateDebug({ campaignId: c.campaign_id, campaignName: c.name })}
+                                  className="inline-block text-right hover:opacity-80 transition-opacity"
+                                >
                                   <div className={cn("underline decoration-dotted decoration-muted-foreground/50", color)}>
-                                    {has ? `${pct.toFixed(1)}%` : "—"}
+                                    {has ? `${pct.toFixed(2)}%` : "—"}
                                   </div>
-                                  {has && (
+                                  {has && mr!.totalRequests > 0 && (
                                     <div className="text-[10px] text-muted-foreground">
                                       {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
                                     </div>
                                   )}
-                                </div>
+                                </button>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
-                                  ? `Impressões GAM: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nMatch Rate = impressões / requests * 100\nMatch Rate = ${pct.toFixed(2)}%\nFonte: gam_campaign_source_revenue (utm_campaign, utm_source=google)\nMétrica GAM: AD_REQUESTS; fallback AD_EXCHANGE_MATCH_RATE quando necessário`
-                                  : "Sem dados de requests para esta campanha no período. Sincronizando GAM automaticamente — recarregue em alguns instantes."}
+                                  ? `Match Rate (média ponderada por impressões): ${pct.toFixed(2)}%\nImpressões: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nFonte: gam_campaign_source_revenue (match_rate_pct do GAM)\n\nClique para abrir debug detalhado`
+                                  : "Sem dados de requests para esta campanha no período. Clique para abrir debug."}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>
