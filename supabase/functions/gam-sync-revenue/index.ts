@@ -1345,7 +1345,7 @@ async function persistCampaignSourceRevenueFromUtm(
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
@@ -1361,16 +1361,19 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const requestsByKey = new Map<string, number>();
+  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
   for (const r of (existingRequests ?? []) as any[]) {
     const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, req);
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
-    if (req && req > 0) b.total_requests = req;
+    if (req && req.total_requests > 0) {
+      b.total_requests = req.total_requests;
+      b.match_rate_pct = req.match_rate_pct;
+    }
   }
   const arr = [...buckets.values()];
   if (arr.length === 0) {
