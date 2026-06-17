@@ -1007,7 +1007,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell className="sticky left-[732px] z-20 w-[560px] min-w-[560px] bg-card border-r border-border text-xs shadow-sm">
+                  <TableCell
+                    style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
+                    className="sticky z-20 bg-card border-r border-border text-xs shadow-sm"
+                  >
 
                     {finalUrl ? (
                       <div className="flex items-center gap-1 max-w-[540px]">
