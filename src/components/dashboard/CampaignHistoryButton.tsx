@@ -32,6 +32,7 @@ type DailyRow = {
   matchedRequests: number;
   totalRequests: number;
   matchRate: number | null;
+  matchRateEstimated?: boolean;
 };
 
 function isoDaysAgo(n: number) {
