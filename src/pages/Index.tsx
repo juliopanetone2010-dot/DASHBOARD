@@ -449,7 +449,7 @@ const IndexInner = () => {
     const expected = expectedCampaigns.size;
     if (expected > 0 && campaignsWithRequests >= Math.ceil(expected * 0.95) && totalRequests >= totalImpressions * 0.9) return;
     if (expected === 0 && campaignsWithRequests > 0) return;
-    const key = `gam-auto-sync-v3:${filters.siteId}:${range.from}:${range.to}`;
+    const key = `gam-auto-sync-v4:${filters.siteId}:${range.from}:${range.to}`;
     if (matchRateAutoSyncRef.current.has(key)) return;
     try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
     matchRateAutoSyncRef.current.add(key);
@@ -467,8 +467,9 @@ const IndexInner = () => {
             sync: true,
           },
         });
-        // refresca a query para puxar os novos total_requests
+        // refresca as queries para puxar os novos total_requests/eCPM
         campaignMatchRateQuery.refetch();
+        campaignGamMetricsQuery.refetch();
       } catch (e) {
         console.warn("[gam-auto-sync] falhou", e);
       }
@@ -594,6 +595,7 @@ const IndexInner = () => {
         queryClient.invalidateQueries({ queryKey: ["site-metrics-daily"] }),
         queryClient.invalidateQueries({ queryKey: ["site-real-revenue"] }),
         queryClient.invalidateQueries({ queryKey: ["campaign-gam-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["campaign-match-rate"] }),
         queryClient.invalidateQueries({ queryKey: ["gam-freshness"] }),
       ]);
     } catch (e: any) {
