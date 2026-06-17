@@ -643,6 +643,7 @@ const IndexInner = () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["site-metrics-daily"] }),
         queryClient.invalidateQueries({ queryKey: ["site-real-revenue"] }),
+        queryClient.invalidateQueries({ queryKey: ["extra-revenue"] }),
         queryClient.invalidateQueries({ queryKey: ["campaign-gam-metrics"] }),
         queryClient.invalidateQueries({ queryKey: ["campaign-match-rate"] }),
         queryClient.invalidateQueries({ queryKey: ["gam-freshness"] }),
