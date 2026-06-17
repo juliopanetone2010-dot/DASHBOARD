@@ -657,19 +657,26 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
 }
 
 function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests" | "placement_impressions"): MatchRateRow[] {
-  const agg = new Map<string, MatchRateRow>();
+  const campaignAgg = new Map<string, MatchRateRow>();
+  const placementAgg = new Map<string, MatchRateRow>();
   for (const r of reportRows) {
     const date = r.date;
     if (!date) continue;
     const kv = parseKeyValueDimension(r.dims[1] ?? "");
-    const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+    const campaignCid = extractCampaignId(kv.utm_campaign);
+    const placementCid = extractCampaignId(kv.utm_placement);
+    const cid = campaignCid ?? placementCid;
     if (!cid) continue;
     const key = `${cid}|${date}`;
-    const cur = agg.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
+    const target = campaignCid ? campaignAgg : placementAgg;
+    const cur = target.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
     cur.total_requests += Number(r.impressions || 0);
-    agg.set(key, cur);
+    target.set(key, cur);
   }
-  return [...agg.values()];
+  for (const [key, row] of placementAgg) {
+    if (!campaignAgg.has(key)) campaignAgg.set(key, row);
+  }
+  return [...campaignAgg.values()];
 }
 
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
