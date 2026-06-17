@@ -1272,7 +1272,6 @@ async function persistCampaignSourceRevenueFromUtm(
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
     if (req && req > 0) b.total_requests = req;
   }
-  await admin.from("gam_campaign_source_revenue")
   const arr = [...buckets.values()];
   if (arr.length === 0) {
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
