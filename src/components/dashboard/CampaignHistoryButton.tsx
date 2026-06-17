@@ -29,6 +29,9 @@ type DailyRow = {
   impressions: number;
   ecpm: number;
   cpa: number;
+  matchedRequests: number;
+  totalRequests: number;
+  matchRate: number | null;
 };
 
 function isoDaysAgo(n: number) {
