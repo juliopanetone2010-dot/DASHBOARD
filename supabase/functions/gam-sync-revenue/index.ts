@@ -1133,6 +1133,7 @@ async function persistCampaignTotalRequests(args: {
   if (!siteId) return;
   let reportRows: ReportRow[] = [];
   let matchRateRows: ReportRow[] = [];
+  let siteMatchRateRows: ReportRow[] = [];
   try {
     reportRows = (await Promise.all(ranges.map((range) =>
       runReport({
@@ -1156,6 +1157,20 @@ async function persistCampaignTotalRequests(args: {
       })
     ))).flat();
     console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
+    try {
+      siteMatchRateRows = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE"],
+          metrics: ["AD_EXCHANGE_MATCH_RATE"],
+          expandedCompatibility: true,
+          debug, deadlineAt,
+        })
+      ))).flat();
+      console.log(`[${networkCode}/match_rate_site] reportRows=${siteMatchRateRows.length}`);
+    } catch (siteRateErr) {
+      debug.push(`[${networkCode}/match_rate_site] erro=${String(siteRateErr).slice(0, 220)}`);
+    }
   }
 
   // Agrega por (cid, date) usando a regra oficial:
