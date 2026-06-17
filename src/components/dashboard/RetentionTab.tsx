@@ -40,6 +40,18 @@ interface UnattribRow {
   reason: string;
 }
 
+interface SourceRevenueRow {
+  site_id: string;
+  utm_source: string;
+  revenue_usd: number;
+}
+
+interface SiteMetricRow {
+  site_id: string;
+  revenue_native: number;
+  currency: string;
+}
+
 interface PushDebugReport {
   rowsReceivedGam?: number;
   totalRowsFromGam?: number;
@@ -139,6 +151,55 @@ export function RetentionTab(_props: Props) {
     staleTime: 30_000,
   });
 
+  const sourceRevenueQuery = useQuery<SourceRevenueRow[]>({
+    queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("site_id, utm_source, revenue_usd")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(50000);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as SourceRevenueRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const siteMetricsQuery = useQuery<SiteMetricRow[]>({
+    queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"],
+    queryFn: async () => {
+      let q = supabase
+        .from("site_metrics_daily")
+        .select("site_id, revenue_native, currency")
+        .gte("date", range.from)
+        .lte("date", range.to)
+        .limit(5000);
+      if (!isAllSites) q = q.eq("site_id", siteId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as SiteMetricRow[];
+    },
+    staleTime: 30_000,
+  });
+
+  const fxQuery = useQuery({
+    queryKey: ["fx-usd-brl"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("exchange_rates")
+        .select("rate")
+        .eq("from_currency", "USD")
+        .eq("to_currency", "BRL")
+        .maybeSingle();
+      const rate = Number((data as any)?.rate);
+      return Number.isFinite(rate) && rate > 0 ? rate : 5;
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
   const syncStateQuery = useQuery({
     queryKey: ["push-sync-state", siteId ?? "all"],
     queryFn: async () => {
@@ -179,12 +240,28 @@ export function RetentionTab(_props: Props) {
   }, [pushRows]);
 
   const totals = useMemo(() => {
-    const total = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    const tablePushTotal = pushRows.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
     const impressions = pushRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
     const unattribTotal = unattrib.reduce((s, r) => s + Number(r.revenue_usd || 0), 0);
+    let google = 0, explicitPush = 0, other = 0;
+    for (const r of sourceRevenueQuery.data ?? []) {
+      const usd = Number(r.revenue_usd || 0);
+      const src = String(r.utm_source || "").toLowerCase();
+      if (src === "google") google += usd;
+      else if (src === "push") explicitPush += usd;
+      else other += usd;
+    }
+    const fx = fxQuery.data ?? 5;
+    const totalGamUsd = (siteMetricsQuery.data ?? []).reduce((s, r) => {
+      const native = Number(r.revenue_native || 0);
+      return s + (String(r.currency || "USD").toUpperCase() === "BRL" ? native / fx : native);
+    }, 0);
+    const residualPush = Math.max(0, totalGamUsd - google - explicitPush - other);
+    const explicitOrTablePush = explicitPush > 0 ? explicitPush : tablePushTotal;
+    const total = explicitOrTablePush + residualPush;
     const ecpm = impressions > 0 ? (total / impressions) * 1000 : 0;
-    return { total, impressions, push: total, unattribTotal, ecpm };
-  }, [pushRows, unattrib]);
+    return { total, impressions, push: total, unattribTotal, ecpm, residualPush, explicitPush: explicitOrTablePush };
+  }, [pushRows, unattrib, sourceRevenueQuery.data, siteMetricsQuery.data, fxQuery.data]);
 
   const syncOne = async (sid: string) => {
     const { data, error } = await supabase.functions.invoke("gam-sync-push-retention", {
@@ -219,6 +296,9 @@ export function RetentionTab(_props: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
       toast({
         title: "Sincronização concluída",
@@ -248,6 +328,9 @@ export function RetentionTab(_props: Props) {
       setDebugRuns(runs);
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
     } finally {
       setDebugging(false);
@@ -326,8 +409,8 @@ export function RetentionTab(_props: Props) {
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${pushRows.length} URL(s) push`} />
-        <MetricCard label="Receita Push" value={fmtUSD(totals.push)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
+        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${fmtUSD(totals.explicitPush)} por UTM · ${fmtUSD(totals.residualPush)} não atribuído ao Google`} />
+        <MetricCard label="Push por URL" value={fmtUSD(totals.explicitPush)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
         <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} hint="(receita / impressões) × 1000" />
         <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
@@ -335,7 +418,11 @@ export function RetentionTab(_props: Props) {
       {byUtm.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs e UTMs do período{isAllSites ? " de todos os sites" : ""}.
+            {totals.total > 0 ? (
+              <>Push encontrado pelo total do Ad Manager: <b>{fmtUSD(totals.total)}</b>. O GAM não trouxe as URLs/UTMs de push nesse período, então a dash está usando a receita não atribuída ao Google.</>
+            ) : (
+              <>Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs e UTMs do período{isAllSites ? " de todos os sites" : ""}.</>
+            )}
           </CardContent>
         </Card>
       ) : (
