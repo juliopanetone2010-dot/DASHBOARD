@@ -342,8 +342,7 @@ const IndexInner = () => {
         placementMap.set(cid, cur);
       }
       for (const [cid, v] of placementMap) {
-        const cur = map.get(cid);
-        if (!cur || v.impressions > cur.impressions) map.set(cid, v);
+        if (v.impressions > 0) map.set(cid, v);
       }
 
       const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
@@ -410,7 +409,7 @@ const IndexInner = () => {
       }
       for (const [cid, impressions] of placementImpressions) {
         const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
-        if (impressions > cur.impressions) cur.impressions = impressions;
+        if (impressions > 0) cur.impressions = impressions;
         map.set(cid, cur);
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
