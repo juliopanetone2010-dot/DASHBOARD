@@ -494,10 +494,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const shortenUrl = (url: string): string => {
     try {
       const u = new URL(url);
-      const path = u.pathname.length > 22 ? u.pathname.slice(0, 22) + "…" : u.pathname;
-      return `${u.hostname.replace(/^www\./, "")}${path}`;
+      return `${u.hostname.replace(/^www\./, "")}${u.pathname}`;
     } catch {
-      return url.length > 32 ? url.slice(0, 32) + "…" : url;
+      return url;
     }
   };
 
