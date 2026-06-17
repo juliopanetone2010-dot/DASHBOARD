@@ -1234,7 +1234,7 @@ async function persistCampaignTotalRequests(args: {
       const impressions = placementImpressions > 0 ? placementImpressions : (existingImpressionsByRateKey.get(key) ?? 0);
       const rateRow = rateByKey.get(key);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
-      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
+      agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate", match_rate_pct: rateRow.rate * 100 });
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
@@ -1267,7 +1267,7 @@ async function persistCampaignTotalRequests(args: {
     for (const [key, p] of placementTotals) {
       if (agg.has(key) || p.impressions <= 0) continue;
       const siteRate = siteRateByDate.get(p.date);
-      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd });
+      if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd, match_rate_pct: siteRate * 100 });
     }
   }
   if (agg.size === 0) {
@@ -1281,7 +1281,7 @@ async function persistCampaignTotalRequests(args: {
   const dates = [...new Set([...agg.values()].map((b) => b.date))];
   const { data: existing } = await admin
     .from("gam_campaign_source_revenue")
-    .select("campaign_id,date,revenue_usd,impressions")
+    .select("campaign_id,date,revenue_usd,impressions,match_rate_pct")
     .eq("user_id", userId)
     .eq("site_id", siteId)
     .eq("utm_source", "google")
@@ -1294,9 +1294,9 @@ async function persistCampaignTotalRequests(args: {
     .eq("site_id", siteId)
     .in("campaign_id", cids)
     .in("date", dates);
-  const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
+  const existingMap = new Map<string, { revenue_usd: number; impressions: number; match_rate_pct: number | null }>();
   for (const r of (existing ?? []) as any[]) {
-    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0), match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
   const placementTotalsForExisting = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (placementExisting ?? []) as any[]) {
