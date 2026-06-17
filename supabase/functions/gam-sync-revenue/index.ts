@@ -1206,10 +1206,24 @@ async function persistCampaignTotalRequests(args: {
       .eq("utm_source", "google")
       .in("campaign_id", cidsForRate)
       .in("date", datesForRate) : { data: [] };
+    const { data: placementForRate } = cidsForRate.length && datesForRate.length ? await admin
+      .from("gam_placement_revenue")
+      .select("campaign_id,date,impressions")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("campaign_id", cidsForRate)
+      .in("date", datesForRate) : { data: [] };
+    const impressionsByRateKey = new Map<string, number>();
     for (const r of (existingForRate ?? []) as any[]) {
       const key = `${r.campaign_id}|${r.date}`;
+      impressionsByRateKey.set(key, Math.max(impressionsByRateKey.get(key) ?? 0, Number(r.impressions ?? 0)));
+    }
+    for (const r of (placementForRate ?? []) as any[]) {
+      const key = `${r.campaign_id}|${r.date}`;
+      impressionsByRateKey.set(key, (impressionsByRateKey.get(key) ?? 0) + Number(r.impressions ?? 0));
+    }
+    for (const [key, impressions] of impressionsByRateKey) {
       const rateRow = rateByKey.get(key);
-      const impressions = Number(r.impressions ?? 0);
       if (!rateRow || impressions <= 0 || rateRow.rate <= 0) continue;
       agg.set(key, { cid: rateRow.cid, date: rateRow.date, total_requests: Math.round(impressions / rateRow.rate), source: "match_rate" });
     }
@@ -1278,9 +1292,11 @@ async function persistCampaignTotalRequests(args: {
   for (const r of (placementExisting ?? []) as any[]) {
     const key = `${r.campaign_id}|${r.date}`;
     const cur = existingMap.get(key) ?? { revenue_usd: 0, impressions: 0 };
-    if (cur.impressions <= 0) {
-      cur.revenue_usd += Number(r.revenue_usd || 0);
-      cur.impressions += Number(r.impressions || 0);
+    const placementRevenue = Number(r.revenue_usd || 0);
+    const placementImpressions = Number(r.impressions || 0);
+    if (placementImpressions > cur.impressions) {
+      cur.revenue_usd = placementRevenue;
+      cur.impressions = placementImpressions;
       existingMap.set(key, cur);
     }
   }
