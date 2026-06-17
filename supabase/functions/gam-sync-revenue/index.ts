@@ -1147,6 +1147,8 @@ async function persistCampaignTotalRequests(args: {
     console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
   } catch (e) {
     debug.push(`[${networkCode}/total_requests] AD_REQUESTS incompatível; tentando AD_EXCHANGE_MATCH_RATE: ${String(e).slice(0, 220)}`);
+  }
+  try {
     matchRateRows = (await Promise.all(ranges.map((range) =>
       runReport({
         networkCode, accessToken, range,
@@ -1157,20 +1159,22 @@ async function persistCampaignTotalRequests(args: {
       })
     ))).flat();
     console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
-    try {
-      siteMatchRateRows = (await Promise.all(ranges.map((range) =>
-        runReport({
-          networkCode, accessToken, range,
-          dimensions: ["DATE"],
-          metrics: ["AD_EXCHANGE_MATCH_RATE"],
-          expandedCompatibility: true,
-          debug, deadlineAt,
-        })
-      ))).flat();
-      console.log(`[${networkCode}/match_rate_site] reportRows=${siteMatchRateRows.length}`);
-    } catch (siteRateErr) {
-      debug.push(`[${networkCode}/match_rate_site] erro=${String(siteRateErr).slice(0, 220)}`);
-    }
+  } catch (rateErr) {
+    debug.push(`[${networkCode}/match_rate] erro=${String(rateErr).slice(0, 220)}`);
+  }
+  try {
+    siteMatchRateRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE"],
+        metrics: ["AD_EXCHANGE_MATCH_RATE"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/match_rate_site] reportRows=${siteMatchRateRows.length}`);
+  } catch (siteRateErr) {
+    debug.push(`[${networkCode}/match_rate_site] erro=${String(siteRateErr).slice(0, 220)}`);
   }
 
   // Agrega por (cid, date) usando a regra oficial:
@@ -1211,7 +1215,7 @@ async function persistCampaignTotalRequests(args: {
     }
     debug.push(`[${networkCode}/total_requests] fallback AD_EXCHANGE_MATCH_RATE gerou ${agg.size} linhas`);
   }
-  if (siteMatchRateRows.length > 0 && agg.size > 0) {
+  if (siteMatchRateRows.length > 0) {
     const siteRateByDate = new Map<string, number>();
     for (const r of siteMatchRateRows) {
       if (!r.date) continue;
@@ -1639,7 +1643,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
         revenue = numRevenue(m[3]);
       } else if (metrics) {
         impressions = num(m[0]);
-        revenue = numRevenue(m[1]);
+        revenue = metrics.length > 1 ? numRevenue(m[1]) : 0;
       } else {
         impressions = num(m[0]) + num(m[2]) + num(m[4]);
         revenue = numRevenue(m[1]) + numRevenue(m[3]) + numRevenue(m[5]);
