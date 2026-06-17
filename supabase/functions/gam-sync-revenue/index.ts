@@ -480,6 +480,7 @@ interface ReportRow { date: string | null; dims: string[]; impressions: number; 
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
+type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "placement_impressions" };
 interface AttributionResult {
   retentionRows: AttributedRow[];
   googleCampaignRows: AttributedRow[];
