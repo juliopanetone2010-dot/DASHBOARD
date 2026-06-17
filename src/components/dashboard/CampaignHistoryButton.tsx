@@ -320,13 +320,15 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                 </Table>
               </div>
 
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-sm">
+              <div className="grid grid-cols-3 md:grid-cols-8 gap-2 text-sm">
                 <Stat label="Custo total" value={fmtCurrency(totals.cost)} />
                 <Stat label="Receita total" value={fmtCurrency(totals.rev)} />
                 <Stat label="Lucro" value={fmtCurrency(totals.profit)} positive={totals.profit >= 0} />
                 <Stat label={`ROI ${days}d`} value={fmtPercent(totals.roi)} positive={totals.roi >= 0} />
                 <Stat label="Conv." value={fmtNumber(Math.round(totals.conv))} />
                 <Stat label="Impr." value={fmtNumber(totals.imp)} />
+                <Stat label="Matched" value={totals.matched > 0 ? fmtNumber(totals.matched) : "—"} />
+                <Stat label="Match Rate" value={totals.matchRate != null ? `${totals.matchRate.toFixed(2)}%` : "—"} />
               </div>
             </div>
           )}
