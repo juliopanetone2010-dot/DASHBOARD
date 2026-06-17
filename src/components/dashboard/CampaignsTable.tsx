@@ -109,6 +109,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
+  const [matchRateDebug, setMatchRateDebug] = useState<{ campaignId: string; campaignName?: string | null } | null>(null);
 
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey =
