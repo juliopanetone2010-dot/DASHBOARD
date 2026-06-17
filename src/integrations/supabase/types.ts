@@ -1659,6 +1659,7 @@ export type Database = {
           date: string
           id: string
           impressions: number
+          match_rate_pct: number | null
           revenue_usd: number
           site_id: string | null
           total_requests: number
@@ -1671,6 +1672,7 @@ export type Database = {
           date: string
           id?: string
           impressions?: number
+          match_rate_pct?: number | null
           revenue_usd?: number
           site_id?: string | null
           total_requests?: number
@@ -1683,6 +1685,7 @@ export type Database = {
           date?: string
           id?: string
           impressions?: number
+          match_rate_pct?: number | null
           revenue_usd?: number
           site_id?: string | null
           total_requests?: number
