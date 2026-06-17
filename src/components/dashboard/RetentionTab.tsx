@@ -296,6 +296,9 @@ export function RetentionTab(_props: Props) {
       }
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
       toast({
         title: "Sincronização concluída",
@@ -325,6 +328,9 @@ export function RetentionTab(_props: Props) {
       setDebugRuns(runs);
       await queryClient.invalidateQueries({ queryKey });
       await queryClient.invalidateQueries({ queryKey: ["push-unattrib", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-source-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["push-site-total-revenue", range.from, range.to, siteId ?? "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["extra-revenue"] });
       await queryClient.invalidateQueries({ queryKey: ["push-sync-state"] });
     } finally {
       setDebugging(false);
@@ -403,8 +409,8 @@ export function RetentionTab(_props: Props) {
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${pushRows.length} URL(s) push`} />
-        <MetricCard label="Receita Push" value={fmtUSD(totals.push)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
+        <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint={`${fmtUSD(totals.explicitPush)} por UTM · ${fmtUSD(totals.residualPush)} não atribuído ao Google`} />
+        <MetricCard label="Push por URL" value={fmtUSD(totals.explicitPush)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
         <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} hint="(receita / impressões) × 1000" />
         <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
@@ -412,7 +418,11 @@ export function RetentionTab(_props: Props) {
       {byUtm.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs e UTMs do período{isAllSites ? " de todos os sites" : ""}.
+            {totals.total > 0 ? (
+              <>Push encontrado pelo total do Ad Manager: <b>{fmtUSD(totals.total)}</b>. O GAM não trouxe as URLs/UTMs de push nesse período, então a dash está usando a receita não atribuída ao Google.</>
+            ) : (
+              <>Sem dados. Clique em <b>Sincronizar GAM</b> para puxar as URLs e UTMs do período{isAllSites ? " de todos os sites" : ""}.</>
+            )}
           </CardContent>
         </Card>
       ) : (
