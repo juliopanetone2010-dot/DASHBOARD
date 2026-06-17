@@ -110,6 +110,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
   const [matchRateDebug, setMatchRateDebug] = useState<{ campaignId: string; campaignName?: string | null } | null>(null);
+  const [compactNameUrl, setCompactNameUrl] = useState(false);
+  const NAME_W = compactNameUrl ? 220 : 560;
+  const URL_W = compactNameUrl ? 220 : 560;
+  const NAME_LEFT = 172;
+  const URL_LEFT = NAME_LEFT + NAME_W;
 
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey =
