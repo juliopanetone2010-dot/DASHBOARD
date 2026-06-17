@@ -76,13 +76,15 @@ Deno.serve(async (req) => {
     // Carrega site
     const { data: site, error: sErr } = await admin
       .from("sites")
-      .select("id, user_id, network_code, name, domain")
+      .select("id, user_id, network_code, name, domain, gam_currency")
       .eq("id", siteId)
       .maybeSingle();
     if (sErr || !site) return json({ error: "Site não encontrado" }, 404);
     if (!site.network_code) return json({ error: "Site sem network_code do GAM" }, 400);
     syncUserId = site.user_id;
     syncSiteId = siteId;
+    const siteCurrency = String(site.gam_currency ?? "USD").toUpperCase();
+    const ingestionDivisor = siteCurrency === "BRL" ? await getUsdBrlRate(admin) : 1;
 
     // Service account
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -205,7 +207,8 @@ Deno.serve(async (req) => {
 
     // Upsert
     const inserts = [...buckets.values()].map((b) => {
-      const ecpm = b.impressions > 0 ? (b.revenue_usd / b.impressions) * 1000 : 0;
+      const normalizedRevenueUsd = b.revenue_usd / ingestionDivisor;
+      const ecpm = b.impressions > 0 ? (normalizedRevenueUsd / b.impressions) * 1000 : 0;
       if (ecpm > 1000 || (b.revenue_usd > 0 && ecpm < 0.01)) debug.ecpmAnomalies++;
       return {
         user_id: site.user_id,
@@ -214,7 +217,7 @@ Deno.serve(async (req) => {
         url: b.url,
         normalized_url: b.normalized_url,
         utm_source: b.utm_source,
-        revenue_usd: b.revenue_usd,
+        revenue_usd: normalizedRevenueUsd,
         impressions: b.impressions,
         ecpm,
         source: "gam-sync-push-retention",
@@ -236,7 +239,7 @@ Deno.serve(async (req) => {
       user_id: site.user_id,
       site_id: siteId,
       date: b.date,
-      revenue_usd: b.revenue_usd,
+      revenue_usd: b.revenue_usd / ingestionDivisor,
       impressions: b.impressions,
       reason: b.reason,
       raw_gam_row: b.raw,
@@ -244,6 +247,27 @@ Deno.serve(async (req) => {
     if (unattribInserts.length) {
       const { error } = await admin.from("unattributed_push_revenue").insert(unattribInserts);
       if (error) throw new Error(`insert unattributed_push_revenue: ${error.message}`);
+    }
+    await admin.from("gam_campaign_source_revenue")
+      .delete()
+      .eq("user_id", site.user_id)
+      .eq("site_id", siteId)
+      .eq("campaign_id", "__aggregate__")
+      .eq("utm_source", "push")
+      .gte("date", from)
+      .lte("date", to);
+    const aggregateSourceRows = unattribInserts.map((b) => ({
+      user_id: site.user_id,
+      site_id: siteId,
+      campaign_id: "__aggregate__",
+      date: b.date,
+      utm_source: "push",
+      revenue_usd: b.revenue_usd,
+      impressions: b.impressions,
+    }));
+    if (aggregateSourceRows.length) {
+      const { error } = await admin.from("gam_campaign_source_revenue").insert(aggregateSourceRows);
+      if (error) throw new Error(`insert gam_campaign_source_revenue push aggregate: ${error.message}`);
     }
     await setSyncState(admin, site.user_id, siteId, "success", null, inserts.length);
 
@@ -317,6 +341,17 @@ async function setSyncState(admin: any, userId: string, siteId: string, status: 
   }
 }
 
+async function getUsdBrlRate(admin: any): Promise<number> {
+  const { data } = await admin
+    .from("exchange_rates")
+    .select("rate")
+    .eq("from_currency", "USD")
+    .eq("to_currency", "BRL")
+    .maybeSingle();
+  const rate = Number(data?.rate);
+  return Number.isFinite(rate) && rate > 0 ? rate : 5;
+}
+
 // ============ GAM Report ============
 async function runReport(args: { networkCode: string; accessToken: string; from: string; to: string }): Promise<ReportRow[]> {
   const { networkCode, accessToken, from, to } = args;
@@ -324,11 +359,11 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
   const all: ReportRow[] = [];
-  const runOne = async (dimensions: string[], sourceDimension: string) => {
+  const runOne = async (dimensions: string[], sourceDimension: string, metrics = ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"]) => {
     const reportDefinition = {
       reportType: "HISTORICAL",
       dimensions,
-      metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
+      metrics,
       dateRange: { fixed: { startDate: { year: fy, month: fm, day: fd }, endDate: { year: ty, month: tm, day: td } } },
     };
     const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
@@ -379,12 +414,17 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
         const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
         const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
         const numRev = (v: any) => v?.intValue != null ? Number(v.intValue) / 1_000_000 : Number(v?.doubleValue ?? 0);
-        all.push({ date, url: urlDim, rawKv, impressions: num(m[0]) + num(m[2]) + num(m[4]), revenue: numRev(m[1]) + numRev(m[3]) + numRev(m[5]), sourceDimension });
+        const impressions = metrics.length === 2 ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
+        const revenue = metrics.length === 2 ? numRev(m[1]) : numRev(m[1]) + numRev(m[3]) + numRev(m[5]);
+        all.push({ date, url: urlDim, rawKv, impressions, revenue, sourceDimension });
       }
       pageToken = rowsJson.nextPageToken;
     } while (pageToken);
   };
 
+  await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
+    console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
+  });
   await runOne(["DATE", "URL", "KEY_VALUES_NAME"], "URL+KEY_VALUES_NAME").catch((e) => {
     console.warn(`[gam-sync-push-retention] URL+KEY_VALUES_NAME failed`, e);
   });
