@@ -1242,9 +1242,25 @@ async function persistCampaignTotalRequests(args: {
     .eq("utm_source", "google")
     .in("campaign_id", cids)
     .in("date", dates);
+  const { data: placementExisting } = await admin
+    .from("gam_placement_revenue")
+    .select("campaign_id,date,revenue_usd,impressions")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .in("campaign_id", cids)
+    .in("date", dates);
   const existingMap = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (existing ?? []) as any[]) {
     existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0) });
+  }
+  for (const r of (placementExisting ?? []) as any[]) {
+    const key = `${r.campaign_id}|${r.date}`;
+    const cur = existingMap.get(key) ?? { revenue_usd: 0, impressions: 0 };
+    if (cur.impressions <= 0) {
+      cur.revenue_usd += Number(r.revenue_usd || 0);
+      cur.impressions += Number(r.impressions || 0);
+      existingMap.set(key, cur);
+    }
   }
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0 };
