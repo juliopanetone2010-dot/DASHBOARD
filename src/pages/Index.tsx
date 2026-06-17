@@ -408,14 +408,6 @@ const IndexInner = () => {
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
       }
-      let directImpressions = 0;
-      let directRequests = 0;
-      for (const v of map.values()) {
-        if (v.impressions > 0 && v.totalRequests > 0) {
-          directImpressions += v.impressions;
-          directRequests += v.totalRequests;
-        }
-      }
       for (const [cid, impressions] of placementImpressions) {
         const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0 };
         if (impressions > cur.impressions) cur.impressions = impressions;
