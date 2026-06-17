@@ -656,6 +656,22 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
   return out;
 }
 
+function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests" | "placement_impressions"): MatchRateRow[] {
+  const agg = new Map<string, MatchRateRow>();
+  for (const r of reportRows) {
+    const date = r.date;
+    if (!date) continue;
+    const kv = parseKeyValueDimension(r.dims[1] ?? "");
+    const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+    if (!cid) continue;
+    const key = `${cid}|${date}`;
+    const cur = agg.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
+    cur.total_requests += Number(r.impressions || 0);
+    agg.set(key, cur);
+  }
+  return [...agg.values()];
+}
+
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   const value = safeDecode(String(raw ?? ""));
