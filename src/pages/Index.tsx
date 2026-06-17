@@ -300,8 +300,19 @@ const IndexInner = () => {
         .lte("date", range.to)
         .limit(50000);
       if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data: rows, error } = await q;
+      const placementQ = (() => {
+        let pq = supabase
+          .from("gam_placement_revenue")
+          .select("campaign_id, revenue_usd, impressions, site_id")
+          .gte("date", range.from)
+          .lte("date", range.to)
+          .limit(50000);
+        if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
+        return pq;
+      })();
+      const [{ data: rows, error }, { data: placementRows, error: placementError }] = await Promise.all([q, placementQ]);
       if (error) throw error;
+      if (placementError) throw placementError;
 
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
@@ -319,6 +330,20 @@ const IndexInner = () => {
         cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
         cur.impressions += Number((r as any).impressions ?? 0);
         map.set(cid, cur);
+      }
+      const placementMap = new Map<string, { revenueUsd: number; impressions: number }>();
+      for (const r of placementRows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        if (!cid || cid === "__aggregate__") continue;
+        if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        const cur = placementMap.get(cid) ?? { revenueUsd: 0, impressions: 0 };
+        cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
+        cur.impressions += Number((r as any).impressions ?? 0);
+        placementMap.set(cid, cur);
+      }
+      for (const [cid, v] of placementMap) {
+        const cur = map.get(cid);
+        if (!cur || cur.impressions <= 0) map.set(cid, v);
       }
 
       const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
