@@ -29,6 +29,9 @@ type DailyRow = {
   impressions: number;
   ecpm: number;
   cpa: number;
+  matchedRequests: number;
+  totalRequests: number;
+  matchRate: number | null;
 };
 
 function isoDaysAgo(n: number) {
@@ -48,7 +51,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     queryKey: ["campaign-history", campaignId, days],
     enabled: open,
     queryFn: async () => {
-      const [dm, gam, autom, restart, funnel] = await Promise.all([
+      const [dm, gam, gamSource, autom, restart, funnel] = await Promise.all([
         supabase
           .from("daily_metrics")
           .select("date, spend, revenue, profit, roi, conversions, impressions")
@@ -63,6 +66,13 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .gte("date", from)
           .lte("date", to)
           .limit(20000),
+        supabase
+          .from("gam_campaign_source_revenue")
+          .select("date, impressions, total_requests, match_rate_pct")
+          .eq("campaign_id", campaignId)
+          .eq("utm_source", "google")
+          .gte("date", from)
+          .lte("date", to),
         supabase
           .from("campaign_automation")
           .select("last_action, last_action_date, last_cpa_action, last_cpa_action_date, last_scale_date, entered_standby_at")
@@ -82,7 +92,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .maybeSingle(),
       ]);
 
-      // GAM aggregated by day
+      // GAM placement aggregated by day
       const gamByDay = new Map<string, { revenue: number; impressions: number }>();
       for (const r of gam.data ?? []) {
         const k = String((r as any).date);
@@ -92,20 +102,40 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         gamByDay.set(k, cur);
       }
 
+      // GAM campaign source (match rate) aggregated by day
+      const gamSourceByDay = new Map<string, { impressions: number; totalRequests: number; matchRatePct: number | null }>();
+      for (const r of gamSource.data ?? []) {
+        const k = String((r as any).date);
+        const cur = gamSourceByDay.get(k) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
+        cur.impressions += Number((r as any).impressions ?? 0);
+        cur.totalRequests += Number((r as any).total_requests ?? 0);
+        const pct = (r as any).match_rate_pct;
+        if (pct != null) {
+          // keep the latest non-null match_rate_pct for the day (they should be identical per day)
+          cur.matchRatePct = Number(pct);
+        }
+        gamSourceByDay.set(k, cur);
+      }
+
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
         const g = gamByDay.get(String(d.date)) ?? { revenue: 0, impressions: 0 };
+        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
         const ecpm = calculateCampaignEcpm(g.revenue, g.impressions).ecpm;
         const conv = Number(d.conversions) || 0;
         const cost = Number(d.spend) || 0;
-        // Aplica revshare (6,5%) igual ao agregado da tabela de campanhas.
-        // daily_metrics.revenue = USD bruto; daily_metrics.profit = BRL bruto (revenue_brl - spend).
-        // Exibimos tudo em BRL (custo já é BRL) para evitar mistura de moedas.
         const grossProfitBrl = Number(d.profit) || 0;
         const grossRevBrl = grossProfitBrl + cost;
         const shareBrl = grossRevBrl * REV_SHARE_PCT;
         const netRevBrl = grossRevBrl * NET_FACTOR;
         const netProfit = grossProfitBrl - shareBrl;
         const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
+        const matchedRequests = gs.impressions;
+        const totalRequests = gs.totalRequests;
+        const matchRate = gs.matchRatePct != null
+          ? gs.matchRatePct
+          : totalRequests > 0
+            ? (matchedRequests / totalRequests) * 100
+            : null;
         return {
           date: String(d.date),
           cost,
@@ -116,6 +146,9 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           impressions: Number(g.impressions || d.impressions) || 0,
           ecpm,
           cpa: conv > 0 ? cost / conv : 0,
+          matchedRequests,
+          totalRequests,
+          matchRate,
         };
       });
 
@@ -147,7 +180,18 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     const imp = r.reduce((a, x) => a + x.impressions, 0);
     const profit = rev - cost;
     const roi = cost > 0 ? (profit / cost) * 100 : 0;
-    return { cost, rev, conv, imp, profit, roi };
+    const matched = r.reduce((a, x) => a + x.matchedRequests, 0);
+    const requests = r.reduce((a, x) => a + x.totalRequests, 0);
+    let weightedRate = 0;
+    let ratedImp = 0;
+    for (const x of r) {
+      if (x.matchRate != null && x.matchedRequests > 0) {
+        weightedRate += x.matchRate * x.matchedRequests;
+        ratedImp += x.matchedRequests;
+      }
+    }
+    const matchRate = ratedImp > 0 ? weightedRate / ratedImp : (requests > 0 ? (matched / requests) * 100 : null);
+    return { cost, rev, conv, imp, profit, roi, matched, requests, matchRate };
   }, [histQ.data]);
 
   const milestones = useMemo(() => {
@@ -177,7 +221,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-6xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-4 w-4" /> Histórico da campanha
@@ -235,6 +279,9 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                       <TableHead className="text-right">ROI</TableHead>
                       <TableHead className="text-right">Conv.</TableHead>
                       <TableHead className="text-right">Impr.</TableHead>
+                      <TableHead className="text-right">Matched</TableHead>
+                      <TableHead className="text-right">Requests</TableHead>
+                      <TableHead className="text-right">Match Rate</TableHead>
                       <TableHead className="text-right">eCPM</TableHead>
                       <TableHead className="text-right">CPA</TableHead>
                     </TableRow>
@@ -242,7 +289,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                   <TableBody>
                     {histQ.data.rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={12} className="text-center text-muted-foreground py-6">
                           Sem dados nos últimos {days} dias.
                         </TableCell>
                       </TableRow>
@@ -260,6 +307,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(Math.round(d.conversions))}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(d.impressions)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.matchedRequests > 0 ? fmtNumber(d.matchedRequests) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.totalRequests > 0 ? fmtNumber(d.totalRequests) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">
+                          {d.matchRate != null ? `${d.matchRate.toFixed(2)}%` : "—"}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
                       </TableRow>
@@ -268,13 +320,15 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                 </Table>
               </div>
 
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-sm">
+              <div className="grid grid-cols-3 md:grid-cols-8 gap-2 text-sm">
                 <Stat label="Custo total" value={fmtCurrency(totals.cost)} />
                 <Stat label="Receita total" value={fmtCurrency(totals.rev)} />
                 <Stat label="Lucro" value={fmtCurrency(totals.profit)} positive={totals.profit >= 0} />
                 <Stat label={`ROI ${days}d`} value={fmtPercent(totals.roi)} positive={totals.roi >= 0} />
                 <Stat label="Conv." value={fmtNumber(Math.round(totals.conv))} />
                 <Stat label="Impr." value={fmtNumber(totals.imp)} />
+                <Stat label="Matched" value={totals.matched > 0 ? fmtNumber(totals.matched) : "—"} />
+                <Stat label="Match Rate" value={totals.matchRate != null ? `${totals.matchRate.toFixed(2)}%` : "—"} />
               </div>
             </div>
           )}
