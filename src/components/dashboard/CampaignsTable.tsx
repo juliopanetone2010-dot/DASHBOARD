@@ -929,7 +929,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("min-w-0 flex-1 break-words leading-snug", accountDown && "text-danger")}>{c.name}</span>
+                      <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
