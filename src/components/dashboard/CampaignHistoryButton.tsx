@@ -117,6 +117,20 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         gamSourceByDay.set(k, cur);
       }
 
+      // Fallback rate: weighted avg of days that DO have match data — used to estimate match rate on days where GAM didn't return total_requests.
+      let fbWeighted = 0;
+      let fbImp = 0;
+      for (const [, v] of gamSourceByDay) {
+        if (v.matchRatePct != null && v.impressions > 0) {
+          fbWeighted += v.matchRatePct * v.impressions;
+          fbImp += v.impressions;
+        } else if (v.totalRequests > 0 && v.impressions > 0) {
+          fbWeighted += (v.impressions / v.totalRequests) * 100 * v.impressions;
+          fbImp += v.impressions;
+        }
+      }
+      const fallbackRate = fbImp > 0 ? fbWeighted / fbImp : null;
+
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
         const g = gamByDay.get(String(d.date)) ?? { revenue: 0, impressions: 0 };
         const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
@@ -130,12 +144,18 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         const netProfit = grossProfitBrl - shareBrl;
         const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
         const matchedRequests = gs.impressions;
-        const totalRequests = gs.totalRequests;
-        const matchRate = gs.matchRatePct != null
+        let totalRequests = gs.totalRequests;
+        let matchRate: number | null = gs.matchRatePct != null
           ? gs.matchRatePct
           : totalRequests > 0
             ? (matchedRequests / totalRequests) * 100
             : null;
+        let matchRateEstimated = false;
+        if (matchRate == null && matchedRequests > 0 && fallbackRate != null && fallbackRate > 0) {
+          matchRate = fallbackRate;
+          matchRateEstimated = true;
+          if (totalRequests <= 0) totalRequests = Math.round(matchedRequests / (fallbackRate / 100));
+        }
         return {
           date: String(d.date),
           cost,
@@ -149,6 +169,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           matchedRequests,
           totalRequests,
           matchRate,
+          matchRateEstimated,
         };
       });
 
