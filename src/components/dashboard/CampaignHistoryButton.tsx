@@ -278,7 +278,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                   <TableBody>
                     {histQ.data.rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={12} className="text-center text-muted-foreground py-6">
                           Sem dados nos últimos {days} dias.
                         </TableCell>
                       </TableRow>
@@ -296,6 +296,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(Math.round(d.conversions))}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNumber(d.impressions)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.matchedRequests > 0 ? fmtNumber(d.matchedRequests) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.totalRequests > 0 ? fmtNumber(d.totalRequests) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">
+                          {d.matchRate != null ? `${d.matchRate.toFixed(2)}%` : "—"}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
                       </TableRow>
