@@ -405,6 +405,9 @@ const IndexInner = () => {
         if (impressions > 0 && exactRatePct > 0) {
           cur.exactImpressions += impressions;
           cur.exactRequests += impressions / (exactRatePct / 100);
+        } else if (impressions > 0 && totalRequests > 0) {
+          cur.exactImpressions += impressions;
+          cur.exactRequests += totalRequests;
         }
         map.set(cid, cur);
       }
