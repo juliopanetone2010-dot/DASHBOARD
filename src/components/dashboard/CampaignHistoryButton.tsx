@@ -119,18 +119,23 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
 
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
         const g = gamByDay.get(String(d.date)) ?? { revenue: 0, impressions: 0 };
+        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
         const ecpm = calculateCampaignEcpm(g.revenue, g.impressions).ecpm;
         const conv = Number(d.conversions) || 0;
         const cost = Number(d.spend) || 0;
-        // Aplica revshare (6,5%) igual ao agregado da tabela de campanhas.
-        // daily_metrics.revenue = USD bruto; daily_metrics.profit = BRL bruto (revenue_brl - spend).
-        // Exibimos tudo em BRL (custo já é BRL) para evitar mistura de moedas.
         const grossProfitBrl = Number(d.profit) || 0;
         const grossRevBrl = grossProfitBrl + cost;
         const shareBrl = grossRevBrl * REV_SHARE_PCT;
         const netRevBrl = grossRevBrl * NET_FACTOR;
         const netProfit = grossProfitBrl - shareBrl;
         const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
+        const matchedRequests = gs.impressions;
+        const totalRequests = gs.totalRequests;
+        const matchRate = gs.matchRatePct != null
+          ? gs.matchRatePct
+          : totalRequests > 0
+            ? (matchedRequests / totalRequests) * 100
+            : null;
         return {
           date: String(d.date),
           cost,
@@ -141,6 +146,9 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           impressions: Number(g.impressions || d.impressions) || 0,
           ecpm,
           cpa: conv > 0 ? cost / conv : 0,
+          matchedRequests,
+          totalRequests,
+          matchRate,
         };
       });
 
