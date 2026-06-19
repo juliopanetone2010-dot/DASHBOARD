@@ -187,6 +187,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     conversions: { label: "Conv.", sortKey: "conversions", align: "right" },
     convRate: { label: "Tx. Conv.", sortKey: "convRate", align: "right" },
     cpa: { label: "CPA", sortKey: "cpa", align: "right" },
+    finalUrl: { label: "Final URL", align: "left" },
     act_pause: { label: "Pausa", align: "left" },
     act_cpa: { label: "Aj. CPA", align: "left" },
     act_budget: { label: "Aj. Orç.", align: "left" },
