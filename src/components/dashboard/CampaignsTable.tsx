@@ -915,7 +915,19 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
+                      {finalUrl ? (
+                        <a
+                          href={finalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cn("min-w-0 flex-1 leading-snug text-primary hover:underline", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")}
+                          title={finalUrl}
+                        >
+                          {c.name}
+                        </a>
+                      ) : (
+                        <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
+                      )}
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
                           <ShieldX className="h-3 w-3" /> Conta suspensa
