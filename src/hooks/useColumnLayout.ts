@@ -54,7 +54,14 @@ export function useColumnLayout({
   const [visible, setVisible] = useState<Set<string>>(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(storageKeyVisible) : null;
-      if (raw) return new Set(JSON.parse(raw) as string[]);
+      if (raw) {
+        const persisted = JSON.parse(raw) as string[];
+        const known = new Set(allKeys);
+        const filtered = persisted.filter((k) => known.has(k));
+        // Auto-show any newly-added columns that weren't in the persisted set
+        const missing = allKeys.filter((k) => !filtered.includes(k));
+        return new Set([...filtered, ...missing]);
+      }
     } catch { /* ignore */ }
     return new Set(allKeys);
   });
