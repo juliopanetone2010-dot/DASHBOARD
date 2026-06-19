@@ -818,22 +818,6 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                   </button>
                 </div>
               </TableHead>
-              <TableHead
-                style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
-                className="sticky z-30 bg-muted/95 border-r border-border shadow-sm"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span>Final URL</span>
-                  <button
-                    type="button"
-                    onClick={() => setCompactNameUrl((v) => !v)}
-                    title={compactNameUrl ? "Expandir colunas Nome / Final URL" : "Encurtar colunas Nome / Final URL"}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground"
-                  >
-                    {compactNameUrl ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
-                  </button>
-                </div>
-              </TableHead>
               {orderedVisible.map((k) => {
                 const def = HEAD_DEFS[k];
                 const active = !!def.sortKey && sort?.key === def.sortKey;
