@@ -993,43 +993,6 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell
-                    style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
-                    className="sticky z-20 bg-card border-r border-border text-xs shadow-sm"
-                  >
-
-                    {finalUrl ? (
-                      <div className="flex items-center gap-1 max-w-[540px]">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <a
-                              href={finalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 truncate text-primary hover:underline"
-                            >
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{shortenUrl(finalUrl)}</span>
-                            </a>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-md break-all">
-                            {finalUrl}
-                          </TooltipContent>
-                        </Tooltip>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 shrink-0"
-                          title="Copiar URL"
-                          onClick={() => copyToClipboard(finalUrl)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
                   {orderedVisible.map((k) => {
                     const ws = widthStyle(k);
                     switch (k) {
