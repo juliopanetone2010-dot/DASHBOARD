@@ -862,7 +862,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5 + visibleCols.size} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={3 + visibleCols.size} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
