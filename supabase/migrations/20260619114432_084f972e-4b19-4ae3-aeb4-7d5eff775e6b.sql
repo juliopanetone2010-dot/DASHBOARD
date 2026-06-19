@@ -1,0 +1,1 @@
+DO $$ BEGIN PERFORM cron.unschedule('automation-run-daily'); EXCEPTION WHEN OTHERS THEN NULL; END $$;
