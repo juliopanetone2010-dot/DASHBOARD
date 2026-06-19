@@ -121,7 +121,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     | "score" | "startDate" | "age" | "lastAction"
     | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
     | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr"
-    | "conversions" | "convRate" | "cpa"
+    | "conversions" | "convRate" | "cpa" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
     { key: "score", label: "Saúde", width: 60 },
@@ -142,6 +142,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "conversions", label: "Conv.", width: 80 },
     { key: "convRate", label: "Tx. Conv.", width: 90 },
     { key: "cpa", label: "CPA", width: 90 },
+    { key: "finalUrl", label: "Final URL", width: 220 },
     { key: "act_pause", label: "Ação · Pause", width: 56 },
     { key: "act_cpa", label: "Ação · CPA", width: 120 },
     { key: "act_budget", label: "Ação · Orçamento", width: 120 },
@@ -186,6 +187,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     conversions: { label: "Conv.", sortKey: "conversions", align: "right" },
     convRate: { label: "Tx. Conv.", sortKey: "convRate", align: "right" },
     cpa: { label: "CPA", sortKey: "cpa", align: "right" },
+    finalUrl: { label: "Final URL", align: "left" },
     act_pause: { label: "Pausa", align: "left" },
     act_cpa: { label: "Aj. CPA", align: "left" },
     act_budget: { label: "Aj. Orç.", align: "left" },
@@ -816,22 +818,6 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                   </button>
                 </div>
               </TableHead>
-              <TableHead
-                style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
-                className="sticky z-30 bg-muted/95 border-r border-border shadow-sm"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span>Final URL</span>
-                  <button
-                    type="button"
-                    onClick={() => setCompactNameUrl((v) => !v)}
-                    title={compactNameUrl ? "Expandir colunas Nome / Final URL" : "Encurtar colunas Nome / Final URL"}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground"
-                  >
-                    {compactNameUrl ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
-                  </button>
-                </div>
-              </TableHead>
               {orderedVisible.map((k) => {
                 const def = HEAD_DEFS[k];
                 const active = !!def.sortKey && sort?.key === def.sortKey;
@@ -876,7 +862,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
           <TableBody>
             {sortedCampaigns.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5 + visibleCols.size} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={3 + visibleCols.size} className="text-center text-muted-foreground py-10">
                   Nenhuma campanha com dados. Conecte uma conta Google Ads na aba "Integrações".
                 </TableCell>
               </TableRow>
@@ -1007,43 +993,6 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                     </div>
                   </TableCell>
 
-                  <TableCell
-                    style={{ left: `${URL_LEFT}px`, width: `${URL_W}px`, minWidth: `${URL_W}px` }}
-                    className="sticky z-20 bg-card border-r border-border text-xs shadow-sm"
-                  >
-
-                    {finalUrl ? (
-                      <div className="flex items-center gap-1 max-w-[540px]">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <a
-                              href={finalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 truncate text-primary hover:underline"
-                            >
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{shortenUrl(finalUrl)}</span>
-                            </a>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-md break-all">
-                            {finalUrl}
-                          </TooltipContent>
-                        </Tooltip>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 shrink-0"
-                          title="Copiar URL"
-                          onClick={() => copyToClipboard(finalUrl)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
                   {orderedVisible.map((k) => {
                     const ws = widthStyle(k);
                     switch (k) {
@@ -1345,6 +1294,42 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                               campaignName={c.name}
                               googleAccountId={(c as any).google_account_id ?? null}
                             />
+                          </TableCell>
+                       );
+                      case "finalUrl":
+                        return (
+                          <TableCell key={k} style={ws}>
+                            {finalUrl ? (
+                              <div className="flex items-center gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <a
+                                      href={finalUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 truncate text-primary hover:underline"
+                                    >
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">{shortenUrl(finalUrl)}</span>
+                                    </a>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-md break-all">
+                                    {finalUrl}
+                                  </TooltipContent>
+                                </Tooltip>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 shrink-0"
+                                  title="Copiar URL"
+                                  onClick={() => copyToClipboard(finalUrl)}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                         );
                       default:
