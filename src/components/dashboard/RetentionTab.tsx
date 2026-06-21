@@ -367,6 +367,13 @@ export function RetentionTab(_props: Props) {
         <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
 
+      <PushBySiteCard
+        pushRows={pushRows}
+        sourceRevenue={sourceRevenueQuery.data ?? []}
+        unattrib={unattrib}
+        siteName={siteName}
+      />
+
       {byUtm.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
