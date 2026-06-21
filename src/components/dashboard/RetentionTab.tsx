@@ -367,6 +367,13 @@ export function RetentionTab(_props: Props) {
         <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
 
+      <PushBySiteCard
+        pushRows={pushRows}
+        sourceRevenue={sourceRevenueQuery.data ?? []}
+        unattrib={unattrib}
+        siteName={siteName}
+      />
+
       {byUtm.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -583,5 +590,85 @@ function DebugList({ title, items }: { title: string; items: string[] }) {
       <div className="font-semibold mb-1">{title}</div>
       {items.length ? items.map((it, idx) => <div key={idx} className="font-mono text-[11px] break-all">{it}</div>) : <div className="text-muted-foreground">—</div>}
     </div>
+  );
+}
+
+function PushBySiteCard({
+  pushRows, sourceRevenue, unattrib, siteName,
+}: {
+  pushRows: PushRow[];
+  sourceRevenue: SourceRevenueRow[];
+  unattrib: UnattribRow[];
+  siteName: (id: string) => string;
+}) {
+  const bySite = useMemo(() => {
+    const map = new Map<string, { site_id: string; explicitPush: number; urlPush: number; urls: number; impressions: number; unattributed: number }>();
+    const get = (id: string) => {
+      let e = map.get(id);
+      if (!e) { e = { site_id: id, explicitPush: 0, urlPush: 0, urls: 0, impressions: 0, unattributed: 0 }; map.set(id, e); }
+      return e;
+    };
+    for (const r of pushRows) {
+      const e = get(r.site_id);
+      e.urlPush += Number(r.revenue_usd) || 0;
+      e.impressions += Number(r.impressions) || 0;
+      e.urls += 1;
+    }
+    for (const r of sourceRevenue) {
+      if (String(r.utm_source || "").toLowerCase() !== "push") continue;
+      get(r.site_id).explicitPush += Number(r.revenue_usd) || 0;
+    }
+    for (const r of unattrib) {
+      get(r.site_id).unattributed += Number(r.revenue_usd) || 0;
+    }
+    return [...map.values()]
+      .map((e) => ({ ...e, displayPush: e.explicitPush > 0 ? e.explicitPush : e.urlPush }))
+      .filter((e) => e.displayPush > 0 || e.unattributed > 0)
+      .sort((a, b) => b.displayPush - a.displayPush);
+  }, [pushRows, sourceRevenue, unattrib]);
+
+  const totalPush = bySite.reduce((s, r) => s + r.displayPush, 0);
+
+  if (bySite.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader className="py-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Globe className="h-4 w-4" /> Push por site
+          <span className="text-xs text-muted-foreground font-normal">{bySite.length} site(s) • total {fmtUSD(totalPush)}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Site</TableHead>
+                <TableHead className="text-right">Push (USD)</TableHead>
+                <TableHead className="text-right">URLs</TableHead>
+                <TableHead className="text-right">Impressões</TableHead>
+                <TableHead className="text-right">eCPM</TableHead>
+                <TableHead className="text-right">Não atribuído</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {bySite.map((r) => {
+                const ecpm = r.impressions > 0 ? (r.displayPush / r.impressions) * 1000 : 0;
+                return (
+                  <TableRow key={r.site_id}>
+                    <TableCell className="font-medium">{siteName(r.site_id)}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">{fmtUSD(r.displayPush)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.urls}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.impressions.toLocaleString("pt-BR")}</TableCell>
+                    <TableCell className="text-right tabular-nums">${ecpm.toFixed(2)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{r.unattributed > 0 ? fmtUSD(r.unattributed) : "—"}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

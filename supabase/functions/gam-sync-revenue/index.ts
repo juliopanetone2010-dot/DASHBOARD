@@ -743,8 +743,11 @@ async function collectUtmAttribution(args: {
   try {
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      // AD_SERVER inclui receita de push/retenção (linhas onde utm_source=push aparece como
+      // line item do Ad Server). Mantemos no fastMode também — sem isso a sync horária do
+      // cron só captura AD_EXCHANGE e o push some do dashboard após alguns dias.
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
       ...(fastMode ? [] : [
-        { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
         { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
       ]),
     ];
