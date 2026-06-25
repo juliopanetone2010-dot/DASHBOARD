@@ -1313,22 +1313,15 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                           <TableCell key={k} style={ws}>
                             {finalUrl ? (
                               <div className="flex items-center gap-1">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <a
-                                      href={finalUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 truncate text-primary hover:underline"
-                                    >
-                                      <ExternalLink className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">{shortenUrl(finalUrl)}</span>
-                                    </a>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-md break-all">
-                                    {finalUrl}
-                                  </TooltipContent>
-                                </Tooltip>
+                               <a
+                                  href={finalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+                                >
+                                  <ExternalLink className="h-3 w-3 shrink-0" />
+                                  {finalUrl}
+                                </a>
                                 <Button
                                   size="sm"
                                   variant="ghost"
