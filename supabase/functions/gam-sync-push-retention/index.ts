@@ -59,19 +59,25 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const user = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
     syncAdmin = admin;
 
-    const { data: u, error: uErr } = await user.auth.getUser();
-    if (uErr || !u?.user) return json({ error: "Sessão inválida" }, 401);
-    const userId = u.user.id;
+    const token = authHeader.replace("Bearer ", "");
+    let userId: string | null = null;
+    if (token && token === SERVICE_KEY) {
+      userId = typeof body?.user_id === "string" ? body.user_id : null;
+      if (!userId) return json({ error: "user_id obrigatório em chamada interna" }, 400);
+    } else {
+      const user = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: u, error: uErr } = await user.auth.getUser();
+      if (uErr || !u?.user) return json({ error: "Sessão inválida" }, 401);
+      userId = u.user.id;
+      const { data: canAccess } = await admin.rpc("can_access_site", { _uid: userId, _site_id: siteId });
+      if (!canAccess) return json({ error: "Sem acesso a este site" }, 403);
+    }
 
-    // RBAC: pode acessar este site?
-    const { data: canAccess } = await admin.rpc("can_access_site", { _uid: userId, _site_id: siteId });
-    if (!canAccess) return json({ error: "Sem acesso a este site" }, 403);
 
     // Carrega site
     const { data: site, error: sErr } = await admin
