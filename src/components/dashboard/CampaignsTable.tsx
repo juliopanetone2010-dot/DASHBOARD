@@ -142,7 +142,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "conversions", label: "Conv.", width: 80 },
     { key: "convRate", label: "Tx. Conv.", width: 90 },
     { key: "cpa", label: "CPA", width: 90 },
-    { key: "finalUrl", label: "Final URL", width: 220 },
+    { key: "finalUrl", label: "Final URL", width: 560 },
     { key: "act_pause", label: "Ação · Pause", width: 56 },
     { key: "act_cpa", label: "Ação · CPA", width: 120 },
     { key: "act_budget", label: "Ação · Orçamento", width: 120 },
