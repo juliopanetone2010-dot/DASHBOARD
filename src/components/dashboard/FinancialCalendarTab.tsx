@@ -105,31 +105,70 @@ export function FinancialCalendarTab() {
     }
   };
 
-  const regenerateMonth = async () => {
+  const regenerateMonth = async (opts?: { silent?: boolean; onlyMissing?: boolean }) => {
     if (filters.siteId === "all") return;
-    setRegenerating(true);
+    const silent = !!opts?.silent;
+    const onlyMissing = !!opts?.onlyMissing;
+    if (!silent) setRegenerating(true);
     try {
       const start = new Date(monthStart);
       const end = new Date(monthEnd);
       const todayStr = new Date().toISOString().slice(0, 10);
+      const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
       const dates: string[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const s = d.toISOString().slice(0, 10);
-        if (s < todayStr) dates.push(s);
+        if (s >= todayStr) continue;
+        if (onlyMissing && existing.has(s)) continue;
+        dates.push(s);
       }
-      for (const date of dates) {
-        await supabase.functions.invoke("generate-daily-snapshot", {
-          body: { date, site_id: filters.siteId, force: true },
-        });
+      if (dates.length === 0) {
+        if (!silent) toast({ title: "Nada para regenerar", description: "Mês já completo." });
+        return;
       }
-      toast({ title: "Mês regenerado", description: `${dates.length} dias` });
+      // Paraleliza em chunks de 6 para acelerar.
+      const CHUNK = 6;
+      for (let i = 0; i < dates.length; i += CHUNK) {
+        const slice = dates.slice(i, i + CHUNK);
+        await Promise.all(slice.map((date) =>
+          supabase.functions.invoke("generate-daily-snapshot", {
+            body: { date, site_id: filters.siteId, force: !onlyMissing },
+          }).catch(() => null),
+        ));
+        snapshotsQuery.refetch();
+      }
+      if (!silent) toast({ title: "Mês atualizado", description: `${dates.length} dia(s)` });
       snapshotsQuery.refetch();
     } catch (e: any) {
-      toast({ title: "Erro", description: String(e?.message ?? e), variant: "destructive" });
+      if (!silent) toast({ title: "Erro", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
-      setRegenerating(false);
+      if (!silent) setRegenerating(false);
     }
   };
+
+  // Quando troca de site ou de mês, dispara em background a geração dos dias que faltam.
+  const autoFillRef = useRef<string>("");
+  useEffect(() => {
+    if (filters.siteId === "all") return;
+    if (snapshotsQuery.isLoading) return;
+    const key = `${filters.siteId}|${monthStart}`;
+    if (autoFillRef.current === key) return;
+    autoFillRef.current = key;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
+    const start = new Date(monthStart);
+    const end = new Date(monthEnd);
+    let missing = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const s = d.toISOString().slice(0, 10);
+      if (s < todayStr && !existing.has(s)) missing++;
+    }
+    if (missing > 0) {
+      regenerateMonth({ silent: true, onlyMissing: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.siteId, monthStart, monthEnd, snapshotsQuery.isLoading]);
+
 
   const exportCsv = () => {
     const header = ["Data","Google Ads","Custo Total","Receita Bruta","Receita Líquida","Lucro","ROI %","eCPM","Viewability %","Impressões","Cliques","Conversões"];
