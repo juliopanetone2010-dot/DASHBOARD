@@ -668,7 +668,9 @@ const IndexInner = () => {
   const fxSource = fxQuery.data?.source ?? null;
   const extraPushUsd = extraRevQuery.data?.push ?? 0;
   const extraOtherUsd = extraRevQuery.data?.other ?? 0;
-  const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
+  // A receita que chega do GAM/API já vem na base líquida do publisher (já considera
+  // a participação de 6,5%). Então NÃO podemos aplicar NET_FACTOR de novo na dashboard.
+  const extraNetUsd = extraPushUsd + extraOtherUsd;
   const extraNetBrl = extraNetUsd * usdBrl;
 
   // Receita REAL do GAM em BRL (independe do display). Inclui impressões SEM UTM.
@@ -683,15 +685,14 @@ const IndexInner = () => {
     return total;
   })();
   const hasRealGam = realGamRevenueBrl > 0;
-  // Se temos receita real do GAM, usamos ela líquida como base do ROI/lucro.
-  // Mas o card "Receita (Ad Manager)" precisa mostrar o valor BRUTO igual ao GAM,
-  // para não parecer divergente quando comparado com a tela do Ad Manager.
+  // Se temos receita real do GAM, usamos ela diretamente como base do ROI/lucro.
+  // IMPORTANTE: esse valor já é o total do GAM com o -6,5% aplicado; não aplicar novamente.
   // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
   const totalProfitBrl = hasRealGam
-    ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
+    ? realGamRevenueBrl - baseTotals.spend
     : baseTotals.profit + extraNetBrl;
   const totalRevenueUsd = hasRealGam
-    ? (realGamRevenueBrl * NET_FACTOR) / usdBrl
+    ? realGamRevenueBrl / usdBrl
     : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
   const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
@@ -716,15 +717,14 @@ const IndexInner = () => {
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita REAL do GAM (bruta, exatamente como o Ad Manager mostra), somando todas
-  // as moedas convertidas para a moeda de exibição do site.
-  const realGamRevenueGrossDisplay = isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl;
-  const realGamRevenueNetDisplay = realGamRevenueGrossDisplay * NET_FACTOR;
-  // Receita atribuída bruta = Google UTM + push/outras (sem impressões sem tag)
-  const attributedGrossRevenueUsd = grossRevenueUsd + extraPushUsd + extraOtherUsd;
-  const attributedRevenueDisplay = isBrlSite ? attributedGrossRevenueUsd * usdBrl : attributedGrossRevenueUsd;
-  const attributionPct = realGamRevenueGrossDisplay > 0
-    ? (attributedRevenueDisplay / realGamRevenueGrossDisplay) * 100
+  // Receita REAL do GAM já líquida (com -6,5%), somando todas as moedas convertidas
+  // para a moeda de exibição do site. Ex.: GAM total 1.871,97 → dashboard ~1.750.
+  const realGamRevenueNetDisplay = isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl;
+  // Receita atribuída = Google UTM + push/outras (sem impressões sem tag), também já na base líquida.
+  const attributedRevenueUsd = grossRevenueUsd + extraPushUsd + extraOtherUsd;
+  const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
+  const attributionPct = realGamRevenueNetDisplay > 0
+    ? (attributedRevenueDisplay / realGamRevenueNetDisplay) * 100
     : 0;
 
   return (
@@ -914,8 +914,7 @@ const IndexInner = () => {
             })()}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita bruta no card (igual GAM)</Badge>
-              <Badge variant="outline">Lucro/ROI usam líquido após rev share {(REV_SHARE_PCT * 100).toFixed(1)}%</Badge>
+              <Badge variant="outline">Receita GAM líquida (já com -{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
@@ -931,9 +930,8 @@ const IndexInner = () => {
             {showDebug && (
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs font-mono space-y-1">
                 <div>gross_revenue_usd: <b>{grossRevenueUsd.toFixed(6)}</b></div>
-                <div>real_gam_gross : <b>{realGamRevenueGrossDisplay.toFixed(6)}</b></div>
-                <div>real_gam_net   : <b>{realGamRevenueNetDisplay.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
-                <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
+                <div>real_gam_net   : <b>{realGamRevenueNetDisplay.toFixed(6)}</b> (GAM já com -{(REV_SHARE_PCT * 100).toFixed(1)}%)</div>
+                <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b></div>
                 <div>gross_profit_brl : <b>{grossProfitBrl.toFixed(2)}</b></div>
                 <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
                 <div>spend_brl        : <b>{totals.spend.toFixed(2)}</b></div>
@@ -957,14 +955,14 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtRevenue(realGamRevenueGrossDisplay > 0 ? realGamRevenueGrossDisplay : attributedRevenueDisplay)}
+                value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  realGamRevenueGrossDisplay === 0 && attributedRevenueDisplay === 0
+                  realGamRevenueNetDisplay === 0 && attributedRevenueDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : realGamRevenueGrossDisplay > 0
-                      ? `GAM bruto · líquido p/ ROI: ${fmtRevenue(realGamRevenueNetDisplay)} · atribuído: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                    : realGamRevenueNetDisplay > 0
+                      ? `GAM líquido (após -${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                       : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
