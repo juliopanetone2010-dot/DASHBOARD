@@ -22,6 +22,12 @@ function isoDaysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isoAddDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function callFn(name: string, body: unknown, authHeader: string) {
   const url = `${SUPABASE_URL}/functions/v1/${name}`;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -59,7 +65,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false, requestedRange?: { from?: string; to?: string }) {
+async function runBackground(siteId: string, userId: string, authHeader: string, incremental = false, requestedRange?: { from?: string; to?: string }, opts?: { skipQuickRevenue?: boolean; quickOnly?: boolean }) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
   const startedAt = Date.now();
   const deadlineAt = startedAt + 110_000;
@@ -120,23 +126,39 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // Atualização rápida da receita do card/calendário antes dos relatórios pesados.
     // O relatório por DATE do GAM é leve e evita a dashboard ficar presa em valor antigo
     // quando o sync completo estoura quota/tempo em UTM, campanhas ou placements.
-    const quickRevenueFrom = effectiveTo;
-    const quickRevenue = await callFn(
-      "gam-sync-revenue",
-      {
-        from: quickRevenueFrom,
-        to: effectiveTo,
-        site_id: siteId,
-        account_ids: accountIds,
-        user_id: userId,
-        site_metrics_only: true,
-        sync: true,
-        skip_snapshot_regen: false,
-      },
-      authHeader,
-    );
-    console.log("[auto-onboard] quick revenue sync", { siteId, from: quickRevenueFrom, to: effectiveTo, status: quickRevenue.status });
-    if (!quickRevenue.ok) syncLog.errors.push(`quick revenue ${quickRevenue.status}: ${JSON.stringify(quickRevenue.body).slice(0, 300)}`);
+    if (!opts?.skipQuickRevenue) {
+      const quickRevenueFrom = from <= isoAddDays(effectiveTo, -1) ? isoAddDays(effectiveTo, -1) : effectiveTo;
+      const quickRevenue = await callFn(
+        "gam-sync-revenue",
+        {
+          from: quickRevenueFrom,
+          to: effectiveTo,
+          site_id: siteId,
+          account_ids: accountIds,
+          user_id: userId,
+          site_metrics_only: true,
+          sync: true,
+          skip_snapshot_regen: false,
+        },
+        authHeader,
+      );
+      console.log("[auto-onboard] quick revenue sync", { siteId, from: quickRevenueFrom, to: effectiveTo, status: quickRevenue.status });
+      if (!quickRevenue.ok) syncLog.errors.push(`quick revenue ${quickRevenue.status}: ${JSON.stringify(quickRevenue.body).slice(0, 300)}`);
+    }
+
+    if (opts?.quickOnly) {
+      const hasErrors = syncLog.errors.length > 0;
+      await admin
+        .from("sites")
+        .update({
+          sync_status: hasErrors ? "failed" : "completed",
+          sync_error: hasErrors ? syncLog.errors.join("\n").slice(0, 1500) : null,
+          last_full_sync_at: hasErrors ? undefined : new Date().toISOString(),
+        })
+        .eq("id", siteId)
+        .eq("user_id", userId);
+      return;
+    }
 
     // 1. campanhas (Google Ads)
     const ads = await callFn(
@@ -239,7 +261,7 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
     const body = await req.json().catch(() => ({}));
-    const { site_id, force, from, to } = body as { site_id?: string; force?: boolean; from?: string; to?: string };
+    const { site_id, force, from, to, skip_quick_revenue, quick_only } = body as { site_id?: string; force?: boolean; from?: string; to?: string; skip_quick_revenue?: boolean; quick_only?: boolean };
     if (!site_id || typeof site_id !== "string") {
       return new Response(JSON.stringify({ error: "site_id required" }), {
         status: 400,
@@ -325,8 +347,15 @@ Deno.serve(async (req) => {
     // Roda sync com user_id do dono (que tem os tokens Google Ads e vínculos).
     // Usa SERVICE_ROLE no Authorization pras chamadas internas — caller (ex: Cesar admin) pode não ter acesso direto.
     const internalAuth = `Bearer ${SERVICE_ROLE}`;
+    if (quick_only) {
+      await runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh, { from, to }, { quickOnly: true });
+      return new Response(JSON.stringify({ status: "completed", site_id, quick_only: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     // @ts-ignore EdgeRuntime is available in Supabase edge functions
-    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh, { from, to }));
+    EdgeRuntime.waitUntil(runBackground(site_id, ownerUserId, internalAuth, isIncrementalRefresh, { from, to }, { skipQuickRevenue: !!skip_quick_revenue }));
 
     return new Response(JSON.stringify({ status: "processing", site_id }), {
       status: 202,

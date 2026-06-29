@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
     const requestedSiteId: string | null = typeof body?.site_id === "string" ? body.site_id : null;
     const force: boolean = Boolean(body?.force);
     const requestedUserId: string | null = typeof body?.user_id === "string" ? body.user_id : null;
+    const skipGamPreSync: boolean = Boolean(body?.skip_gam_sync || body?.skip_pre_sync);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -56,28 +57,32 @@ Deno.serve(async (req) => {
 
     // Antes de gerar snapshots, força sync do GAM para targetDate (garante dados frescos
     // mesmo se o GAM ainda não fechou o dia anterior na 1ª passada do cron 04:00).
-    for (const site of sites ?? []) {
-      try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/gam-sync-revenue`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            site_id: site.id,
-            user_id: site.user_id,
-            from: targetDate,
-            to: targetDate,
-            revenue_only: true,
-            site_metrics_only: true,
-            sync: true,
-            skip_viewability: false,
-            skip_snapshot_regen: true,
-          }),
-        });
-      } catch (e) {
-        console.warn("[snapshot] gam-sync pre-call failed", site.name, String(e));
+    // Chamadas que acabaram de sincronizar site_metrics_daily podem pular esta etapa
+    // para não consultar o GAM duas vezes e reduzir risco de quota/timeout.
+    if (!skipGamPreSync) {
+      for (const site of sites ?? []) {
+        try {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/gam-sync-revenue`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              site_id: site.id,
+              user_id: site.user_id,
+              from: targetDate,
+              to: targetDate,
+              revenue_only: true,
+              site_metrics_only: true,
+              sync: true,
+              skip_viewability: false,
+              skip_snapshot_regen: true,
+            }),
+          });
+        } catch (e) {
+          console.warn("[snapshot] gam-sync pre-call failed", site.name, String(e));
+        }
       }
     }
 

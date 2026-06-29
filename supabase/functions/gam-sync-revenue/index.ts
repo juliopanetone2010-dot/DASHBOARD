@@ -244,6 +244,15 @@ async function runSync(req: Request): Promise<Response> {
             revenue: v.rev,
           }));
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges);
+          if (!skipSnapshotRegen) {
+            await regenerateSnapshotsForRanges({
+              ranges,
+              authHeader,
+              siteId: requestedSiteId ?? networkSites[0]?.id ?? null,
+              debug,
+              wait: true,
+            });
+          }
           const metricTotals = metricRows.reduce((a, r) => ({
             revenue: a.revenue + r.revenue,
             impressions: a.impressions + r.impressions,
@@ -496,49 +505,17 @@ async function runSync(req: Request): Promise<Response> {
     // Re-gera os snapshots financeiros dos dias sincronizados, para que o calendário
     // sempre reflita a receita GAM mais recente (evita defasagem como 06/05 ficar com R$ 39 quando o GAM já tinha R$ 76).
     try {
-      if (skipSnapshotRegen) {
+      if (skipSnapshotRegen || siteMetricsOnly) {
         debug.push("[snapshot] regen skipped by caller");
       } else {
-      const allDates = Array.from(new Set(
-        summary.flatMap((s) => Array.isArray(s.date_range)
-          ? (s.date_range as string[]).flatMap((label) => label.split("..").filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))
-          : []),
-      ));
-      // Expande ranges X..Y em datas individuais
-      const expanded = new Set<string>();
-      for (const lbl of allDates) expanded.add(lbl);
-      for (const s of summary) {
-        if (!Array.isArray(s.date_range)) continue;
-        for (const lbl of s.date_range as string[]) {
-          const m = String(lbl).match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
-          if (m) {
-            const a = new Date(m[1] + "T00:00:00Z"); const b = new Date(m[2] + "T00:00:00Z");
-            for (const d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
-              expanded.add(d.toISOString().slice(0, 10));
-            }
-          }
-        }
-      }
-      // Fire-and-forget em paralelo: não bloqueia a resposta (evita IDLE_TIMEOUT 150s).
-      // Usa EdgeRuntime.waitUntil quando disponível para continuar após o response.
-      const snapshotJobs = Array.from(expanded).map((d) =>
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
-          method: "POST",
-          headers: {
-            Authorization: authHeader!,
-            "Content-Type": "application/json",
-          },
-            body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null, force: true }),
-        }).catch(() => {}),
-      );
-      const er = (globalThis as any).EdgeRuntime;
-      if (er && typeof er.waitUntil === "function") {
-        er.waitUntil(Promise.allSettled(snapshotJobs));
-      } else {
-        // fallback: deixa rodar em background sem await
-        Promise.allSettled(snapshotJobs).catch(() => {});
-      }
-      debug.push(`[snapshot] enqueued ${expanded.size} day(s) (background)`);
+      const snapshotRanges = summary.flatMap((s) => Array.isArray(s.date_range) ? (s.date_range as string[]) : []);
+      await regenerateSnapshotsForLabels({
+        labels: snapshotRanges,
+        authHeader,
+        siteId: requestedSiteId ?? null,
+        debug,
+        wait: false,
+      });
       }
     } catch (e) {
       debug.push(`[snapshot] regen failed: ${String(e)}`);
@@ -654,6 +631,75 @@ function expandFixedDates(ranges: GamRange[]): string[] {
     }
   }
   return dates;
+}
+
+function expandDateLabels(labels: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const label of labels) {
+    const value = String(label);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      expanded.add(value);
+      continue;
+    }
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
+    if (!m) continue;
+    const start = new Date(m[1] + "T00:00:00Z");
+    const end = new Date(m[2] + "T00:00:00Z");
+    for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      expanded.add(d.toISOString().slice(0, 10));
+    }
+  }
+  return [...expanded].sort();
+}
+
+async function regenerateSnapshotsForLabels(args: {
+  labels: string[];
+  authHeader: string | null;
+  siteId: string | null;
+  debug: string[];
+  wait: boolean;
+}) {
+  const { labels, authHeader, siteId, debug, wait } = args;
+  const dates = expandDateLabels(labels);
+  if (dates.length === 0) return;
+  const snapshotJobs = dates.map((d) =>
+    fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader!,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ date: d, site_id: siteId, force: true, skip_gam_sync: true }),
+    }).catch((e) => ({ error: String(e) })),
+  );
+  if (wait) {
+    await Promise.allSettled(snapshotJobs);
+    debug.push(`[snapshot] regenerated ${dates.length} day(s)`);
+    return;
+  }
+  const er = (globalThis as any).EdgeRuntime;
+  if (er && typeof er.waitUntil === "function") {
+    er.waitUntil(Promise.allSettled(snapshotJobs));
+  } else {
+    Promise.allSettled(snapshotJobs).catch(() => {});
+  }
+  debug.push(`[snapshot] enqueued ${dates.length} day(s) (background)`);
+}
+
+async function regenerateSnapshotsForRanges(args: {
+  ranges: GamRange[];
+  authHeader: string | null;
+  siteId: string | null;
+  debug: string[];
+  wait: boolean;
+}) {
+  await regenerateSnapshotsForLabels({
+    labels: args.ranges.map((r) => r.debugLabel),
+    authHeader: args.authHeader,
+    siteId: args.siteId,
+    debug: args.debug,
+    wait: args.wait,
+  });
 }
 
 function expandToDailyGamRanges(ranges: GamRange[]): Array<{ date: string | null; range: GamRange }> {

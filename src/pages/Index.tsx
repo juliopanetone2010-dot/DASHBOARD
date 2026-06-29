@@ -614,8 +614,17 @@ const IndexInner = () => {
       if (nextFilters.siteId === "all") {
         await allSites.syncAll(true, { from, to });
       } else {
-        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to } });
-        toast({ title: "Sincronização em fila", description: "O site está atualizando em segundo plano; a tela continua usando os dados já salvos." });
+        const prevTo = (() => {
+          const d = new Date(`${to}T00:00:00`);
+          d.setDate(d.getDate() - 1);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })();
+        const quickFrom = from <= prevTo ? prevTo : from;
+        await supabase.functions.invoke("site-auto-onboard", {
+          body: { site_id: nextFilters.siteId, force: true, from: quickFrom, to, quick_only: true },
+        });
+        await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to, skip_quick_revenue: true } });
+        toast({ title: "Receita atualizada", description: "Hoje e ontem foram conferidos direto no Ad Manager; o restante continua sincronizando em segundo plano." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();
