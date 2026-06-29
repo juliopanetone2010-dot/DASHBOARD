@@ -41,7 +41,7 @@ import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
-import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
+import { REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
