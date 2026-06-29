@@ -633,6 +633,75 @@ function expandFixedDates(ranges: GamRange[]): string[] {
   return dates;
 }
 
+function expandDateLabels(labels: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const label of labels) {
+    const value = String(label);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      expanded.add(value);
+      continue;
+    }
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
+    if (!m) continue;
+    const start = new Date(m[1] + "T00:00:00Z");
+    const end = new Date(m[2] + "T00:00:00Z");
+    for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      expanded.add(d.toISOString().slice(0, 10));
+    }
+  }
+  return [...expanded].sort();
+}
+
+async function regenerateSnapshotsForLabels(args: {
+  labels: string[];
+  authHeader: string | null;
+  siteId: string | null;
+  debug: string[];
+  wait: boolean;
+}) {
+  const { labels, authHeader, siteId, debug, wait } = args;
+  const dates = expandDateLabels(labels);
+  if (dates.length === 0) return;
+  const snapshotJobs = dates.map((d) =>
+    fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader!,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ date: d, site_id: siteId, force: true, skip_gam_sync: true }),
+    }).catch((e) => ({ error: String(e) })),
+  );
+  if (wait) {
+    await Promise.allSettled(snapshotJobs);
+    debug.push(`[snapshot] regenerated ${dates.length} day(s)`);
+    return;
+  }
+  const er = (globalThis as any).EdgeRuntime;
+  if (er && typeof er.waitUntil === "function") {
+    er.waitUntil(Promise.allSettled(snapshotJobs));
+  } else {
+    Promise.allSettled(snapshotJobs).catch(() => {});
+  }
+  debug.push(`[snapshot] enqueued ${dates.length} day(s) (background)`);
+}
+
+async function regenerateSnapshotsForRanges(args: {
+  ranges: GamRange[];
+  authHeader: string | null;
+  siteId: string | null;
+  debug: string[];
+  wait: boolean;
+}) {
+  await regenerateSnapshotsForLabels({
+    labels: args.ranges.map((r) => r.debugLabel),
+    authHeader: args.authHeader,
+    siteId: args.siteId,
+    debug: args.debug,
+    wait: args.wait,
+  });
+}
+
 function expandToDailyGamRanges(ranges: GamRange[]): Array<{ date: string | null; range: GamRange }> {
   const dates = expandFixedDates(ranges);
   if (dates.length === 0) return ranges.map((range) => ({ date: null, range }));
