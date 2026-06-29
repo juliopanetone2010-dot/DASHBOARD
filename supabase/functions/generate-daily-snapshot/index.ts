@@ -87,11 +87,17 @@ Deno.serve(async (req) => {
         // (provavelmente criado antes do GAM ter sincronizado os dados do dia).
         // Não usamos total_cost nessa checagem: o custo do Google Ads pode chegar antes da receita GAM,
         // e o snapshot precisa ser atualizado automaticamente quando a receita aparecer depois.
-        // Sempre regera o snapshot do dia corrente (BRT) para refletir a receita acumulada
-        // — caso contrário, o calendário trava no valor da primeira execução do dia.
+        // Sempre regera o snapshot do dia corrente e do dia anterior (BRT) para refletir
+        // receita acumulada/finalizada pelo GAM — caso contrário, o calendário pode
+        // travar no valor da primeira execução antes do Ad Manager consolidar o dia.
         const todayBrt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const isTodayBrt = targetDate === todayBrt;
-        if (!force && !isTodayBrt) {
+        const yesterdayBrtDate = (() => {
+          const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
+          d.setUTCDate(d.getUTCDate() - 1);
+          return d.toISOString().slice(0, 10);
+        })();
+        const shouldAutoRegenerate = targetDate === todayBrt || targetDate === yesterdayBrtDate;
+        if (!force && !shouldAutoRegenerate) {
           const { data: existing } = await admin
             .from("daily_financial_snapshots")
             .select("id, gross_revenue, impressions")

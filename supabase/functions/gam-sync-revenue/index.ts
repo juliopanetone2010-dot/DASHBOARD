@@ -528,7 +528,7 @@ async function runSync(req: Request): Promise<Response> {
             Authorization: authHeader!,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null }),
+            body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null, force: true }),
         }).catch(() => {}),
       );
       const er = (globalThis as any).EdgeRuntime;
