@@ -709,7 +709,6 @@ const IndexInner = () => {
     ? data.sites.find((s) => s.id === filters.siteId)
     : null;
   const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
-  const revenueDisplay = isBrlSite ? totals.revenue * usdBrl : totals.revenue;
   const extraPushDisplay = isBrlSite ? extraPushUsd * usdBrl : extraPushUsd;
   const extraOtherDisplay = isBrlSite ? extraOtherUsd * usdBrl : extraOtherUsd;
   const fmtRevenue = (v: number) => isBrlSite ? fmtCurrency(v) : fmtUSD(v);
