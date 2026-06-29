@@ -369,7 +369,7 @@ async function runSync(req: Request): Promise<Response> {
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges);
 
         }
 
