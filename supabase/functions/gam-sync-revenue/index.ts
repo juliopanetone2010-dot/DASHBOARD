@@ -369,7 +369,7 @@ async function runSync(req: Request): Promise<Response> {
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges);
 
         }
 
@@ -1843,8 +1843,9 @@ async function persistSiteMetricsDaily(
   currency: string,
   rows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }>,
   debug: string[],
+  fallbackRanges?: GamRange[],
 ) {
-  if (!siteId || rows.length === 0) return;
+  if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
   // Agrega por data (caso múltiplos ranges retornem mesmo dia)
   const byDate = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
@@ -1854,6 +1855,70 @@ async function persistSiteMetricsDaily(
     cur.impr += r.impressions; cur.meas += r.measurable; cur.view += r.viewable; cur.rev += r.revenue;
     byDate.set(d, cur);
   }
+
+  // Fallback: se viewability foi pulada (rows vazio) mas já temos receita gravada em
+  // gam_campaign_source_revenue, atualiza receita/impressões do dia mesmo assim.
+  // Isso evita o dashboard travar quando o budget do sync apertar.
+  let usedFallback = false;
+  if (byDate.size === 0 && fallbackRanges && fallbackRanges.length > 0) {
+    const allDates = new Set<string>();
+    for (const r of fallbackRanges) {
+      const start = new Date(r.from); const end = new Date(r.to);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        allDates.add(d.toISOString().slice(0, 10));
+      }
+    }
+    const dateList = [...allDates];
+    if (dateList.length > 0) {
+      const { data: revRows } = await admin
+        .from("gam_campaign_source_revenue")
+        .select("date, revenue_usd, impressions")
+        .eq("site_id", siteId)
+        .in("date", dateList);
+      for (const r of (revRows ?? []) as any[]) {
+        const cur = byDate.get(r.date) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+        cur.impr += Number(r.impressions || 0);
+        cur.rev += Number(r.revenue_usd || 0);
+        byDate.set(r.date, cur);
+      }
+      usedFallback = byDate.size > 0;
+    }
+  }
+
+  if (byDate.size === 0) return;
+
+  if (usedFallback) {
+    // Atualiza só revenue/impressions/ecpm — preserva measurable/viewable existentes.
+    for (const [date, v] of byDate.entries()) {
+      const ecpm = v.impr > 0 ? (v.rev / v.impr) * 1000 : 0;
+      const { data: exists } = await admin
+        .from("site_metrics_daily")
+        .select("id")
+        .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
+        .maybeSingle();
+      if (exists) {
+        await admin.from("site_metrics_daily")
+          .update({
+            impressions: v.impr,
+            revenue_native: v.rev,
+            currency,
+            ecpm_native: ecpm,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", userId).eq("site_id", siteId).eq("date", date);
+      } else {
+        await admin.from("site_metrics_daily").insert({
+          user_id: userId, site_id: siteId, date,
+          impressions: v.impr, measurable_impressions: 0, viewable_impressions: 0,
+          revenue_native: v.rev, currency, ecpm_native: ecpm,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+    debug.push(`[site_metrics_daily] site=${siteId} fallback rows=${byDate.size} currency=${currency}`);
+    return;
+  }
+
   const payload = [...byDate.entries()].map(([date, v]) => ({
     user_id: userId,
     site_id: siteId,
