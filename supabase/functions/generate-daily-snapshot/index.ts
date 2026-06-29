@@ -141,7 +141,9 @@ Deno.serve(async (req) => {
           }
         }
 
-        // 2) Receita GAM bruta + impressões/eCPM/viewability — via site_metrics_daily (nativo)
+        // 2) Receita GAM líquida + impressões/eCPM/viewability — via site_metrics_daily (nativo)
+        // A métrica de receita que vem do GAM/API já está na base do publisher (após -6,5%).
+        // Não aplicar NET_FACTOR novamente, senão o calendário fica menor que o GAM.
         const { data: smd } = await admin
           .from("site_metrics_daily")
           .select("impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
@@ -175,9 +177,9 @@ Deno.serve(async (req) => {
         // Receita armazenada na MOEDA NATIVA do GAM (USD ou BRL).
         // Custos/lucro/eCPM continuam em BRL para reconciliação.
         const grossNativeFinal = grossNative;
-        const netNative = grossNativeFinal * NET_FACTOR;
+        const netNative = grossNativeFinal;
         const correctedGrossBrl = currency === "BRL" ? grossNativeFinal : grossNativeFinal * usdBrl;
-        const revenueAfterRevshareBrl = correctedGrossBrl * NET_FACTOR;
+        const revenueAfterRevshareBrl = correctedGrossBrl;
         const viewability = measurable > 0 ? (viewable / measurable) * 100 : 0;
         const ecpm = impressions > 0 ? (revenueAfterRevshareBrl / impressions) * 1000 : 0;
 
