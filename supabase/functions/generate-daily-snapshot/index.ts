@@ -10,7 +10,6 @@ const corsHeaders = {
 };
 
 const REV_SHARE_PCT = 0.065;
-const NET_FACTOR = 1 - REV_SHARE_PCT;
 
 function ymd(d: Date) {
   return d.toISOString().slice(0, 10);
