@@ -244,6 +244,15 @@ async function runSync(req: Request): Promise<Response> {
             revenue: v.rev,
           }));
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges);
+          if (!skipSnapshotRegen) {
+            await regenerateSnapshotsForRanges({
+              ranges,
+              authHeader,
+              siteId: requestedSiteId ?? networkSites[0]?.id ?? null,
+              debug,
+              wait: true,
+            });
+          }
           const metricTotals = metricRows.reduce((a, r) => ({
             revenue: a.revenue + r.revenue,
             impressions: a.impressions + r.impressions,
@@ -499,46 +508,14 @@ async function runSync(req: Request): Promise<Response> {
       if (skipSnapshotRegen) {
         debug.push("[snapshot] regen skipped by caller");
       } else {
-      const allDates = Array.from(new Set(
-        summary.flatMap((s) => Array.isArray(s.date_range)
-          ? (s.date_range as string[]).flatMap((label) => label.split("..").filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))
-          : []),
-      ));
-      // Expande ranges X..Y em datas individuais
-      const expanded = new Set<string>();
-      for (const lbl of allDates) expanded.add(lbl);
-      for (const s of summary) {
-        if (!Array.isArray(s.date_range)) continue;
-        for (const lbl of s.date_range as string[]) {
-          const m = String(lbl).match(/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/);
-          if (m) {
-            const a = new Date(m[1] + "T00:00:00Z"); const b = new Date(m[2] + "T00:00:00Z");
-            for (const d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
-              expanded.add(d.toISOString().slice(0, 10));
-            }
-          }
-        }
-      }
-      // Fire-and-forget em paralelo: não bloqueia a resposta (evita IDLE_TIMEOUT 150s).
-      // Usa EdgeRuntime.waitUntil quando disponível para continuar após o response.
-      const snapshotJobs = Array.from(expanded).map((d) =>
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-daily-snapshot`, {
-          method: "POST",
-          headers: {
-            Authorization: authHeader!,
-            "Content-Type": "application/json",
-          },
-            body: JSON.stringify({ date: d, site_id: requestedSiteId ?? null, force: true }),
-        }).catch(() => {}),
-      );
-      const er = (globalThis as any).EdgeRuntime;
-      if (er && typeof er.waitUntil === "function") {
-        er.waitUntil(Promise.allSettled(snapshotJobs));
-      } else {
-        // fallback: deixa rodar em background sem await
-        Promise.allSettled(snapshotJobs).catch(() => {});
-      }
-      debug.push(`[snapshot] enqueued ${expanded.size} day(s) (background)`);
+      const snapshotRanges = summary.flatMap((s) => Array.isArray(s.date_range) ? (s.date_range as string[]) : []);
+      await regenerateSnapshotsForLabels({
+        labels: snapshotRanges,
+        authHeader,
+        siteId: requestedSiteId ?? null,
+        debug,
+        wait: false,
+      });
       }
     } catch (e) {
       debug.push(`[snapshot] regen failed: ${String(e)}`);
