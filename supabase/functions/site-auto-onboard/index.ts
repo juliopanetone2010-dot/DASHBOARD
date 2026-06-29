@@ -22,6 +22,12 @@ function isoDaysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isoAddDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function callFn(name: string, body: unknown, authHeader: string) {
   const url = `${SUPABASE_URL}/functions/v1/${name}`;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -120,7 +126,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // Atualização rápida da receita do card/calendário antes dos relatórios pesados.
     // O relatório por DATE do GAM é leve e evita a dashboard ficar presa em valor antigo
     // quando o sync completo estoura quota/tempo em UTM, campanhas ou placements.
-    const quickRevenueFrom = effectiveTo;
+    const quickRevenueFrom = from <= isoAddDays(effectiveTo, -1) ? isoAddDays(effectiveTo, -1) : effectiveTo;
     const quickRevenue = await callFn(
       "gam-sync-revenue",
       {
