@@ -82,23 +82,25 @@ Deno.serve(async (req) => {
 
     for (const site of sites ?? []) {
       try {
-        // Skip se já existe e não é force — MAS regera se o snapshot está zerado
-        // (provavelmente criado antes do GAM/Ads ter sincronizado os dados do dia).
+        // Skip se já existe e não é force — MAS regera se a parte de receita/impressões está zerada
+        // (provavelmente criado antes do GAM ter sincronizado os dados do dia).
+        // Não usamos total_cost nessa checagem: o custo do Google Ads pode chegar antes da receita GAM,
+        // e o snapshot precisa ser atualizado automaticamente quando a receita aparecer depois.
         if (!force) {
           const { data: existing } = await admin
             .from("daily_financial_snapshots")
-            .select("id, gross_revenue, total_cost")
+            .select("id, gross_revenue, impressions")
             .eq("user_id", site.user_id)
             .eq("site_id", site.id)
             .eq("date", targetDate)
             .maybeSingle();
           if (existing) {
-            const isEmpty = Number(existing.gross_revenue ?? 0) === 0 && Number(existing.total_cost ?? 0) === 0;
-            if (!isEmpty) {
+            const hasRevenueSnapshot = Number(existing.gross_revenue ?? 0) > 0 || Number(existing.impressions ?? 0) > 0;
+            if (hasRevenueSnapshot) {
               results.push({ site: site.name, date: targetDate, status: "skipped_existing" });
               continue;
             }
-            // se está zerado, deixa seguir o fluxo para regenerar com dados frescos
+            // se a receita/impressões estão zeradas, deixa seguir para regenerar com dados frescos
           }
         }
 
