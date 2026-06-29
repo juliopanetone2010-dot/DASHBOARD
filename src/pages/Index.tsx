@@ -620,8 +620,8 @@ const IndexInner = () => {
           return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         })();
         const quickFrom = from <= prevTo ? prevTo : from;
-        await supabase.functions.invoke("gam-sync-revenue", {
-          body: { site_id: nextFilters.siteId, from: quickFrom, to, site_metrics_only: true, sync: true, skip_snapshot_regen: false },
+        await supabase.functions.invoke("site-auto-onboard", {
+          body: { site_id: nextFilters.siteId, force: true, from: quickFrom, to, quick_only: true },
         });
         await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to, skip_quick_revenue: true } });
         toast({ title: "Receita atualizada", description: "Hoje e ontem foram conferidos direto no Ad Manager; o restante continua sincronizando em segundo plano." });
