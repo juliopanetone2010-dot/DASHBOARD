@@ -505,7 +505,7 @@ async function runSync(req: Request): Promise<Response> {
     // Re-gera os snapshots financeiros dos dias sincronizados, para que o calendário
     // sempre reflita a receita GAM mais recente (evita defasagem como 06/05 ficar com R$ 39 quando o GAM já tinha R$ 76).
     try {
-      if (skipSnapshotRegen) {
+      if (skipSnapshotRegen || siteMetricsOnly) {
         debug.push("[snapshot] regen skipped by caller");
       } else {
       const snapshotRanges = summary.flatMap((s) => Array.isArray(s.date_range) ? (s.date_range as string[]) : []);
