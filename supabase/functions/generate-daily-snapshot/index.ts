@@ -10,6 +10,7 @@ const corsHeaders = {
 };
 
 const REV_SHARE_PCT = 0.065;
+const NET_FACTOR = 1 - REV_SHARE_PCT;
 
 function ymd(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -69,8 +70,9 @@ Deno.serve(async (req) => {
             from: targetDate,
             to: targetDate,
             revenue_only: true,
+            site_metrics_only: true,
             sync: true,
-            skip_viewability: true,
+            skip_viewability: false,
             skip_snapshot_regen: true,
           }),
         });
@@ -144,9 +146,9 @@ Deno.serve(async (req) => {
           }
         }
 
-        // 2) Receita GAM líquida + impressões/eCPM/viewability — via site_metrics_daily (nativo)
-        // A métrica de receita que vem do GAM/API já está na base do publisher (após -6,5%).
-        // Não aplicar NET_FACTOR novamente, senão o calendário fica menor que o GAM.
+        // 2) Receita GAM bruta + impressões/eCPM/viewability — via site_metrics_daily (nativo)
+        // A métrica de receita que vem do GAM/API é bruta; para a dashboard/calendário
+        // usamos a receita líquida do publisher, aplicando uma única vez -6,5%.
         const { data: smd } = await admin
           .from("site_metrics_daily")
           .select("impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
@@ -178,11 +180,12 @@ Deno.serve(async (req) => {
         }
 
         // Receita armazenada na MOEDA NATIVA do GAM (USD ou BRL).
+        // gross_revenue = bruto do GAM; net_revenue = bruto -6,5%.
         // Custos/lucro/eCPM continuam em BRL para reconciliação.
         const grossNativeFinal = grossNative;
-        const netNative = grossNativeFinal;
+        const netNative = grossNativeFinal * NET_FACTOR;
         const correctedGrossBrl = currency === "BRL" ? grossNativeFinal : grossNativeFinal * usdBrl;
-        const revenueAfterRevshareBrl = correctedGrossBrl;
+        const revenueAfterRevshareBrl = correctedGrossBrl * NET_FACTOR;
         const viewability = measurable > 0 ? (viewable / measurable) * 100 : 0;
         const ecpm = impressions > 0 ? (revenueAfterRevshareBrl / impressions) * 1000 : 0;
 

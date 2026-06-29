@@ -117,6 +117,27 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     const effectiveTo = requestedTo ?? to;
     console.log("[auto-onboard] window", { siteId, from, to: effectiveTo });
 
+    // Atualização rápida da receita do card/calendário antes dos relatórios pesados.
+    // O relatório por DATE do GAM é leve e evita a dashboard ficar presa em valor antigo
+    // quando o sync completo estoura quota/tempo em UTM, campanhas ou placements.
+    const quickRevenueFrom = effectiveTo;
+    const quickRevenue = await callFn(
+      "gam-sync-revenue",
+      {
+        from: quickRevenueFrom,
+        to: effectiveTo,
+        site_id: siteId,
+        account_ids: accountIds,
+        user_id: userId,
+        site_metrics_only: true,
+        sync: true,
+        skip_snapshot_regen: false,
+      },
+      authHeader,
+    );
+    console.log("[auto-onboard] quick revenue sync", { siteId, from: quickRevenueFrom, to: effectiveTo, status: quickRevenue.status });
+    if (!quickRevenue.ok) syncLog.errors.push(`quick revenue ${quickRevenue.status}: ${JSON.stringify(quickRevenue.body).slice(0, 300)}`);
+
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
