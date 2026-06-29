@@ -683,7 +683,9 @@ const IndexInner = () => {
     return total;
   })();
   const hasRealGam = realGamRevenueBrl > 0;
-  // Se temos receita real do GAM, usamos ela (líquida) como base do ROI.
+  // Se temos receita real do GAM, usamos ela líquida como base do ROI/lucro.
+  // Mas o card "Receita (Ad Manager)" precisa mostrar o valor BRUTO igual ao GAM,
+  // para não parecer divergente quando comparado com a tela do Ad Manager.
   // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
   const totalProfitBrl = hasRealGam
     ? realGamRevenueBrl * NET_FACTOR - baseTotals.spend
@@ -708,22 +710,22 @@ const IndexInner = () => {
     : null;
   const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
   const revenueDisplay = isBrlSite ? totals.revenue * usdBrl : totals.revenue;
-  const extraPushDisplay = isBrlSite ? extraPushUsd * NET_FACTOR * usdBrl : extraPushUsd * NET_FACTOR;
-  const extraOtherDisplay = isBrlSite ? extraOtherUsd * NET_FACTOR * usdBrl : extraOtherUsd * NET_FACTOR;
+  const extraPushDisplay = isBrlSite ? extraPushUsd * usdBrl : extraPushUsd;
+  const extraOtherDisplay = isBrlSite ? extraOtherUsd * usdBrl : extraOtherUsd;
   const fmtRevenue = (v: number) => isBrlSite ? fmtCurrency(v) : fmtUSD(v);
   // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita REAL do GAM (somando todas moedas convertidas pra BRL/USD do site).
-  // Inclui impressões SEM tag UTM — o card principal deve mostrar a verdade do Ad Manager,
-  // mesmo que ROI/lucro continuem usando só a parte atribuída a campanhas.
-  const realGamRevenueDisplay = (isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl) * NET_FACTOR;
-  // Receita "atribuída" antiga = só Google UTM + push/outras (sem impressões sem tag)
-  const attributedRevenueUsd = (engine?.totals.revenue ?? 0) + extraNetUsd;
-  const attributedRevenueDisplay = isBrlSite ? attributedRevenueUsd * usdBrl : attributedRevenueUsd;
-  const attributionPct = realGamRevenueDisplay > 0
-    ? (attributedRevenueDisplay / realGamRevenueDisplay) * 100
+  // Receita REAL do GAM (bruta, exatamente como o Ad Manager mostra), somando todas
+  // as moedas convertidas para a moeda de exibição do site.
+  const realGamRevenueGrossDisplay = isBrlSite ? realGamRevenueBrl : realGamRevenueBrl / usdBrl;
+  const realGamRevenueNetDisplay = realGamRevenueGrossDisplay * NET_FACTOR;
+  // Receita atribuída bruta = Google UTM + push/outras (sem impressões sem tag)
+  const attributedGrossRevenueUsd = grossRevenueUsd + extraPushUsd + extraOtherUsd;
+  const attributedRevenueDisplay = isBrlSite ? attributedGrossRevenueUsd * usdBrl : attributedGrossRevenueUsd;
+  const attributionPct = realGamRevenueGrossDisplay > 0
+    ? (attributedRevenueDisplay / realGamRevenueGrossDisplay) * 100
     : 0;
 
   return (
@@ -913,7 +915,8 @@ const IndexInner = () => {
             })()}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita líquida (rev share {(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline">Receita bruta no card (igual GAM)</Badge>
+              <Badge variant="outline">Lucro/ROI usam líquido após rev share {(REV_SHARE_PCT * 100).toFixed(1)}%</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
@@ -929,6 +932,8 @@ const IndexInner = () => {
             {showDebug && (
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs font-mono space-y-1">
                 <div>gross_revenue_usd: <b>{grossRevenueUsd.toFixed(6)}</b></div>
+                <div>real_gam_gross : <b>{realGamRevenueGrossDisplay.toFixed(6)}</b></div>
+                <div>real_gam_net   : <b>{realGamRevenueNetDisplay.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
                 <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b> (× {(1 - REV_SHARE_PCT).toFixed(3)})</div>
                 <div>gross_profit_brl : <b>{grossProfitBrl.toFixed(2)}</b></div>
                 <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
@@ -953,14 +958,14 @@ const IndexInner = () => {
               />
               <MetricCard
                 label="Receita (Ad Manager)"
-                value={fmtRevenue(realGamRevenueDisplay > 0 ? realGamRevenueDisplay : attributedRevenueDisplay)}
+                value={fmtRevenue(realGamRevenueGrossDisplay > 0 ? realGamRevenueGrossDisplay : attributedRevenueDisplay)}
                 icon={DollarSign}
                 variant="primary"
                 hint={
-                  realGamRevenueDisplay === 0 && attributedRevenueDisplay === 0
+                  realGamRevenueGrossDisplay === 0 && attributedRevenueDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : realGamRevenueDisplay > 0
-                      ? `Atribuído ao Google Ads: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                    : realGamRevenueGrossDisplay > 0
+                      ? `GAM bruto · líquido p/ ROI: ${fmtRevenue(realGamRevenueNetDisplay)} · atribuído: ${fmtRevenue(attributedRevenueDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                       : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
