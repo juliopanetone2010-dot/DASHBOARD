@@ -85,6 +85,7 @@ async function runSync(req: Request): Promise<Response> {
     let skipViewability = false;
     let skipSnapshotRegen = false;
     let totalRequestsOnly = false;
+    let siteMetricsOnly = false;
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
@@ -109,6 +110,7 @@ async function runSync(req: Request): Promise<Response> {
       skipViewability = Boolean((body as any)?.skip_viewability);
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
       totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
+      siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
     } catch (_) { /* */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
@@ -189,6 +191,75 @@ async function runSync(req: Request): Promise<Response> {
               }).eq("id", s.id);
             }
           }
+        }
+
+        const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
+
+        if (siteMetricsOnly) {
+          const siteMetricsVariants: Array<{ label: string; metrics: string[] }> = [
+            {
+              label: "AD_SERVER",
+              metrics: [
+                "AD_SERVER_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+                "AD_SERVER_REVENUE",
+              ],
+            },
+            {
+              label: "AD_EXCHANGE",
+              metrics: [
+                "AD_EXCHANGE_IMPRESSIONS",
+                "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
+                "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
+                "AD_EXCHANGE_REVENUE",
+              ],
+            },
+          ];
+          const metricMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+          for (const variant of siteMetricsVariants) {
+            try {
+              const raw = (await Promise.all(ranges.map((range) =>
+                runReport({ networkCode, accessToken, range, dimensions: ["DATE"], metrics: variant.metrics, debug, deadlineAt })
+              ))).flat();
+              debug.push(`[${networkCode}] site_metrics_only ${variant.label} rows=${raw.length}`);
+              for (const r of raw as any[]) {
+                const key = r.date ?? "_";
+                const cur = metricMap.get(key) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+                cur.impr += Number(r.impressions ?? 0);
+                cur.meas += Number(r._raw_measurable ?? 0);
+                cur.view += Number(r._raw_viewable ?? 0);
+                cur.rev += Number(r.revenue ?? 0);
+                metricMap.set(key, cur);
+              }
+            } catch (e) {
+              debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
+            }
+          }
+          const metricRows = [...metricMap.entries()].map(([d, v]) => ({
+            date: d === "_" ? null : d,
+            impressions: v.impr,
+            measurable: v.meas,
+            viewable: v.view,
+            revenue: v.rev,
+          }));
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges);
+          const metricTotals = metricRows.reduce((a, r) => ({
+            revenue: a.revenue + r.revenue,
+            impressions: a.impressions + r.impressions,
+          }), { revenue: 0, impressions: 0 });
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "site_metrics_only",
+            currency: siteCurrency,
+            date_range: ranges.map((r) => r.debugLabel),
+            site_id: requestedSiteId ?? null,
+            rows_returned: metricRows.length,
+            total_revenue_native: metricTotals.revenue,
+            total_impressions: metricTotals.impressions,
+          });
+          continue;
         }
 
         // PRIORIDADE: roda persistCampaignTotalRequests primeiro, pois é o que
@@ -297,7 +368,6 @@ async function runSync(req: Request): Promise<Response> {
           }
         };
 
-        const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
         // Quando o GAM do site reporta em BRL nativo, normalizamos para "USD-equivalente"
         // dividindo por FX antes de gravar — assim todo o app downstream (que multiplica por FX
         // para exibir em BRL) continua correto, sem dupla conversão.
@@ -495,6 +565,34 @@ interface AttributionResult {
 }
 
 interface GamRange { dateRange: Record<string, unknown>; debugLabel: string; }
+
+function datesFromRanges(ranges?: GamRange[]): string[] {
+  if (!ranges?.length) return [];
+  const dates = new Set<string>();
+  for (const range of ranges) {
+    const fixed = (range.dateRange as any)?.fixed;
+    if (fixed?.startDate && fixed?.endDate) {
+      const start = new Date(Date.UTC(fixed.startDate.year, fixed.startDate.month - 1, fixed.startDate.day));
+      const end = new Date(Date.UTC(fixed.endDate.year, fixed.endDate.month - 1, fixed.endDate.day));
+      for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        dates.add(d.toISOString().slice(0, 10));
+      }
+      continue;
+    }
+    const today = new Date();
+    const addIso = (d: Date) => dates.add(d.toISOString().slice(0, 10));
+    if (range.debugLabel === "TODAY") addIso(today);
+    else if (range.debugLabel === "YESTERDAY") {
+      const d = new Date(today); d.setUTCDate(d.getUTCDate() - 1); addIso(d);
+    } else if (range.debugLabel === "LAST_7_DAYS" || range.debugLabel === "LAST_30_DAYS") {
+      const days = range.debugLabel === "LAST_7_DAYS" ? 7 : 30;
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(today); d.setUTCDate(d.getUTCDate() - i); addIso(d);
+      }
+    }
+  }
+  return [...dates].sort();
+}
 
 async function getFxRates(debug: string[]): Promise<FxRates> {
   // Fonte primária: open.er-api.com (estável, sem quota agressiva)
@@ -1861,14 +1959,7 @@ async function persistSiteMetricsDaily(
   // Isso evita o dashboard travar quando o budget do sync apertar.
   let usedFallback = false;
   if (byDate.size === 0 && fallbackRanges && fallbackRanges.length > 0) {
-    const allDates = new Set<string>();
-    for (const r of fallbackRanges) {
-      const start = new Date(r.from); const end = new Date(r.to);
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        allDates.add(d.toISOString().slice(0, 10));
-      }
-    }
-    const dateList = [...allDates];
+    const dateList = datesFromRanges(fallbackRanges);
     if (dateList.length > 0) {
       const { data: revRows } = await admin
         .from("gam_campaign_source_revenue")
