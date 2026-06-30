@@ -1,0 +1,2 @@
+UPDATE public.sites SET sync_status='idle', sync_started_at=NULL, last_full_sync_at = now() - interval '1 hour' WHERE id='43aa95eb-3804-4ea5-81c4-3f0872fd3edc';
+DELETE FROM public.daily_financial_snapshots WHERE site_id='43aa95eb-3804-4ea5-81c4-3f0872fd3edc' AND date='2026-06-30';
