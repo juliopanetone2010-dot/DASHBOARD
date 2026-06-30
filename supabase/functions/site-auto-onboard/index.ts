@@ -17,8 +17,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
+  // Ancorado em BRT (UTC-3): o GAM/Ads e os snapshots operam no fuso de São Paulo.
+  // Usar UTC fazia "hoje" virar 06-30 às 21:00 BRT de 06-29, criando snapshots vazios
+  // para um dia futuro e poluindo a dashboard com receita 0.
+  const d = new Date(Date.now() - 3 * 3600_000);
+  d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
 
@@ -27,6 +30,7 @@ function isoAddDays(iso: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
 
 async function callFn(name: string, body: unknown, authHeader: string) {
   const url = `${SUPABASE_URL}/functions/v1/${name}`;
