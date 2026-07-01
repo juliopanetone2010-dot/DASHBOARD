@@ -2001,6 +2001,7 @@ async function persistSiteMetricsDaily(
   rows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }>,
   debug: string[],
   fallbackRanges?: GamRange[],
+  opts?: { preserveHigherExisting?: boolean },
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
@@ -2069,20 +2070,60 @@ async function persistSiteMetricsDaily(
     return;
   }
 
-  const payload = [...byDate.entries()].map(([date, v]) => ({
-    user_id: userId,
-    site_id: siteId,
-    date,
-    impressions: v.impr,
-    measurable_impressions: v.meas,
-    viewable_impressions: v.view,
-    revenue_native: v.rev,
-    currency,
-    ecpm_native: v.impr > 0 ? (v.rev / v.impr) * 1000 : 0,
-    updated_at: new Date().toISOString(),
-  }));
+  const payload = [] as Array<{
+    user_id: string;
+    site_id: string;
+    date: string;
+    impressions: number;
+    measurable_impressions: number;
+    viewable_impressions: number;
+    revenue_native: number;
+    currency: string;
+    ecpm_native: number;
+    updated_at: string;
+  }>;
+  const existingByDate = new Map<string, any>();
+  if (opts?.preserveHigherExisting) {
+    const dateList = [...byDate.keys()];
+    const { data: existingRows } = dateList.length > 0 ? await admin
+      .from("site_metrics_daily")
+      .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("date", dateList) : { data: [] };
+    for (const r of existingRows ?? []) existingByDate.set(String(r.date), r);
+  }
+
+  let preservedHigher = 0;
+  for (const [date, v] of byDate.entries()) {
+    const existing = existingByDate.get(date);
+    let next = v;
+    const existingRevenue = Number(existing?.revenue_native ?? 0);
+    const nextRevenue = Number(v.rev ?? 0);
+    if (opts?.preserveHigherExisting && existing && existingRevenue > nextRevenue + 1) {
+      preservedHigher++;
+      next = {
+        impr: Math.max(Number(existing.impressions ?? 0), v.impr),
+        meas: Math.max(Number(existing.measurable_impressions ?? 0), v.meas),
+        view: Math.max(Number(existing.viewable_impressions ?? 0), v.view),
+        rev: existingRevenue,
+      };
+    }
+    payload.push({
+      user_id: userId,
+      site_id: siteId,
+      date,
+      impressions: next.impr,
+      measurable_impressions: next.meas,
+      viewable_impressions: next.view,
+      revenue_native: next.rev,
+      currency,
+      ecpm_native: next.impr > 0 ? (next.rev / next.impr) * 1000 : 0,
+      updated_at: new Date().toISOString(),
+    });
+  }
   for (let i = 0; i < payload.length; i += 500) {
     await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
   }
-  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
 }
