@@ -37,6 +37,24 @@ const MONTHS_PT = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+const isoDateLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const todayBRT = () => {
+  const now = new Date();
+  const brt = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  return isoDateLocal(brt);
+};
+
+const parseISODateLocal = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
 export function FinancialCalendarTab() {
   const { filters } = useDashboardFilters();
   const today = new Date();
@@ -47,7 +65,7 @@ export function FinancialCalendarTab() {
   const monthStart = useMemo(() => `${year}-${String(month).padStart(2, "0")}-01`, [year, month]);
   const monthEnd = useMemo(() => {
     const d = new Date(year, month, 0); // último dia do mês
-    return d.toISOString().slice(0, 10);
+    return isoDateLocal(d);
   }, [year, month]);
 
   const snapshotsQuery = useQuery({
@@ -66,8 +84,10 @@ export function FinancialCalendarTab() {
     },
   });
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const rows = (snapshotsQuery.data ?? []).filter((r) => r.date < todayStr);
+  const todayStr = todayBRT();
+  const rows = (snapshotsQuery.data ?? [])
+    .filter((r) => r.date < todayStr)
+    .sort((a, b) => a.date.localeCompare(b.date));
   const totals = useMemo(() => {
     return rows.reduce(
       (a, r) => ({
@@ -111,13 +131,13 @@ export function FinancialCalendarTab() {
     const onlyMissing = !!opts?.onlyMissing;
     if (!silent) setRegenerating(true);
     try {
-      const start = new Date(monthStart);
-      const end = new Date(monthEnd);
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const start = parseISODateLocal(monthStart);
+      const end = parseISODateLocal(monthEnd);
+      const todayStr = todayBRT();
       const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
       const dates: string[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const s = d.toISOString().slice(0, 10);
+        const s = isoDateLocal(d);
         if (s >= todayStr) continue;
         if (onlyMissing && existing.has(s)) continue;
         dates.push(s);
@@ -132,7 +152,7 @@ export function FinancialCalendarTab() {
         const slice = dates.slice(i, i + CHUNK);
         await Promise.all(slice.map((date) =>
           supabase.functions.invoke("generate-daily-snapshot", {
-            body: { date, site_id: filters.siteId, force: !onlyMissing },
+            body: { date, site_id: filters.siteId, force: true },
           }).catch(() => null),
         ));
         snapshotsQuery.refetch();
@@ -154,13 +174,13 @@ export function FinancialCalendarTab() {
     const key = `${filters.siteId}|${monthStart}`;
     if (autoFillRef.current === key) return;
     autoFillRef.current = key;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayBRT();
     const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
-    const start = new Date(monthStart);
-    const end = new Date(monthEnd);
+    const start = parseISODateLocal(monthStart);
+    const end = parseISODateLocal(monthEnd);
     let missing = 0;
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const s = d.toISOString().slice(0, 10);
+      const s = isoDateLocal(d);
       if (s < todayStr && !existing.has(s)) missing++;
     }
     if (missing > 0) {
@@ -279,7 +299,7 @@ export function FinancialCalendarTab() {
                     const profit = Number(r.liquid_profit);
                     const positive = profit >= 0;
                     const roi = r.total_cost > 0 ? (profit / r.total_cost) * 100 : 0;
-                    const dt = new Date(r.date + "T00:00:00");
+                    const dt = parseISODateLocal(r.date);
                     const wk = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"][dt.getDay()];
                     return (
                       <tr key={r.id} className={cn(
@@ -345,7 +365,7 @@ export function FinancialCalendarTab() {
             </div>
           )}
           <div className="flex flex-wrap gap-2 mt-3 text-xs">
-            <Badge variant="outline">Snapshot fixo (não recalcula)</Badge>
+            <Badge variant="outline">Snapshot recalculado pelo GAM</Badge>
             <Badge variant="outline">Cron diário 04:00 BRT</Badge>
             <Badge variant="outline">Receita já com rev share</Badge>
           </div>
