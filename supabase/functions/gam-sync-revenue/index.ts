@@ -2041,17 +2041,24 @@ async function persistSiteMetricsDaily(
   if (usedFallback) {
     // Atualiza só revenue/impressions/ecpm — preserva measurable/viewable existentes.
     for (const [date, v] of byDate.entries()) {
-      const ecpm = v.impr > 0 ? (v.rev / v.impr) * 1000 : 0;
       const { data: exists } = await admin
         .from("site_metrics_daily")
-        .select("id")
+        .select("id, impressions, revenue_native")
         .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
         .maybeSingle();
+      let nextImpr = v.impr;
+      let nextRev = v.rev;
+      if (opts?.preserveHigherExisting && exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
+        nextRev = Number(exists.revenue_native ?? 0);
+        nextImpr = Math.max(Number(exists.impressions ?? 0), v.impr);
+        debug.push(`[site_metrics_daily] fallback preserved higher existing site=${siteId} date=${date} existing=${nextRev} incoming=${v.rev}`);
+      }
+      const ecpm = nextImpr > 0 ? (nextRev / nextImpr) * 1000 : 0;
       if (exists) {
         await admin.from("site_metrics_daily")
           .update({
-            impressions: v.impr,
-            revenue_native: v.rev,
+            impressions: nextImpr,
+            revenue_native: nextRev,
             currency,
             ecpm_native: ecpm,
             updated_at: new Date().toISOString(),
@@ -2060,8 +2067,8 @@ async function persistSiteMetricsDaily(
       } else {
         await admin.from("site_metrics_daily").insert({
           user_id: userId, site_id: siteId, date,
-          impressions: v.impr, measurable_impressions: 0, viewable_impressions: 0,
-          revenue_native: v.rev, currency, ecpm_native: ecpm,
+          impressions: nextImpr, measurable_impressions: 0, viewable_impressions: 0,
+          revenue_native: nextRev, currency, ecpm_native: ecpm,
           updated_at: new Date().toISOString(),
         });
       }
