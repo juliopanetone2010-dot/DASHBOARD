@@ -1173,6 +1173,55 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                           </TableCell>
                         );
                       }
+                      case "bestMatch": {
+                        const info = campaignBestMatches?.get(c.campaign_id);
+                        const best = info?.best;
+                        if (!best) {
+                          return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">—</TableCell>;
+                        }
+                        const color = matchRateColor(best.matchRate);
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="cursor-help inline-block text-right">
+                                  <div className={cn("font-semibold underline decoration-dotted decoration-muted-foreground/40", color)}>
+                                    {best.matchRate.toFixed(2)}%
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">{formatBrDate(best.date)}</div>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {`Melhor Match dos últimos 10 dias\n${formatBrDate(best.date)} (${best.date})\n${best.matchRate.toFixed(2)}%\nMatched: ${best.matched.toLocaleString()}\nRequests: ${best.requests.toLocaleString()}`}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      }
+                      case "deltaMatch": {
+                        const info = campaignBestMatches?.get(c.campaign_id);
+                        const cur = campaignMatchRates?.get(c.campaign_id)?.matchRate ?? info?.today?.matchRate ?? null;
+                        const best = info?.best?.matchRate ?? null;
+                        if (cur == null || best == null) {
+                          return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">—</TableCell>;
+                        }
+                        const delta = cur - best;
+                        const color = delta >= 0 ? "text-success" : delta >= -5 ? "text-warning" : "text-danger";
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className={cn("cursor-help font-medium", color)}>
+                                  {delta >= 0 ? "+" : ""}{delta.toFixed(1)} pp
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {`Atual: ${cur.toFixed(2)}%\nMelhor (10d): ${best.toFixed(2)}%\nΔ: ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} pp`}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      }
                       case "impressions":
                         return (
                           <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">
