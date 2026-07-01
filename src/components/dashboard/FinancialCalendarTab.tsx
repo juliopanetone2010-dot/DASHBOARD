@@ -32,6 +32,13 @@ interface Snapshot {
   revenue_currency?: string | null;
 }
 
+interface SiteMetricDaily {
+  date: string;
+  revenue_native: number;
+  impressions: number;
+  currency?: string | null;
+}
+
 const MONTHS_PT = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -82,6 +89,23 @@ export function FinancialCalendarTab() {
       if (error) throw error;
       return (data ?? []) as unknown as Snapshot[];
     },
+  });
+
+  const siteMetricsQuery = useQuery({
+    queryKey: ["calendar-site-metrics", filters.siteId, monthStart, monthEnd],
+    enabled: filters.siteId !== "all",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("site_metrics_daily")
+        .select("date, revenue_native, impressions, currency")
+        .eq("site_id", filters.siteId)
+        .gte("date", monthStart)
+        .lte("date", monthEnd)
+        .order("date", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as unknown as SiteMetricDaily[];
+    },
+    staleTime: 30_000,
   });
 
   const todayStr = todayBRT();
@@ -166,28 +190,42 @@ export function FinancialCalendarTab() {
     }
   };
 
-  // Quando troca de site ou de mês, dispara em background a geração dos dias que faltam.
+  // Quando troca de site ou de mês, dispara em background a correção dos dias que
+  // faltam OU que ficaram com receita/impressões antigas no calendário.
   const autoFillRef = useRef<string>("");
   useEffect(() => {
     if (filters.siteId === "all") return;
     if (snapshotsQuery.isLoading) return;
-    const key = `${filters.siteId}|${monthStart}`;
+    if (siteMetricsQuery.isLoading) return;
+    const key = `${filters.siteId}|${monthStart}|${snapshotsQuery.data?.length ?? 0}|${siteMetricsQuery.data?.length ?? 0}`;
     if (autoFillRef.current === key) return;
     autoFillRef.current = key;
     const todayStr = todayBRT();
-    const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
-    const start = parseISODateLocal(monthStart);
-    const end = parseISODateLocal(monthEnd);
-    let missing = 0;
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const s = isoDateLocal(d);
-      if (s < todayStr && !existing.has(s)) missing++;
+    const snapshotsByDate = new Map((snapshotsQuery.data ?? []).map((r) => [r.date, r]));
+    const staleDates: string[] = [];
+    for (const metric of siteMetricsQuery.data ?? []) {
+      if (metric.date >= todayStr) continue;
+      const snap = snapshotsByDate.get(metric.date);
+      const revenueDiff = Math.abs(Number(snap?.gross_revenue ?? 0) - Number(metric.revenue_native ?? 0));
+      const impressionsDiff = Math.abs(Number(snap?.impressions ?? 0) - Number(metric.impressions ?? 0));
+      if (!snap || revenueDiff > 1 || impressionsDiff > 10) staleDates.push(metric.date);
     }
-    if (missing > 0) {
-      regenerateMonth({ silent: true, onlyMissing: true });
+    if (staleDates.length > 0) {
+      void (async () => {
+        const CHUNK = 4;
+        for (let i = 0; i < staleDates.length; i += CHUNK) {
+          const slice = staleDates.slice(i, i + CHUNK);
+          await Promise.all(slice.map((date) =>
+            supabase.functions.invoke("generate-daily-snapshot", {
+              body: { date, site_id: filters.siteId, force: true, skip_gam_sync: true },
+            }).catch(() => null),
+          ));
+        }
+        await snapshotsQuery.refetch();
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.siteId, monthStart, monthEnd, snapshotsQuery.isLoading]);
+  }, [filters.siteId, monthStart, monthEnd, snapshotsQuery.isLoading, siteMetricsQuery.isLoading]);
 
 
   const exportCsv = () => {
