@@ -11,6 +11,8 @@ import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { cn } from "@/lib/utils";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
+import { buildBestMatch, matchRateColor, stabilityLabel, formatBrDate, BEST_MATCH_WINDOW_DAYS } from "@/lib/bestMatch";
+import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 interface Props {
   campaignId: string;
