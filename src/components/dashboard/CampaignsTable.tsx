@@ -32,6 +32,7 @@ import { useColumnLayout } from "@/hooks/useColumnLayout";
 import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
 import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
 import { type BestMatchInfo, matchRateColor, formatBrDate } from "@/lib/bestMatch";
+import { normalizePushUrl } from "@/lib/normalizePushUrl";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
@@ -229,6 +230,30 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     staleTime: 60_000,
     enabled: campaignIds.length > 0,
   });
+
+  // ===== Agrupamento de campanhas por Final URL (normalizada) =====
+  type UrlGroupItem = { campaign_id: string; name: string; roi: number; status: string };
+  const urlGroups = useMemo(() => {
+    const groups = new Map<string, UrlGroupItem[]>();
+    const urlMap = finalUrlsQuery.data;
+    if (!urlMap) return groups;
+    for (const c of campaigns) {
+      const raw = urlMap.get(c.campaign_id);
+      if (!raw) continue;
+      const key = normalizePushUrl(raw);
+      if (!key) continue;
+      const arr = groups.get(key) ?? [];
+      arr.push({
+        campaign_id: c.campaign_id,
+        name: c.name,
+        roi: Number(c.roi) || 0,
+        status: c.status,
+      });
+      groups.set(key, arr);
+    }
+    return groups;
+  }, [campaigns, finalUrlsQuery.data]);
+  const [urlGroupOpen, setUrlGroupOpen] = useState<{ url: string; items: UrlGroupItem[] } | null>(null);
 
   // Data de início REAL da campanha (campaign.start_date no Google Ads).
   // Fallback para o primeiro dia com spend > 0 caso o sync ainda não tenha gravado.
@@ -1366,28 +1391,51 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                       case "finalUrl":
                         return (
                           <TableCell key={k} style={ws}>
-                            {finalUrl ? (
-                              <div className="flex items-center gap-1">
-                               <a
-                                  href={finalUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-primary hover:underline break-all"
-                                >
-                                  <ExternalLink className="h-3 w-3 shrink-0" />
-                                  {finalUrl}
-                                </a>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 shrink-0"
-                                  title="Copiar URL"
-                                  onClick={() => copyToClipboard(finalUrl)}
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ) : (
+                            {finalUrl ? (() => {
+                              const groupKey = normalizePushUrl(finalUrl);
+                              const items = urlGroups.get(groupKey) ?? [];
+                              const count = items.length;
+                              const badgeClass =
+                                count >= 10 ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/40" :
+                                count >= 5  ? "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/40" :
+                                count >= 2  ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/40" :
+                                              "bg-green-100 text-green-700 border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40";
+                              return (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <a
+                                    href={finalUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+                                  >
+                                    <ExternalLink className="h-3 w-3 shrink-0" />
+                                    {finalUrl}
+                                  </a>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 shrink-0"
+                                    title="Copiar URL"
+                                    onClick={() => copyToClipboard(finalUrl)}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                  {count > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setUrlGroupOpen({ url: finalUrl, items })}
+                                      className={cn(
+                                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold shrink-0 hover:opacity-80 transition",
+                                        badgeClass,
+                                      )}
+                                      title="Ver campanhas com esta mesma URL"
+                                    >
+                                      Usada em {count} {count === 1 ? "campanha" : "campanhas"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })() : (
                               <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
@@ -1419,6 +1467,42 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
         dashboardTotalRequests={campaignMatchRates?.get(matchRateDebug.campaignId)?.totalRequests ?? null}
       />
     )}
+    <Dialog open={!!urlGroupOpen} onOpenChange={(v) => { if (!v) setUrlGroupOpen(null); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Campanhas com a mesma Final URL</DialogTitle>
+          <DialogDescription className="break-all">{urlGroupOpen?.url}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Campaign ID</TableHead>
+                <TableHead>Nome</TableHead>
+                <TableHead className="text-right">ROI</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(urlGroupOpen?.items ?? []).map((it) => (
+                <TableRow key={it.campaign_id}>
+                  <TableCell className="font-mono text-[11px] text-muted-foreground">{it.campaign_id}</TableCell>
+                  <TableCell className="font-medium">{it.name}</TableCell>
+                  <TableCell className={cn("text-right font-semibold", it.roi >= 0 ? "text-success" : "text-danger")}>
+                    {fmtPercent(it.roi)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-[10px]">
+                      {it.status === "enabled" ? "Ativa" : it.status === "paused" ? "Pausada" : it.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
     </TooltipProvider>
   );
 }
