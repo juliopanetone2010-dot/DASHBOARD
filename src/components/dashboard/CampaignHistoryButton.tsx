@@ -196,31 +196,111 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     },
   });
 
-  const bestMatchQ = useQuery({
-    queryKey: ["campaign-best-match-history", campaignId],
+  // === Match Ideal (10 dias) — baseado em ROI/lucro, NÃO no maior match ===
+  const idealMatchQ = useQuery({
+    queryKey: ["campaign-ideal-match", campaignId],
     enabled: open,
     queryFn: async () => {
-      const to = isoDaysAgo(0);
-      const from = isoDaysAgo(BEST_MATCH_WINDOW_DAYS);
-      const { data } = await supabase
-        .from("gam_campaign_source_revenue")
-        .select("date, impressions, total_requests, match_rate_pct")
-        .eq("campaign_id", campaignId)
-        .eq("utm_source", "google")
-        .gte("date", from)
-        .lte("date", to)
-        .limit(10000);
-      return buildBestMatch((data ?? []).map((r: any) => ({
+      const toD = isoDaysAgo(0);
+      const fromD = isoDaysAgo(BEST_MATCH_WINDOW_DAYS - 1);
+      const [dmRes, gsRes] = await Promise.all([
+        supabase
+          .from("daily_metrics")
+          .select("date, spend, revenue, profit")
+          .eq("campaign_id", campaignId)
+          .gte("date", fromD)
+          .lte("date", toD),
+        supabase
+          .from("gam_campaign_source_revenue")
+          .select("date, impressions, total_requests, match_rate_pct")
+          .eq("campaign_id", campaignId)
+          .eq("utm_source", "google")
+          .gte("date", fromD)
+          .lte("date", toD)
+          .limit(10000),
+      ]);
+
+      const info = buildBestMatch((gsRes.data ?? []).map((r: any) => ({
         date: String(r.date),
         impressions: Number(r.impressions ?? 0),
         total_requests: Number(r.total_requests ?? 0),
         match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
       })));
+
+      // Financial per day (net, applying rev share) — mesma fórmula do restante do modal
+      type PerDay = { date: string; cost: number; revenue: number; profit: number; roi: number; matchRate: number };
+      const financialByDate = new Map<string, { cost: number; revenue: number; profit: number; roi: number }>();
+      for (const d of (dmRes.data ?? []) as any[]) {
+        const cost = Number(d.spend) || 0;
+        const grossProfitBrl = Number(d.profit) || 0;
+        const grossRevBrl = grossProfitBrl + cost;
+        const shareBrl = grossRevBrl * REV_SHARE_PCT;
+        const netRevBrl = grossRevBrl * NET_FACTOR;
+        const netProfit = grossProfitBrl - shareBrl;
+        const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
+        financialByDate.set(String(d.date), { cost, revenue: netRevBrl, profit: netProfit, roi: netRoi });
+      }
+
+      // Junta finance + match rate por dia (apenas dias com custo>0 e match válido)
+      const perDay: PerDay[] = [];
+      for (const day of info.days) {
+        const fin = financialByDate.get(day.date);
+        if (!fin || fin.cost <= 0) continue;
+        perDay.push({
+          date: day.date,
+          cost: fin.cost,
+          revenue: fin.revenue,
+          profit: fin.profit,
+          roi: fin.roi,
+          matchRate: day.matchRate,
+        });
+      }
+
+      // Top 3 por ROI
+      const sorted = [...perDay].sort((a, b) => b.roi - a.roi);
+      const topN = Math.min(3, sorted.length);
+      const top = sorted.slice(0, topN);
+      const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+      const idealMatch = top.length ? avg(top.map((x) => x.matchRate)) : null;
+      const avgRoi = top.length ? avg(top.map((x) => x.roi)) : null;
+      const avgProfit = top.length ? avg(top.map((x) => x.profit)) : null;
+
+      // Desvio padrão do match rate (todos os dias válidos)
+      let stdDev: number | null = null;
+      if (perDay.length >= 2) {
+        const m = avg(perDay.map((x) => x.matchRate));
+        const variance = perDay.reduce((a, x) => a + (x.matchRate - m) ** 2, 0) / perDay.length;
+        stdDev = Math.sqrt(variance);
+      } else if (perDay.length === 1) {
+        stdDev = 0;
+      }
+
+      // Faixa ideal: min-max de match rates entre dias positivos (profit > 0)
+      const positiveDays = perDay.filter((x) => x.profit > 0);
+      const positiveRates = positiveDays.map((x) => x.matchRate);
+      const idealRange = positiveRates.length
+        ? { min: Math.min(...positiveRates), max: Math.max(...positiveRates), count: positiveRates.length }
+        : null;
+
+      return {
+        info,
+        perDay,
+        top,
+        idealMatch,
+        avgRoi,
+        avgProfit,
+        stdDev,
+        idealRange,
+        analyzedDays: perDay.length,
+        windowDays: BEST_MATCH_WINDOW_DAYS,
+      };
     },
   });
 
+  const bestMatchQ = idealMatchQ; // alias para o gráfico reaproveitar info.days
+
   const chartData = useMemo(() => {
-    const d = bestMatchQ.data?.days ?? [];
+    const d = idealMatchQ.data?.info.days ?? [];
     return [...d].reverse().map((x) => ({
       date: formatBrDate(x.date),
       fullDate: x.date,
@@ -228,7 +308,15 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
       matched: x.matched,
       requests: x.requests,
     }));
-  }, [bestMatchQ.data]);
+  }, [idealMatchQ.data]);
+
+  function stdDevLabel(sd: number | null): { label: string; className: string } {
+    if (sd == null) return { label: "—", className: "text-muted-foreground" };
+    if (sd < 2) return { label: "Muito estável", className: "text-emerald-600 dark:text-emerald-400" };
+    if (sd < 5) return { label: "Estável", className: "text-green-600 dark:text-green-400" };
+    if (sd < 10) return { label: "Oscilando", className: "text-yellow-600 dark:text-yellow-400" };
+    return { label: "Muito instável", className: "text-red-600 dark:text-red-400" };
+  }
 
   const totals = useMemo(() => {
     const r = histQ.data?.rows ?? [];
