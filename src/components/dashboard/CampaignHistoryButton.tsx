@@ -318,6 +318,63 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
             </div>
           )}
 
+          {/* Melhor Match + Estabilidade + gráfico (últimos 10 dias) */}
+          {bestMatchQ.data && bestMatchQ.data.days.length > 0 && (() => {
+            const info = bestMatchQ.data;
+            const best = info.best!;
+            const stab = stabilityLabel(info.stabilityDelta);
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Melhor Match (10 dias)</div>
+                  <div className={cn("text-2xl font-bold tabular-nums", matchRateColor(best.matchRate))}>
+                    {best.matchRate.toFixed(2)}%
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Data: <span className="font-medium text-foreground">{formatBrDate(best.date)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Matched: <span className="font-medium text-foreground">{fmtNumber(best.matched)}</span>
+                    {" · "}
+                    Requests: <span className="font-medium text-foreground">{fmtNumber(best.requests)}</span>
+                  </div>
+                </div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Estabilidade do Match</div>
+                  <div className={cn("text-2xl font-bold", stab.className)}>{stab.label}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Δ máx-mín: <span className="font-medium text-foreground tabular-nums">
+                      {info.stabilityDelta != null ? `${info.stabilityDelta.toFixed(2)} pp` : "—"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Faixa: <span className="tabular-nums">{info.minRate?.toFixed(1)}% – {info.maxRate?.toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div className="rounded-md border border-border p-3 md:col-span-1">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Match Rate diário (10d)</div>
+                  <div className="h-[110px] -mx-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={28} stroke="hsl(var(--muted-foreground))" />
+                        <RTooltip
+                          contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                          formatter={(v: any) => [`${v}%`, "Match"]}
+                          labelFormatter={(l) => `Dia ${l}`}
+                        />
+                        <ReferenceLine y={best.matchRate} stroke="hsl(var(--success))" strokeDasharray="3 3" />
+                        <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+
+
           {histQ.isLoading && (
             <div className="flex items-center gap-2 py-8 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Carregando últimos {days} dias…
