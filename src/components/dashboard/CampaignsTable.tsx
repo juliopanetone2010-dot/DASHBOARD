@@ -122,7 +122,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   type ColKey =
     | "score" | "startDate" | "age" | "lastAction"
     | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
-    | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr"
+    | "ecpm" | "matchRate" | "bestMatch" | "deltaMatch" | "impressions" | "clicks" | "ctr"
     | "conversions" | "convRate" | "cpa" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
