@@ -1467,6 +1467,42 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
         dashboardTotalRequests={campaignMatchRates?.get(matchRateDebug.campaignId)?.totalRequests ?? null}
       />
     )}
+    <Dialog open={!!urlGroupOpen} onOpenChange={(v) => { if (!v) setUrlGroupOpen(null); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Campanhas com a mesma Final URL</DialogTitle>
+          <DialogDescription className="break-all">{urlGroupOpen?.url}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Campaign ID</TableHead>
+                <TableHead>Nome</TableHead>
+                <TableHead className="text-right">ROI</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(urlGroupOpen?.items ?? []).map((it) => (
+                <TableRow key={it.campaign_id}>
+                  <TableCell className="font-mono text-[11px] text-muted-foreground">{it.campaign_id}</TableCell>
+                  <TableCell className="font-medium">{it.name}</TableCell>
+                  <TableCell className={cn("text-right font-semibold", it.roi >= 0 ? "text-success" : "text-danger")}>
+                    {fmtPercent(it.roi)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-[10px]">
+                      {it.status === "enabled" ? "Ativa" : it.status === "paused" ? "Pausada" : it.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
     </TooltipProvider>
   );
 }
