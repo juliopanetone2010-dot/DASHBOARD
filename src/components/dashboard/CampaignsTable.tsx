@@ -185,6 +185,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     roas: { label: "ROAS", sortKey: "roas", align: "right" },
     ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
     matchRate: { label: "Taxa Corresp.", align: "right" },
+    bestMatch: { label: "Melhor Match", align: "right" },
+    deltaMatch: { label: "Δ Match", align: "right" },
     impressions: { label: "Impr.", sortKey: "impressions", align: "right" },
     clicks: { label: "Cliques", sortKey: "clicks", align: "right" },
     ctr: { label: "CTR", sortKey: "ctr", align: "right" },
