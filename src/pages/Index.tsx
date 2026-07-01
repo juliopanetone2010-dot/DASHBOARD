@@ -510,9 +510,10 @@ const IndexInner = () => {
   const campaignBestMatchQuery = useQuery({
     queryKey: ["campaign-best-match-10d", filters.siteId, filters.googleAccountIds.join("|")],
     queryFn: async () => {
+      // Mesma janela que o modal Histórico usa (BEST_MATCH_WINDOW_DAYS = 10 → últimos 10 dias, hoje incluído)
       const toDate = new Date();
       const fromDate = new Date();
-      fromDate.setUTCDate(fromDate.getUTCDate() - 10);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 9);
       const from = fromDate.toISOString().slice(0, 10);
       const to = toDate.toISOString().slice(0, 10);
       let q = supabase

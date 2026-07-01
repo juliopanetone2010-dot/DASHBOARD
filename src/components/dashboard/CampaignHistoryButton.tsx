@@ -411,8 +411,32 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
             const d = idealMatchQ.data;
             const stab = stdDevLabel(d.stdDev);
             const ideal = d.idealMatch;
+            const best = d.info.best;
             return (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Melhor Match (10 dias)</div>
+                  <div className={cn("text-2xl font-bold tabular-nums", matchRateColor(best?.matchRate ?? null))}>
+                    {best ? `${best.matchRate.toFixed(2)}%` : "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {best ? `Dia: ${formatBrDate(best.date)} (${best.date})` : "Sem dados"}
+                  </div>
+                  {best && (
+                    <>
+                      <div className="text-xs text-muted-foreground">
+                        Matched: <span className="font-medium text-foreground tabular-nums">{best.matched.toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Requests: <span className="font-medium text-foreground tabular-nums">{best.requests.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Mesmo valor da coluna da tabela.
+                  </div>
+                </div>
+
                 <div className="rounded-md border border-border p-3">
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Match ideal (10 dias)</div>
                   <div className={cn("text-2xl font-bold tabular-nums", matchRateColor(ideal))}>
