@@ -635,6 +635,8 @@ const IndexInner = () => {
         queryClient.invalidateQueries({ queryKey: ["campaign-gam-metrics"] }),
         queryClient.invalidateQueries({ queryKey: ["campaign-match-rate"] }),
         queryClient.invalidateQueries({ queryKey: ["gam-freshness"] }),
+        queryClient.invalidateQueries({ queryKey: ["dfs"] }),
+        queryClient.invalidateQueries({ queryKey: ["calendar-site-metrics"] }),
       ]);
     } catch (e: any) {
       toast({ title: "Erro na sincronização", description: String(e?.message ?? e), variant: "destructive" });

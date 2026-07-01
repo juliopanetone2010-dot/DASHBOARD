@@ -16,11 +16,19 @@ function ymd(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+function todayBRT(): string {
+  return ymd(new Date(Date.now() - 3 * 3600_000));
+}
+
+function addDaysISO(iso: string, days: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() + days);
+  return ymd(d);
+}
+
 function yesterdayBRT(): string {
-  // 00:05 BRT (UTC-3) → ainda é "ontem" em UTC. Subtrai 3h para virar BRT, depois -1d.
-  const brt = new Date(Date.now() - 3 * 3600_000);
-  brt.setUTCDate(brt.getUTCDate() - 1);
-  return ymd(brt);
+  return addDaysISO(todayBRT(), -1);
 }
 
 Deno.serve(async (req) => {
@@ -41,8 +49,9 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Cotação USD→BRL (cache simples)
-    const usdBrl = await getUsdBrl();
+    // Cotação USD→BRL: usa a mesma cotação salva do painel para evitar
+    // divergência entre dashboard e calendário. Só usa API externa como fallback.
+    const usdBrl = await getUsdBrl(admin);
 
     // Lista todos os sites (cron roda como service-role; gera para todos os usuários)
     let sitesQuery = admin
@@ -88,37 +97,10 @@ Deno.serve(async (req) => {
 
     for (const site of sites ?? []) {
       try {
-        // Skip se já existe e não é force — MAS regera se a parte de receita/impressões está zerada
-        // (provavelmente criado antes do GAM ter sincronizado os dados do dia).
-        // Não usamos total_cost nessa checagem: o custo do Google Ads pode chegar antes da receita GAM,
-        // e o snapshot precisa ser atualizado automaticamente quando a receita aparecer depois.
-        // Sempre regera o snapshot do dia corrente e do dia anterior (BRT) para refletir
-        // receita acumulada/finalizada pelo GAM — caso contrário, o calendário pode
-        // travar no valor da primeira execução antes do Ad Manager consolidar o dia.
-        const todayBrt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const yesterdayBrtDate = (() => {
-          const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
-          d.setUTCDate(d.getUTCDate() - 1);
-          return d.toISOString().slice(0, 10);
-        })();
-        const shouldAutoRegenerate = targetDate === todayBrt || targetDate === yesterdayBrtDate;
-        if (!force && !shouldAutoRegenerate) {
-          const { data: existing } = await admin
-            .from("daily_financial_snapshots")
-            .select("id, gross_revenue, impressions")
-            .eq("user_id", site.user_id)
-            .eq("site_id", site.id)
-            .eq("date", targetDate)
-            .maybeSingle();
-          if (existing) {
-            const hasRevenueSnapshot = Number(existing.gross_revenue ?? 0) > 0 || Number(existing.impressions ?? 0) > 0;
-            if (hasRevenueSnapshot) {
-              results.push({ site: site.name, date: targetDate, status: "skipped_existing" });
-              continue;
-            }
-            // se a receita/impressões estão zeradas, deixa seguir para regenerar com dados frescos
-          }
-        }
+        // Sempre recalcula quando a função é chamada. O GAM consolida dados depois
+        // da primeira execução e snapshots antigos estavam ficando presos em valores
+        // parciais; recalcular a partir de site_metrics_daily é idempotente e evita
+        // o calendário mostrar receita velha.
 
         // 1) Custo Google Ads do dia (BRL nativo) — via account_site_links
         const { data: links } = await admin
@@ -260,7 +242,17 @@ Deno.serve(async (req) => {
 
 function round2(n: number) { return Math.round((n || 0) * 100) / 100; }
 
-async function getUsdBrl(): Promise<number> {
+async function getUsdBrl(admin: any): Promise<number> {
+  try {
+    const { data } = await admin
+      .from("exchange_rates")
+      .select("rate")
+      .eq("from_currency", "USD")
+      .eq("to_currency", "BRL")
+      .maybeSingle();
+    const dbRate = Number(data?.rate);
+    if (Number.isFinite(dbRate) && dbRate > 0) return dbRate;
+  } catch { /* ignore */ }
   try {
     const r = await fetch("https://open.er-api.com/v6/latest/USD");
     const j = await r.json();
