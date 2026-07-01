@@ -505,6 +505,57 @@ const IndexInner = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, campaignGamMetricsQuery.data, filters.siteId, range.from, range.to]);
 
+  // Melhor Match (últimos 10 dias, ignorando o range do filtro).
+  // Fonte: gam_campaign_source_revenue (utm_source='google'), respeitando o site selecionado.
+  const campaignBestMatchQuery = useQuery({
+    queryKey: ["campaign-best-match-10d", filters.siteId, filters.googleAccountIds.join("|")],
+    queryFn: async () => {
+      const toDate = new Date();
+      const fromDate = new Date();
+      fromDate.setUTCDate(fromDate.getUTCDate() - 10);
+      const from = fromDate.toISOString().slice(0, 10);
+      const to = toDate.toISOString().slice(0, 10);
+      let q = supabase
+        .from("gam_campaign_source_revenue")
+        .select("campaign_id, date, impressions, total_requests, match_rate_pct, site_id")
+        .eq("utm_source", "google")
+        .gte("date", from)
+        .lte("date", to)
+        .limit(100000);
+      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+
+      const selectedAccountIds = new Set(filters.googleAccountIds);
+      const allowedCampaignIds = selectedAccountIds.size > 0
+        ? new Set(data.campaigns
+          .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
+          .map((c) => c.campaign_id))
+        : null;
+
+      const byCampaign = new Map<string, Array<{ date: string; impressions: number; total_requests: number; match_rate_pct: number | null }>>();
+      for (const r of rows ?? []) {
+        const cid = String((r as any).campaign_id ?? "");
+        if (!cid) continue;
+        if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
+        const arr = byCampaign.get(cid) ?? [];
+        arr.push({
+          date: String((r as any).date),
+          impressions: Number((r as any).impressions ?? 0),
+          total_requests: Number((r as any).total_requests ?? 0),
+          match_rate_pct: (r as any).match_rate_pct == null ? null : Number((r as any).match_rate_pct),
+        });
+        byCampaign.set(cid, arr);
+      }
+      const { buildBestMatch } = await import("@/lib/bestMatch");
+      const out = new Map<string, ReturnType<typeof buildBestMatch>>();
+      for (const [cid, rawRows] of byCampaign) out.set(cid, buildBestMatch(rawRows));
+      return out;
+    },
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
   // Aplica filtros aos dados crus antes de mandar para a engine
   const filtered = useMemo(() => {
     const selectedAccountIds = filters.googleAccountIds;
@@ -1072,6 +1123,7 @@ const IndexInner = () => {
                 campaigns={engine?.aggregates ?? []}
                 campaignGamMetrics={campaignGamMetricsQuery.data}
                 campaignMatchRates={campaignMatchRateQuery.data}
+                campaignBestMatches={campaignBestMatchQuery.data}
                 downAccountIds={new Set(
                   (data.googleAccounts ?? [])
                     .filter((a) => a.status === "suspended" || a.status === "canceled")

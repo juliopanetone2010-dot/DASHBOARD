@@ -31,6 +31,7 @@ import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { useColumnLayout } from "@/hooks/useColumnLayout";
 import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
 import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
+import { type BestMatchInfo, matchRateColor, formatBrDate } from "@/lib/bestMatch";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
@@ -91,6 +92,7 @@ interface Props {
   campaigns: CampaignAggregate[];
   campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
   campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
+  campaignBestMatches?: Map<string, BestMatchInfo>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
@@ -99,7 +101,7 @@ interface Props {
   siteId?: string;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -120,7 +122,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   type ColKey =
     | "score" | "startDate" | "age" | "lastAction"
     | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
-    | "ecpm" | "matchRate" | "impressions" | "clicks" | "ctr"
+    | "ecpm" | "matchRate" | "bestMatch" | "deltaMatch" | "impressions" | "clicks" | "ctr"
     | "conversions" | "convRate" | "cpa" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
   const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
@@ -136,6 +138,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "roas", label: "ROAS", width: 80 },
     { key: "ecpm", label: "eCPM", width: 100 },
     { key: "matchRate", label: "Taxa Corresp.", width: 110 },
+    { key: "deltaMatch", label: "Δ Match", width: 90 },
+    { key: "bestMatch", label: "Melhor Match", width: 130 },
     { key: "impressions", label: "Impr.", width: 100 },
     { key: "clicks", label: "Cliques", width: 80 },
     { key: "ctr", label: "CTR", width: 70 },
@@ -181,6 +185,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     roas: { label: "ROAS", sortKey: "roas", align: "right" },
     ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
     matchRate: { label: "Taxa Corresp.", align: "right" },
+    bestMatch: { label: "Melhor Match", align: "right" },
+    deltaMatch: { label: "Δ Match", align: "right" },
     impressions: { label: "Impr.", sortKey: "impressions", align: "right" },
     clicks: { label: "Cliques", sortKey: "clicks", align: "right" },
     ctr: { label: "CTR", sortKey: "ctr", align: "right" },
@@ -1162,6 +1168,55 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                                 {has
                                   ? `Match Rate (média ponderada por impressões): ${pct.toFixed(2)}%\nImpressões: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nFonte: gam_campaign_source_revenue (match_rate_pct do GAM)\n\nClique para abrir debug detalhado`
                                   : "Sem dados de requests para esta campanha no período. Clique para abrir debug."}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      }
+                      case "bestMatch": {
+                        const info = campaignBestMatches?.get(c.campaign_id);
+                        const best = info?.best;
+                        if (!best) {
+                          return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">—</TableCell>;
+                        }
+                        const color = matchRateColor(best.matchRate);
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="cursor-help inline-block text-right">
+                                  <div className={cn("font-semibold underline decoration-dotted decoration-muted-foreground/40", color)}>
+                                    {best.matchRate.toFixed(2)}%
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">{formatBrDate(best.date)}</div>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {`Melhor Match dos últimos 10 dias\n${formatBrDate(best.date)} (${best.date})\n${best.matchRate.toFixed(2)}%\nMatched: ${best.matched.toLocaleString()}\nRequests: ${best.requests.toLocaleString()}`}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        );
+                      }
+                      case "deltaMatch": {
+                        const info = campaignBestMatches?.get(c.campaign_id);
+                        const cur = campaignMatchRates?.get(c.campaign_id)?.matchRate ?? info?.today?.matchRate ?? null;
+                        const best = info?.best?.matchRate ?? null;
+                        if (cur == null || best == null) {
+                          return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">—</TableCell>;
+                        }
+                        const delta = cur - best;
+                        const color = delta >= 0 ? "text-success" : delta >= -5 ? "text-warning" : "text-danger";
+                        return (
+                          <TableCell key={k} style={ws} className="text-right tabular-nums">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className={cn("cursor-help font-medium", color)}>
+                                  {delta >= 0 ? "+" : ""}{delta.toFixed(1)} pp
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
+                                {`Atual: ${cur.toFixed(2)}%\nMelhor (10d): ${best.toFixed(2)}%\nΔ: ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} pp`}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>
