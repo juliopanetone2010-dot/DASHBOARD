@@ -101,7 +101,7 @@ interface Props {
   siteId?: string;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
