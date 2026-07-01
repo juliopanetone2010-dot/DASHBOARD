@@ -231,6 +231,30 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     enabled: campaignIds.length > 0,
   });
 
+  // ===== Agrupamento de campanhas por Final URL (normalizada) =====
+  type UrlGroupItem = { campaign_id: string; name: string; roi: number; status: string };
+  const urlGroups = useMemo(() => {
+    const groups = new Map<string, UrlGroupItem[]>();
+    const urlMap = finalUrlsQuery.data;
+    if (!urlMap) return groups;
+    for (const c of campaigns) {
+      const raw = urlMap.get(c.campaign_id);
+      if (!raw) continue;
+      const key = normalizePushUrl(raw);
+      if (!key) continue;
+      const arr = groups.get(key) ?? [];
+      arr.push({
+        campaign_id: c.campaign_id,
+        name: c.name,
+        roi: Number(c.roi) || 0,
+        status: c.status,
+      });
+      groups.set(key, arr);
+    }
+    return groups;
+  }, [campaigns, finalUrlsQuery.data]);
+  const [urlGroupOpen, setUrlGroupOpen] = useState<{ url: string; items: UrlGroupItem[] } | null>(null);
+
   // Data de início REAL da campanha (campaign.start_date no Google Ads).
   // Fallback para o primeiro dia com spend > 0 caso o sync ainda não tenha gravado.
   const firstSpendQuery = useQuery({
