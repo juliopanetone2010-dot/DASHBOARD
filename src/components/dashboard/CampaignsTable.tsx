@@ -1391,28 +1391,51 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                       case "finalUrl":
                         return (
                           <TableCell key={k} style={ws}>
-                            {finalUrl ? (
-                              <div className="flex items-center gap-1">
-                               <a
-                                  href={finalUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-primary hover:underline break-all"
-                                >
-                                  <ExternalLink className="h-3 w-3 shrink-0" />
-                                  {finalUrl}
-                                </a>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 shrink-0"
-                                  title="Copiar URL"
-                                  onClick={() => copyToClipboard(finalUrl)}
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ) : (
+                            {finalUrl ? (() => {
+                              const groupKey = normalizePushUrl(finalUrl);
+                              const items = urlGroups.get(groupKey) ?? [];
+                              const count = items.length;
+                              const badgeClass =
+                                count >= 10 ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/40" :
+                                count >= 5  ? "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/40" :
+                                count >= 2  ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/40" :
+                                              "bg-green-100 text-green-700 border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40";
+                              return (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <a
+                                    href={finalUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+                                  >
+                                    <ExternalLink className="h-3 w-3 shrink-0" />
+                                    {finalUrl}
+                                  </a>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 shrink-0"
+                                    title="Copiar URL"
+                                    onClick={() => copyToClipboard(finalUrl)}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                  {count > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setUrlGroupOpen({ url: finalUrl, items })}
+                                      className={cn(
+                                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold shrink-0 hover:opacity-80 transition",
+                                        badgeClass,
+                                      )}
+                                      title="Ver campanhas com esta mesma URL"
+                                    >
+                                      Usada em {count} {count === 1 ? "campanha" : "campanhas"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })() : (
                               <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
