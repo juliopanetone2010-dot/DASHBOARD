@@ -217,6 +217,7 @@ async function runSync(req: Request): Promise<Response> {
             },
           ];
           const metricMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+          let siteMetricsVariantFailures = 0;
           for (const variant of siteMetricsVariants) {
             try {
               const raw = (await Promise.all(ranges.map((range) =>
@@ -233,6 +234,7 @@ async function runSync(req: Request): Promise<Response> {
                 metricMap.set(key, cur);
               }
             } catch (e) {
+              siteMetricsVariantFailures++;
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
             }
           }
@@ -243,7 +245,11 @@ async function runSync(req: Request): Promise<Response> {
             viewable: v.view,
             revenue: v.rev,
           }));
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
+            // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
+            // Nessa situação nunca reduzimos uma receita já salva e maior.
+            preserveHigherExisting: siteMetricsVariantFailures > 0,
+          });
           if (!skipSnapshotRegen) {
             await regenerateSnapshotsForRanges({
               ranges,
@@ -409,7 +415,9 @@ async function runSync(req: Request): Promise<Response> {
           },
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+        let viewabilityVariantFailures = 0;
         if (skipViewability || !hasBudget(15_000)) {
+          viewabilityVariantFailures = viewabilityVariants.length;
           debug.push(`[${networkCode}] viewability skipped (skip=${skipViewability}, budget low)`);
         } else for (const variant of viewabilityVariants) {
           try {
@@ -427,6 +435,7 @@ async function runSync(req: Request): Promise<Response> {
               aggMap.set(key, cur);
             }
           } catch (e) {
+            viewabilityVariantFailures++;
             const msg = String(e).slice(0, 200);
             viewabilityError = msg;
             debug.push(`[${networkCode}] viewability ${variant.label} falhou: ${msg}`);
@@ -448,7 +457,11 @@ async function runSync(req: Request): Promise<Response> {
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges, {
+            // Quando o report por DATE vem parcial ou cai no fallback por campanha,
+            // não pode derrubar o total real do site salvo por uma sync rápida anterior.
+            preserveHigherExisting: viewabilityVariantFailures > 0,
+          });
 
         }
 
