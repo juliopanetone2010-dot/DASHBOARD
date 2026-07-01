@@ -31,6 +31,7 @@ import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { useColumnLayout } from "@/hooks/useColumnLayout";
 import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
 import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
+import { type BestMatchInfo, matchRateColor, formatBrDate } from "@/lib/bestMatch";
 
 type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
 type SortDir = "desc" | "asc";
