@@ -217,6 +217,7 @@ async function runSync(req: Request): Promise<Response> {
             },
           ];
           const metricMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+          let siteMetricsVariantFailures = 0;
           for (const variant of siteMetricsVariants) {
             try {
               const raw = (await Promise.all(ranges.map((range) =>
@@ -233,6 +234,7 @@ async function runSync(req: Request): Promise<Response> {
                 metricMap.set(key, cur);
               }
             } catch (e) {
+              siteMetricsVariantFailures++;
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
             }
           }
@@ -243,7 +245,11 @@ async function runSync(req: Request): Promise<Response> {
             viewable: v.view,
             revenue: v.rev,
           }));
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
+            // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
+            // Nessa situação nunca reduzimos uma receita já salva e maior.
+            preserveHigherExisting: siteMetricsVariantFailures > 0,
+          });
           if (!skipSnapshotRegen) {
             await regenerateSnapshotsForRanges({
               ranges,
@@ -409,7 +415,9 @@ async function runSync(req: Request): Promise<Response> {
           },
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+        let viewabilityVariantFailures = 0;
         if (skipViewability || !hasBudget(15_000)) {
+          viewabilityVariantFailures = viewabilityVariants.length;
           debug.push(`[${networkCode}] viewability skipped (skip=${skipViewability}, budget low)`);
         } else for (const variant of viewabilityVariants) {
           try {
@@ -427,6 +435,7 @@ async function runSync(req: Request): Promise<Response> {
               aggMap.set(key, cur);
             }
           } catch (e) {
+            viewabilityVariantFailures++;
             const msg = String(e).slice(0, 200);
             viewabilityError = msg;
             debug.push(`[${networkCode}] viewability ${variant.label} falhou: ${msg}`);
@@ -448,7 +457,11 @@ async function runSync(req: Request): Promise<Response> {
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges);
+          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges, {
+            // Quando o report por DATE vem parcial ou cai no fallback por campanha,
+            // não pode derrubar o total real do site salvo por uma sync rápida anterior.
+            preserveHigherExisting: viewabilityVariantFailures > 0,
+          });
 
         }
 
@@ -1988,6 +2001,7 @@ async function persistSiteMetricsDaily(
   rows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }>,
   debug: string[],
   fallbackRanges?: GamRange[],
+  opts?: { preserveHigherExisting?: boolean },
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
@@ -2027,17 +2041,24 @@ async function persistSiteMetricsDaily(
   if (usedFallback) {
     // Atualiza só revenue/impressions/ecpm — preserva measurable/viewable existentes.
     for (const [date, v] of byDate.entries()) {
-      const ecpm = v.impr > 0 ? (v.rev / v.impr) * 1000 : 0;
       const { data: exists } = await admin
         .from("site_metrics_daily")
-        .select("id")
+        .select("id, impressions, revenue_native")
         .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
         .maybeSingle();
+      let nextImpr = v.impr;
+      let nextRev = v.rev;
+      if (opts?.preserveHigherExisting && exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
+        nextRev = Number(exists.revenue_native ?? 0);
+        nextImpr = Math.max(Number(exists.impressions ?? 0), v.impr);
+        debug.push(`[site_metrics_daily] fallback preserved higher existing site=${siteId} date=${date} existing=${nextRev} incoming=${v.rev}`);
+      }
+      const ecpm = nextImpr > 0 ? (nextRev / nextImpr) * 1000 : 0;
       if (exists) {
         await admin.from("site_metrics_daily")
           .update({
-            impressions: v.impr,
-            revenue_native: v.rev,
+            impressions: nextImpr,
+            revenue_native: nextRev,
             currency,
             ecpm_native: ecpm,
             updated_at: new Date().toISOString(),
@@ -2046,8 +2067,8 @@ async function persistSiteMetricsDaily(
       } else {
         await admin.from("site_metrics_daily").insert({
           user_id: userId, site_id: siteId, date,
-          impressions: v.impr, measurable_impressions: 0, viewable_impressions: 0,
-          revenue_native: v.rev, currency, ecpm_native: ecpm,
+          impressions: nextImpr, measurable_impressions: 0, viewable_impressions: 0,
+          revenue_native: nextRev, currency, ecpm_native: ecpm,
           updated_at: new Date().toISOString(),
         });
       }
@@ -2056,20 +2077,60 @@ async function persistSiteMetricsDaily(
     return;
   }
 
-  const payload = [...byDate.entries()].map(([date, v]) => ({
-    user_id: userId,
-    site_id: siteId,
-    date,
-    impressions: v.impr,
-    measurable_impressions: v.meas,
-    viewable_impressions: v.view,
-    revenue_native: v.rev,
-    currency,
-    ecpm_native: v.impr > 0 ? (v.rev / v.impr) * 1000 : 0,
-    updated_at: new Date().toISOString(),
-  }));
+  const payload = [] as Array<{
+    user_id: string;
+    site_id: string;
+    date: string;
+    impressions: number;
+    measurable_impressions: number;
+    viewable_impressions: number;
+    revenue_native: number;
+    currency: string;
+    ecpm_native: number;
+    updated_at: string;
+  }>;
+  const existingByDate = new Map<string, any>();
+  if (opts?.preserveHigherExisting) {
+    const dateList = [...byDate.keys()];
+    const { data: existingRows } = dateList.length > 0 ? await admin
+      .from("site_metrics_daily")
+      .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .in("date", dateList) : { data: [] };
+    for (const r of existingRows ?? []) existingByDate.set(String(r.date), r);
+  }
+
+  let preservedHigher = 0;
+  for (const [date, v] of byDate.entries()) {
+    const existing = existingByDate.get(date);
+    let next = v;
+    const existingRevenue = Number(existing?.revenue_native ?? 0);
+    const nextRevenue = Number(v.rev ?? 0);
+    if (opts?.preserveHigherExisting && existing && existingRevenue > nextRevenue + 1) {
+      preservedHigher++;
+      next = {
+        impr: Math.max(Number(existing.impressions ?? 0), v.impr),
+        meas: Math.max(Number(existing.measurable_impressions ?? 0), v.meas),
+        view: Math.max(Number(existing.viewable_impressions ?? 0), v.view),
+        rev: existingRevenue,
+      };
+    }
+    payload.push({
+      user_id: userId,
+      site_id: siteId,
+      date,
+      impressions: next.impr,
+      measurable_impressions: next.meas,
+      viewable_impressions: next.view,
+      revenue_native: next.rev,
+      currency,
+      ecpm_native: next.impr > 0 ? (next.rev / next.impr) * 1000 : 0,
+      updated_at: new Date().toISOString(),
+    });
+  }
   for (let i = 0; i < payload.length; i += 500) {
     await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
   }
-  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
 }

@@ -65,11 +65,39 @@ export function useAllSitesOnboarding(enabled: boolean) {
     if (!eligibleSites.length) return;
     toast({
       title: "Sincronizando todos os sites",
-      description: `${eligibleSites.length} site(s) em fila. Pode levar alguns minutos.`,
+      description: `${eligibleSites.length} site(s) em fila. Hoje e ontem serão conferidos primeiro.`,
     });
+
+    const prevTo = range?.to ? previousDay(range.to) : undefined;
+    const quickFrom = range?.from && prevTo
+      ? (range.from <= prevTo ? prevTo : range.from)
+      : range?.from;
+
+    // Primeiro faz a conferência rápida de hoje/ontem em todos os sites e aguarda terminar.
+    // Assim o card de receita e o calendário não ficam mostrando valor parcial/antigo
+    // enquanto o sync completo de campanhas/placements continua em segundo plano.
     for (const s of eligibleSites) {
-      await supabase.functions.invoke("site-auto-onboard", { body: { site_id: s.id, force, from: range?.from, to: range?.to } });
-      await delay(12_000); // dá tempo do GAM resetar quota antes do próximo site
+      await supabase.functions.invoke("site-auto-onboard", {
+        body: { site_id: s.id, force: true, from: quickFrom, to: range?.to, quick_only: true },
+      });
+      await delay(2_000);
+    }
+
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["gam-freshness"] }),
+      qc.invalidateQueries({ queryKey: ["site-metrics-daily"] }),
+      qc.invalidateQueries({ queryKey: ["site-real-revenue"] }),
+      qc.invalidateQueries({ queryKey: ["dfs"] }),
+      qc.invalidateQueries({ queryKey: ["calendar-site-metrics"] }),
+    ]);
+
+    // Depois dispara o sync completo, sem repetir a etapa rápida.
+    for (const s of eligibleSites) {
+      await supabase.functions.invoke("site-auto-onboard", {
+        body: { site_id: s.id, force, from: range?.from, to: range?.to, skip_quick_revenue: true },
+      });
+      await delay(6_000); // reduz burst/429 no GAM antes do próximo site
     }
     await refetch();
   };
@@ -81,4 +109,10 @@ export function useAllSitesOnboarding(enabled: boolean) {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function previousDay(iso: string) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
