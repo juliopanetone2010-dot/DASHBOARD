@@ -792,7 +792,7 @@ const IndexInner = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-10">
-        <div className="w-full max-w-[2560px] mx-auto px-3 sm:px-4 lg:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
+        <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
               <BarChart3 className="h-5 w-5 text-primary-foreground" />
