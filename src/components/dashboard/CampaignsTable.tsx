@@ -138,9 +138,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "trend", label: "Tendência", width: 100 },
     { key: "roas", label: "ROAS", width: 80 },
     { key: "ecpm", label: "eCPM", width: 100 },
-    { key: "matchRate", label: "Taxa Corresp.", width: 110 },
-    { key: "deltaMatch", label: "Δ Match", width: 90 },
-    { key: "bestMatch", label: "Melhor Match", width: 130 },
+    { key: "bestMatch", label: "Melhor Match", width: 160 },
+    { key: "deltaMatch", label: "Δ Match", width: 100 },
     { key: "impressions", label: "Impr.", width: 100 },
     { key: "clicks", label: "Cliques", width: 80 },
     { key: "ctr", label: "CTR", width: 70 },
@@ -160,7 +159,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const layout = useColumnLayout({
     storageKeyOrder: "campaigns-table-col-order-v1",
     storageKeyWidths: "campaigns-table-col-widths-v1",
-    storageKeyVisible: "campaigns-table-visible-cols-v5",
+    storageKeyVisible: "campaigns-table-visible-cols-v6",
     allKeys: ALL_KEYS,
     defaultWidths: DEFAULT_WIDTHS,
   });
