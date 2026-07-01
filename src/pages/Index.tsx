@@ -867,7 +867,7 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="w-full max-w-[1920px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6">
+      <main className="w-full max-w-[2560px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6">
         <Tabs defaultValue="dashboard">
           <TabsList>
             <TabsTrigger value="dashboard" className="gap-1.5">
