@@ -92,6 +92,7 @@ interface Props {
   campaigns: CampaignAggregate[];
   campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
   campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
+  campaignBestMatches?: Map<string, BestMatchInfo>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
   onBoost?: (campaignId: string) => void;
