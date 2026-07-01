@@ -230,7 +230,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     }));
   }, [bestMatchQ.data]);
 
-
+  const totals = useMemo(() => {
     const r = histQ.data?.rows ?? [];
     const cost = r.reduce((a, x) => a + x.cost, 0);
     const rev = r.reduce((a, x) => a + x.revenue, 0);
