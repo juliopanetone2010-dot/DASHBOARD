@@ -196,7 +196,41 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     },
   });
 
-  const totals = useMemo(() => {
+  const bestMatchQ = useQuery({
+    queryKey: ["campaign-best-match-history", campaignId],
+    enabled: open,
+    queryFn: async () => {
+      const to = isoDaysAgo(0);
+      const from = isoDaysAgo(BEST_MATCH_WINDOW_DAYS);
+      const { data } = await supabase
+        .from("gam_campaign_source_revenue")
+        .select("date, impressions, total_requests, match_rate_pct")
+        .eq("campaign_id", campaignId)
+        .eq("utm_source", "google")
+        .gte("date", from)
+        .lte("date", to)
+        .limit(10000);
+      return buildBestMatch((data ?? []).map((r: any) => ({
+        date: String(r.date),
+        impressions: Number(r.impressions ?? 0),
+        total_requests: Number(r.total_requests ?? 0),
+        match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+      })));
+    },
+  });
+
+  const chartData = useMemo(() => {
+    const d = bestMatchQ.data?.days ?? [];
+    return [...d].reverse().map((x) => ({
+      date: formatBrDate(x.date),
+      fullDate: x.date,
+      rate: Number(x.matchRate.toFixed(2)),
+      matched: x.matched,
+      requests: x.requests,
+    }));
+  }, [bestMatchQ.data]);
+
+
     const r = histQ.data?.rows ?? [];
     const cost = r.reduce((a, x) => a + x.cost, 0);
     const rev = r.reduce((a, x) => a + x.revenue, 0);
