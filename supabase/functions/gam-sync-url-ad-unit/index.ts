@@ -292,18 +292,23 @@ function parseGamDate(value: any): string | null {
   return null;
 }
 
-// KEY_VALUES_NAME retorna algo como:
-//   "utm_campaign=cid=23842320470;utm_source=facebook;..."
-// ou "cid=23842320470"  (depende de como o site envia os key-values pro GAM)
-// Extraímos o primeiro número longo (>=8 dígitos) — que é o campaign_id do Google Ads.
+// KEY_VALUES_NAME retorna uma string com pares "chave=valor" (ex.: "utm_campaign=23158084688").
+// Priorizamos utm_campaign, depois cid, depois campaign_id, e por último um número longo isolado.
 function extractCampaignId(raw: string): string | null {
   if (!raw) return null;
   const s = String(raw);
-  // procura padrões cid=NNNNN, utm_campaign=NNNNN, ou o primeiro número longo
-  const m1 = s.match(/(?:^|[^\d])(\d{8,20})(?:[^\d]|$)/);
-  if (m1) return m1[1];
+  const patterns = [
+    /utm_campaign\s*=\s*(\d{6,20})/i,
+    /(?:^|[^\w])cid\s*=\s*(\d{6,20})/i,
+    /campaign_?id\s*=\s*(\d{6,20})/i,
+  ];
+  for (const p of patterns) {
+    const m = s.match(p);
+    if (m) return m[1];
+  }
   return null;
 }
+
 
 
 function buildRange(from: string, to: string) {

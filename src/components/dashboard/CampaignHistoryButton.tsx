@@ -591,44 +591,52 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                 <div>
                   <div className="text-sm font-semibold">Melhor Match por Bloco (Ad Unit) — {AD_UNIT_WINDOW_DAYS} dias</div>
                   <div className="text-[11px] text-muted-foreground">
-                    Cruzamento GAM URL × Ad Unit · isolado por esta campanha · min {AD_UNIT_MIN_REQUESTS} requests/dia · média dos top {AD_UNIT_TOP_N} dias por ROI
+                    Cruzamento GAM <code>utm_campaign={campaignId}</code> × Ad Unit · min {AD_UNIT_MIN_REQUESTS} requests/dia · média dos top {AD_UNIT_TOP_N} dias por ROI
                   </div>
                 </div>
                 <div className="text-[11px] text-muted-foreground text-right">
-                  {adUnitMatchQ.data.hasUrls
-                    ? <>URLs analisadas: <span className="font-medium text-foreground">{adUnitMatchQ.data.urlCount}</span></>
-                    : <>Nenhuma final URL cadastrada para esta campanha</>}
+                  Blocos encontrados: <span className="font-medium text-foreground">{adUnitMatchQ.data.adUnits.length}</span>
                 </div>
               </div>
               {adUnitMatchQ.data.adUnits.length === 0 ? (
                 <div className="p-4 text-xs text-muted-foreground text-center">
-                  {!adUnitMatchQ.data.hasUrls
-                    ? "Adicione as final URLs desta campanha ou aguarde o próximo sync."
-                    : adUnitMatchQ.data.rows.length === 0
-                      ? "Sem dados no GAM para essas URLs nos últimos 30 dias. Aguarde o backfill do GAM (dimensão URL + Ad Unit)."
-                      : `Sem Ad Units elegíveis (mínimo ${AD_UNIT_MIN_REQUESTS} requests em dias com custo>0).`}
+                  {adUnitMatchQ.data.rows.length === 0
+                    ? "Sem dados no GAM para esta campanha nos últimos 30 dias. Aguarde o próximo sync (GAM key-values × Ad Unit)."
+                    : `Sem Ad Units elegíveis (mínimo ${AD_UNIT_MIN_REQUESTS} requests em dias com custo>0).`}
                 </div>
               ) : (
-                <div className="max-h-[320px] overflow-y-auto">
+                <div className="max-h-[360px] overflow-y-auto">
                   <Table>
                     <TableHeader className="sticky top-0 bg-background">
                       <TableRow className="bg-muted/50 hover:bg-muted/50">
                         <TableHead>Bloco (Ad Unit)</TableHead>
-                        <TableHead className="text-right">Dias elegíveis</TableHead>
-                        <TableHead className="text-right">Melhor Match médio (top {AD_UNIT_TOP_N})</TableHead>
-                        <TableHead className="text-right">ROI médio (top {AD_UNIT_TOP_N})</TableHead>
+                        <TableHead className="text-right">Dias</TableHead>
+                        <TableHead className="text-right">Match médio</TableHead>
+                        <TableHead className="text-right">Fill médio</TableHead>
+                        <TableHead className="text-right">eCPM médio</TableHead>
+                        <TableHead className="text-right">Receita/dia</TableHead>
+                        <TableHead className="text-right">ROI médio</TableHead>
                         <TableHead>Melhores dias</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {adUnitMatchQ.data.adUnits.map((au) => (
                         <TableRow key={au.adUnitName}>
-                          <TableCell className="font-mono text-[11px] break-all max-w-[280px]">{au.adUnitName}</TableCell>
+                          <TableCell className="font-mono text-[11px] break-all max-w-[260px]">{au.adUnitName}</TableCell>
                           <TableCell className="text-right tabular-nums text-xs">
                             {au.eligibleDays}/{au.totalDays}
                           </TableCell>
                           <TableCell className={cn("text-right tabular-nums font-semibold", matchRateColor(au.bestMatchAvg))}>
                             {au.bestMatchAvg != null ? `${au.bestMatchAvg.toFixed(2)}%` : "—"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-xs">
+                            {au.avgFillRate != null ? `${au.avgFillRate.toFixed(2)}%` : "—"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-xs font-semibold">
+                            {au.avgEcpm != null ? `US$ ${au.avgEcpm.toFixed(2)}` : "—"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-xs">
+                            {au.avgRevenueUsd != null ? `US$ ${au.avgRevenueUsd.toFixed(2)}` : "—"}
                           </TableCell>
                           <TableCell className={cn("text-right tabular-nums", (au.avgRoi ?? 0) >= 0 ? "text-success" : "text-danger")}>
                             {au.avgRoi != null ? fmtPercent(au.avgRoi) : "—"}
@@ -637,7 +645,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                             {au.topDays.map((d) => (
                               <div key={d.date} className="tabular-nums">
                                 {formatBrDate(d.date)}: <span className="font-medium text-foreground">{d.matchRate.toFixed(1)}%</span>
-                                {" "}· ROI {d.roi.toFixed(0)}% · {d.adRequests.toLocaleString()} req
+                                {" "}· eCPM US$ {d.ecpm.toFixed(2)} · ROI {d.roi.toFixed(0)}% · {d.adRequests.toLocaleString()} req
                               </div>
                             ))}
                           </TableCell>
@@ -649,6 +657,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
               )}
             </div>
           )}
+
 
 
 

@@ -31,11 +31,16 @@ export type AdUnitBestMatch = {
     roi: number;
     profit: number;
     matchRate: number;
+    fillRate: number;
+    ecpm: number;         // USD
     adRequests: number;
     matched: number;
     revenueUsd: number;
   }>;
-  bestMatchAvg: number | null;   // média dos top-3 dias por ROI
+  bestMatchAvg: number | null;   // média Match Rate top-3 dias por ROI
+  avgFillRate: number | null;
+  avgEcpm: number | null;         // USD
+  avgRevenueUsd: number | null;   // média diária USD
   avgRoi: number | null;
 };
 
@@ -59,7 +64,6 @@ export function buildAdUnitBestMatches(
 
   const out: AdUnitBestMatch[] = [];
   for (const [adUnitName, arr] of byAdUnit) {
-    // Agrega por dia (uma URL pode aparecer múltiplas vezes se url_normalized igual mas raw diferente).
     const byDate = new Map<string, { ad_requests: number; matched: number; revenue: number }>();
     for (const r of arr) {
       const cur = byDate.get(r.date) ?? { ad_requests: 0, matched: 0, revenue: 0 };
@@ -75,11 +79,15 @@ export function buildAdUnitBestMatches(
       if (!camp || camp.cost <= 0) continue;               // isolamento por campanha
       if (v.ad_requests < AD_UNIT_MIN_REQUESTS) continue;  // filtro de volume
       const matchRate = v.ad_requests > 0 ? (v.matched / v.ad_requests) * 100 : 0;
+      const fillRate = v.ad_requests > 0 ? (v.matched / v.ad_requests) * 100 : 0;
+      const ecpm = v.matched > 0 ? (v.revenue / v.matched) * 1000 : 0;
       eligible.push({
         date,
         roi: camp.netRoi,
         profit: camp.netProfit,
         matchRate,
+        fillRate,
+        ecpm,
         adRequests: v.ad_requests,
         matched: v.matched,
         revenueUsd: v.revenue,
@@ -89,8 +97,12 @@ export function buildAdUnitBestMatches(
     // Top N por ROI (desc)
     eligible.sort((a, b) => b.roi - a.roi);
     const top = eligible.slice(0, AD_UNIT_TOP_N);
-    const bestMatchAvg = top.length ? top.reduce((s, x) => s + x.matchRate, 0) / top.length : null;
-    const avgRoi = top.length ? top.reduce((s, x) => s + x.roi, 0) / top.length : null;
+    const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null);
+    const bestMatchAvg = avg(top.map((x) => x.matchRate));
+    const avgFillRate = avg(top.map((x) => x.fillRate));
+    const avgEcpm = avg(top.map((x) => x.ecpm));
+    const avgRevenueUsd = avg(top.map((x) => x.revenueUsd));
+    const avgRoi = avg(top.map((x) => x.roi));
 
     out.push({
       adUnitName,
@@ -98,14 +110,18 @@ export function buildAdUnitBestMatches(
       eligibleDays: eligible.length,
       topDays: top,
       bestMatchAvg,
+      avgFillRate,
+      avgEcpm,
+      avgRevenueUsd,
       avgRoi,
     });
   }
 
-  // Ordena por bestMatchAvg desc (nulls no fim)
-  out.sort((a, b) => (b.bestMatchAvg ?? -Infinity) - (a.bestMatchAvg ?? -Infinity));
+  // Ordena por eCPM médio desc (nulls no fim) — mais relevante que match rate
+  out.sort((a, b) => (b.avgEcpm ?? -Infinity) - (a.avgEcpm ?? -Infinity));
   return out;
 }
+
 
 export function normalizeUrlKey(raw: string): string {
   if (!raw) return "";
