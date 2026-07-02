@@ -300,6 +300,43 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
 
   const bestMatchQ = idealMatchQ; // alias para o gráfico reaproveitar info.days
 
+  // === Melhor Match por Bloco (Ad Unit) — respeita o período (days) do modal ===
+  const adUnitQ = useQuery({
+    queryKey: ["campaign-adunit-match", campaignId, days],
+    enabled: open,
+    queryFn: async (): Promise<RawPlacementRow[]> => {
+      const { data, error } = await supabase
+        .from("gam_placement_revenue")
+        .select("date, placement, impressions, revenue_usd")
+        .eq("campaign_id", campaignId)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({
+        date: String(r.date),
+        placement: String(r.placement ?? "—"),
+        impressions: Number(r.impressions ?? 0),
+        revenue_usd: Number(r.revenue_usd ?? 0),
+      }));
+    },
+  });
+
+  const adUnitAnalyses = useMemo(() => {
+    const raw = adUnitQ.data ?? [];
+    const hist = histQ.data?.rows ?? [];
+    const ctx = new Map<string, CampaignDayContext>();
+    for (const r of hist) {
+      ctx.set(r.date, {
+        date: r.date,
+        matchRatePct: r.matchRate,
+        roi: r.roi,
+      });
+    }
+    return buildAdUnitAnalyses(raw, ctx);
+  }, [adUnitQ.data, histQ.data]);
+
+
   const chartData = useMemo(() => {
     const d = idealMatchQ.data?.info.days ?? [];
     return [...d].reverse().map((x) => ({
