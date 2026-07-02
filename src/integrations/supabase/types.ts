@@ -1739,6 +1739,60 @@ export type Database = {
         }
         Relationships: []
       }
+      gam_url_ad_unit_daily: {
+        Row: {
+          ad_requests: number
+          ad_unit_name: string
+          campaign_id: string | null
+          created_at: string
+          date: string
+          google_account_id: string | null
+          id: string
+          match_rate_pct: number | null
+          matched_impressions: number
+          revenue_usd: number
+          site_id: string | null
+          updated_at: string
+          url_normalized: string | null
+          url_raw: string | null
+          user_id: string
+        }
+        Insert: {
+          ad_requests?: number
+          ad_unit_name: string
+          campaign_id?: string | null
+          created_at?: string
+          date: string
+          google_account_id?: string | null
+          id?: string
+          match_rate_pct?: number | null
+          matched_impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          updated_at?: string
+          url_normalized?: string | null
+          url_raw?: string | null
+          user_id: string
+        }
+        Update: {
+          ad_requests?: number
+          ad_unit_name?: string
+          campaign_id?: string | null
+          created_at?: string
+          date?: string
+          google_account_id?: string | null
+          id?: string
+          match_rate_pct?: number | null
+          matched_impressions?: number
+          revenue_usd?: number
+          site_id?: string | null
+          updated_at?: string
+          url_normalized?: string | null
+          url_raw?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       gam_url_revenue: {
         Row: {
           created_at: string
