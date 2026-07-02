@@ -12,6 +12,7 @@ import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { cn } from "@/lib/utils";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
 import { buildBestMatch, matchRateColor, stabilityLabel, formatBrDate, BEST_MATCH_WINDOW_DAYS } from "@/lib/bestMatch";
+import { buildAdUnitBestMatches, AD_UNIT_MIN_REQUESTS, AD_UNIT_TOP_N } from "@/lib/adUnitMatch";
 
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
@@ -300,6 +301,57 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
 
   const bestMatchQ = idealMatchQ; // alias para o gráfico reaproveitar info.days
 
+  // === Melhor Match por Ad Unit (últimos 30 dias, isolado por campanha) ===
+  const AD_UNIT_WINDOW_DAYS = 30;
+  const adUnitMatchQ = useQuery({
+    queryKey: ["campaign-ad-unit-match", campaignId],
+    enabled: open,
+    queryFn: async () => {
+      const toD = isoDaysAgo(0);
+      const fromD = isoDaysAgo(AD_UNIT_WINDOW_DAYS - 1);
+
+      // 1) Métricas por Ad Unit associadas diretamente ao campaign_id (via KEY_VALUES do GAM)
+      const gamRes = await supabase
+        .from("gam_url_ad_unit_daily")
+        .select("date, ad_unit_name, ad_requests, matched_impressions, revenue_usd, match_rate_pct")
+        .eq("campaign_id", campaignId)
+        .gte("date", fromD)
+        .lte("date", toD)
+        .limit(50000);
+
+      // 2) ROI diário da campanha (isolamento)
+      const dmRes = await supabase
+        .from("daily_metrics")
+        .select("date, spend, profit")
+        .eq("campaign_id", campaignId)
+        .gte("date", fromD)
+        .lte("date", toD);
+
+      const campaignDays = ((dmRes.data ?? []) as any[]).map((d) => {
+        const cost = Number(d.spend) || 0;
+        const grossProfitBrl = Number(d.profit) || 0;
+        const grossRevBrl = grossProfitBrl + cost;
+        const shareBrl = grossRevBrl * REV_SHARE_PCT;
+        const netProfit = grossProfitBrl - shareBrl;
+        const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
+        return { date: String(d.date), cost, netRoi, netProfit };
+      });
+
+      const rows = ((gamRes.data ?? []) as any[]).map((r) => ({
+        date: String(r.date),
+        ad_unit_name: String(r.ad_unit_name ?? ""),
+        ad_requests: Number(r.ad_requests ?? 0),
+        matched_impressions: Number(r.matched_impressions ?? 0),
+        revenue_usd: Number(r.revenue_usd ?? 0),
+        match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+      }));
+
+      const adUnits = buildAdUnitBestMatches(rows, campaignDays);
+      return { rows: gamRes.data ?? [], adUnits, urlCount: rows.length > 0 ? 1 : 0, hasUrls: rows.length > 0 };
+    },
+  });
+
+
 
 
 
@@ -526,6 +578,77 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
               </div>
             );
           })()}
+
+          {/* Melhor Match por Ad Unit (Bloco de Anúncios) — últimos 30 dias */}
+          {adUnitMatchQ.isLoading && (
+            <div className="rounded-md border border-border p-3 text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando Ad Units do Google Ad Manager…
+            </div>
+          )}
+          {adUnitMatchQ.data && (
+            <div className="rounded-md border border-border">
+              <div className="p-3 border-b border-border flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Melhor Match por Bloco (Ad Unit) — {AD_UNIT_WINDOW_DAYS} dias</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Cruzamento GAM URL × Ad Unit · isolado por esta campanha · min {AD_UNIT_MIN_REQUESTS} requests/dia · média dos top {AD_UNIT_TOP_N} dias por ROI
+                  </div>
+                </div>
+                <div className="text-[11px] text-muted-foreground text-right">
+                  {adUnitMatchQ.data.hasUrls
+                    ? <>URLs analisadas: <span className="font-medium text-foreground">{adUnitMatchQ.data.urlCount}</span></>
+                    : <>Nenhuma final URL cadastrada para esta campanha</>}
+                </div>
+              </div>
+              {adUnitMatchQ.data.adUnits.length === 0 ? (
+                <div className="p-4 text-xs text-muted-foreground text-center">
+                  {!adUnitMatchQ.data.hasUrls
+                    ? "Adicione as final URLs desta campanha ou aguarde o próximo sync."
+                    : adUnitMatchQ.data.rows.length === 0
+                      ? "Sem dados no GAM para essas URLs nos últimos 30 dias. Aguarde o backfill do GAM (dimensão URL + Ad Unit)."
+                      : `Sem Ad Units elegíveis (mínimo ${AD_UNIT_MIN_REQUESTS} requests em dias com custo>0).`}
+                </div>
+              ) : (
+                <div className="max-h-[320px] overflow-y-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-background">
+                      <TableRow className="bg-muted/50 hover:bg-muted/50">
+                        <TableHead>Bloco (Ad Unit)</TableHead>
+                        <TableHead className="text-right">Dias elegíveis</TableHead>
+                        <TableHead className="text-right">Melhor Match médio (top {AD_UNIT_TOP_N})</TableHead>
+                        <TableHead className="text-right">ROI médio (top {AD_UNIT_TOP_N})</TableHead>
+                        <TableHead>Melhores dias</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {adUnitMatchQ.data.adUnits.map((au) => (
+                        <TableRow key={au.adUnitName}>
+                          <TableCell className="font-mono text-[11px] break-all max-w-[280px]">{au.adUnitName}</TableCell>
+                          <TableCell className="text-right tabular-nums text-xs">
+                            {au.eligibleDays}/{au.totalDays}
+                          </TableCell>
+                          <TableCell className={cn("text-right tabular-nums font-semibold", matchRateColor(au.bestMatchAvg))}>
+                            {au.bestMatchAvg != null ? `${au.bestMatchAvg.toFixed(2)}%` : "—"}
+                          </TableCell>
+                          <TableCell className={cn("text-right tabular-nums", (au.avgRoi ?? 0) >= 0 ? "text-success" : "text-danger")}>
+                            {au.avgRoi != null ? fmtPercent(au.avgRoi) : "—"}
+                          </TableCell>
+                          <TableCell className="text-[11px] text-muted-foreground">
+                            {au.topDays.map((d) => (
+                              <div key={d.date} className="tabular-nums">
+                                {formatBrDate(d.date)}: <span className="font-medium text-foreground">{d.matchRate.toFixed(1)}%</span>
+                                {" "}· ROI {d.roi.toFixed(0)}% · {d.adRequests.toLocaleString()} req
+                              </div>
+                            ))}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
 
 
 
