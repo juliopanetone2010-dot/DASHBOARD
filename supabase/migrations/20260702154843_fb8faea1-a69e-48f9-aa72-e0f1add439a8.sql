@@ -1,0 +1,1 @@
+TRUNCATE TABLE public.gam_url_ad_unit_daily;
