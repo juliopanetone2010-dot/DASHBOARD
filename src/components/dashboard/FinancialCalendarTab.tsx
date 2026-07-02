@@ -89,6 +89,10 @@ export function FinancialCalendarTab() {
       if (error) throw error;
       return (data ?? []) as unknown as Snapshot[];
     },
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
   });
 
   const siteMetricsQuery = useQuery({
