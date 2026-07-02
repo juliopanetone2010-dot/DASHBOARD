@@ -211,6 +211,7 @@ async function runReportSafe(networkCode: string, accessToken: string, range: an
       lastErr = e;
       debug.push(`[${networkCode}] falhou métricas ${set.kind}: ${String((e as Error).message ?? e).slice(0, 200)}`);
     }
+  }
   throw lastErr instanceof Error ? lastErr : new Error("Falha ao rodar report");
 }
 
