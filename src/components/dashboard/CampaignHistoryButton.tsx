@@ -527,76 +527,8 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
             );
           })()}
 
-          {/* === Melhor Match por Bloco (Ad Unit) === */}
-          {histQ.data && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold">Melhor Match por Bloco (Ad Unit) · {days}d</div>
-                  <div className="text-xs text-muted-foreground">
-                    Só considera dias com ≥ {MIN_REQUESTS_PER_DAY} requests. Média dos {TOP_DAYS} melhores dias por ROI da campanha (ou todos se houver menos).
-                  </div>
-                </div>
-                {adUnitQ.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-              </div>
 
-              {adUnitAnalyses.length === 0 ? (
-                <div className="rounded-md border border-border p-4 text-sm text-muted-foreground text-center">
-                  Sem dados de blocos (GAM) para essa campanha no período.
-                </div>
-              ) : (
-                <div className="rounded-md border border-border overflow-hidden max-h-[320px] overflow-y-auto">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-background">
-                      <TableRow className="bg-muted/50 hover:bg-muted/50">
-                        <TableHead>Ad Unit</TableHead>
-                        <TableHead className="text-right">Melhor Match</TableHead>
-                        <TableHead className="text-right">ROI médio</TableHead>
-                        <TableHead className="text-right">eCPM médio</TableHead>
-                        <TableHead className="text-right">Requests médias</TableHead>
-                        <TableHead className="text-right">Fill Rate médio</TableHead>
-                        <TableHead className="text-right">Receita média</TableHead>
-                        <TableHead className="text-right">Dias usados</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {adUnitAnalyses.map((a) => (
-                        <TableRow key={a.adUnit}>
-                          <TableCell className="font-mono text-xs max-w-[280px] truncate" title={a.adUnit}>
-                            {a.adUnit}
-                          </TableCell>
-                          {a.avg ? (
-                            <>
-                              <TableCell className={cn("text-right tabular-nums font-semibold", matchRateColor(a.avg.matchRate))}>
-                                {a.avg.matchRate.toFixed(1)}%
-                              </TableCell>
-                              <TableCell className={cn("text-right tabular-nums font-semibold", a.avg.roi >= 0 ? "text-success" : "text-danger")}>
-                                {fmtPercent(a.avg.roi)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">{fmtCurrency(a.avg.ecpm)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{fmtNumber(Math.round(a.avg.requests))}</TableCell>
-                              <TableCell className="text-right tabular-nums">{a.avg.fillRate.toFixed(1)}%</TableCell>
-                              <TableCell className="text-right tabular-nums">{fmtCurrency(a.avg.revenue)}</TableCell>
-                              <TableCell
-                                className="text-right tabular-nums text-xs"
-                                title={a.usedDays.map((d) => `${d.date} · ROI ${d.roi.toFixed(1)}% · req ${Math.round(d.requests)}`).join("\n")}
-                              >
-                                {a.usedDays.length}/{a.validDays} válidos · {a.totalDays} total
-                              </TableCell>
-                            </>
-                          ) : (
-                            <TableCell colSpan={7} className="text-right text-xs text-muted-foreground italic" title={a.reason}>
-                              Sem dados suficientes — {a.reason}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          )}
+
 
 
           {histQ.isLoading && (
