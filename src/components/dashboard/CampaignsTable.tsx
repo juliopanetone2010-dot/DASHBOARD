@@ -160,7 +160,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   const layout = useColumnLayout({
     storageKeyOrder: "campaigns-table-col-order-v1",
     storageKeyWidths: "campaigns-table-col-widths-v1",
-    storageKeyVisible: "campaigns-table-visible-cols-v6",
+    storageKeyVisible: "campaigns-table-visible-cols-v7",
     allKeys: ALL_KEYS,
     defaultWidths: DEFAULT_WIDTHS,
   });
