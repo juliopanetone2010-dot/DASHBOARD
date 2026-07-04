@@ -722,6 +722,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                 {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                 Reiniciar selecionadas
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 border-success/40 text-success hover:bg-success-soft hover:text-success"
+                disabled={bulkBusy}
+                onClick={() => bulkIncreaseBudget(20)}
+                title="Aumentar orçamento em +20% nas campanhas selecionadas"
+              >
+                {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
+                Orçamento +20%
+              </Button>
               <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
             </>
           )}
