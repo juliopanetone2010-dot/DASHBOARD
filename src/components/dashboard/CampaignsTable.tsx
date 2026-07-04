@@ -627,6 +627,32 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     await onRefresh?.();
   };
 
+  const bulkIncreaseBudget = async (pct: number) => {
+    if (selected.size === 0) return;
+    if (!confirm(`Aumentar orçamento em +${pct}% em ${selected.size} campanha(s)?`)) return;
+    setBulkBusy(true);
+    const idToCamp = new Map(campaigns.map((c) => [c.campaign_id, c]));
+    let ok = 0; let fail = 0;
+    for (const id of selected) {
+      const c = idToCamp.get(id);
+      try {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-mutate", {
+          body: {
+            action: "adjust_budget",
+            campaign_id: id,
+            delta_pct: pct,
+            google_account_id: (c as any)?.google_account_id ?? null,
+          },
+        });
+        if (error || data?.error) fail++; else ok++;
+      } catch { fail++; }
+    }
+    setBulkBusy(false);
+    toast({ title: `Orçamento +${pct}% em lote`, description: `${ok} ok · ${fail} falha(s)`, variant: fail > 0 ? "destructive" : undefined });
+    clearSelection();
+    await onRefresh?.();
+  };
+
   const decidePauseApproval = async (action: PendingPauseAction, approved: boolean) => {
     const key = `approval:${action.id}`;
     setBusy(key);
@@ -695,6 +721,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               <Button size="sm" className="h-7 gap-1" disabled={bulkBusy} onClick={bulkRestart}>
                 {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                 Reiniciar selecionadas
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 border-success/40 text-success hover:bg-success-soft hover:text-success"
+                disabled={bulkBusy}
+                onClick={() => bulkIncreaseBudget(20)}
+                title="Aumentar orçamento em +20% nas campanhas selecionadas"
+              >
+                {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
+                Orçamento +20%
               </Button>
               <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
             </>
