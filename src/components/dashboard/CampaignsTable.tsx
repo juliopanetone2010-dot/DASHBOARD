@@ -627,6 +627,32 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     await onRefresh?.();
   };
 
+  const bulkIncreaseBudget = async (pct: number) => {
+    if (selected.size === 0) return;
+    if (!confirm(`Aumentar orçamento em +${pct}% em ${selected.size} campanha(s)?`)) return;
+    setBulkBusy(true);
+    const idToCamp = new Map(campaigns.map((c) => [c.campaign_id, c]));
+    let ok = 0; let fail = 0;
+    for (const id of selected) {
+      const c = idToCamp.get(id);
+      try {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("google-ads-mutate", {
+          body: {
+            action: "adjust_budget",
+            campaign_id: id,
+            delta_pct: pct,
+            google_account_id: (c as any)?.google_account_id ?? null,
+          },
+        });
+        if (error || data?.error) fail++; else ok++;
+      } catch { fail++; }
+    }
+    setBulkBusy(false);
+    toast({ title: `Orçamento +${pct}% em lote`, description: `${ok} ok · ${fail} falha(s)`, variant: fail > 0 ? "destructive" : undefined });
+    clearSelection();
+    await onRefresh?.();
+  };
+
   const decidePauseApproval = async (action: PendingPauseAction, approved: boolean) => {
     const key = `approval:${action.id}`;
     setBusy(key);
