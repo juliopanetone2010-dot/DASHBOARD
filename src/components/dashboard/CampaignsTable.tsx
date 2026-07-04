@@ -724,14 +724,24 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               </Button>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-7 gap-1 border-success/40 text-success hover:bg-success-soft hover:text-success"
+                className="h-7 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow"
                 disabled={bulkBusy}
                 onClick={() => bulkIncreaseBudget(20)}
                 title="Aumentar orçamento em +20% nas campanhas selecionadas"
               >
                 {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
                 Orçamento +20%
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 border-emerald-500/50 text-emerald-600 hover:bg-emerald-50"
+                disabled={bulkBusy}
+                onClick={() => bulkIncreaseBudget(10)}
+                title="Aumentar orçamento em +10% nas campanhas selecionadas"
+              >
+                <TrendingUp className="h-3.5 w-3.5" />
+                +10%
               </Button>
               <Button size="sm" variant="ghost" className="h-7" onClick={clearSelection}>Limpar</Button>
             </>
