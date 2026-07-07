@@ -1,7 +1,24 @@
 // ============================================================================
 // ENGINE OFICIAL DE PERFORMANCE POR PAÍS (cliente)
-// Espelho exato de supabase/functions/_shared/country_performance.ts.
-// Mantenha em sincronia. Veja o cabeçalho daquele arquivo para a fórmula.
+//
+// Regras (fonte da verdade):
+//   • Custo por campanha/dia  = daily_metrics.spend        (Google Ads)
+//   • Receita por campanha/dia = daily_metrics.revenue     (GAM já atribuído
+//                                                           por utm_campaign)
+//   • Receita líquida = revenue * NET_FACTOR (rev share 6,5% aplicado uma vez)
+//
+// Cruzamento:
+//   INNER JOIN campanha↔GAM já ocorre a montante (daily_metrics.revenue).
+//   Aqui apenas dividimos POR PAÍS DENTRO DA CAMPANHA usando a única fonte
+//   de dimensão país disponível (Google Ads → campaign_country_metrics).
+//
+//   • share = impressões(país)/impressões(campanha) no mesmo dia
+//     fallback: cliques → conversões → custo (só se impressões == 0)
+//   • Se a campanha tem receita mas nenhum país cadastrado, a receita cai
+//     no bucket "??" (Desconhecido) para que Σ países = Dashboard.
+//
+// NÃO usar: rateio entre campanhas, estimativa, fallback global por clique,
+// receita agregada de site (__aggregate__). Isso quebrava totais.
 // ============================================================================
 import { supabase } from "@/integrations/supabase/client";
 
@@ -27,7 +44,7 @@ export interface ClientCountryCell {
   clicks: number;
   impressions: number;
   conversions: number;
-  share_method: "impressions" | "clicks" | "conversions" | "cost" | "none";
+  share_method: "impressions" | "clicks" | "conversions" | "cost" | "none" | "unknown";
   share_pct: number;
   site_factor_avg: number;
 }
@@ -55,12 +72,15 @@ export interface ClientCountryEngineResult {
   };
 }
 
+const UNKNOWN_CODE = "??";
+const UNKNOWN_NAME = "Desconhecido";
+
 export async function computeCountryPerformanceClient(
   p: ClientCountryEngineParams,
 ): Promise<ClientCountryEngineResult> {
   const warnings: string[] = [];
 
-  // 1) accounts vinculadas ao site
+  // 1) Contas permitidas (filtro por site via account_site_links).
   let allowedAccountIds: string[] | null = p.accountIds ? [...p.accountIds] : null;
   if (p.siteId) {
     const { data: links } = await supabase
@@ -71,55 +91,48 @@ export async function computeCountryPerformanceClient(
     allowedAccountIds = allowedAccountIds
       ? allowedAccountIds.filter((id) => siteAccs.includes(id))
       : siteAccs;
-  }
-
-  // 2) campanhas
-  let resolvedCampaignIds = p.campaignIds ? [...new Set(p.campaignIds.map(String))] : null;
-  if (!resolvedCampaignIds) {
-    let q = supabase.from("campaigns").select("campaign_id");
-    if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-    const { data } = await q.limit(10000);
-    resolvedCampaignIds = [...new Set((data ?? []).map((r: any) => String(r.campaign_id)).filter(Boolean))];
-  }
-
-  const empty = (): ClientCountryEngineResult => ({
-    cells: new Map(), campaignTotals: new Map(), warnings,
-    meta: { period: { from: p.from, to: p.to }, site_id: p.siteId, account_ids: allowedAccountIds, campaign_count: 0 },
-  });
-  if (!resolvedCampaignIds || resolvedCampaignIds.length === 0) return empty();
-
-  type CRow = {
-    campaign_id: string; date: string; country_code: string; country_name: string | null;
-    country_criterion_id: string | null; google_account_id: string | null;
-    cost: number; clicks: number; impressions: number; conversions: number;
-  };
-  const countryRows: CRow[] = [];
-  for (const chunk of chunk200(resolvedCampaignIds)) {
-    let start = 0;
-    for (;;) {
-      let q = supabase.from("campaign_country_metrics")
-        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
-        .in("campaign_id", chunk)
-        .gte("date", p.from).lte("date", p.to);
-      if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      const { data, error } = await q.range(start, start + 999);
-      if (error) break;
-      const rows = (data ?? []) as CRow[];
-      countryRows.push(...rows);
-      if (rows.length < 1000) break;
-      start += 1000;
+    if (allowedAccountIds.length === 0) {
+      return empty(p, allowedAccountIds, warnings);
     }
   }
 
-  type DRow = { campaign_id: string; date: string; spend: number; revenue: number; profit: number };
+  // 2) Universo de campanhas (mesma regra do Dashboard).
+  let resolvedCampaignIds = p.campaignIds
+    ? [...new Set(p.campaignIds.map(String))]
+    : null;
+  if (!resolvedCampaignIds) {
+    let q = supabase.from("campaigns").select("campaign_id");
+    if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
+    const { data } = await q.limit(20000);
+    resolvedCampaignIds = [
+      ...new Set((data ?? []).map((r: any) => String(r.campaign_id)).filter(Boolean)),
+    ];
+  }
+  if (!resolvedCampaignIds || resolvedCampaignIds.length === 0) {
+    return empty(p, allowedAccountIds, warnings);
+  }
+
+  // 3) daily_metrics — mesma fonte usada pela Dashboard (custo + receita).
+  type DRow = {
+    campaign_id: string;
+    date: string;
+    google_account_id: string | null;
+    spend: number;
+    revenue: number;
+    clicks: number;
+    conversions: number;
+    impressions: number;
+  };
   const dailyRows: DRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
     let start = 0;
     for (;;) {
-      let q = supabase.from("daily_metrics")
-        .select("campaign_id, date, spend, revenue, profit")
+      let q = supabase
+        .from("daily_metrics")
+        .select("campaign_id, date, google_account_id, spend, revenue, clicks, conversions, impressions")
         .in("campaign_id", chunk)
-        .gte("date", p.from).lte("date", p.to);
+        .gte("date", p.from)
+        .lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
       const { data, error } = await q.range(start, start + 999);
       if (error) break;
@@ -130,82 +143,56 @@ export async function computeCountryPerformanceClient(
     }
   }
 
-  type GRow = { campaign_id: string; date: string; site_id: string | null; revenue_usd: number };
-  const gamRows: GRow[] = [];
+  // 4) campaign_country_metrics — só a dimensão país (custos aqui NÃO são a fonte).
+  type CRow = {
+    campaign_id: string;
+    date: string;
+    country_code: string;
+    country_name: string | null;
+    country_criterion_id: string | null;
+    google_account_id: string | null;
+    cost: number;
+    clicks: number;
+    impressions: number;
+    conversions: number;
+  };
+  const countryRows: CRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
     let start = 0;
     for (;;) {
-      const { data, error } = await supabase.from("gam_placement_revenue")
-        .select("campaign_id, date, site_id, revenue_usd")
+      let q = supabase
+        .from("campaign_country_metrics")
+        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
         .in("campaign_id", chunk)
-        .neq("campaign_id", "__aggregate__")
-        .gte("date", p.from).lte("date", p.to)
-        .range(start, start + 999);
+        .gte("date", p.from)
+        .lte("date", p.to);
+      if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
+      const { data, error } = await q.range(start, start + 999);
       if (error) break;
-      const rows = (data ?? []) as GRow[];
-      gamRows.push(...rows);
+      const rows = (data ?? []) as CRow[];
+      countryRows.push(...rows);
       if (rows.length < 1000) break;
       start += 1000;
     }
   }
 
-  const dailyByCD = new Map<string, { spend: number; revenue: number; profit: number; grossRevenueBrl: number }>();
+  // 5) Índices auxiliares.
+  const dailyByCD = new Map<string, DRow>();
   for (const r of dailyRows) {
     const k = `${r.campaign_id}|${r.date}`;
-    const acc = dailyByCD.get(k) ?? { spend: 0, revenue: 0, profit: 0, grossRevenueBrl: 0 };
-    acc.spend += Number(r.spend) || 0;
-    acc.revenue += Number(r.revenue) || 0;
-    acc.profit += Number(r.profit) || 0;
-    acc.grossRevenueBrl += (Number(r.profit) || 0) + (Number(r.spend) || 0);
-    dailyByCD.set(k, acc);
-  }
-
-  const gamTotalByCD = new Map<string, number>();
-  const gamSiteByCD = new Map<string, number>();
-  const campaignsInGam = new Set<string>();
-  const gamSitesByCampaign = new Map<string, Set<string>>();
-  for (const r of gamRows) {
-    if (!r.site_id) continue;
-    const campaignId = String(r.campaign_id);
-    campaignsInGam.add(campaignId);
-    const sites = gamSitesByCampaign.get(campaignId) ?? new Set<string>();
-    sites.add(String(r.site_id));
-    gamSitesByCampaign.set(campaignId, sites);
-    const k = `${r.campaign_id}|${r.date}`;
-    const v = Number(r.revenue_usd) || 0;
-    gamTotalByCD.set(k, (gamTotalByCD.get(k) ?? 0) + v);
-    if (p.siteId && String(r.site_id) === p.siteId) {
-      gamSiteByCD.set(k, (gamSiteByCD.get(k) ?? 0) + v);
+    const prev = dailyByCD.get(k);
+    if (!prev) {
+      dailyByCD.set(k, { ...r });
+    } else {
+      prev.spend += Number(r.spend) || 0;
+      prev.revenue += Number(r.revenue) || 0;
+      prev.clicks += Number(r.clicks) || 0;
+      prev.conversions += Number(r.conversions) || 0;
+      prev.impressions += Number(r.impressions) || 0;
     }
   }
 
-  const gamTotalByCampaign = new Map<string, number>();
-  const gamSiteByCampaign = new Map<string, number>();
-  for (const [k, total] of gamTotalByCD) {
-    const [campaignId] = k.split("|");
-    gamTotalByCampaign.set(campaignId, (gamTotalByCampaign.get(campaignId) ?? 0) + total);
-  }
-  for (const [k, site] of gamSiteByCD) {
-    const [campaignId] = k.split("|");
-    gamSiteByCampaign.set(campaignId, (gamSiteByCampaign.get(campaignId) ?? 0) + site);
-  }
-
-  const siteFactor = (campaignId: string, date: string): number => {
-    if (!p.siteId) return 1;
-    if (!campaignsInGam.has(campaignId)) return 1;
-    if ((gamSitesByCampaign.get(campaignId)?.size ?? 0) <= 1) return 1;
-    const periodTotal = gamTotalByCampaign.get(campaignId) ?? 0;
-    if (periodTotal > 0) {
-      const periodSite = gamSiteByCampaign.get(campaignId) ?? 0;
-      return Math.min(1, Math.max(0, periodSite / periodTotal));
-    }
-    const k = `${campaignId}|${date}`;
-    const total = gamTotalByCD.get(k) ?? 0;
-    if (total <= 0) return 0;
-    const site = gamSiteByCD.get(k) ?? 0;
-    return Math.min(1, Math.max(0, site / total));
-  };
-
+  // Totais por campanha/dia dentro do country_metrics (para calcular share intra-campanha).
   const totalsByCD = new Map<string, { impr: number; clicks: number; conv: number; cost: number }>();
   for (const r of countryRows) {
     const k = `${r.campaign_id}|${r.date}`;
@@ -218,108 +205,194 @@ export async function computeCountryPerformanceClient(
   }
 
   const cells = new Map<string, ClientCountryCell>();
-  const cellAccum = new Map<string, { shareSum: number; shareCount: number; sfWeight: number; sfTotal: number }>();
+  const cellShareAcc = new Map<string, { sum: number; count: number }>();
 
-  for (const r of countryRows) {
-    const k = `${r.campaign_id}|${r.country_code}`;
-    let cell = cells.get(k);
-    if (!cell) {
-      cell = {
-        campaign_id: r.campaign_id,
-        google_account_id: r.google_account_id,
-        country_code: r.country_code,
-        country_name: r.country_name ?? r.country_code,
-        country_criterion_id: r.country_criterion_id,
-        cost_brl: 0, revenue_brl: 0, revenue_gross_usd: 0,
-        clicks: 0, impressions: 0, conversions: 0,
-        share_method: "none", share_pct: 0, site_factor_avg: 0,
+  const ensureCell = (
+    campaign_id: string,
+    country_code: string,
+    country_name: string,
+    country_criterion_id: string | null,
+    google_account_id: string | null,
+  ): ClientCountryCell => {
+    const key = `${campaign_id}|${country_code}`;
+    let c = cells.get(key);
+    if (!c) {
+      c = {
+        campaign_id,
+        google_account_id,
+        country_code,
+        country_name,
+        country_criterion_id,
+        cost_brl: 0,
+        revenue_brl: 0,
+        revenue_gross_usd: 0,
+        clicks: 0,
+        impressions: 0,
+        conversions: 0,
+        share_method: "none",
+        share_pct: 0,
+        site_factor_avg: 1,
       };
-      cells.set(k, cell);
-      cellAccum.set(k, { shareSum: 0, shareCount: 0, sfWeight: 0, sfTotal: 0 });
+      cells.set(key, c);
+      cellShareAcc.set(key, { sum: 0, count: 0 });
     }
-    const acc = cellAccum.get(k)!;
+    return c;
+  };
 
-    const cost = Number(r.cost) || 0;
-    const clicks = Number(r.clicks) || 0;
-    const impr = Number(r.impressions) || 0;
-    const conv = Number(r.conversions) || 0;
-
-    cell.cost_brl += cost;
-    cell.clicks += clicks;
-    cell.impressions += impr;
-    cell.conversions += conv;
-    if (!cell.country_criterion_id && r.country_criterion_id) cell.country_criterion_id = r.country_criterion_id;
-    if (!cell.google_account_id && r.google_account_id) cell.google_account_id = r.google_account_id;
-
-    const cd = `${r.campaign_id}|${r.date}`;
+  // 6) Distribui custo + receita da Dashboard (daily_metrics) por país
+  //    usando share intra-campanha (impressões Ads → fallback clicks→conv→cost).
+  for (const [cd, daily] of dailyByCD) {
+    const [campaign_id, date] = cd.split("|");
+    const rows = countryRows.filter((r) => r.campaign_id === campaign_id && r.date === date);
     const totals = totalsByCD.get(cd);
-    const daily = dailyByCD.get(cd);
-    if (!totals || !daily || daily.grossRevenueBrl <= 0) continue;
 
-    let share = 0;
+    const cost = Number(daily.spend) || 0;
+    const revenue = Number(daily.revenue) || 0;
+    const revenueNet = revenue * p.netFactor;
+
+    if (!rows.length || !totals) {
+      // Sem país cadastrado nesse dia — cai no bucket Desconhecido para
+      // preservar Σ países = Dashboard.
+      const cell = ensureCell(campaign_id, UNKNOWN_CODE, UNKNOWN_NAME, null, daily.google_account_id);
+      cell.cost_brl += cost;
+      cell.revenue_gross_usd += revenue;
+      cell.revenue_brl += revenueNet;
+      cell.clicks += Number(daily.clicks) || 0;
+      cell.impressions += Number(daily.impressions) || 0;
+      cell.conversions += Number(daily.conversions) || 0;
+      cell.share_method = "unknown";
+      continue;
+    }
+
     let method: ClientCountryCell["share_method"] = "none";
-    if (totals.impr > 0)        { share = impr   / totals.impr;   method = "impressions"; }
-    else if (totals.clicks > 0) { share = clicks / totals.clicks; method = "clicks"; }
-    else if (totals.conv > 0)   { share = conv   / totals.conv;   method = "conversions"; }
-    else if (totals.cost > 0)   { share = cost   / totals.cost;   method = "cost"; }
-    if (share <= 0) continue;
+    let denom = 0;
+    if (totals.impr > 0)        { method = "impressions"; denom = totals.impr; }
+    else if (totals.clicks > 0) { method = "clicks";      denom = totals.clicks; }
+    else if (totals.conv > 0)   { method = "conversions"; denom = totals.conv; }
+    else if (totals.cost > 0)   { method = "cost";        denom = totals.cost; }
 
-    const sf = siteFactor(r.campaign_id, r.date);
-    if (sf <= 0) continue;
+    if (denom <= 0) {
+      // Nenhuma métrica de país útil — vai para "??"
+      const cell = ensureCell(campaign_id, UNKNOWN_CODE, UNKNOWN_NAME, null, daily.google_account_id);
+      cell.cost_brl += cost;
+      cell.revenue_gross_usd += revenue;
+      cell.revenue_brl += revenueNet;
+      cell.share_method = "unknown";
+      continue;
+    }
 
-    const grossUsd = daily.revenue * sf * share;
-    const grossBrl = daily.grossRevenueBrl * sf * share;
-    cell.revenue_gross_usd += grossUsd;
-    cell.revenue_brl += grossBrl * p.netFactor;
-    if (cell.share_method === "none") cell.share_method = method;
+    for (const r of rows) {
+      const key = `${r.campaign_id}|${r.country_code}`;
+      const cell = ensureCell(
+        r.campaign_id,
+        r.country_code,
+        r.country_name ?? r.country_code,
+        r.country_criterion_id,
+        r.google_account_id ?? daily.google_account_id,
+      );
 
-    acc.shareSum += share; acc.shareCount += 1;
-    acc.sfTotal += sf * share; acc.sfWeight += share;
+      const impr = Number(r.impressions) || 0;
+      const clicks = Number(r.clicks) || 0;
+      const conv = Number(r.conversions) || 0;
+      const rc = Number(r.cost) || 0;
+
+      const shareValue =
+        method === "impressions" ? impr :
+        method === "clicks"      ? clicks :
+        method === "conversions" ? conv :
+                                   rc;
+      const share = denom > 0 ? shareValue / denom : 0;
+      if (share <= 0) continue;
+
+      cell.cost_brl += cost * share;
+      cell.revenue_gross_usd += revenue * share;
+      cell.revenue_brl += revenueNet * share;
+      cell.clicks += clicks;
+      cell.impressions += impr;
+      cell.conversions += conv;
+      if (!cell.country_criterion_id && r.country_criterion_id) cell.country_criterion_id = r.country_criterion_id;
+      if (cell.share_method === "none") cell.share_method = method;
+
+      const acc = cellShareAcc.get(key)!;
+      acc.sum += share;
+      acc.count += 1;
+    }
   }
 
   for (const [k, cell] of cells) {
-    const acc = cellAccum.get(k)!;
-    cell.share_pct = acc.shareCount > 0 ? (acc.shareSum / acc.shareCount) * 100 : 0;
-    cell.site_factor_avg = acc.sfWeight > 0 ? acc.sfTotal / acc.sfWeight : (p.siteId ? 0 : 1);
+    const acc = cellShareAcc.get(k);
+    cell.share_pct = acc && acc.count > 0 ? (acc.sum / acc.count) * 100 : 0;
+    cell.site_factor_avg = 1;
   }
 
+  // 7) Totais por campanha (para debug/validação).
   const campaignTotals = new Map<string, ClientCampaignTotals>();
   for (const cell of cells.values()) {
     let t = campaignTotals.get(cell.campaign_id);
     if (!t) {
       t = {
         campaign_id: cell.campaign_id,
-        cost_brl: 0, revenue_brl_net: 0, countries: new Set(),
-        daily_cost_brl: 0, daily_revenue_usd: 0, site_revenue_usd: 0, site_revenue_brl_gross: 0,
+        cost_brl: 0,
+        revenue_brl_net: 0,
+        countries: new Set(),
+        daily_cost_brl: 0,
+        daily_revenue_usd: 0,
+        site_revenue_usd: 0,
+        site_revenue_brl_gross: 0,
       };
       campaignTotals.set(cell.campaign_id, t);
     }
     t.cost_brl += cell.cost_brl;
     t.revenue_brl_net += cell.revenue_brl;
-    if (cell.country_code) t.countries.add(cell.country_code);
+    if (cell.country_code && cell.country_code !== UNKNOWN_CODE) t.countries.add(cell.country_code);
   }
   for (const [k, v] of dailyByCD) {
-    const [campaign_id, date] = k.split("|");
+    const [campaign_id] = k.split("|");
     const t = campaignTotals.get(campaign_id);
     if (!t) continue;
-    t.daily_cost_brl += v.spend;
-    t.daily_revenue_usd += v.revenue;
-    const sf = siteFactor(campaign_id, date);
-    t.site_revenue_usd += v.revenue * sf;
-    t.site_revenue_brl_gross += v.grossRevenueBrl * sf;
+    t.daily_cost_brl += Number(v.spend) || 0;
+    t.daily_revenue_usd += Number(v.revenue) || 0;
+    t.site_revenue_usd += Number(v.revenue) || 0;
+    t.site_revenue_brl_gross += Number(v.revenue) || 0;
   }
 
+  // Sanity check: cada campanha com receita > 0 tem cells cobrindo 100% do valor.
   for (const t of campaignTotals.values()) {
-    if (t.daily_cost_brl > 0 && Math.abs(t.cost_brl - t.daily_cost_brl) / t.daily_cost_brl > 0.10) {
-      warnings.push(`campaign ${t.campaign_id}: custo país (R$${t.cost_brl.toFixed(2)}) difere de daily_metrics (R$${t.daily_cost_brl.toFixed(2)}) em mais de 10%`);
+    const expectedNet = t.daily_revenue_usd * p.netFactor;
+    if (expectedNet > 0 && Math.abs(t.revenue_brl_net - expectedNet) / expectedNet > 0.001) {
+      warnings.push(
+        `Campanha ${t.campaign_id}: soma de países (${t.revenue_brl_net.toFixed(2)}) difere do total Dashboard (${expectedNet.toFixed(2)}).`,
+      );
     }
   }
 
   return {
-    cells, campaignTotals, warnings,
+    cells,
+    campaignTotals,
+    warnings,
     meta: {
-      period: { from: p.from, to: p.to }, site_id: p.siteId,
-      account_ids: allowedAccountIds, campaign_count: resolvedCampaignIds.length,
+      period: { from: p.from, to: p.to },
+      site_id: p.siteId,
+      account_ids: allowedAccountIds,
+      campaign_count: resolvedCampaignIds.length,
+    },
+  };
+}
+
+function empty(
+  p: ClientCountryEngineParams,
+  accIds: string[] | null,
+  warnings: string[],
+): ClientCountryEngineResult {
+  return {
+    cells: new Map(),
+    campaignTotals: new Map(),
+    warnings,
+    meta: {
+      period: { from: p.from, to: p.to },
+      site_id: p.siteId,
+      account_ids: accIds,
+      campaign_count: 0,
     },
   };
 }
