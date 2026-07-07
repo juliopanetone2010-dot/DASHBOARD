@@ -269,10 +269,25 @@ export function CountriesTab({ fxUsdBrl }: Props) {
   const sortedCountries = useMemo(() => [...byCountry].sort(sortFn), [byCountry, sort]);
   const sortedCampaigns = useMemo(() => [...byCampaign].sort(sortFn), [byCampaign, sort]);
 
-  const totalCost = sortedCountries.reduce((a, c) => a + c.cost, 0);
-  const totalRev = sortedCountries.reduce((a, c) => a + c.revenue_brl, 0);
+  // Totais das badges usam EXATAMENTE as células que estão visíveis (respeita exclusões),
+  // para bater 1:1 com a soma das linhas da tabela.
+  const visibleTotals = useMemo(() => {
+    let cost = 0, rev = 0, clicks = 0, impressions = 0;
+    for (const cell of countryRows) {
+      const key = `${cell.campaign_id}|${cell.country_code}`;
+      if (excludedKeys.has(key)) continue;
+      cost += Number(cell.cost_brl) || 0;
+      rev += Number(cell.revenue_brl) || 0;
+      clicks += Number(cell.clicks) || 0;
+      impressions += Number(cell.impressions) || 0;
+    }
+    return { cost, rev, clicks, impressions };
+  }, [countryRows, excludedKeys]);
+  const totalCost = visibleTotals.cost;
+  const totalRev = visibleTotals.rev;
   const totalProfit = totalRev - totalCost;
   const totalRoi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+
 
   const handleExclude = async (campaignId: string, criterionId: string | null, countryName: string, countryCode: string) => {
     if (!criterionId) {
