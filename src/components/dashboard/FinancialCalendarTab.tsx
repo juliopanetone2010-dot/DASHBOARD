@@ -295,6 +295,28 @@ export function FinancialCalendarTab() {
           </div>
         </CardHeader>
         <CardContent>
+          {progress && (
+            <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-semibold">
+                  {progress.done < progress.total ? "Atualizando calendário…" : "Atualização concluída."}
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  Dia {String(progress.done).padStart(2, "0")}/{String(progress.total).padStart(2, "0")}
+                  {progress.done < progress.total && (
+                    <span className="ml-2 font-mono">({progress.currentDate})</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-200"
+                  style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {snapshotsQuery.isLoading ? (
             <div className="py-8 text-center text-muted-foreground text-sm">Carregando…</div>
           ) : rows.length === 0 ? (
