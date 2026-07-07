@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,7 @@ export function FinancialCalendarTab() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
   const [regenerating, setRegenerating] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; currentDate: string } | null>(null);
 
   const monthStart = useMemo(() => `${year}-${String(month).padStart(2, "0")}-01`, [year, month]);
   const monthEnd = useMemo(() => {
@@ -90,9 +91,8 @@ export function FinancialCalendarTab() {
       return (data ?? []) as unknown as Snapshot[];
     },
     staleTime: 0,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     refetchOnMount: "always",
-    refetchInterval: 60_000,
   });
 
   const siteMetricsQuery = useQuery({
@@ -139,97 +139,80 @@ export function FinancialCalendarTab() {
   const regenerate = async (date: string) => {
     if (filters.siteId === "all") return;
     setRegenerating(true);
+    setProgress({ done: 0, total: 1, currentDate: date });
     try {
       const { error } = await supabase.functions.invoke("generate-daily-snapshot", {
         body: { date, site_id: filters.siteId, force: true },
       });
       if (error) throw error;
+      setProgress({ done: 1, total: 1, currentDate: date });
+      await snapshotsQuery.refetch();
       toast({ title: "Snapshot regenerado", description: date });
-      snapshotsQuery.refetch();
     } catch (e: any) {
       toast({ title: "Erro", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
       setRegenerating(false);
+      setTimeout(() => setProgress(null), 800);
     }
   };
 
-  const regenerateMonth = async (opts?: { silent?: boolean; onlyMissing?: boolean }) => {
+  const regenerateMonth = async () => {
     if (filters.siteId === "all") return;
-    const silent = !!opts?.silent;
-    const onlyMissing = !!opts?.onlyMissing;
-    if (!silent) setRegenerating(true);
+    setRegenerating(true);
     try {
       const start = parseISODateLocal(monthStart);
       const end = parseISODateLocal(monthEnd);
       const todayStr = todayBRT();
-      const existing = new Set((snapshotsQuery.data ?? []).map((r) => r.date));
       const dates: string[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const s = isoDateLocal(d);
         if (s >= todayStr) continue;
-        if (onlyMissing && existing.has(s)) continue;
         dates.push(s);
       }
       if (dates.length === 0) {
-        if (!silent) toast({ title: "Nada para regenerar", description: "Mês já completo." });
+        toast({ title: "Nada para regenerar", description: "Mês sem dias fechados." });
         return;
       }
-      // Paraleliza em chunks de 6 para acelerar.
-      const CHUNK = 6;
-      for (let i = 0; i < dates.length; i += CHUNK) {
-        const slice = dates.slice(i, i + CHUNK);
-        await Promise.all(slice.map((date) =>
-          supabase.functions.invoke("generate-daily-snapshot", {
+
+      setProgress({ done: 0, total: dates.length, currentDate: dates[0] });
+
+      // SÉRIE — um dia por vez para evitar quota GAM/Ads e garantir
+      // que a UI só re-renderize APÓS TODOS os dias terminarem.
+      let failures = 0;
+      for (let i = 0; i < dates.length; i++) {
+        const date = dates[i];
+        setProgress({ done: i, total: dates.length, currentDate: date });
+        try {
+          const { error } = await supabase.functions.invoke("generate-daily-snapshot", {
             body: { date, site_id: filters.siteId, force: true },
-          }).catch(() => null),
-        ));
-        snapshotsQuery.refetch();
+          });
+          if (error) failures++;
+        } catch {
+          failures++;
+        }
       }
-      if (!silent) toast({ title: "Mês atualizado", description: `${dates.length} dia(s)` });
-      snapshotsQuery.refetch();
+      setProgress({ done: dates.length, total: dates.length, currentDate: dates[dates.length - 1] });
+
+      // Só agora recarrega a grade — sem re-renders parciais durante o loop.
+      await snapshotsQuery.refetch();
+      await siteMetricsQuery.refetch();
+
+      toast({
+        title: "Atualização concluída",
+        description: failures === 0
+          ? `${dates.length} dia(s) regenerados.`
+          : `${dates.length - failures} de ${dates.length} dia(s) atualizados. ${failures} falharam.`,
+        variant: failures > 0 && failures === dates.length ? "destructive" : "default",
+      });
     } catch (e: any) {
-      if (!silent) toast({ title: "Erro", description: String(e?.message ?? e), variant: "destructive" });
+      toast({ title: "Erro", description: String(e?.message ?? e), variant: "destructive" });
     } finally {
-      if (!silent) setRegenerating(false);
+      setRegenerating(false);
+      setTimeout(() => setProgress(null), 1200);
     }
   };
 
-  // Quando troca de site ou de mês, dispara em background a correção dos dias que
-  // faltam OU que ficaram com receita/impressões antigas no calendário.
-  const autoFillRef = useRef<string>("");
-  useEffect(() => {
-    if (filters.siteId === "all") return;
-    if (snapshotsQuery.isLoading) return;
-    if (siteMetricsQuery.isLoading) return;
-    const key = `${filters.siteId}|${monthStart}|${snapshotsQuery.data?.length ?? 0}|${siteMetricsQuery.data?.length ?? 0}`;
-    if (autoFillRef.current === key) return;
-    autoFillRef.current = key;
-    const todayStr = todayBRT();
-    const snapshotsByDate = new Map((snapshotsQuery.data ?? []).map((r) => [r.date, r]));
-    const staleDates: string[] = [];
-    for (const metric of siteMetricsQuery.data ?? []) {
-      if (metric.date >= todayStr) continue;
-      const snap = snapshotsByDate.get(metric.date);
-      const revenueDiff = Math.abs(Number(snap?.gross_revenue ?? 0) - Number(metric.revenue_native ?? 0));
-      const impressionsDiff = Math.abs(Number(snap?.impressions ?? 0) - Number(metric.impressions ?? 0));
-      if (!snap || revenueDiff > 1 || impressionsDiff > 10) staleDates.push(metric.date);
-    }
-    if (staleDates.length > 0) {
-      void (async () => {
-        const CHUNK = 4;
-        for (let i = 0; i < staleDates.length; i += CHUNK) {
-          const slice = staleDates.slice(i, i + CHUNK);
-          await Promise.all(slice.map((date) =>
-            supabase.functions.invoke("generate-daily-snapshot", {
-              body: { date, site_id: filters.siteId, force: true, skip_gam_sync: true },
-            }).catch(() => null),
-          ));
-        }
-        await snapshotsQuery.refetch();
-      })();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.siteId, monthStart, monthEnd, snapshotsQuery.isLoading, siteMetricsQuery.isLoading]);
+
 
 
   const exportCsv = () => {
@@ -284,8 +267,9 @@ export function FinancialCalendarTab() {
                 <CalendarDays className="h-5 w-5" /> Calendário Financeiro
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Snapshots imutáveis fechados às 04:00 BRT do dia seguinte. Valores não recalculam.
+                Regenera dia a dia (Google Ads + GAM) e só atualiza a grade quando todos os dias terminam.
               </p>
+
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
@@ -311,6 +295,28 @@ export function FinancialCalendarTab() {
           </div>
         </CardHeader>
         <CardContent>
+          {progress && (
+            <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-semibold">
+                  {progress.done < progress.total ? "Atualizando calendário…" : "Atualização concluída."}
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  Dia {String(progress.done).padStart(2, "0")}/{String(progress.total).padStart(2, "0")}
+                  {progress.done < progress.total && (
+                    <span className="ml-2 font-mono">({progress.currentDate})</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-200"
+                  style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {snapshotsQuery.isLoading ? (
             <div className="py-8 text-center text-muted-foreground text-sm">Carregando…</div>
           ) : rows.length === 0 ? (
