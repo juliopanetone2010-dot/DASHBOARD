@@ -365,9 +365,11 @@ export function CountriesTab({ fxUsdBrl }: Props) {
           <div className="flex-1 min-w-[260px]">
             <div className="text-sm font-semibold">Performance por país</div>
             <div className="text-xs text-muted-foreground">
-              Custo do Google Ads por país. Receita líquida usa a mesma base BRL da dashboard,
-              com fator do site e distribuição por impressões (fallback: cliques → conversões → custo).
+              Mesma fonte da Dashboard (Google Ads × GAM cruzados por campaign_id). A receita da
+              campanha é dividida entre os países pela participação de impressões dentro da própria
+              campanha. Sem país cadastrado → "?? Desconhecido" (soma sempre bate com a Dashboard).
             </div>
+
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant={showDebug ? "default" : "outline"} onClick={() => setShowDebug((s) => !s)}>
