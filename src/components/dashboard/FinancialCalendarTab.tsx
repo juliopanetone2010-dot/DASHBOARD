@@ -267,8 +267,9 @@ export function FinancialCalendarTab() {
                 <CalendarDays className="h-5 w-5" /> Calendário Financeiro
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Snapshots imutáveis fechados às 04:00 BRT do dia seguinte. Valores não recalculam.
+                Regenera dia a dia (Google Ads + GAM) e só atualiza a grade quando todos os dias terminam.
               </p>
+
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
