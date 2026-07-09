@@ -117,6 +117,7 @@ export async function computeCountryPerformanceClient(
 
   // 3) daily_metrics — mesma fonte usada pela Dashboard (custo + receita).
   type DRow = {
+    id?: string;
     campaign_id: string;
     date: string;
     google_account_id: string | null;
@@ -131,18 +132,19 @@ export async function computeCountryPerformanceClient(
     const rows = await fetchAllRows<DRow>(() => {
       let q = supabase
         .from("daily_metrics")
-        .select("campaign_id, date, google_account_id, spend, revenue, clicks, conversions, impressions")
+        .select("id, campaign_id, date, google_account_id, spend, revenue, clicks, conversions, impressions")
         .in("campaign_id", chunk)
         .gte("date", p.from)
         .lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true });
+      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true }).order("id", { ascending: true });
     });
     dailyRows.push(...rows);
   }
 
   // 4) campaign_country_metrics — só a dimensão país (custos aqui NÃO são a fonte).
   type CRow = {
+    id?: string;
     campaign_id: string;
     date: string;
     country_code: string;
@@ -159,12 +161,12 @@ export async function computeCountryPerformanceClient(
     const rows = await fetchAllRows<CRow>(() => {
       let q = supabase
         .from("campaign_country_metrics")
-        .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
+        .select("id, campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
         .in("campaign_id", chunk)
         .gte("date", p.from)
         .lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true });
+      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true }).order("id", { ascending: true });
     });
     countryRows.push(...rows);
   }
