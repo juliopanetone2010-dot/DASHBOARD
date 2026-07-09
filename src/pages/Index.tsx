@@ -789,9 +789,6 @@ const IndexInner = () => {
   const profitPositive = totals.profit >= 0;
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
-  const selectedSite = filters.siteId !== "all"
-    ? data.sites.find((s) => s.id === filters.siteId)
-    : null;
   const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
   const extraPushDisplay = isBrlSite ? (extraPushUsd * NET_FACTOR) * usdBrl : extraPushUsd * NET_FACTOR;
   const extraOtherDisplay = isBrlSite ? (extraOtherUsd * NET_FACTOR) * usdBrl : extraOtherUsd * NET_FACTOR;
