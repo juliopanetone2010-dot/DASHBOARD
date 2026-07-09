@@ -62,6 +62,23 @@ const IndexInner = () => {
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
+  const selectedSite = filters.siteId !== "all"
+    ? data.sites.find((s) => s.id === filters.siteId)
+    : null;
+  const linkedAccountIdsForSelectedSite = useMemo(
+    () => filters.siteId === "all"
+      ? []
+      : data.links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id),
+    [data.links, filters.siteId],
+  );
+  const accountSelectionCoversSelectedSite = filters.siteId !== "all"
+    && linkedAccountIdsForSelectedSite.length > 0
+    && filters.googleAccountIds.length === linkedAccountIdsForSelectedSite.length
+    && linkedAccountIdsForSelectedSite.every((id) => filters.googleAccountIds.includes(id));
+  const accountFilterIsRestrictive = filters.googleAccountIds.length > 0
+    && !(filters.siteId !== "all" && accountSelectionCoversSelectedSite);
+  const campaignFilterIsRestrictive = filters.campaignId !== "all";
+  const canUseRealGamTotals = !accountFilterIsRestrictive && !campaignFilterIsRestrictive;
 
   const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
@@ -230,7 +247,7 @@ const IndexInner = () => {
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
   const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
-    queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
+    queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase.from("site_metrics_daily")
@@ -247,6 +264,7 @@ const IndexInner = () => {
       }, { byCurrency: {} as Record<string, number>, impressions: 0 });
       return totals;
     },
+    enabled: canUseRealGamTotals,
     staleTime: 30_000,
     refetchInterval: 5 * 60_000,
   });
