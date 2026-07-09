@@ -229,7 +229,7 @@ const IndexInner = () => {
 
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
-  const siteRealRevenueQuery = useQuery({
+  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
     queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => {
