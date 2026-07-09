@@ -845,9 +845,10 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6">
+      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6 pb-[env(safe-area-inset-bottom)]">
         <Tabs defaultValue="dashboard">
-          <TabsList>
+          <div className="-mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="w-max md:w-auto flex-nowrap">
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
             </TabsTrigger>
