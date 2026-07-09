@@ -283,8 +283,9 @@ const IndexInner = () => {
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => supabase
-        .from("gam_placement_revenue")
+        .from("gam_campaign_source_revenue")
         .select("campaign_id, site_id, revenue_usd, date")
+        .eq("utm_source", "google")
         .not("site_id", "is", null)
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
