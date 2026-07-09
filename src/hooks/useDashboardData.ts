@@ -399,7 +399,7 @@ export function useDashboardData(): DashboardData {
     };
 
     const buildMetricsQuery = () => applyAccountFilter(
-      supabase
+      (supabase as any)
         .from("daily_metrics")
         .select("*")
         .gte("date", fetchRange.from)
@@ -407,11 +407,11 @@ export function useDashboardData(): DashboardData {
     ).order("date", { ascending: false });
 
     const buildCampaignsQuery = () => applyAccountFilter(
-      supabase.from("campaigns").select("*"),
+      (supabase as any).from("campaigns").select("*"),
     ).order("name");
 
     const buildPlacementsQuery = () => {
-      let q = supabase.from("placements").select("*")
+      let q = (supabase as any).from("placements").select("*")
         .gte("date", fetchRange.from)
         .lte("date", fetchRange.to)
         .order("date", { ascending: false });
