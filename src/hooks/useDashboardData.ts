@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabasePagination";
 import type { DataReadiness, EngineAlertDraft } from "@/engine/rules";
 import type {
   AccountSiteLink,
@@ -52,6 +53,7 @@ export interface DashboardData {
 
 const GUEST_USER_ID = "guest";
 const GUEST_STORE_KEY = "arbitrage-dashboard-guest-v2";
+const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
 
 export const DASHBOARD_QK = ["dashboard"] as const;
 
@@ -267,11 +269,14 @@ const isoDate = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-const makeFetchRange = (): { from: string; to: string } => {
+const makeFetchRange = (fromFilter?: string, toFilter?: string): { from: string; to: string } => {
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - FETCH_WINDOW_DAYS);
-  return { from: isoDate(from), to: isoDate(to) };
+  return {
+    from: fromFilter || isoDate(from),
+    to: toFilter || isoDate(to),
+  };
 };
 
 interface SyncStateRow {
@@ -334,23 +339,19 @@ const emptySnapshot = (): DashboardSnapshot => ({
 
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
-  // `range` (date filter) is not destructured here anymore: it now affects
-  // only the client-side narrowing in Index.tsx, not the server fetch.
   const { filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
 
-  // queryKey deliberately does NOT include the user's date filter (range.*).
-  // We always fetch the broad FETCH_WINDOW_DAYS window so that date-preset
-  // switches are served from cache. Account/site filters do change the result
-  // set materially, so they stay in the key.
+  // Inclui o período no cache: quando o usuário escolhe um intervalo maior/antigo,
+  // buscamos exatamente esse intervalo em vez de ficar preso aos últimos 60 dias.
   const queryKey = useMemo(
-    () => [...DASHBOARD_QK, user?.id ?? "guest", filters.googleAccountIds.join("|"), filters.siteId],
-    [user?.id, filters.googleAccountIds, filters.siteId],
+    () => [...DASHBOARD_QK, user?.id ?? "guest", filters.googleAccountIds.join("|"), filters.siteId, filters.fromDate, filters.toDate],
+    [user?.id, filters.googleAccountIds, filters.siteId, filters.fromDate, filters.toDate],
   );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
-    const fetchRange = makeFetchRange();
+    const fetchRange = makeFetchRange(filters.fromDate, filters.toDate);
     if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: fetchRange.from, to: fetchRange.to, windowDays: FETCH_WINDOW_DAYS });
 
     if (!user) {
@@ -389,35 +390,39 @@ export function useDashboardData(): DashboardData {
       });
     }
 
-    let metricsQuery = supabase
-      .from("daily_metrics")
-      .select("*")
-      .gte("date", fetchRange.from)
-      .lte("date", fetchRange.to);
-    let campaignsQuery = supabase.from("campaigns").select("*").order("name");
-
-    if (effectiveAccountIds) {
+    const applyAccountFilter = (q: any): any => {
+      if (!effectiveAccountIds) return q;
       // Se filtro de site retornou zero contas, não mostramos nada (em vez de tudo)
-      if (effectiveAccountIds.length === 0) {
-        metricsQuery = metricsQuery.eq("google_account_id", "00000000-0000-0000-0000-000000000000");
-        campaignsQuery = campaignsQuery.eq("google_account_id", "00000000-0000-0000-0000-000000000000");
-      } else {
-        metricsQuery = metricsQuery.in("google_account_id", effectiveAccountIds);
-        campaignsQuery = campaignsQuery.in("google_account_id", effectiveAccountIds);
-      }
-    }
+      if (effectiveAccountIds.length === 0) return q.eq("google_account_id", EMPTY_UUID);
+      return q.in("google_account_id", effectiveAccountIds);
+    };
 
-    let placementsQuery = supabase.from("placements").select("*")
-      .gte("date", fetchRange.from).lte("date", fetchRange.to)
-      .order("date", { ascending: false }).limit(5000);
-    if (siteFilterActive) {
-      placementsQuery = placementsQuery.eq("site_id", filters.siteId);
-    }
+    const buildMetricsQuery = () => applyAccountFilter(
+      (supabase as any)
+        .from("daily_metrics")
+        .select("*")
+        .gte("date", fetchRange.from)
+        .lte("date", fetchRange.to),
+    ).order("date", { ascending: false }).order("id", { ascending: true });
+
+    const buildCampaignsQuery = () => applyAccountFilter(
+      (supabase as any).from("campaigns").select("*"),
+    ).order("name").order("id", { ascending: true });
+
+    const buildPlacementsQuery = () => {
+      let q = (supabase as any).from("placements").select("*")
+        .gte("date", fetchRange.from)
+        .lte("date", fetchRange.to)
+        .order("date", { ascending: false })
+        .order("id", { ascending: true });
+      if (siteFilterActive) q = q.eq("site_id", filters.siteId);
+      return q;
+    };
 
     const [c, m, p, r, a, ga, gam, s, l, syncSt] = await Promise.all([
-      campaignsQuery,
-      metricsQuery.order("date", { ascending: false }).limit(5000),
-      placementsQuery,
+      fetchAllRows<Campaign>(() => buildCampaignsQuery()),
+      fetchAllRows<DailyMetric>(() => buildMetricsQuery()),
+      fetchAllRows<Placement>(() => buildPlacementsQuery()),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("google_accounts").select("*").order("account_name"),
@@ -431,9 +436,9 @@ export function useDashboardData(): DashboardData {
     ]);
 
     return {
-      campaigns: (c.data ?? []) as Campaign[],
-      metrics: (m.data ?? []) as DailyMetric[],
-      placements: (p.data ?? []) as Placement[],
+      campaigns: c as Campaign[],
+      metrics: m as DailyMetric[],
+      placements: p as Placement[],
       rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
       alerts: (a.data ?? []) as DomainAlert[],
       googleAccounts: (ga.data ?? []) as GoogleAccount[],
@@ -443,7 +448,7 @@ export function useDashboardData(): DashboardData {
       dataReadiness: computeReadiness((syncSt.data ?? []) as SyncStateRow[]),
       fetchedAt: Date.now(),
     };
-  }, [user, queryKey, filters.googleAccountIds, filters.siteId]);
+  }, [user, queryKey, filters.googleAccountIds, filters.siteId, filters.fromDate, filters.toDate]);
 
   const query = useQuery<DashboardSnapshot>({
     queryKey,

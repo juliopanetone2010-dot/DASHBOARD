@@ -43,6 +43,7 @@ import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { NET_FACTOR, REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabasePagination";
 
 const Index = () => {
   return (
@@ -61,6 +62,31 @@ const IndexInner = () => {
   const { filters, setFilters, range } = useDashboardFilters();
   const [showDebug, setShowDebug] = useState(false);
   const allSites = useAllSitesOnboarding(!!user);
+  const selectedSite = filters.siteId !== "all"
+    ? data.sites.find((s) => s.id === filters.siteId)
+    : null;
+  const linkedAccountIdsForSelectedSite = useMemo(
+    () => filters.siteId === "all"
+      ? []
+      : data.links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id),
+    [data.links, filters.siteId],
+  );
+  const accountSelectionCoversSelectedSite = filters.siteId !== "all"
+    && linkedAccountIdsForSelectedSite.length > 0
+    && filters.googleAccountIds.length === linkedAccountIdsForSelectedSite.length
+    && linkedAccountIdsForSelectedSite.every((id) => filters.googleAccountIds.includes(id));
+  const accountFilterIsRestrictive = filters.googleAccountIds.length > 0
+    && !(filters.siteId !== "all" && accountSelectionCoversSelectedSite);
+  const campaignFilterIsRestrictive = filters.campaignId !== "all";
+  const canUseRealGamTotals = !accountFilterIsRestrictive && !campaignFilterIsRestrictive;
+  const selectedSiteUsesSharedAccounts = useMemo(() => {
+    if (filters.siteId === "all") return false;
+    const countsByAccount = new Map<string, number>();
+    for (const l of data.links) {
+      countsByAccount.set(l.google_account_id, (countsByAccount.get(l.google_account_id) ?? 0) + 1);
+    }
+    return linkedAccountIdsForSelectedSite.some((id) => (countsByAccount.get(id) ?? 0) > 1);
+  }, [data.links, filters.siteId, linkedAccountIdsForSelectedSite]);
 
   const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
@@ -121,14 +147,15 @@ const IndexInner = () => {
   const extraRevQuery = useQuery({
     queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("utm_source, revenue_usd, date")
-        .gte("date", range.from)
-        .lte("date", range.to);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data: rows, error } = await q.limit(50000);
-      if (error) throw error;
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("id, utm_source, revenue_usd, date")
+          .gte("date", range.from)
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
+      });
       let push = 0, other = 0;
       for (const r of rows ?? []) {
         const usd = Number((r as any).revenue_usd) || 0;
@@ -187,23 +214,19 @@ const IndexInner = () => {
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     queryFn: async () => {
-      let q = supabase
-        .from("site_metrics_daily")
-        .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
-        .gte("date", range.from).lte("date", range.to)
-        .order("date", { ascending: false })
-        .limit(400);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data, error } = await q;
-      if (error) {
-        console.error("[site-metrics-daily] query error", error);
-        throw error;
-      }
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("site_metrics_daily")
+          .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
+          .gte("date", range.from).lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: false }).order("id", { ascending: true });
+      });
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: rows.length, sample: rows[0] });
       }
       const fxForMetrics = fxQuery.data?.rate ?? 5;
-      const totals = (data ?? []).reduce((a, r: any) => {
+      const totals = rows.reduce((a, r: any) => {
         const currency = String(r.currency || "USD").toUpperCase();
         const nativeRevenue = Number(r.revenue_native ?? 0);
         const comparableRevenue = filters.siteId === "all" && currency === "BRL"
@@ -227,17 +250,17 @@ const IndexInner = () => {
 
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
-  const siteRealRevenueQuery = useQuery({
-    queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
+  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
+    queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
-      let q = supabase.from("site_metrics_daily")
-        .select("revenue_native, currency, impressions, site_id")
-        .gte("date", range.from).lte("date", range.to)
-        .limit(5000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data, error } = await q;
-      if (error) throw error;
-      const totals = (data ?? []).reduce((a, r: any) => {
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase.from("site_metrics_daily")
+          .select("id, revenue_native, currency, impressions, site_id")
+          .gte("date", range.from).lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
+      });
+      const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
         a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
         a.impressions += Number(r.impressions ?? 0);
@@ -245,22 +268,25 @@ const IndexInner = () => {
       }, { byCurrency: {} as Record<string, number>, impressions: 0 });
       return totals;
     },
+    enabled: canUseRealGamTotals,
     staleTime: 30_000,
     refetchInterval: 5 * 60_000,
   });
   // Atribuição por site quando uma conta Ads serve N sites:
-  // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
+  // shareByCampaignSite[campaign][site] = % da receita GAM canônica daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
-      const { data: rows } = await supabase
-        .from("gam_placement_revenue")
-        .select("campaign_id, site_id, revenue_usd")
+      const rows = await fetchAllRows<any>(() => supabase
+        .from("gam_campaign_source_revenue")
+        .select("id, campaign_id, site_id, revenue_usd, date")
+        .eq("utm_source", "google")
         .not("site_id", "is", null)
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
-        .limit(50000);
+        .order("date", { ascending: true })
+        .order("id", { ascending: true }));
       const totalByCamp = new Map<string, number>();
       const bySite = new Map<string, Map<string, number>>();
       for (const r of rows ?? []) {
@@ -283,6 +309,7 @@ const IndexInner = () => {
       return share;
     },
     staleTime: 60_000,
+    enabled: selectedSiteUsesSharedAccounts,
   });
 
   // eCPM por campanha vindo do GAM no período exato.
@@ -294,27 +321,16 @@ const IndexInner = () => {
   const campaignGamMetricsQuery = useQuery({
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("campaign_id, revenue_usd, impressions, site_id")
-        .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .limit(50000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const placementQ = (() => {
-        let pq = supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id, revenue_usd, impressions, site_id")
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("id, campaign_id, revenue_usd, impressions, site_id, date")
+          .eq("utm_source", "google")
           .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-        return pq;
-      })();
-      const [{ data: rows, error }, { data: placementRows, error: placementError }] = await Promise.all([q, placementQ]);
-      if (error) throw error;
-      if (placementError) throw placementError;
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
+      });
 
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
@@ -324,7 +340,7 @@ const IndexInner = () => {
         : null;
 
       const map = new Map<string, { revenueUsd: number; impressions: number }>();
-      for (const r of rows ?? []) {
+      for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || cid === "__aggregate__") continue;
         if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
@@ -333,20 +349,6 @@ const IndexInner = () => {
         cur.impressions += Number((r as any).impressions ?? 0);
         map.set(cid, cur);
       }
-      const placementMap = new Map<string, { revenueUsd: number; impressions: number }>();
-      for (const r of placementRows ?? []) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || cid === "__aggregate__") continue;
-        if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        const cur = placementMap.get(cid) ?? { revenueUsd: 0, impressions: 0 };
-        cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
-        cur.impressions += Number((r as any).impressions ?? 0);
-        placementMap.set(cid, cur);
-      }
-      for (const [cid, v] of placementMap) {
-        if (v.impressions > 0) map.set(cid, v);
-      }
-
       const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
       for (const [cid, v] of map) {
         out.set(cid, {
@@ -367,27 +369,16 @@ const IndexInner = () => {
   const campaignMatchRateQuery = useQuery({
     queryKey: ["campaign-match-rate", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("campaign_id, impressions, total_requests, match_rate_pct, site_id")
-        .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .limit(50000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const placementQ = (() => {
-        let pq = supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id, impressions, site_id")
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("id, campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
+          .eq("utm_source", "google")
           .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-        return pq;
-      })();
-      const [{ data: rows, error }, { data: placementRows, error: placementError }] = await Promise.all([q, placementQ]);
-      if (error) throw error;
-      if (placementError) throw placementError;
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
+      });
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
         ? new Set(data.campaigns
@@ -403,7 +394,7 @@ const IndexInner = () => {
         ratedImpressions: number;
         weightedRateSum: number;
       }>();
-      for (const r of rows ?? []) {
+      for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         const impressions = Number((r as any).impressions ?? 0);
@@ -417,17 +408,6 @@ const IndexInner = () => {
           cur.weightedRateSum += exactRatePct * impressions;
         }
         map.set(cid, cur);
-      }
-      const placementImpressions = new Map<string, number>();
-      for (const r of placementRows ?? []) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
-      }
-      for (const [cid, impressions] of placementImpressions) {
-        const cur = map.get(cid);
-        if (cur && (cur.totalRequests > 0 || cur.ratedImpressions > 0)) continue;
-        if (impressions > 0) map.set(cid, { impressions, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0 });
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
       for (const [cid, v] of map) {
@@ -768,9 +748,6 @@ const IndexInner = () => {
   const profitPositive = totals.profit >= 0;
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
-  const selectedSite = filters.siteId !== "all"
-    ? data.sites.find((s) => s.id === filters.siteId)
-    : null;
   const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
   const extraPushDisplay = isBrlSite ? (extraPushUsd * NET_FACTOR) * usdBrl : extraPushUsd * NET_FACTOR;
   const extraOtherDisplay = isBrlSite ? (extraOtherUsd * NET_FACTOR) * usdBrl : extraOtherUsd * NET_FACTOR;
