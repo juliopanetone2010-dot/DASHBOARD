@@ -273,7 +273,7 @@ const IndexInner = () => {
     refetchInterval: 5 * 60_000,
   });
   // Atribuição por site quando uma conta Ads serve N sites:
-  // shareByCampaignSite[campaign][site] = % da receita GAM confirmada por placement daquele campaign que veio do site.
+  // shareByCampaignSite[campaign][site] = % da receita GAM canônica daquele campaign que veio do site.
   // Usado para multiplicar spend / clicks / conv quando filtros.siteId !== "all".
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
