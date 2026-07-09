@@ -4,8 +4,9 @@
 // Regras (fonte da verdade):
 //   • Custo por campanha/dia  = daily_metrics.spend        (Google Ads)
 //   • Receita por campanha/dia = daily_metrics.revenue     (GAM já atribuído
-//                                                           por utm_campaign)
-//   • Receita líquida = revenue * NET_FACTOR (rev share 6,5% aplicado uma vez)
+//                                                           por utm_campaign, USD debug)
+//   • Receita BRL por campanha/dia = daily_metrics.profit + daily_metrics.spend
+//   • Receita líquida BRL = (profit + spend) * NET_FACTOR (rev share 6,5% aplicado uma vez)
 //
 // Cruzamento:
 //   INNER JOIN campanha↔GAM já ocorre a montante (daily_metrics.revenue).
@@ -123,6 +124,7 @@ export async function computeCountryPerformanceClient(
     google_account_id: string | null;
     spend: number;
     revenue: number;
+    profit: number;
     clicks: number;
     conversions: number;
     impressions: number;
@@ -132,7 +134,7 @@ export async function computeCountryPerformanceClient(
     const rows = await fetchAllRows<DRow>(() => {
       let q = supabase
         .from("daily_metrics")
-        .select("id, campaign_id, date, google_account_id, spend, revenue, clicks, conversions, impressions")
+        .select("id, campaign_id, date, google_account_id, spend, revenue, profit, clicks, conversions, impressions")
         .in("campaign_id", chunk)
         .gte("date", p.from)
         .lte("date", p.to);
@@ -181,6 +183,7 @@ export async function computeCountryPerformanceClient(
     } else {
       prev.spend += Number(r.spend) || 0;
       prev.revenue += Number(r.revenue) || 0;
+      prev.profit += Number(r.profit) || 0;
       prev.clicks += Number(r.clicks) || 0;
       prev.conversions += Number(r.conversions) || 0;
       prev.impressions += Number(r.impressions) || 0;
@@ -249,16 +252,17 @@ export async function computeCountryPerformanceClient(
     const totals = totalsByCD.get(cd);
 
     const cost = Number(daily.spend) || 0;
-    const revenue = Number(daily.revenue) || 0;
-    const revenueNet = revenue * p.netFactor;
+    const revenueUsd = Number(daily.revenue) || 0;
+    const revenueGrossBrl = (Number(daily.profit) || 0) + cost;
+    const revenueNetBrl = revenueGrossBrl * p.netFactor;
 
     if (!rows.length || !totals) {
       // Sem país cadastrado nesse dia — cai no bucket Desconhecido para
       // preservar Σ países = Dashboard.
       const cell = ensureCell(campaign_id, UNKNOWN_CODE, UNKNOWN_NAME, null, daily.google_account_id);
       cell.cost_brl += cost;
-      cell.revenue_gross_usd += revenue;
-      cell.revenue_brl += revenueNet;
+      cell.revenue_gross_usd += revenueUsd;
+      cell.revenue_brl += revenueNetBrl;
       cell.clicks += Number(daily.clicks) || 0;
       cell.impressions += Number(daily.impressions) || 0;
       cell.conversions += Number(daily.conversions) || 0;
@@ -277,8 +281,8 @@ export async function computeCountryPerformanceClient(
       // Nenhuma métrica de país útil — vai para "??"
       const cell = ensureCell(campaign_id, UNKNOWN_CODE, UNKNOWN_NAME, null, daily.google_account_id);
       cell.cost_brl += cost;
-      cell.revenue_gross_usd += revenue;
-      cell.revenue_brl += revenueNet;
+      cell.revenue_gross_usd += revenueUsd;
+      cell.revenue_brl += revenueNetBrl;
       cell.share_method = "unknown";
       continue;
     }
@@ -307,8 +311,8 @@ export async function computeCountryPerformanceClient(
       if (share <= 0) continue;
 
       cell.cost_brl += cost * share;
-      cell.revenue_gross_usd += revenue * share;
-      cell.revenue_brl += revenueNet * share;
+      cell.revenue_gross_usd += revenueUsd * share;
+      cell.revenue_brl += revenueNetBrl * share;
       cell.clicks += clicks;
       cell.impressions += impr;
       cell.conversions += conv;
@@ -355,12 +359,12 @@ export async function computeCountryPerformanceClient(
     t.daily_cost_brl += Number(v.spend) || 0;
     t.daily_revenue_usd += Number(v.revenue) || 0;
     t.site_revenue_usd += Number(v.revenue) || 0;
-    t.site_revenue_brl_gross += Number(v.revenue) || 0;
+    t.site_revenue_brl_gross += (Number(v.profit) || 0) + (Number(v.spend) || 0);
   }
 
   // Sanity check: cada campanha com receita > 0 tem cells cobrindo 100% do valor.
   for (const t of campaignTotals.values()) {
-    const expectedNet = t.daily_revenue_usd * p.netFactor;
+    const expectedNet = t.site_revenue_brl_gross * p.netFactor;
     if (expectedNet > 0 && Math.abs(t.revenue_brl_net - expectedNet) / expectedNet > 0.001) {
       warnings.push(
         `Campanha ${t.campaign_id}: soma de países (${t.revenue_brl_net.toFixed(2)}) difere do total Dashboard (${expectedNet.toFixed(2)}).`,
