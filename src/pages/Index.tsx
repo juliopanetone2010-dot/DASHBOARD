@@ -220,7 +220,7 @@ const IndexInner = () => {
           .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
           .gte("date", range.from).lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-        return q.order("date", { ascending: false });
+        return q.order("date", { ascending: false }).order("id", { ascending: true });
       });
       if (import.meta.env.DEV) {
         console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: rows.length, sample: rows[0] });
@@ -258,7 +258,7 @@ const IndexInner = () => {
           .select("revenue_native, currency, impressions, site_id")
           .gte("date", range.from).lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-        return q.order("date", { ascending: true });
+          return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
       const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
@@ -285,7 +285,8 @@ const IndexInner = () => {
         .not("site_id", "is", null)
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
-        .order("date", { ascending: true }));
+        .order("date", { ascending: true })
+        .order("id", { ascending: true }));
       const totalByCamp = new Map<string, number>();
       const bySite = new Map<string, Map<string, number>>();
       for (const r of rows ?? []) {
@@ -328,7 +329,7 @@ const IndexInner = () => {
           .gte("date", range.from)
           .lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-        return q.order("date", { ascending: true });
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
 
       const selectedAccountIds = new Set(filters.googleAccountIds);
@@ -376,7 +377,7 @@ const IndexInner = () => {
           .gte("date", range.from)
           .lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-        return q.order("date", { ascending: true });
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
