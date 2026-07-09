@@ -102,9 +102,11 @@ export async function computeCountryPerformanceClient(
     ? [...new Set(p.campaignIds.map(String))]
     : null;
   if (!resolvedCampaignIds) {
-    let q = supabase.from("campaigns").select("campaign_id");
-    if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-    const data = await fetchAllRows<any>(() => q.order("campaign_id"));
+    const data = await fetchAllRows<any>(() => {
+      let q = supabase.from("campaigns").select("campaign_id");
+      if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
+      return q.order("campaign_id");
+    });
     resolvedCampaignIds = [
       ...new Set((data ?? []).map((r: any) => String(r.campaign_id)).filter(Boolean)),
     ];
