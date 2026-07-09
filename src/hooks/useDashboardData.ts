@@ -269,11 +269,14 @@ const isoDate = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-const makeFetchRange = (): { from: string; to: string } => {
+const makeFetchRange = (fromFilter?: string, toFilter?: string): { from: string; to: string } => {
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - FETCH_WINDOW_DAYS);
-  return { from: isoDate(from), to: isoDate(to) };
+  return {
+    from: fromFilter || isoDate(from),
+    to: toFilter || isoDate(to),
+  };
 };
 
 interface SyncStateRow {
@@ -336,23 +339,19 @@ const emptySnapshot = (): DashboardSnapshot => ({
 
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
-  // `range` (date filter) is not destructured here anymore: it now affects
-  // only the client-side narrowing in Index.tsx, not the server fetch.
   const { filters } = useDashboardFilters();
   const queryClient = useQueryClient();
   const isGuest = !user;
 
-  // queryKey deliberately does NOT include the user's date filter (range.*).
-  // We always fetch the broad FETCH_WINDOW_DAYS window so that date-preset
-  // switches are served from cache. Account/site filters do change the result
-  // set materially, so they stay in the key.
+  // Inclui o período no cache: quando o usuário escolhe um intervalo maior/antigo,
+  // buscamos exatamente esse intervalo em vez de ficar preso aos últimos 60 dias.
   const queryKey = useMemo(
-    () => [...DASHBOARD_QK, user?.id ?? "guest", filters.googleAccountIds.join("|"), filters.siteId],
-    [user?.id, filters.googleAccountIds, filters.siteId],
+    () => [...DASHBOARD_QK, user?.id ?? "guest", filters.googleAccountIds.join("|"), filters.siteId, filters.fromDate, filters.toDate],
+    [user?.id, filters.googleAccountIds, filters.siteId, filters.fromDate, filters.toDate],
   );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
-    const fetchRange = makeFetchRange();
+    const fetchRange = makeFetchRange(filters.fromDate, filters.toDate);
     if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: fetchRange.from, to: fetchRange.to, windowDays: FETCH_WINDOW_DAYS });
 
     if (!user) {
