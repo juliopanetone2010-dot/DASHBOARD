@@ -214,23 +214,19 @@ const IndexInner = () => {
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     queryFn: async () => {
-      let q = supabase
-        .from("site_metrics_daily")
-        .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
-        .gte("date", range.from).lte("date", range.to)
-        .order("date", { ascending: false })
-        .limit(400);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data, error } = await q;
-      if (error) {
-        console.error("[site-metrics-daily] query error", error);
-        throw error;
-      }
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("site_metrics_daily")
+          .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
+          .gte("date", range.from).lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: false });
+      });
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: data?.length ?? 0, sample: data?.[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: rows.length, sample: rows[0] });
       }
       const fxForMetrics = fxQuery.data?.rate ?? 5;
-      const totals = (data ?? []).reduce((a, r: any) => {
+      const totals = rows.reduce((a, r: any) => {
         const currency = String(r.currency || "USD").toUpperCase();
         const nativeRevenue = Number(r.revenue_native ?? 0);
         const comparableRevenue = filters.siteId === "all" && currency === "BRL"
