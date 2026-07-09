@@ -43,6 +43,7 @@ import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
 import { NET_FACTOR, REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabasePagination";
 
 const Index = () => {
   return (
@@ -121,14 +122,15 @@ const IndexInner = () => {
   const extraRevQuery = useQuery({
     queryKey: ["extra-revenue", range.from, range.to, filters.siteId, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("utm_source, revenue_usd, date")
-        .gte("date", range.from)
-        .lte("date", range.to);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data: rows, error } = await q.limit(50000);
-      if (error) throw error;
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("utm_source, revenue_usd, date")
+          .gte("date", range.from)
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true });
+      });
       let push = 0, other = 0;
       for (const r of rows ?? []) {
         const usd = Number((r as any).revenue_usd) || 0;
@@ -230,14 +232,14 @@ const IndexInner = () => {
   const siteRealRevenueQuery = useQuery({
     queryKey: ["site-real-revenue", filters.siteId, range.from, range.to],
     queryFn: async () => {
-      let q = supabase.from("site_metrics_daily")
-        .select("revenue_native, currency, impressions, site_id")
-        .gte("date", range.from).lte("date", range.to)
-        .limit(5000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const { data, error } = await q;
-      if (error) throw error;
-      const totals = (data ?? []).reduce((a, r: any) => {
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase.from("site_metrics_daily")
+          .select("revenue_native, currency, impressions, site_id")
+          .gte("date", range.from).lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true });
+      });
+      const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
         a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
         a.impressions += Number(r.impressions ?? 0);
@@ -254,13 +256,13 @@ const IndexInner = () => {
   const siteShareQuery = useQuery({
     queryKey: ["site-share", range.from, range.to],
     queryFn: async () => {
-      const { data: rows } = await supabase
+      const rows = await fetchAllRows<any>(() => supabase
         .from("gam_placement_revenue")
-        .select("campaign_id, site_id, revenue_usd")
+        .select("campaign_id, site_id, revenue_usd, date")
         .not("site_id", "is", null)
         .neq("campaign_id", "__aggregate__")
         .gte("date", range.from).lte("date", range.to)
-        .limit(50000);
+        .order("date", { ascending: true }));
       const totalByCamp = new Map<string, number>();
       const bySite = new Map<string, Map<string, number>>();
       for (const r of rows ?? []) {
@@ -283,6 +285,7 @@ const IndexInner = () => {
       return share;
     },
     staleTime: 60_000,
+    enabled: filters.siteId !== "all",
   });
 
   // eCPM por campanha vindo do GAM no período exato.
