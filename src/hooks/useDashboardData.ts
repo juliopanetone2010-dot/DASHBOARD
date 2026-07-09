@@ -403,17 +403,18 @@ export function useDashboardData(): DashboardData {
         .select("*")
         .gte("date", fetchRange.from)
         .lte("date", fetchRange.to),
-    ).order("date", { ascending: false });
+    ).order("date", { ascending: false }).order("id", { ascending: true });
 
     const buildCampaignsQuery = () => applyAccountFilter(
       (supabase as any).from("campaigns").select("*"),
-    ).order("name");
+    ).order("name").order("id", { ascending: true });
 
     const buildPlacementsQuery = () => {
       let q = (supabase as any).from("placements").select("*")
         .gte("date", fetchRange.from)
         .lte("date", fetchRange.to)
-        .order("date", { ascending: false });
+        .order("date", { ascending: false })
+        .order("id", { ascending: true });
       if (siteFilterActive) q = q.eq("site_id", filters.siteId);
       return q;
     };
