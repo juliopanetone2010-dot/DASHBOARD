@@ -297,27 +297,27 @@ const IndexInner = () => {
   const campaignGamMetricsQuery = useQuery({
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("campaign_id, revenue_usd, impressions, site_id")
-        .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .limit(50000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const placementQ = (() => {
-        let pq = supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id, revenue_usd, impressions, site_id")
-          .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-        return pq;
-      })();
-      const [{ data: rows, error }, { data: placementRows, error: placementError }] = await Promise.all([q, placementQ]);
-      if (error) throw error;
-      if (placementError) throw placementError;
+      const [rows, placementRows] = await Promise.all([
+        fetchAllRows<any>(() => {
+          let q = supabase
+            .from("gam_campaign_source_revenue")
+            .select("campaign_id, revenue_usd, impressions, site_id, date")
+            .eq("utm_source", "google")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+          return q.order("date", { ascending: true });
+        }),
+        fetchAllRows<any>(() => {
+          let pq = supabase
+            .from("gam_placement_revenue")
+            .select("campaign_id, revenue_usd, impressions, site_id, date")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
+          return pq.order("date", { ascending: true });
+        }),
+      ]);
 
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
@@ -327,7 +327,7 @@ const IndexInner = () => {
         : null;
 
       const map = new Map<string, { revenueUsd: number; impressions: number }>();
-      for (const r of rows ?? []) {
+      for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || cid === "__aggregate__") continue;
         if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
@@ -337,7 +337,7 @@ const IndexInner = () => {
         map.set(cid, cur);
       }
       const placementMap = new Map<string, { revenueUsd: number; impressions: number }>();
-      for (const r of placementRows ?? []) {
+      for (const r of placementRows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || cid === "__aggregate__") continue;
         if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
