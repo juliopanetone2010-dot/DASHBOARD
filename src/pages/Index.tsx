@@ -150,11 +150,11 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("utm_source, revenue_usd, date")
+          .select("id, utm_source, revenue_usd, date")
           .gte("date", range.from)
           .lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-        return q.order("date", { ascending: true });
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
       let push = 0, other = 0;
       for (const r of rows ?? []) {
@@ -255,10 +255,10 @@ const IndexInner = () => {
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase.from("site_metrics_daily")
-          .select("revenue_native, currency, impressions, site_id")
+          .select("id, revenue_native, currency, impressions, site_id")
           .gte("date", range.from).lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-          return q.order("date", { ascending: true }).order("id", { ascending: true });
+        return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
       const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
@@ -280,7 +280,7 @@ const IndexInner = () => {
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => supabase
         .from("gam_campaign_source_revenue")
-        .select("campaign_id, site_id, revenue_usd, date")
+        .select("id, campaign_id, site_id, revenue_usd, date")
         .eq("utm_source", "google")
         .not("site_id", "is", null)
         .neq("campaign_id", "__aggregate__")
@@ -324,7 +324,7 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("campaign_id, revenue_usd, impressions, site_id, date")
+          .select("id, campaign_id, revenue_usd, impressions, site_id, date")
           .eq("utm_source", "google")
           .gte("date", range.from)
           .lte("date", range.to);
@@ -372,7 +372,7 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
+          .select("id, campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
           .eq("utm_source", "google")
           .gte("date", range.from)
           .lte("date", range.to);
