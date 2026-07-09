@@ -447,7 +447,7 @@ export function useDashboardData(): DashboardData {
       dataReadiness: computeReadiness((syncSt.data ?? []) as SyncStateRow[]),
       fetchedAt: Date.now(),
     };
-  }, [user, queryKey, filters.googleAccountIds, filters.siteId]);
+  }, [user, queryKey, filters.googleAccountIds, filters.siteId, filters.fromDate, filters.toDate]);
 
   const query = useQuery<DashboardSnapshot>({
     queryKey,
