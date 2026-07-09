@@ -28,13 +28,13 @@ export function MetricCard({ label, value, icon: Icon, variant = "default", hint
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div
           className={cn(
-            "order-2 sm:order-1 flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-lg self-start",
+            "sm:order-2 flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-lg self-start",
             isColored ? "bg-white/20" : "bg-accent text-accent-foreground",
           )}
         >
           <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </div>
-        <div className="order-1 sm:order-2 space-y-1 sm:space-y-1.5 min-w-0 sm:text-right sm:ml-auto">
+        <div className="sm:order-1 space-y-1 sm:space-y-1.5 min-w-0 flex-1">
           <p
             className={cn(
               "text-[10px] sm:text-xs font-medium uppercase tracking-wider",
