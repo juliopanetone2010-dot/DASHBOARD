@@ -100,8 +100,17 @@
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Mobile: qualquer tabela grande rola horizontal dentro do seu container */
+  @media (max-width: 768px) {
+    .overflow-auto, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+    table { font-size: 12px; }
   }
 }
