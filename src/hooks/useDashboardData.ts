@@ -391,7 +391,7 @@ export function useDashboardData(): DashboardData {
       });
     }
 
-    const applyAccountFilter = <T extends { eq: (column: string, value: string) => T; in: (column: string, values: string[]) => T }>(q: T): T => {
+    const applyAccountFilter = (q: any): any => {
       if (!effectiveAccountIds) return q;
       // Se filtro de site retornou zero contas, não mostramos nada (em vez de tudo)
       if (effectiveAccountIds.length === 0) return q.eq("google_account_id", EMPTY_UUID);
