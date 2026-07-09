@@ -370,27 +370,27 @@ const IndexInner = () => {
   const campaignMatchRateQuery = useQuery({
     queryKey: ["campaign-match-rate", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      let q = supabase
-        .from("gam_campaign_source_revenue")
-        .select("campaign_id, impressions, total_requests, match_rate_pct, site_id")
-        .eq("utm_source", "google")
-        .gte("date", range.from)
-        .lte("date", range.to)
-        .limit(50000);
-      if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-      const placementQ = (() => {
-        let pq = supabase
-          .from("gam_placement_revenue")
-          .select("campaign_id, impressions, site_id")
-          .gte("date", range.from)
-          .lte("date", range.to)
-          .limit(50000);
-        if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-        return pq;
-      })();
-      const [{ data: rows, error }, { data: placementRows, error: placementError }] = await Promise.all([q, placementQ]);
-      if (error) throw error;
-      if (placementError) throw placementError;
+      const [rows, placementRows] = await Promise.all([
+        fetchAllRows<any>(() => {
+          let q = supabase
+            .from("gam_campaign_source_revenue")
+            .select("campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
+            .eq("utm_source", "google")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+          return q.order("date", { ascending: true });
+        }),
+        fetchAllRows<any>(() => {
+          let pq = supabase
+            .from("gam_placement_revenue")
+            .select("campaign_id, impressions, site_id, date")
+            .gte("date", range.from)
+            .lte("date", range.to);
+          if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
+          return pq.order("date", { ascending: true });
+        }),
+      ]);
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
         ? new Set(data.campaigns
@@ -406,7 +406,7 @@ const IndexInner = () => {
         ratedImpressions: number;
         weightedRateSum: number;
       }>();
-      for (const r of rows ?? []) {
+      for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         const impressions = Number((r as any).impressions ?? 0);
@@ -422,7 +422,7 @@ const IndexInner = () => {
         map.set(cid, cur);
       }
       const placementImpressions = new Map<string, number>();
-      for (const r of placementRows ?? []) {
+      for (const r of placementRows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
         placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
