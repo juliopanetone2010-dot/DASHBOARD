@@ -5,7 +5,7 @@ type SupabaseQueryLike<T> = {
 };
 
 export async function fetchAllRows<T>(
-  buildQuery: () => SupabaseQueryLike<T>,
+  buildQuery: () => SupabaseQueryLike<T> | any,
   pageSize = DEFAULT_PAGE_SIZE,
 ): Promise<T[]> {
   const out: T[] = [];
