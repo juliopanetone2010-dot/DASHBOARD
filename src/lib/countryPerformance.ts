@@ -21,6 +21,7 @@
 // receita agregada de site (__aggregate__). Isso quebrava totais.
 // ============================================================================
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabasePagination";
 
 export interface ClientCountryEngineParams {
   siteId: string | null;
@@ -103,7 +104,7 @@ export async function computeCountryPerformanceClient(
   if (!resolvedCampaignIds) {
     let q = supabase.from("campaigns").select("campaign_id");
     if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-    const { data } = await q.limit(20000);
+    const data = await fetchAllRows<any>(() => q.order("campaign_id"));
     resolvedCampaignIds = [
       ...new Set((data ?? []).map((r: any) => String(r.campaign_id)).filter(Boolean)),
     ];
@@ -125,8 +126,7 @@ export async function computeCountryPerformanceClient(
   };
   const dailyRows: DRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
-    let start = 0;
-    for (;;) {
+    const rows = await fetchAllRows<DRow>(() => {
       let q = supabase
         .from("daily_metrics")
         .select("campaign_id, date, google_account_id, spend, revenue, clicks, conversions, impressions")
@@ -134,13 +134,9 @@ export async function computeCountryPerformanceClient(
         .gte("date", p.from)
         .lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      const { data, error } = await q.range(start, start + 999);
-      if (error) break;
-      const rows = (data ?? []) as DRow[];
-      dailyRows.push(...rows);
-      if (rows.length < 1000) break;
-      start += 1000;
-    }
+      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true });
+    });
+    dailyRows.push(...rows);
   }
 
   // 4) campaign_country_metrics — só a dimensão país (custos aqui NÃO são a fonte).
@@ -158,8 +154,7 @@ export async function computeCountryPerformanceClient(
   };
   const countryRows: CRow[] = [];
   for (const chunk of chunk200(resolvedCampaignIds)) {
-    let start = 0;
-    for (;;) {
+    const rows = await fetchAllRows<CRow>(() => {
       let q = supabase
         .from("campaign_country_metrics")
         .select("campaign_id, date, country_code, country_name, country_criterion_id, google_account_id, cost, clicks, impressions, conversions")
@@ -167,13 +162,9 @@ export async function computeCountryPerformanceClient(
         .gte("date", p.from)
         .lte("date", p.to);
       if (allowedAccountIds) q = q.in("google_account_id", allowedAccountIds);
-      const { data, error } = await q.range(start, start + 999);
-      if (error) break;
-      const rows = (data ?? []) as CRow[];
-      countryRows.push(...rows);
-      if (rows.length < 1000) break;
-      start += 1000;
-    }
+      return q.order("date", { ascending: true }).order("campaign_id", { ascending: true });
+    });
+    countryRows.push(...rows);
   }
 
   // 5) Índices auxiliares.
@@ -206,6 +197,13 @@ export async function computeCountryPerformanceClient(
 
   const cells = new Map<string, ClientCountryCell>();
   const cellShareAcc = new Map<string, { sum: number; count: number }>();
+  const countryRowsByCD = new Map<string, CRow[]>();
+  for (const r of countryRows) {
+    const k = `${r.campaign_id}|${r.date}`;
+    const rows = countryRowsByCD.get(k) ?? [];
+    rows.push(r);
+    countryRowsByCD.set(k, rows);
+  }
 
   const ensureCell = (
     campaign_id: string,
@@ -243,7 +241,7 @@ export async function computeCountryPerformanceClient(
   //    usando share intra-campanha (impressões Ads → fallback clicks→conv→cost).
   for (const [cd, daily] of dailyByCD) {
     const [campaign_id, date] = cd.split("|");
-    const rows = countryRows.filter((r) => r.campaign_id === campaign_id && r.date === date);
+    const rows = countryRowsByCD.get(cd) ?? [];
     const totals = totalsByCD.get(cd);
 
     const cost = Number(daily.spend) || 0;
