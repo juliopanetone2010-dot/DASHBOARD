@@ -889,6 +889,7 @@ const IndexInner = () => {
               <History className="h-3.5 w-3.5" /> Histórico
             </TabsTrigger>
           </TabsList>
+          </div>
 
           <TabsContent value="dashboard" className="space-y-6 mt-6">
             <DashboardErrorBoundary tabName="Dashboard">
