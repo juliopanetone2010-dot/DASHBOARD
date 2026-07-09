@@ -79,6 +79,14 @@ const IndexInner = () => {
     && !(filters.siteId !== "all" && accountSelectionCoversSelectedSite);
   const campaignFilterIsRestrictive = filters.campaignId !== "all";
   const canUseRealGamTotals = !accountFilterIsRestrictive && !campaignFilterIsRestrictive;
+  const selectedSiteUsesSharedAccounts = useMemo(() => {
+    if (filters.siteId === "all") return false;
+    const countsByAccount = new Map<string, number>();
+    for (const l of data.links) {
+      countsByAccount.set(l.google_account_id, (countsByAccount.get(l.google_account_id) ?? 0) + 1);
+    }
+    return linkedAccountIdsForSelectedSite.some((id) => (countsByAccount.get(id) ?? 0) > 1);
+  }, [data.links, filters.siteId, linkedAccountIdsForSelectedSite]);
 
   const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
@@ -303,7 +311,7 @@ const IndexInner = () => {
       return share;
     },
     staleTime: 60_000,
-    enabled: filters.siteId !== "all",
+    enabled: selectedSiteUsesSharedAccounts,
   });
 
   // eCPM por campanha vindo do GAM no período exato.
@@ -315,27 +323,16 @@ const IndexInner = () => {
   const campaignGamMetricsQuery = useQuery({
     queryKey: ["campaign-gam-metrics", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      const [rows, placementRows] = await Promise.all([
-        fetchAllRows<any>(() => {
-          let q = supabase
-            .from("gam_campaign_source_revenue")
-            .select("campaign_id, revenue_usd, impressions, site_id, date")
-            .eq("utm_source", "google")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-          return q.order("date", { ascending: true });
-        }),
-        fetchAllRows<any>(() => {
-          let pq = supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id, revenue_usd, impressions, site_id, date")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-          return pq.order("date", { ascending: true });
-        }),
-      ]);
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("campaign_id, revenue_usd, impressions, site_id, date")
+          .eq("utm_source", "google")
+          .gte("date", range.from)
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true });
+      });
 
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
@@ -354,20 +351,6 @@ const IndexInner = () => {
         cur.impressions += Number((r as any).impressions ?? 0);
         map.set(cid, cur);
       }
-      const placementMap = new Map<string, { revenueUsd: number; impressions: number }>();
-      for (const r of placementRows) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || cid === "__aggregate__") continue;
-        if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        const cur = placementMap.get(cid) ?? { revenueUsd: 0, impressions: 0 };
-        cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
-        cur.impressions += Number((r as any).impressions ?? 0);
-        placementMap.set(cid, cur);
-      }
-      for (const [cid, v] of placementMap) {
-        if (v.impressions > 0) map.set(cid, v);
-      }
-
       const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
       for (const [cid, v] of map) {
         out.set(cid, {
@@ -388,27 +371,16 @@ const IndexInner = () => {
   const campaignMatchRateQuery = useQuery({
     queryKey: ["campaign-match-rate", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
     queryFn: async () => {
-      const [rows, placementRows] = await Promise.all([
-        fetchAllRows<any>(() => {
-          let q = supabase
-            .from("gam_campaign_source_revenue")
-            .select("campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
-            .eq("utm_source", "google")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-          return q.order("date", { ascending: true });
-        }),
-        fetchAllRows<any>(() => {
-          let pq = supabase
-            .from("gam_placement_revenue")
-            .select("campaign_id, impressions, site_id, date")
-            .gte("date", range.from)
-            .lte("date", range.to);
-          if (filters.siteId !== "all") pq = pq.eq("site_id", filters.siteId);
-          return pq.order("date", { ascending: true });
-        }),
-      ]);
+      const rows = await fetchAllRows<any>(() => {
+        let q = supabase
+          .from("gam_campaign_source_revenue")
+          .select("campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
+          .eq("utm_source", "google")
+          .gte("date", range.from)
+          .lte("date", range.to);
+        if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+        return q.order("date", { ascending: true });
+      });
       const selectedAccountIds = new Set(filters.googleAccountIds);
       const allowedCampaignIds = selectedAccountIds.size > 0
         ? new Set(data.campaigns
@@ -438,17 +410,6 @@ const IndexInner = () => {
           cur.weightedRateSum += exactRatePct * impressions;
         }
         map.set(cid, cur);
-      }
-      const placementImpressions = new Map<string, number>();
-      for (const r of placementRows) {
-        const cid = String((r as any).campaign_id ?? "");
-        if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        placementImpressions.set(cid, (placementImpressions.get(cid) ?? 0) + Number((r as any).impressions ?? 0));
-      }
-      for (const [cid, impressions] of placementImpressions) {
-        const cur = map.get(cid);
-        if (cur && (cur.totalRequests > 0 || cur.ratedImpressions > 0)) continue;
-        if (impressions > 0) map.set(cid, { impressions, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0 });
       }
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
       for (const [cid, v] of map) {
