@@ -158,4 +158,5 @@ export interface CampaignAggregate {
   days: number;
   budget_micros?: number | null;
   target_cpa_micros?: number | null;
+  bidding_strategy_type?: string | null;
 }

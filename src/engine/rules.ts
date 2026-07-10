@@ -106,6 +106,7 @@ export function aggregateByCampaign(
       days: 0,
       budget_micros: (c as any).budget_micros ?? null,
       target_cpa_micros: (c as any).target_cpa_micros ?? null,
+      bidding_strategy_type: (c as any).bidding_strategy_type ?? null,
     });
   }
   const dayCount = new Map<string, Set<string>>();

@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
             campaign.final_url_suffix,
             campaign_budget.amount_micros,
             campaign.target_cpa.target_cpa_micros,
-            campaign.maximize_conversions.target_cpa_micros,
+            campaign.bidding_strategy_type,
             metrics.cost_micros,
             metrics.clicks,
             metrics.impressions,
@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
                 startDate?: string;
                 finalUrlSuffix?: string;
                 targetCpa?: { targetCpaMicros?: string };
-                maximizeConversions?: { targetCpaMicros?: string };
+                biddingStrategyType?: string;
               };
               campaignBudget?: { amountMicros?: string };
               metrics: { costMicros?: string; clicks?: string; impressions?: string; conversions?: number; conversionsValue?: number };
@@ -292,18 +292,22 @@ Deno.serve(async (req) => {
             }>;
 
             // Agrupa campanhas únicas (mantém último budget/cpa visto)
-            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; final_url_suffix: string | null; start_date: string | null }>();
+            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; bidding_strategy_type: string | null; final_url_suffix: string | null; start_date: string | null }>();
             for (const r of results) {
               const budgetMicros = r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null;
-              const cpaMicros = r.campaign.targetCpa?.targetCpaMicros
+              // APENAS campanhas com estratégia TARGET_CPA e CPA definido em nível de campanha.
+              // Ignora Maximize Conversions (mesmo se retornar targetCpaMicros calculado pelo Google).
+              const strategy = r.campaign.biddingStrategyType ?? null;
+              const cpaMicros = (strategy === "TARGET_CPA" && r.campaign.targetCpa?.targetCpaMicros)
                 ? Number(r.campaign.targetCpa.targetCpaMicros)
-                : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null);
+                : null;
               uniqueCampaigns.set(r.campaign.id, {
                 name: r.campaign.name,
                 status: r.campaign.status,
                 channel: r.campaign.advertisingChannelType ?? "DISPLAY",
                 budget_micros: budgetMicros,
                 target_cpa_micros: cpaMicros,
+                bidding_strategy_type: strategy,
                 final_url_suffix: r.campaign.finalUrlSuffix ?? null,
                 start_date: r.campaign.startDate ?? null,
               });
@@ -359,53 +363,14 @@ Deno.serve(async (req) => {
               debugLogs.push(`auto-utm exception ${leaf.customer_id}: ${String(e)}`);
             }
 
-            // ===== FALLBACK: Target CPA por ad_group (APENAS explícito) =====
-            // Só considera ad_group.target_cpa_micros (definido pelo usuário).
-            // NÃO usa effective_target_cpa_micros — esse é calculado pelo Google
-            // mesmo para Maximize Conversions sem CPA, gerando valores falsos.
-            try {
-              const agQuery = `
-                SELECT
-                  campaign.id,
-                  ad_group.id,
-                  ad_group.target_cpa_micros
-                FROM ad_group
-                WHERE ad_group.status != 'REMOVED'
-                  AND campaign.status != 'REMOVED'
-              `;
-              const agRes = await fetch(
-                `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
-                { method: "POST", headers, body: JSON.stringify({ query: agQuery }) },
-              );
-              const agJson = await agRes.json();
-              if (agRes.ok) {
-                const rows = (agJson.results ?? []) as Array<{
-                  campaign: { id: string };
-                  adGroup: { targetCpaMicros?: string };
-                }>;
-                const perCampaign = new Map<string, number>();
-                for (const r of rows) {
-                  const cid = r.campaign.id;
-                  const v = r.adGroup?.targetCpaMicros ? Number(r.adGroup.targetCpaMicros) : 0;
-                  if (v > 0) {
-                    const prev = perCampaign.get(cid) ?? 0;
-                    if (v > prev) perCampaign.set(cid, v);
-                  }
-                }
-                // só preenche quando campanha ainda não tem cpa (fallback)
-                for (const [cid, info] of uniqueCampaigns) {
-                  if (!info.target_cpa_micros) {
-                    const v = perCampaign.get(cid);
-                    if (v && v > 0) info.target_cpa_micros = v;
-                  }
-                }
-                debugLogs.push(`ad_group cpa ${leaf.customer_id}: ${perCampaign.size} campanhas com cpa explícito`);
-              } else {
-                debugLogs.push(`ad_group cpa err ${leaf.customer_id}: ${agJson?.error?.message ?? "?"}`);
-              }
-            } catch (e) {
-              debugLogs.push(`ad_group cpa exception ${leaf.customer_id}: ${String(e)}`);
-            }
+            // NOTE: Fallback de Target CPA por ad_group foi REMOVIDO propositalmente.
+            // Só exibimos CPA quando a campanha usa estratégia TARGET_CPA definida
+            // no nível de campanha (CPA desejado). Em Maximizar Conversões, nada.
+
+
+
+
+
 
 
 
@@ -421,6 +386,7 @@ Deno.serve(async (req) => {
                 channel_type: info.channel,
                 budget_micros: info.budget_micros,
                 target_cpa_micros: info.target_cpa_micros,
+                bidding_strategy_type: info.bidding_strategy_type,
                 start_date: info.start_date,
               }));
               const { error: campErr } = await admin
