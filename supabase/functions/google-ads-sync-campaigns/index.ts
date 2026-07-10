@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
                 startDate?: string;
                 finalUrlSuffix?: string;
                 targetCpa?: { targetCpaMicros?: string };
-                maximizeConversions?: { targetCpaMicros?: string };
+                biddingStrategyType?: string;
               };
               campaignBudget?: { amountMicros?: string };
               metrics: { costMicros?: string; clicks?: string; impressions?: string; conversions?: number; conversionsValue?: number };
@@ -292,18 +292,22 @@ Deno.serve(async (req) => {
             }>;
 
             // Agrupa campanhas únicas (mantém último budget/cpa visto)
-            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; final_url_suffix: string | null; start_date: string | null }>();
+            const uniqueCampaigns = new Map<string, { name: string; status: string; channel: string; budget_micros: number | null; target_cpa_micros: number | null; bidding_strategy_type: string | null; final_url_suffix: string | null; start_date: string | null }>();
             for (const r of results) {
               const budgetMicros = r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null;
-              const cpaMicros = r.campaign.targetCpa?.targetCpaMicros
+              // APENAS campanhas com estratégia TARGET_CPA e CPA definido em nível de campanha.
+              // Ignora Maximize Conversions (mesmo se retornar targetCpaMicros calculado pelo Google).
+              const strategy = r.campaign.biddingStrategyType ?? null;
+              const cpaMicros = (strategy === "TARGET_CPA" && r.campaign.targetCpa?.targetCpaMicros)
                 ? Number(r.campaign.targetCpa.targetCpaMicros)
-                : (r.campaign.maximizeConversions?.targetCpaMicros ? Number(r.campaign.maximizeConversions.targetCpaMicros) : null);
+                : null;
               uniqueCampaigns.set(r.campaign.id, {
                 name: r.campaign.name,
                 status: r.campaign.status,
                 channel: r.campaign.advertisingChannelType ?? "DISPLAY",
                 budget_micros: budgetMicros,
                 target_cpa_micros: cpaMicros,
+                bidding_strategy_type: strategy,
                 final_url_suffix: r.campaign.finalUrlSuffix ?? null,
                 start_date: r.campaign.startDate ?? null,
               });
