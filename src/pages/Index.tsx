@@ -1078,7 +1078,7 @@ const IndexInner = () => {
                 hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
               />
               <MetricCard
-                label="Receita (Ad Manager)"
+                label="UDC COMPHANY"
                 value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
                 icon={DollarSign}
                 variant="primary"
