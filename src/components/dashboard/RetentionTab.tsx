@@ -418,16 +418,16 @@ function UtmGroupCard({
       <Card className={isPush ? "border-primary/40" : undefined}>
         <CollapsibleTrigger asChild>
           <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors py-3">
-            <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm gap-2 sm:gap-3">
-              <span className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="text-sm space-y-2">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
                 <ChevronDown className="h-4 w-4 shrink-0" />
                 <Badge variant={isPush ? "default" : "outline"} className="font-mono">utm_source = {bucket.utm}</Badge>
                 <span className="text-xs text-muted-foreground">{bucket.rows.length} URL(s)</span>
-              </span>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums">
+                <span className="font-bold text-base sm:text-lg whitespace-nowrap ml-auto text-primary">{fmtUSD(bucket.revenue)}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums pl-6">
                 <span className="text-muted-foreground whitespace-nowrap">imp <b className="text-foreground">{bucket.impressions.toLocaleString("pt-BR")}</b></span>
                 <span className="text-muted-foreground whitespace-nowrap">eCPM <b className="text-foreground">${ecpm.toFixed(2)}</b></span>
-                <span className="font-semibold text-base whitespace-nowrap">{fmtUSD(bucket.revenue)}</span>
               </div>
             </CardTitle>
           </CardHeader>
