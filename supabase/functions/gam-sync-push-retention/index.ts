@@ -495,6 +495,19 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   }
   if (all.some((r) => r.url)) return all;
 
+  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_CLICK_THROUGH_URL_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+    filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
+    forcedRawKv: "utm_source=push",
+  }).catch((e) => {
+    console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL filtered KEY_VALUES_NAME failed`, e);
+  });
+  if (all.some((r) => r.url)) return all;
+
+  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL", "KEY_VALUES_NAME"], "CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
+    console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME failed`, e);
+  });
+  if (all.some((r) => r.url)) return all;
+
   const utmSourceKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_source").catch((e) => {
     console.warn(`[gam-sync-push-retention] customTargetingKeys lookup failed`, e);
     return null;
