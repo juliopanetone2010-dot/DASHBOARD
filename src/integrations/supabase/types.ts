@@ -1245,6 +1245,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          bidding_strategy_type: string | null
           budget_micros: number | null
           campaign_id: string
           channel_type: string | null
@@ -1263,6 +1264,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          bidding_strategy_type?: string | null
           budget_micros?: number | null
           campaign_id: string
           channel_type?: string | null
@@ -1281,6 +1283,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          bidding_strategy_type?: string | null
           budget_micros?: number | null
           campaign_id?: string
           channel_type?: string | null
