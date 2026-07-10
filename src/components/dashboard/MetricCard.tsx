@@ -45,8 +45,9 @@ export function MetricCard({ label, value, icon: Icon, variant = "default", hint
           </p>
           <p className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight break-words leading-tight">{value}</p>
           {hint && (
-            <p className={cn("text-[10px] sm:text-xs line-clamp-2", isColored ? "opacity-80" : "text-muted-foreground")}>{hint}</p>
+            <p className={cn("text-[10px] sm:text-xs break-words", isColored ? "opacity-80" : "text-muted-foreground")}>{hint}</p>
           )}
+
         </div>
       </div>
     </div>
