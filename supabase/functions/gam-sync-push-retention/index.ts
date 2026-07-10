@@ -482,6 +482,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
     filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
     forcedRawKv: "utm_source=push",
+    extraDefinition: { expandedCompatibility: true },
   }).catch((e) => {
     console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_NAME failed`, e);
   });
@@ -489,6 +490,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_SET", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: pushFilter("KEY_VALUES_SET", "utm_source=push"),
       forcedRawKv: "utm_source=push",
+      extraDefinition: { expandedCompatibility: true },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_SET failed`, e);
     });
@@ -498,12 +500,13 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_CLICK_THROUGH_URL_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
     filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
     forcedRawKv: "utm_source=push",
+    extraDefinition: { expandedCompatibility: true },
   }).catch((e) => {
     console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL filtered KEY_VALUES_NAME failed`, e);
   });
   if (all.some((r) => r.url)) return all;
 
-  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL", "KEY_VALUES_NAME"], "CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
+  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL", "KEY_VALUES_NAME"], "CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], { extraDefinition: { expandedCompatibility: true } }).catch((e) => {
     console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME failed`, e);
   });
   if (all.some((r) => r.url)) return all;
@@ -514,14 +517,14 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   });
   if (utmSourceKeyId) {
     await runOne(["DATE", "PAGE_PATH", "EKV_DIMENSION_0_VALUE"], "PAGE_PATH+EKV_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      extraDefinition: { ekvDimensionKeyIds: [utmSourceKeyId] },
+      extraDefinition: { ekvDimensionKeyIds: [utmSourceKeyId], expandedCompatibility: true },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] PAGE_PATH+EKV_DIMENSION_0_VALUE failed`, e);
     });
     if (all.some((r) => r.url)) return all;
 
     await runOne(["DATE", "PAGE_PATH", "CUSTOM_DIMENSION_0_VALUE"], "PAGE_PATH+CUSTOM_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      extraDefinition: { customDimensionKeyIds: [utmSourceKeyId] },
+      extraDefinition: { customDimensionKeyIds: [utmSourceKeyId], expandedCompatibility: true },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] PAGE_PATH+CUSTOM_DIMENSION_0_VALUE failed`, e);
     });
