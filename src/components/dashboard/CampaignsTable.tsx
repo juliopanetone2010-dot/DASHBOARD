@@ -1330,41 +1330,49 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                             </Button>
                           </TableCell>
                         );
-                      case "act_cpa":
+                      case "act_cpa": {
+                        const hasCampaignCpa =
+                          ((c as any)?.bidding_strategy_type === "TARGET_CPA") &&
+                          Number((c as any)?.target_cpa_micros) > 0;
                         return (
                           <TableCell key={k} style={ws}>
-                            <InlineMoneyEdit
-                              label="CPA"
-                              title={`Target CPA (ad groups) – ${c.name}`}
-                              value={(c as any)?.target_cpa_micros ? ((c as any).target_cpa_micros / 1_000_000) : null}
-                              disabled={loading}
-                              onSave={(v) => callMutate(
-                                `Target CPA (ad groups) = ${v.toFixed(2)}`,
-                                { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
-                                rowKey,
-                              )}
-                              menu={
-                                <>
-                                  <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
-                                    <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
-                                    <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
-                                  </DropdownMenuItem>
-                                </>
-                              }
-                            />
+                            {hasCampaignCpa ? (
+                              <InlineMoneyEdit
+                                label="CPA"
+                                title={`Target CPA – ${c.name}`}
+                                value={(c as any).target_cpa_micros / 1_000_000}
+                                disabled={loading}
+                                onSave={(v) => callMutate(
+                                  `Target CPA = ${v.toFixed(2)}`,
+                                  { action: "set_ad_group_cpa_absolute", campaign_id: c.campaign_id, target_cpa: v },
+                                  rowKey,
+                                )}
+                                menu={
+                                  <>
+                                    <DropdownMenuLabel className="text-xs">Ajustar Target CPA</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => callMutate("CPA +20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 20 }, rowKey)}>
+                                      <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 20%
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => callMutate("CPA +10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: 10 }, rowKey)}>
+                                      <ChevronUp className="h-3.5 w-3.5 mr-2 text-warning" /> Aumentar 10%
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => callMutate("CPA -10%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -10 }, rowKey)}>
+                                      <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 10%
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => callMutate("CPA -20%", { action: "adjust_cpa", campaign_id: c.campaign_id, delta_pct: -20 }, rowKey)}>
+                                      <ChevronDown className="h-3.5 w-3.5 mr-2 text-success" /> Reduzir 20%
+                                    </DropdownMenuItem>
+                                  </>
+                                }
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                         );
+                      }
                       case "act_budget":
                         return (
                           <TableCell key={k} style={ws}>
