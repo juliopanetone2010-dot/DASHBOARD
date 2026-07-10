@@ -394,13 +394,14 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     dimensions: string[],
     sourceDimension: string,
     metrics = ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
-    options?: { filters?: any[]; forcedRawKv?: string },
+    options?: { filters?: any[]; forcedRawKv?: string; extraDefinition?: Record<string, unknown> },
   ) => {
     const reportDefinition = {
       reportType: "HISTORICAL",
       dimensions,
       metrics,
       ...(options?.filters?.length ? { filters: options.filters } : {}),
+      ...(options?.extraDefinition ?? {}),
       dateRange: { fixed: { startDate: { year: fy, month: fm, day: fd }, endDate: { year: ty, month: tm, day: td } } },
     };
     const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
@@ -454,7 +455,11 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
         };
         const urlDim = valueFor("PAGE_PATH") || valueFor("URL") || valueFor("CREATIVE_CLICK_THROUGH_URL");
         const kvDim = valueFor("KEY_VALUES_NAME") || valueFor("KEY_VALUES_SET");
-        const rawKv = options?.forcedRawKv || kvDim || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
+        const sourceDimValue = valueFor("EKV_DIMENSION_0_VALUE") || valueFor("CUSTOM_DIMENSION_0_VALUE");
+        const rawKv = options?.forcedRawKv
+          || kvDim
+          || (sourceDimValue ? `utm_source=${sourceDimValue}` : "")
+          || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
         const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
         const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
         const numRev = (v: any) => v?.intValue != null ? Number(v.intValue) / 1_000_000 : Number(v?.doubleValue ?? 0);
@@ -490,6 +495,26 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   }
   if (all.some((r) => r.url)) return all;
 
+  const utmSourceKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_source").catch((e) => {
+    console.warn(`[gam-sync-push-retention] customTargetingKeys lookup failed`, e);
+    return null;
+  });
+  if (utmSourceKeyId) {
+    await runOne(["DATE", "PAGE_PATH", "EKV_DIMENSION_0_VALUE"], "PAGE_PATH+EKV_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      extraDefinition: { ekvDimensionKeyIds: [utmSourceKeyId] },
+    }).catch((e) => {
+      console.warn(`[gam-sync-push-retention] PAGE_PATH+EKV_DIMENSION_0_VALUE failed`, e);
+    });
+    if (all.some((r) => r.url)) return all;
+
+    await runOne(["DATE", "PAGE_PATH", "CUSTOM_DIMENSION_0_VALUE"], "PAGE_PATH+CUSTOM_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      extraDefinition: { customDimensionKeyIds: [utmSourceKeyId] },
+    }).catch((e) => {
+      console.warn(`[gam-sync-push-retention] PAGE_PATH+CUSTOM_DIMENSION_0_VALUE failed`, e);
+    });
+    if (all.some((r) => r.url)) return all;
+  }
+
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
   });
@@ -498,6 +523,32 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   });
 
   return all;
+}
+
+async function findCustomTargetingKeyId(networkCode: string, accessToken: string, wantedName: string): Promise<string | null> {
+  let pageToken: string | undefined;
+  const wanted = wantedName.toLowerCase();
+  for (let page = 0; page < 20; page++) {
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    url.searchParams.set("pageSize", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`customTargetingKeys failed (${res.status}): ${text.slice(0, 300)}`);
+    const json = JSON.parse(text);
+    for (const key of (json.customTargetingKeys ?? [])) {
+      const adTagName = String(key.adTagName ?? "").toLowerCase();
+      const displayName = String(key.displayName ?? "").toLowerCase();
+      const resourceName = String(key.name ?? "");
+      if (adTagName === wanted || displayName === wanted || resourceName.toLowerCase().endsWith(`/${wanted}`)) {
+        const id = resourceName.split("/").pop();
+        if (id) return id;
+      }
+    }
+    pageToken = json.nextPageToken;
+    if (!pageToken) break;
+  }
+  return null;
 }
 
 function parseGamDate(v: any): string | null {
