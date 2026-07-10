@@ -417,20 +417,25 @@ function UtmGroupCard({
     <Collapsible defaultOpen={isPush}>
       <Card className={isPush ? "border-primary/40" : undefined}>
         <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors py-3">
+          <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors py-3 px-3 sm:px-6">
             <CardTitle className="text-sm space-y-2">
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <ChevronDown className="h-4 w-4 shrink-0" />
-                <Badge variant={isPush ? "default" : "outline"} className="font-mono">utm_source = {bucket.utm}</Badge>
-                <span className="text-xs text-muted-foreground">{bucket.rows.length} URL(s)</span>
-                <span className="font-bold text-base sm:text-lg whitespace-nowrap ml-auto text-primary">{fmtUSD(bucket.revenue)}</span>
+              <div className="flex items-start gap-2 min-w-0">
+                <ChevronDown className="h-4 w-4 shrink-0 mt-1" />
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <Badge variant={isPush ? "default" : "outline"} className="font-mono break-all">utm_source = {bucket.utm}</Badge>
+                    <span className="text-xs text-muted-foreground">{bucket.rows.length} URL(s)</span>
+                  </div>
+                  <span className="font-bold text-lg text-primary tabular-nums break-all">{fmtUSD(bucket.revenue)}</span>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums pl-6">
-                <span className="text-muted-foreground whitespace-nowrap">imp <b className="text-foreground">{bucket.impressions.toLocaleString("pt-BR")}</b></span>
-                <span className="text-muted-foreground whitespace-nowrap">eCPM <b className="text-foreground">${ecpm.toFixed(2)}</b></span>
+                <span className="text-muted-foreground">imp <b className="text-foreground">{bucket.impressions.toLocaleString("pt-BR")}</b></span>
+                <span className="text-muted-foreground">eCPM <b className="text-foreground">${ecpm.toFixed(2)}</b></span>
               </div>
             </CardTitle>
           </CardHeader>
+
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="pt-0">
