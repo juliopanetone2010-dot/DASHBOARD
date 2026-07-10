@@ -806,7 +806,7 @@ const IndexInner = () => {
                     <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
                       <BarChart3 className="h-4 w-4 text-primary-foreground" />
                     </div>
-                    <span>Arbitrage Engine</span>
+                    <span>UDC COMPHANY</span>
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="flex-1 overflow-y-auto p-2">
@@ -874,7 +874,7 @@ const IndexInner = () => {
             <div className="min-w-0">
               <h1 className="text-base md:text-lg font-bold tracking-tight truncate">
                 <span className="md:hidden">{activeTabMeta.label}</span>
-                <span className="hidden md:inline">Arbitrage Engine</span>
+                <span className="hidden md:inline">UDC COMPHANY</span>
               </h1>
               <p className="text-[11px] md:text-xs text-muted-foreground truncate">
                 {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`}
@@ -1078,7 +1078,7 @@ const IndexInner = () => {
                 hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
               />
               <MetricCard
-                label="UDC COMPHANY"
+                label="Receita (Ad Manager)"
                 value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
                 icon={DollarSign}
                 variant="primary"
