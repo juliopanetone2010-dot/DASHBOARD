@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
 
   let syncUserId: string | null = null;
   let syncSiteId: string | null = null;
-  let syncAdmin: ReturnType<typeof createClient> | null = null;
+  let syncAdmin: any = null;
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" }, 401);
@@ -169,7 +169,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const normalized = normalizePushUrl(r.url);
+      const urlForStorage = withSiteDomain(r.url, site.domain);
+      const normalized = normalizePushUrl(urlForStorage);
       if (!normalized) {
         debug.aggregateRows++;
         discard("url_normalizada_vazia", `${r.date}|utm=${utmSource}|${r.url}`);
@@ -185,7 +186,7 @@ Deno.serve(async (req) => {
       seenKeys.add(key);
 
       const cur = buckets.get(key) ?? {
-        date: r.date, url: r.url, normalized_url: normalized, utm_source: utmSource,
+        date: r.date, url: urlForStorage, normalized_url: normalized, utm_source: utmSource,
         revenue_usd: 0, impressions: 0, raw_gam_row: r,
       };
       cur.revenue_usd += r.revenue;
@@ -262,7 +263,20 @@ Deno.serve(async (req) => {
       .eq("utm_source", "push")
       .gte("date", from)
       .lte("date", to);
-    const aggregateSourceRows = unattribInserts.map((b) => ({
+    const sourceTotals = new Map<string, { date: string; revenue_usd: number; impressions: number }>();
+    for (const row of inserts) {
+      const cur = sourceTotals.get(row.date) ?? { date: row.date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += Number(row.revenue_usd || 0);
+      cur.impressions += Number(row.impressions || 0);
+      sourceTotals.set(row.date, cur);
+    }
+    for (const row of unattribInserts) {
+      const cur = sourceTotals.get(row.date) ?? { date: row.date, revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += Number(row.revenue_usd || 0);
+      cur.impressions += Number(row.impressions || 0);
+      sourceTotals.set(row.date, cur);
+    }
+    const aggregateSourceRows = [...sourceTotals.values()].map((b) => ({
       user_id: site.user_id,
       site_id: siteId,
       campaign_id: "__aggregate__",
@@ -272,7 +286,9 @@ Deno.serve(async (req) => {
       impressions: b.impressions,
     }));
     if (aggregateSourceRows.length) {
-      const { error } = await admin.from("gam_campaign_source_revenue").insert(aggregateSourceRows);
+      const { error } = await admin
+        .from("gam_campaign_source_revenue")
+        .upsert(aggregateSourceRows, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
       if (error) throw new Error(`insert gam_campaign_source_revenue push aggregate: ${error.message}`);
     }
     await setSyncState(admin, site.user_id, siteId, "success", null, inserts.length);
@@ -304,11 +320,20 @@ function json(payload: unknown, status = 200) {
 function detectUtmSource(r: ReportRow): { utmSource: string; source: string } {
   const kv = parseCustomCriteria(r.rawKv);
   const kvSource = String(kv.utm_source ?? kv.source ?? "").toLowerCase().trim();
-  if (kvSource) return { utmSource: kvSource, source: r.sourceDimension.includes("KEY_VALUES") ? "KEY_VALUES_NAME" : "custom_targeting" };
+  if (kvSource) return { utmSource: kvSource, source: r.sourceDimension.includes("KEY_VALUES") ? r.sourceDimension : "custom_targeting" };
   const urlKv = parseUrlParams(r.url);
   const urlSource = String(urlKv.utm_source ?? urlKv.source ?? "").toLowerCase().trim();
   if (urlSource) return { utmSource: urlSource, source: "URL" };
   return { utmSource: "(none)", source: "not_found" };
+}
+
+function withSiteDomain(raw: string | null | undefined, domain: string | null | undefined): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s) || /^[^/\s]+\.[^/\s]+/.test(s)) return s;
+  const d = String(domain ?? "").trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
+  if (!d) return s;
+  return s.startsWith("/") ? `${d}${s}` : `${d}/${s}`;
 }
 
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
@@ -412,10 +437,17 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
       for (const r of (rowsJson.rows ?? [])) {
         const dims = r.dimensionValues ?? [];
         const date = parseGamDate(dims[0]);
-        const firstDim = String(dims[1]?.stringValue ?? dims[1]?.intValue ?? "");
-        const secondDim = String(dims[2]?.stringValue ?? dims[2]?.intValue ?? "");
-        const urlDim = sourceDimension.includes("URL") ? firstDim : "";
-        const kvDim = sourceDimension === "KEY_VALUES_NAME" ? firstDim : sourceDimension.includes("KEY_VALUES_NAME") ? secondDim : "";
+        const dimStrings = dims.map((d: any) => {
+          if (Array.isArray(d?.stringValues?.values)) return d.stringValues.values.join(";");
+          if (Array.isArray(d?.listValue?.values)) return d.listValue.values.map((x: any) => x?.stringValue ?? x?.intValue ?? "").join(";");
+          return String(d?.stringValue ?? d?.intValue ?? "");
+        });
+        const valueFor = (name: string) => {
+          const idx = dimensions.indexOf(name);
+          return idx >= 0 ? String(dimStrings[idx] ?? "") : "";
+        };
+        const urlDim = valueFor("PAGE_PATH") || valueFor("URL") || valueFor("CREATIVE_CLICK_THROUGH_URL");
+        const kvDim = valueFor("KEY_VALUES_NAME") || valueFor("KEY_VALUES_SET");
         const rawKv = kvDim || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
         const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
         const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
@@ -428,18 +460,18 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     } while (pageToken);
   };
 
+  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_NAME"], "PAGE_PATH+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
+    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
+  });
+  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_SET"], "PAGE_PATH+KEY_VALUES_SET", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
+    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_SET/AD_EXCHANGE failed`, e);
+  });
+  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_NAME"], "PAGE_PATH+KEY_VALUES_NAME").catch((e) => {
+    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_NAME failed`, e);
+  });
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
   });
-  await runOne(["DATE", "URL", "KEY_VALUES_NAME"], "URL+KEY_VALUES_NAME").catch((e) => {
-    console.warn(`[gam-sync-push-retention] URL+KEY_VALUES_NAME failed`, e);
-  });
-  if (!all.some((r) => r.url && r.rawKv)) {
-    await runOne(["DATE", "URL_NAME"], "URL_NAME").catch((e) => {
-      console.warn(`[gam-sync-push-retention] URL_NAME failed`, e);
-    });
-  }
-  if (!all.some((r) => r.url)) await runOne(["DATE", "URL"], "URL");
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME").catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME failed`, e);
   });
