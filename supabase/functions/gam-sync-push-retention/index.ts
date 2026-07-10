@@ -390,11 +390,17 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
   const all: ReportRow[] = [];
-  const runOne = async (dimensions: string[], sourceDimension: string, metrics = ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"]) => {
+  const runOne = async (
+    dimensions: string[],
+    sourceDimension: string,
+    metrics = ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
+    options?: { filters?: any[]; forcedRawKv?: string },
+  ) => {
     const reportDefinition = {
       reportType: "HISTORICAL",
       dimensions,
       metrics,
+      ...(options?.filters?.length ? { filters: options.filters } : {}),
       dateRange: { fixed: { startDate: { year: fy, month: fm, day: fd }, endDate: { year: ty, month: tm, day: td } } },
     };
     const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
@@ -448,7 +454,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
         };
         const urlDim = valueFor("PAGE_PATH") || valueFor("URL") || valueFor("CREATIVE_CLICK_THROUGH_URL");
         const kvDim = valueFor("KEY_VALUES_NAME") || valueFor("KEY_VALUES_SET");
-        const rawKv = kvDim || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
+        const rawKv = options?.forcedRawKv || kvDim || (urlDim.includes("?") ? urlDim.split("?").slice(1).join("?").replace(/&/g, ";") : "");
         const m = r.metricValueGroups?.[0]?.primaryValues ?? [];
         const num = (v: any) => Number(v?.intValue ?? v?.doubleValue ?? 0);
         const numRev = (v: any) => v?.intValue != null ? Number(v.intValue) / 1_000_000 : Number(v?.doubleValue ?? 0);
@@ -460,15 +466,30 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     } while (pageToken);
   };
 
-  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_NAME"], "PAGE_PATH+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
-    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
+  const pushFilter = (dimension: string, value: string) => [{
+    fieldFilter: {
+      field: { dimension },
+      operation: "CONTAINS",
+      values: [{ stringValue: value }],
+    },
+  }];
+
+  await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+    filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
+    forcedRawKv: "utm_source=push",
+  }).catch((e) => {
+    console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_NAME failed`, e);
   });
-  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_SET"], "PAGE_PATH+KEY_VALUES_SET", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
-    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_SET/AD_EXCHANGE failed`, e);
-  });
-  await runOne(["DATE", "PAGE_PATH", "KEY_VALUES_NAME"], "PAGE_PATH+KEY_VALUES_NAME").catch((e) => {
-    console.warn(`[gam-sync-push-retention] PAGE_PATH+KEY_VALUES_NAME failed`, e);
-  });
+  if (!all.some((r) => r.url)) {
+    await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_SET", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      filters: pushFilter("KEY_VALUES_SET", "utm_source=push"),
+      forcedRawKv: "utm_source=push",
+    }).catch((e) => {
+      console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_SET failed`, e);
+    });
+  }
+  if (all.some((r) => r.url)) return all;
+
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
   });
