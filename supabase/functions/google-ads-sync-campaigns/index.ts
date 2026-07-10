@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
             campaign.final_url_suffix,
             campaign_budget.amount_micros,
             campaign.target_cpa.target_cpa_micros,
-            campaign.maximize_conversions.target_cpa_micros,
+            campaign.bidding_strategy_type,
             metrics.cost_micros,
             metrics.clicks,
             metrics.impressions,
