@@ -769,25 +769,123 @@ const IndexInner = () => {
     ? (attributedRevenueNetDisplay / realGamRevenueNetDisplay) * 100
     : 0;
 
+  const TABS: Array<{ value: string; label: string; icon: typeof BarChart3 }> = [
+    { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { value: "calendar", label: "Calendário", icon: CalendarDays },
+    { value: "integrations", label: "Integrações", icon: Plug },
+    { value: "placements", label: "Placements", icon: MapPin },
+    { value: "funnel", label: "Funil", icon: BarChart3 },
+    { value: "countries", label: "Países", icon: Globe },
+    { value: "creatives", label: "Criativos", icon: Sparkles },
+    { value: "retention", label: "Retenção / Push", icon: Repeat },
+    { value: "automation", label: "Automação", icon: Bot },
+    { value: "scale-unlock", label: "Destravar Escala", icon: Rocket },
+    { value: "migration", label: "Migração", icon: Repeat },
+    { value: "rules", label: "Regras", icon: Settings },
+    { value: "history", label: "Histórico", icon: History },
+  ];
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const activeTabMeta = TABS.find((t) => t.value === activeTab) ?? TABS[0];
+
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-10">
-        <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
+      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
+        <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Mobile hamburger */}
+            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="md:hidden h-10 w-10 shrink-0" aria-label="Abrir menu">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col">
+                <SheetHeader className="px-4 py-4 border-b">
+                  <SheetTitle className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
+                      <BarChart3 className="h-4 w-4 text-primary-foreground" />
+                    </div>
+                    <span>Arbitrage Engine</span>
+                  </SheetTitle>
+                </SheetHeader>
+                <nav className="flex-1 overflow-y-auto p-2">
+                  {TABS.map((t) => {
+                    const Icon = t.icon;
+                    const active = activeTab === t.value;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => { setActiveTab(t.value); setMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-left transition-colors",
+                          active
+                            ? "bg-gradient-primary text-primary-foreground shadow-glow"
+                            : "hover:bg-accent text-foreground/80",
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+                <div className="border-t p-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { void allSites.syncAll(true, range); setMenuOpen(false); }}
+                    disabled={!allSites.totalCount || allSites.processingCount > 0}
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    Sincronizar todos os sites
+                    {allSites.processingCount > 0 && (
+                      <Badge variant="secondary" className="ml-auto">
+                        {allSites.processingCount}/{allSites.totalCount}
+                      </Badge>
+                    )}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => { handleRefresh(); setMenuOpen(false); }} disabled={syncing} className="w-full justify-start gap-2">
+                    <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    {syncing ? "Sincronizando…" : "Atualizar"}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => { insertSampleData(); setMenuOpen(false); }} className="w-full justify-start gap-2">
+                    <Plus className="h-4 w-4" /> Dados de teste
+                  </Button>
+                  {currentRole?.isSuperAdmin && (
+                    <Button variant="outline" size="sm" asChild className="w-full justify-start gap-2">
+                      <Link to="/admin/users" onClick={() => setMenuOpen(false)}><UserCog className="h-4 w-4" /> Admins</Link>
+                    </Button>
+                  )}
+                  {currentRole && (
+                    <div className="pt-1 text-xs text-muted-foreground truncate">
+                      {data.isGuest ? "modo livre" : user?.email ?? "—"}
+                    </div>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow shrink-0">
               <BarChart3 className="h-5 w-5 text-primary-foreground" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Arbitrage Engine</h1>
-              <p className="text-xs text-muted-foreground">
+            <div className="min-w-0">
+              <h1 className="text-base md:text-lg font-bold tracking-tight truncate">
+                <span className="md:hidden">{activeTabMeta.label}</span>
+                <span className="hidden md:inline">Arbitrage Engine</span>
+              </h1>
+              <p className="text-[11px] md:text-xs text-muted-foreground truncate">
                 {data.isGuest ? "modo livre" : `logado: ${user?.email ?? "—"}`}
                 {filters.siteId !== "all" && (
-                  <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)} • {filtered.campaigns.length} camp · {filtered.placements.length} place</>
+                  <> • site={selectedSite?.name ?? filters.siteId.slice(0, 8)}</>
                 )}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Desktop actions */}
+          <div className="hidden md:flex items-center gap-2 flex-wrap">
             <GlobalSiteSelector
               sites={data.sites}
               links={data.links}
@@ -842,54 +940,35 @@ const IndexInner = () => {
               </Button>
             )}
           </div>
-
+          {/* Mobile: global site selector below title */}
+          <div className="md:hidden">
+            <GlobalSiteSelector
+              sites={data.sites}
+              links={data.links}
+              onChange={(siteId) => {
+                const linked = siteId === "all"
+                  ? []
+                  : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
+                handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
+              }}
+            />
+          </div>
         </div>
       </header>
 
 
-      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-6 pb-[env(safe-area-inset-bottom)]">
-        <Tabs defaultValue="dashboard">
-          <div className="-mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-4 md:py-5 space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="hidden md:block -mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList className="w-max md:w-auto flex-nowrap">
-            <TabsTrigger value="dashboard" className="gap-1.5">
-              <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="calendar" className="gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" /> Calendário
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="gap-1.5">
-              <Plug className="h-3.5 w-3.5" /> Integrações
-            </TabsTrigger>
-            <TabsTrigger value="placements" className="gap-1.5">
-              <MapPin className="h-3.5 w-3.5" /> Placements
-            </TabsTrigger>
-            <TabsTrigger value="funnel" className="gap-1.5">
-              <BarChart3 className="h-3.5 w-3.5" /> Funil
-            </TabsTrigger>
-            <TabsTrigger value="countries" className="gap-1.5">
-              <Globe className="h-3.5 w-3.5" /> Países
-            </TabsTrigger>
-            <TabsTrigger value="creatives" className="gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" /> Criativos
-            </TabsTrigger>
-            <TabsTrigger value="retention" className="gap-1.5">
-              <Repeat className="h-3.5 w-3.5" /> Retenção / Push
-            </TabsTrigger>
-            <TabsTrigger value="automation" className="gap-1.5">
-              <Bot className="h-3.5 w-3.5" /> Automação
-            </TabsTrigger>
-            <TabsTrigger value="scale-unlock" className="gap-1.5">
-              <Rocket className="h-3.5 w-3.5" /> Destravar Escala
-            </TabsTrigger>
-            <TabsTrigger value="migration" className="gap-1.5">
-              <Repeat className="h-3.5 w-3.5" /> Migração
-            </TabsTrigger>
-            <TabsTrigger value="rules" className="gap-1.5">
-              <Settings className="h-3.5 w-3.5" /> Regras
-            </TabsTrigger>
-            <TabsTrigger value="history" className="gap-1.5">
-              <History className="h-3.5 w-3.5" /> Histórico
-            </TabsTrigger>
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              return (
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                  <Icon className="h-3.5 w-3.5" /> {t.label}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
           </div>
 
