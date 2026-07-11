@@ -500,7 +500,10 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   const valueIdFilter = pushValueIds.length
     ? [{
         fieldFilter: {
-          field: { dimension: "CUSTOM_TARGETING_VALUE_ID" },
+          // REST v1 expõe key-values como CUSTOM_DIMENSION_* quando a key é
+          // informada em customDimensionKeyIds. Para a key 0 (utm_source),
+          // o ID do valor fica em CUSTOM_DIMENSION_0_VALUE_ID.
+          field: { dimension: "CUSTOM_DIMENSION_0_VALUE_ID" },
           operation: "IN",
           values: pushValueIds.map((id) => ({ intValue: id })),
         },
@@ -508,11 +511,13 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     : null;
 
   if (valueIdFilter) {
+    const customDimensionDefinition = { customDimensionKeyIds: [utmSourceKeyId] };
+
     // Tentativa 1: DATE + PAGE_PATH filtrado por customTargetingValueId=push
     await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] PAGE_PATH filtered VALUE_ID failed`, e);
     });
@@ -522,7 +527,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     await runOne(["DATE", "URL"], "URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] URL filtered VALUE_ID failed`, e);
     });
@@ -532,7 +537,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] CREATIVE_URL filtered VALUE_ID failed`, e);
     });
