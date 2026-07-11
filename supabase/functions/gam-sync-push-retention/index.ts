@@ -479,58 +479,68 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     },
   }];
 
-  await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-    filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
-    forcedRawKv: "utm_source=push",
-    extraDefinition: { expandedCompatibility: true },
-  }).catch((e) => {
-    console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_NAME failed`, e);
-  });
-  if (!all.some((r) => r.url)) {
-    await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_KEY_VALUES_SET", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      filters: pushFilter("KEY_VALUES_SET", "utm_source=push"),
-      forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
-    }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] PAGE_PATH filtered KEY_VALUES_SET failed`, e);
-    });
-  }
-  if (all.some((r) => r.url)) return all;
-
-  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_CLICK_THROUGH_URL_FILTERED_KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-    filters: pushFilter("KEY_VALUES_NAME", "utm_source=push"),
-    forcedRawKv: "utm_source=push",
-    extraDefinition: { expandedCompatibility: true },
-  }).catch((e) => {
-    console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL filtered KEY_VALUES_NAME failed`, e);
-  });
-  if (all.some((r) => r.url)) return all;
-
-  await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL", "KEY_VALUES_NAME"], "CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], { extraDefinition: { expandedCompatibility: true } }).catch((e) => {
-    console.warn(`[gam-sync-push-retention] CREATIVE_CLICK_THROUGH_URL+KEY_VALUES_NAME failed`, e);
-  });
-  if (all.some((r) => r.url)) return all;
+  // ── Estratégia principal ────────────────────────────────────────────────
+  // A GAM Reporting API v1 NÃO permite cruzar PAGE_PATH/URL com KEY_VALUES_NAME
+  // no mesmo report (REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY).
+  // A saída suportada é filtrar por CUSTOM_TARGETING_VALUE_ID: pegamos o ID
+  // do valor "push" dentro da key "utm_source" e usamos como filter.
 
   const utmSourceKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_source").catch((e) => {
     console.warn(`[gam-sync-push-retention] customTargetingKeys lookup failed`, e);
     return null;
   });
-  if (utmSourceKeyId) {
-    await runOne(["DATE", "PAGE_PATH", "EKV_DIMENSION_0_VALUE"], "PAGE_PATH+EKV_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      extraDefinition: { ekvDimensionKeyIds: [utmSourceKeyId], expandedCompatibility: true },
+  const pushValueIds = utmSourceKeyId
+    ? await findCustomTargetingValueIds(networkCode, accessToken, utmSourceKeyId, "push").catch((e) => {
+        console.warn(`[gam-sync-push-retention] customTargetingValues lookup failed`, e);
+        return [] as string[];
+      })
+    : [];
+  console.log(`[gam-sync-push-retention] utm_source keyId=${utmSourceKeyId} pushValueIds=${JSON.stringify(pushValueIds)}`);
+
+  const valueIdFilter = pushValueIds.length
+    ? [{
+        fieldFilter: {
+          field: { dimension: "CUSTOM_TARGETING_VALUE_ID" },
+          operation: "IN",
+          values: pushValueIds.map((id) => ({ intValue: id })),
+        },
+      }]
+    : null;
+
+  if (valueIdFilter) {
+    // Tentativa 1: DATE + PAGE_PATH filtrado por customTargetingValueId=push
+    await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      filters: valueIdFilter,
+      forcedRawKv: "utm_source=push",
+      extraDefinition: { expandedCompatibility: true },
     }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] PAGE_PATH+EKV_DIMENSION_0_VALUE failed`, e);
+      console.warn(`[gam-sync-push-retention] PAGE_PATH filtered VALUE_ID failed`, e);
     });
     if (all.some((r) => r.url)) return all;
 
-    await runOne(["DATE", "PAGE_PATH", "CUSTOM_DIMENSION_0_VALUE"], "PAGE_PATH+CUSTOM_DIMENSION_0_VALUE", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      extraDefinition: { customDimensionKeyIds: [utmSourceKeyId], expandedCompatibility: true },
+    // Tentativa 2: DATE + URL filtrado por customTargetingValueId=push
+    await runOne(["DATE", "URL"], "URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      filters: valueIdFilter,
+      forcedRawKv: "utm_source=push",
+      extraDefinition: { expandedCompatibility: true },
     }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] PAGE_PATH+CUSTOM_DIMENSION_0_VALUE failed`, e);
+      console.warn(`[gam-sync-push-retention] URL filtered VALUE_ID failed`, e);
+    });
+    if (all.some((r) => r.url)) return all;
+
+    // Tentativa 3: DATE + CREATIVE_CLICK_THROUGH_URL filtrado por valueId
+    await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
+      filters: valueIdFilter,
+      forcedRawKv: "utm_source=push",
+      extraDefinition: { expandedCompatibility: true },
+    }).catch((e) => {
+      console.warn(`[gam-sync-push-retention] CREATIVE_URL filtered VALUE_ID failed`, e);
     });
     if (all.some((r) => r.url)) return all;
   }
 
+  // Fallback final: agregado por DATE + KEY_VALUES_NAME (sem URL) — mantém
+  // pelo menos o total de receita push para o card "Receita Push".
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
   });
@@ -539,6 +549,37 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   });
 
   return all;
+}
+
+async function findCustomTargetingValueIds(
+  networkCode: string,
+  accessToken: string,
+  keyId: string,
+  wantedValue: string,
+): Promise<string[]> {
+  const wanted = wantedValue.toLowerCase();
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
+    url.searchParams.set("pageSize", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`customTargetingValues failed (${res.status}): ${text.slice(0, 300)}`);
+    const json = JSON.parse(text);
+    for (const v of (json.customTargetingValues ?? [])) {
+      const adTagName = String(v.adTagName ?? "").toLowerCase();
+      const displayName = String(v.displayName ?? "").toLowerCase();
+      if (adTagName === wanted || displayName === wanted) {
+        const id = String(v.name ?? "").split("/").pop();
+        if (id) ids.push(id);
+      }
+    }
+    pageToken = json.nextPageToken;
+    if (!pageToken) break;
+  }
+  return ids;
 }
 
 async function findCustomTargetingKeyId(networkCode: string, accessToken: string, wantedName: string): Promise<string | null> {
