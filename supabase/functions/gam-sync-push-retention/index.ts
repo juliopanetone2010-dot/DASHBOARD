@@ -457,7 +457,8 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     sourceDimension: string,
     metrics = ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
     options?: { filters?: any[]; forcedRawKv?: string; extraDefinition?: Record<string, unknown> },
-  ) => {
+  ): Promise<number> => {
+    let usableUrlRows = 0;
     const reportDefinition = {
       reportType: "HISTORICAL",
       dimensions,
@@ -527,10 +528,12 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
         const numRev = (v: any) => v?.intValue != null ? Number(v.intValue) / 1_000_000 : Number(v?.doubleValue ?? 0);
         const impressions = metrics.length === 2 ? num(m[0]) : num(m[0]) + num(m[2]) + num(m[4]);
         const revenue = metrics.length === 2 ? numRev(m[1]) : numRev(m[1]) + numRev(m[3]) + numRev(m[5]);
+        if (urlDim && (impressions > 0 || revenue > 0)) usableUrlRows++;
         all.push({ date, url: urlDim, rawKv, impressions, revenue, sourceDimension });
       }
       pageToken = rowsJson.nextPageToken;
     } while (pageToken);
+    return usableUrlRows;
   };
 
   const pushFilter = (dimension: string, value: string) => [{
@@ -574,36 +577,67 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
 
   if (valueIdFilter) {
     const customDimensionDefinition = { customDimensionKeyIds: [utmSourceKeyId] };
+    const urlMetricVariants: Array<{ label: string; metrics: string[] }> = [
+      {
+        label: "ALL_DEMAND",
+        metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
+      },
+      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+    ];
+
+    const runUrlDimension = async (dimension: "PAGE_PATH" | "URL" | "CREATIVE_CLICK_THROUGH_URL", sourceBase: string) => {
+      const before = all.length;
+
+      // Primeiro tentamos o relatório completo. Em algumas networks (ex.: Ligado 360)
+      // a receita de push vem fora de AD_EXCHANGE; tentar só AD_EXCHANGE deixa a URL vazia
+      // mesmo existindo receita no agregado. Se o completo for aceito, ele é a versão correta
+      // porque evita somar a mesma demanda duas vezes.
+      try {
+        const usable = await runOne(["DATE", dimension], `${sourceBase}_ALL_DEMAND`, urlMetricVariants[0].metrics, {
+          filters: valueIdFilter,
+          forcedRawKv: "utm_source=push",
+          extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
+        });
+        if (usable > 0) return true;
+      } catch (e) {
+        console.warn(`[gam-sync-push-retention] ${dimension} filtered ALL_DEMAND failed`, e);
+      }
+
+      // Se o relatório completo não for compatível para a network, tenta cada bloco de
+      // demanda separadamente e soma por URL no bucket. Isso mantém os sites que já
+      // funcionavam por AD_EXCHANGE e corrige networks cujo Push está em AD_SERVER/ADSENSE.
+      let anyUsable = false;
+      for (const variant of urlMetricVariants.slice(1)) {
+        try {
+          const usable = await runOne(["DATE", dimension], `${sourceBase}_${variant.label}`, variant.metrics, {
+            filters: valueIdFilter,
+            forcedRawKv: "utm_source=push",
+            extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
+          });
+          if (usable > 0) anyUsable = true;
+        } catch (e) {
+          console.warn(`[gam-sync-push-retention] ${dimension} filtered ${variant.label} failed`, e);
+        }
+      }
+
+      if (!anyUsable) {
+        // Remove linhas sem URL/sem métrica que algum report possa ter retornado, para não
+        // impedir os próximos fallbacks e para manter o debug limpo.
+        all.splice(before, all.length - before);
+      }
+      return anyUsable;
+    };
 
     // Tentativa 1: DATE + PAGE_PATH filtrado por customTargetingValueId=push
-    await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      filters: valueIdFilter,
-      forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
-    }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] PAGE_PATH filtered VALUE_ID failed`, e);
-    });
-    if (all.some((r) => r.url)) return all;
+    if (await runUrlDimension("PAGE_PATH", "PAGE_PATH_FILTERED_VALUE_ID")) return all;
 
     // Tentativa 2: DATE + URL filtrado por customTargetingValueId=push
-    await runOne(["DATE", "URL"], "URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      filters: valueIdFilter,
-      forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
-    }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] URL filtered VALUE_ID failed`, e);
-    });
-    if (all.some((r) => r.url)) return all;
+    if (await runUrlDimension("URL", "URL_FILTERED_VALUE_ID")) return all;
 
     // Tentativa 3: DATE + CREATIVE_CLICK_THROUGH_URL filtrado por valueId
-    await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
-      filters: valueIdFilter,
-      forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
-    }).catch((e) => {
-      console.warn(`[gam-sync-push-retention] CREATIVE_URL filtered VALUE_ID failed`, e);
-    });
-    if (all.some((r) => r.url)) return all;
+    if (await runUrlDimension("CREATIVE_CLICK_THROUGH_URL", "CREATIVE_URL_FILTERED_VALUE_ID")) return all;
   }
 
   // Fallback final: agregado por DATE + KEY_VALUES_NAME (sem URL) — mantém
