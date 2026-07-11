@@ -577,57 +577,20 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
 
   if (valueIdFilter) {
     const customDimensionDefinition = { customDimensionKeyIds: [utmSourceKeyId] };
-    const urlMetricVariants: Array<{ label: string; metrics: string[] }> = [
-      {
-        label: "ALL_DEMAND",
-        metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"],
-      },
-      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-    ];
-
     const runUrlDimension = async (dimension: "PAGE_PATH" | "URL" | "CREATIVE_CLICK_THROUGH_URL", sourceBase: string) => {
       const before = all.length;
-
-      // Primeiro tentamos o relatório completo. Em algumas networks (ex.: Ligado 360)
-      // a receita de push vem fora de AD_EXCHANGE; tentar só AD_EXCHANGE deixa a URL vazia
-      // mesmo existindo receita no agregado. Se o completo for aceito, ele é a versão correta
-      // porque evita somar a mesma demanda duas vezes.
       try {
-        const usable = await runOne(["DATE", dimension], `${sourceBase}_ALL_DEMAND`, urlMetricVariants[0].metrics, {
+        const usable = await runOne(["DATE", dimension], sourceBase, ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
           filters: valueIdFilter,
           forcedRawKv: "utm_source=push",
           extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
         });
         if (usable > 0) return true;
       } catch (e) {
-        console.warn(`[gam-sync-push-retention] ${dimension} filtered ALL_DEMAND failed`, e);
+        console.warn(`[gam-sync-push-retention] ${dimension} filtered VALUE_ID failed`, e);
       }
-
-      // Se o relatório completo não for compatível para a network, tenta cada bloco de
-      // demanda separadamente e soma por URL no bucket. Isso mantém os sites que já
-      // funcionavam por AD_EXCHANGE e corrige networks cujo Push está em AD_SERVER/ADSENSE.
-      let anyUsable = false;
-      for (const variant of urlMetricVariants.slice(1)) {
-        try {
-          const usable = await runOne(["DATE", dimension], `${sourceBase}_${variant.label}`, variant.metrics, {
-            filters: valueIdFilter,
-            forcedRawKv: "utm_source=push",
-            extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
-          });
-          if (usable > 0) anyUsable = true;
-        } catch (e) {
-          console.warn(`[gam-sync-push-retention] ${dimension} filtered ${variant.label} failed`, e);
-        }
-      }
-
-      if (!anyUsable) {
-        // Remove linhas sem URL/sem métrica que algum report possa ter retornado, para não
-        // impedir os próximos fallbacks e para manter o debug limpo.
-        all.splice(before, all.length - before);
-      }
-      return anyUsable;
+      all.splice(before, all.length - before);
+      return false;
     };
 
     // Tentativa 1: DATE + PAGE_PATH filtrado por customTargetingValueId=push
@@ -640,16 +603,97 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     if (await runUrlDimension("CREATIVE_CLICK_THROUGH_URL", "CREATIVE_URL_FILTERED_VALUE_ID")) return all;
   }
 
-  // Fallback final: agregado por DATE + KEY_VALUES_NAME (sem URL) — mantém
-  // pelo menos o total de receita push para o card "Receita Push".
+  // Fallback: algumas networks (Ligado 360) não aceitam nenhum cruzamento
+  // URL + custom targeting, mesmo por value id. Nesses casos pegamos:
+  // 1) o total oficial de push por dia via KEY_VALUES_NAME;
+  // 2) o relatório de URLs do mesmo dia sem filtro;
+  // 3) distribuímos o total push proporcionalmente pelas URLs retornadas pelo GAM.
+  // Assim a aba continua listando URL/Receita/Impressões/eCPM usando a ingestão existente,
+  // sem mexer em dashboard/ROI/campanhas.
+  const aggregateStart = all.length;
   await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"]).catch((e) => {
     console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME/AD_EXCHANGE failed`, e);
   });
-  await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME").catch((e) => {
-    console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME failed`, e);
-  });
+  const aggregateRows = all.slice(aggregateStart);
+  let pushTotals = getPushTotalsByDate(aggregateRows);
+  if (pushTotals.size === 0) {
+    await runOne(["DATE", "KEY_VALUES_NAME"], "KEY_VALUES_NAME").catch((e) => {
+      console.warn(`[gam-sync-push-retention] KEY_VALUES_NAME failed`, e);
+    });
+    pushTotals = getPushTotalsByDate(all.slice(aggregateStart));
+  }
+
+  if (pushTotals.size > 0) {
+    const urlStart = all.length;
+    const runAllocated = async (dimension: "URL" | "PAGE_PATH" | "CREATIVE_CLICK_THROUGH_URL", metrics: string[], label: string) => {
+      const before = all.length;
+      try {
+        const usable = await runOne(["DATE", dimension], label, metrics, { forcedRawKv: "utm_source=push" });
+        const urlRows = all.slice(before).filter((r) => r.url && r.date && pushTotals.has(r.date));
+        if (usable <= 0 || urlRows.length === 0) {
+          all.splice(before, all.length - before);
+          return false;
+        }
+        allocateUrlRowsToPushTotals(urlRows, pushTotals);
+        return true;
+      } catch (e) {
+        console.warn(`[gam-sync-push-retention] ${label} allocation fallback failed`, e);
+        all.splice(before, all.length - before);
+        return false;
+      }
+    };
+
+    const allocated =
+      await runAllocated("URL", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], "URL_ALLOCATED_FROM_PUSH_TOTAL")
+      || await runAllocated("PAGE_PATH", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], "PAGE_PATH_ALLOCATED_FROM_PUSH_TOTAL")
+      || await runAllocated("URL", ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"], "URL_ALLOCATED_FROM_PUSH_TOTAL_ALL_DEMAND")
+      || await runAllocated("CREATIVE_CLICK_THROUGH_URL", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], "CREATIVE_URL_ALLOCATED_FROM_PUSH_TOTAL");
+
+    if (allocated) {
+      all.splice(aggregateStart, urlStart - aggregateStart);
+      return all;
+    }
+  }
 
   return all;
+}
+
+function getPushTotalsByDate(rows: ReportRow[]): Map<string, { revenue: number; impressions: number }> {
+  const out = new Map<string, { revenue: number; impressions: number }>();
+  for (const r of rows) {
+    if (!r.date) continue;
+    const kv = parseCustomCriteria(r.rawKv);
+    const source = String(kv.utm_source ?? kv.source ?? "").toLowerCase().trim();
+    if (source !== "push") continue;
+    const cur = out.get(r.date) ?? { revenue: 0, impressions: 0 };
+    cur.revenue += Number(r.revenue || 0);
+    cur.impressions += Number(r.impressions || 0);
+    out.set(r.date, cur);
+  }
+  return out;
+}
+
+function allocateUrlRowsToPushTotals(rows: ReportRow[], pushTotals: Map<string, { revenue: number; impressions: number }>) {
+  const urlTotals = new Map<string, { revenue: number; impressions: number }>();
+  for (const r of rows) {
+    if (!r.date) continue;
+    const cur = urlTotals.get(r.date) ?? { revenue: 0, impressions: 0 };
+    cur.revenue += Number(r.revenue || 0);
+    cur.impressions += Number(r.impressions || 0);
+    urlTotals.set(r.date, cur);
+  }
+  for (const r of rows) {
+    if (!r.date) continue;
+    const push = pushTotals.get(r.date);
+    const total = urlTotals.get(r.date);
+    if (!push || !total) continue;
+    const revenueBase = total.revenue > 0 ? total.revenue : total.impressions;
+    const rowBase = total.revenue > 0 ? Number(r.revenue || 0) : Number(r.impressions || 0);
+    const revenueShare = revenueBase > 0 ? rowBase / revenueBase : 0;
+    const impressionShare = total.impressions > 0 ? Number(r.impressions || 0) / total.impressions : revenueShare;
+    r.revenue = push.revenue * revenueShare;
+    r.impressions = Math.max(0, Math.round(push.impressions * impressionShare));
+  }
 }
 
 async function findCustomTargetingValueIds(
