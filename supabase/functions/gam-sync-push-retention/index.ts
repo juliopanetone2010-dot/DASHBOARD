@@ -144,8 +144,25 @@ Deno.serve(async (req) => {
     const buckets = new Map<string, Bucket>();
     const unattribBuckets = new Map<string, { date: string; revenue_usd: number; impressions: number; reason: string; raw: any }>();
     const seenKeys = new Set<string>();
+    const rootAggregateRows = detectRootAggregateRows(rows, site.domain);
+    for (const remainder of rootAggregateRows.remainders) {
+      if (remainder.revenue_usd <= 0 && remainder.impressions <= 0) continue;
+      const k = `${remainder.date}|root_remainder|push`;
+      unattribBuckets.set(k, {
+        date: remainder.date,
+        revenue_usd: remainder.revenue_usd,
+        impressions: remainder.impressions,
+        reason: "aggregate root remainder utm=push",
+        raw: remainder.raw,
+      });
+      debug.aggregateRows++;
+    }
 
     for (const r of rows) {
+      if (rootAggregateRows.excluded.has(r)) {
+        debug.aggregateRows++;
+        continue;
+      }
       if (!r.date) { discard("sem_data", `${r.sourceDimension}|${r.url || r.rawKv}`); continue; }
       const parsed = detectUtmSource(r);
       const utmSource = parsed.utmSource;
@@ -334,6 +351,51 @@ function withSiteDomain(raw: string | null | undefined, domain: string | null | 
   const d = String(domain ?? "").trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
   if (!d) return s;
   return s.startsWith("/") ? `${d}${s}` : `${d}/${s}`;
+}
+
+function detectRootAggregateRows(rows: ReportRow[], domain: string | null | undefined): {
+  excluded: Set<ReportRow>;
+  remainders: { date: string; revenue_usd: number; impressions: number; raw: any }[];
+} {
+  const excluded = new Set<ReportRow>();
+  const remainders: { date: string; revenue_usd: number; impressions: number; raw: any }[] = [];
+  const byDate = new Map<string, ReportRow[]>();
+  for (const r of rows) {
+    if (!r.date || r.sourceDimension !== "URL_FILTERED_VALUE_ID" || !r.url) continue;
+    const arr = byDate.get(r.date) ?? [];
+    arr.push(r);
+    byDate.set(r.date, arr);
+  }
+
+  for (const [date, dateRows] of byDate) {
+    const rootRows = dateRows.filter((r) => isSiteRootUrl(r.url, domain));
+    if (!rootRows.length || rootRows.length === dateRows.length) continue;
+    const detailRows = dateRows.filter((r) => !rootRows.includes(r));
+    const rootRevenue = rootRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const rootImpressions = rootRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+    const detailRevenue = detailRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const detailImpressions = detailRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+
+    // O dimension URL do GAM pode retornar a linha do domínio raiz como total
+    // agregado da UTM, além das URLs específicas. Quando essa linha cobre a soma
+    // das URLs detalhadas, ela não deve entrar como URL para não duplicar receita.
+    if (rootRevenue + 0.000001 < detailRevenue) continue;
+    for (const r of rootRows) excluded.add(r);
+    remainders.push({
+      date,
+      revenue_usd: Math.max(rootRevenue - detailRevenue, 0),
+      impressions: Math.max(rootImpressions - detailImpressions, 0),
+      raw: rootRows[0],
+    });
+  }
+
+  return { excluded, remainders };
+}
+
+function isSiteRootUrl(raw: string | null | undefined, domain: string | null | undefined): boolean {
+  const normalized = normalizePushUrl(withSiteDomain(raw, domain));
+  const root = normalizePushUrl(domain);
+  return !!normalized && !!root && normalized === root;
 }
 
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
