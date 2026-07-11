@@ -144,8 +144,25 @@ Deno.serve(async (req) => {
     const buckets = new Map<string, Bucket>();
     const unattribBuckets = new Map<string, { date: string; revenue_usd: number; impressions: number; reason: string; raw: any }>();
     const seenKeys = new Set<string>();
+    const rootAggregateRows = detectRootAggregateRows(rows, site.domain);
+    for (const remainder of rootAggregateRows.remainders) {
+      if (remainder.revenue_usd <= 0 && remainder.impressions <= 0) continue;
+      const k = `${remainder.date}|root_remainder|push`;
+      unattribBuckets.set(k, {
+        date: remainder.date,
+        revenue_usd: remainder.revenue_usd,
+        impressions: remainder.impressions,
+        reason: "aggregate root remainder utm=push",
+        raw: remainder.raw,
+      });
+      debug.aggregateRows++;
+    }
 
     for (const r of rows) {
+      if (rootAggregateRows.excluded.has(r)) {
+        debug.aggregateRows++;
+        continue;
+      }
       if (!r.date) { discard("sem_data", `${r.sourceDimension}|${r.url || r.rawKv}`); continue; }
       const parsed = detectUtmSource(r);
       const utmSource = parsed.utmSource;
@@ -336,6 +353,51 @@ function withSiteDomain(raw: string | null | undefined, domain: string | null | 
   return s.startsWith("/") ? `${d}${s}` : `${d}/${s}`;
 }
 
+function detectRootAggregateRows(rows: ReportRow[], domain: string | null | undefined): {
+  excluded: Set<ReportRow>;
+  remainders: { date: string; revenue_usd: number; impressions: number; raw: any }[];
+} {
+  const excluded = new Set<ReportRow>();
+  const remainders: { date: string; revenue_usd: number; impressions: number; raw: any }[] = [];
+  const byDate = new Map<string, ReportRow[]>();
+  for (const r of rows) {
+    if (!r.date || r.sourceDimension !== "URL_FILTERED_VALUE_ID" || !r.url) continue;
+    const arr = byDate.get(r.date) ?? [];
+    arr.push(r);
+    byDate.set(r.date, arr);
+  }
+
+  for (const [date, dateRows] of byDate) {
+    const rootRows = dateRows.filter((r) => isSiteRootUrl(r.url, domain));
+    if (!rootRows.length || rootRows.length === dateRows.length) continue;
+    const detailRows = dateRows.filter((r) => !rootRows.includes(r));
+    const rootRevenue = rootRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const rootImpressions = rootRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+    const detailRevenue = detailRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const detailImpressions = detailRows.reduce((s, r) => s + Number(r.impressions || 0), 0);
+
+    // O dimension URL do GAM pode retornar a linha do domínio raiz como total
+    // agregado da UTM, além das URLs específicas. Quando essa linha cobre a soma
+    // das URLs detalhadas, ela não deve entrar como URL para não duplicar receita.
+    if (rootRevenue + 0.000001 < detailRevenue) continue;
+    for (const r of rootRows) excluded.add(r);
+    remainders.push({
+      date,
+      revenue_usd: Math.max(rootRevenue - detailRevenue, 0),
+      impressions: Math.max(rootImpressions - detailImpressions, 0),
+      raw: rootRows[0],
+    });
+  }
+
+  return { excluded, remainders };
+}
+
+function isSiteRootUrl(raw: string | null | undefined, domain: string | null | undefined): boolean {
+  const normalized = normalizePushUrl(withSiteDomain(raw, domain));
+  const root = normalizePushUrl(domain);
+  return !!normalized && !!root && normalized === root;
+}
+
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw) return out;
@@ -500,7 +562,10 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
   const valueIdFilter = pushValueIds.length
     ? [{
         fieldFilter: {
-          field: { dimension: "CUSTOM_TARGETING_VALUE_ID" },
+          // REST v1 expõe key-values como CUSTOM_DIMENSION_* quando a key é
+          // informada em customDimensionKeyIds. Para a key 0 (utm_source),
+          // o ID do valor fica em CUSTOM_DIMENSION_0_VALUE_ID.
+          field: { dimension: "CUSTOM_DIMENSION_0_VALUE_ID" },
           operation: "IN",
           values: pushValueIds.map((id) => ({ intValue: id })),
         },
@@ -508,11 +573,13 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     : null;
 
   if (valueIdFilter) {
+    const customDimensionDefinition = { customDimensionKeyIds: [utmSourceKeyId] };
+
     // Tentativa 1: DATE + PAGE_PATH filtrado por customTargetingValueId=push
     await runOne(["DATE", "PAGE_PATH"], "PAGE_PATH_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] PAGE_PATH filtered VALUE_ID failed`, e);
     });
@@ -522,7 +589,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     await runOne(["DATE", "URL"], "URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] URL filtered VALUE_ID failed`, e);
     });
@@ -532,7 +599,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     await runOne(["DATE", "CREATIVE_CLICK_THROUGH_URL"], "CREATIVE_URL_FILTERED_VALUE_ID", ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], {
       filters: valueIdFilter,
       forcedRawKv: "utm_source=push",
-      extraDefinition: { expandedCompatibility: true },
+      extraDefinition: { expandedCompatibility: true, ...customDimensionDefinition },
     }).catch((e) => {
       console.warn(`[gam-sync-push-retention] CREATIVE_URL filtered VALUE_ID failed`, e);
     });
@@ -558,17 +625,24 @@ async function findCustomTargetingValueIds(
   wantedValue: string,
 ): Promise<string[]> {
   const wanted = wantedValue.toLowerCase();
+  const keyResourceName = `networks/${networkCode}/customTargetingKeys/${keyId}`;
   const ids: string[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
+    // No REST v1 do GAM, a coleção de valores fica em nível de network.
+    // O vínculo com a key vem pelo campo customTargetingKey, não por uma rota
+    // aninhada /customTargetingKeys/{id}/customTargetingValues.
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingValues`);
     url.searchParams.set("pageSize", "1000");
+    url.searchParams.set("filter", `customTargetingKey = "${keyResourceName}"`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     const text = await res.text();
     if (!res.ok) throw new Error(`customTargetingValues failed (${res.status}): ${text.slice(0, 300)}`);
     const json = JSON.parse(text);
     for (const v of (json.customTargetingValues ?? [])) {
+      const valueKey = String(v.customTargetingKey ?? "");
+      if (valueKey && valueKey !== keyResourceName) continue;
       const adTagName = String(v.adTagName ?? "").toLowerCase();
       const displayName = String(v.displayName ?? "").toLowerCase();
       if (adTagName === wanted || displayName === wanted) {
