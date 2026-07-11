@@ -558,17 +558,24 @@ async function findCustomTargetingValueIds(
   wantedValue: string,
 ): Promise<string[]> {
   const wanted = wantedValue.toLowerCase();
+  const keyResourceName = `networks/${networkCode}/customTargetingKeys/${keyId}`;
   const ids: string[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
+    // No REST v1 do GAM, a coleção de valores fica em nível de network.
+    // O vínculo com a key vem pelo campo customTargetingKey, não por uma rota
+    // aninhada /customTargetingKeys/{id}/customTargetingValues.
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingValues`);
     url.searchParams.set("pageSize", "1000");
+    url.searchParams.set("filter", `customTargetingKey = "${keyResourceName}"`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     const text = await res.text();
     if (!res.ok) throw new Error(`customTargetingValues failed (${res.status}): ${text.slice(0, 300)}`);
     const json = JSON.parse(text);
     for (const v of (json.customTargetingValues ?? [])) {
+      const valueKey = String(v.customTargetingKey ?? "");
+      if (valueKey && valueKey !== keyResourceName) continue;
       const adTagName = String(v.adTagName ?? "").toLowerCase();
       const displayName = String(v.displayName ?? "").toLowerCase();
       if (adTagName === wanted || displayName === wanted) {
