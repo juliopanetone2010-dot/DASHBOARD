@@ -269,8 +269,7 @@ const IndexInner = () => {
   const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number; effectiveDate: string | null }>({
     queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
-      let effectiveDate: string | null = null;
-      let rows = await fetchAllRows<any>(() => {
+      const rows = await fetchAllRows<any>(() => {
         let q = supabase.from("site_metrics_daily")
           .select("id, date, revenue_native, currency, impressions, site_id")
           .gte("date", range.from).lte("date", range.to);
@@ -278,35 +277,15 @@ const IndexInner = () => {
         return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
 
-      if (rows.length === 0 && isTodayOnlyRange(range.from, range.to)) {
-        let latestQ = supabase
-          .from("site_metrics_daily")
-          .select("date")
-          .lte("date", range.to)
-          .order("date", { ascending: false })
-          .limit(1);
-        if (filters.siteId !== "all") latestQ = latestQ.eq("site_id", filters.siteId);
-        const { data: latestRows } = await latestQ;
-        effectiveDate = latestRows?.[0]?.date ?? null;
-        if (effectiveDate) {
-          rows = await fetchAllRows<any>(() => {
-            let q = supabase.from("site_metrics_daily")
-              .select("id, date, revenue_native, currency, impressions, site_id")
-              .eq("date", effectiveDate!);
-            if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
-            return q.order("date", { ascending: true }).order("id", { ascending: true });
-          });
-        }
-      }
-
       const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
         a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
         a.impressions += Number(r.impressions ?? 0);
         return a;
       }, { byCurrency: {} as Record<string, number>, impressions: 0 });
-      return { ...totals, effectiveDate };
+      return { ...totals, effectiveDate: null as string | null };
     },
+
     enabled: canUseRealGamTotals,
     staleTime: 30_000,
     refetchInterval: 5 * 60_000,
