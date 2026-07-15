@@ -1783,7 +1783,10 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
 
-  const reportBody = { visibility: "DRAFT", reportDefinition };
+  // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
+  // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
+  // ("SAVED"), que devolve os mesmos números vistos no painel do Ad Manager.
+  const reportBody = { reportDefinition };
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
