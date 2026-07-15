@@ -1055,12 +1055,6 @@ const IndexInner = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Receita GAM líquida (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
-              {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
-                <Badge variant="secondary">
-                  Hoje: GAM pode atrasar
-                  {siteRealRevenueQuery.data?.effectiveDate ? ` — exibindo ${siteRealRevenueQuery.data.effectiveDate}` : " — exibindo último dado disponível"}
-                </Badge>
-              )}
               {totals.revenue === 0 && (
                 <Badge variant="secondary">Sem receita do GAM no período</Badge>
               )}
