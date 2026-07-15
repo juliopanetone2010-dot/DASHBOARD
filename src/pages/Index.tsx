@@ -1099,7 +1099,7 @@ const IndexInner = () => {
                   realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
                     : realGamRevenueNetDisplay > 0
-                      ? `GAM líquido${siteRealRevenueQuery.data?.effectiveDate ? ` (${siteRealRevenueQuery.data.effectiveDate})` : ""} · bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}% · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                      ? `GAM líquido · bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}% · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                       : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
