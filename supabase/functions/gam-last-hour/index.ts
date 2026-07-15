@@ -149,7 +149,7 @@ async function runHourReport(networkCode: string, accessToken: string, date: str
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ visibility: "DRAFT", reportDefinition }),
+    body: JSON.stringify({ reportDefinition }),
   });
   const createJson = await createRes.json();
   if (!createRes.ok) throw new Error(`create failed: ${JSON.stringify(createJson)}`);
