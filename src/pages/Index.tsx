@@ -47,18 +47,6 @@ import { NET_FACTOR, REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabasePagination";
 
-const toLocalISODate = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const isTodayOnlyRange = (from: string, to: string) => {
-  const today = toLocalISODate(new Date());
-  return from === today && to === today;
-};
-
 const Index = () => {
   return (
     <FilterProvider>
@@ -236,7 +224,6 @@ const IndexInner = () => {
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: false }).order("id", { ascending: true });
       });
-
       if (import.meta.env.DEV) {
         console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: rows.length, sample: rows[0] });
       }
@@ -257,35 +244,32 @@ const IndexInner = () => {
       }, { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
       const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
-      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr, effectiveDate: null as string | null };
+      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr };
     },
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
   });
 
-
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
-  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number; effectiveDate: string | null }>({
+  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
     queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase.from("site_metrics_daily")
-          .select("id, date, revenue_native, currency, impressions, site_id")
+          .select("id, revenue_native, currency, impressions, site_id")
           .gte("date", range.from).lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
-
       const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
         a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
         a.impressions += Number(r.impressions ?? 0);
         return a;
       }, { byCurrency: {} as Record<string, number>, impressions: 0 });
-      return { ...totals, effectiveDate: null as string | null };
+      return totals;
     },
-
     enabled: canUseRealGamTotals,
     staleTime: 30_000,
     refetchInterval: 5 * 60_000,
@@ -502,47 +486,6 @@ const IndexInner = () => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, campaignGamMetricsQuery.data, filters.siteId, range.from, range.to]);
-
-  // Auto-trigger sync REAL do GAM (com viewability) quando o card "hoje" está zerado.
-  // Isso preenche site_metrics_daily do dia corrente, que a sync leve (total_requests_only)
-  // não popula. Roda no máximo 1x por sessão+site+dia.
-  const todayRevenueAutoSyncRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!isTodayOnlyRange(range.from, range.to)) return;
-    if (siteMetricsQuery.isLoading || siteRealRevenueQuery.isLoading) return;
-    const impressions = Number(siteMetricsQuery.data?.impressions ?? 0);
-    const realImpr = Number(siteRealRevenueQuery.data?.impressions ?? 0);
-    // Se já existe dado significativo de hoje, não sincroniza
-    if (impressions > 50 && realImpr > 50) return;
-    const key = `gam-today-sync-v1:${filters.siteId}:${range.from}`;
-    if (todayRevenueAutoSyncRef.current.has(key)) return;
-    try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
-    todayRevenueAutoSyncRef.current.add(key);
-    try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
-    (async () => {
-      try {
-        await supabase.functions.invoke("gam-sync-revenue", {
-          body: {
-            from: range.from,
-            to: range.to,
-            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
-            revenue_only: true,
-            skip_viewability: false,
-            skip_snapshot_regen: true,
-          },
-        });
-        // Espera o background terminar e refetch
-        setTimeout(() => {
-          siteMetricsQuery.refetch();
-          siteRealRevenueQuery.refetch();
-        }, 90_000);
-      } catch (e) {
-        console.warn("[gam-today-sync] falhou", e);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteMetricsQuery.data, siteMetricsQuery.isLoading, siteRealRevenueQuery.data, siteRealRevenueQuery.isLoading, filters.siteId, range.from, range.to]);
-
 
   // Melhor Match (últimos 10 dias, ignorando o range do filtro).
   // Fonte: gam_campaign_source_revenue (utm_source='google'), respeitando o site selecionado.
@@ -1096,6 +1039,9 @@ const IndexInner = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Receita GAM líquida (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
+              {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
+                <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
+              )}
               {totals.revenue === 0 && (
                 <Badge variant="secondary">Sem receita do GAM no período</Badge>
               )}
@@ -1140,7 +1086,7 @@ const IndexInner = () => {
                   realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
                     : realGamRevenueNetDisplay > 0
-                      ? `GAM líquido · bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}% · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                      ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                       : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />

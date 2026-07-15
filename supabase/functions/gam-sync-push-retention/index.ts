@@ -470,7 +470,7 @@ async function runReport(args: { networkCode: string; accessToken: string; from:
     const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ visibility: "SAVED", reportDefinition }),
+      body: JSON.stringify({ visibility: "DRAFT", reportDefinition }),
     });
     const createText = await createRes.text();
     if (!createRes.ok) throw new Error(`[${tag}/${sourceDimension}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
