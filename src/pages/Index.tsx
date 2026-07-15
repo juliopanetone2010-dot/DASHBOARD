@@ -503,6 +503,47 @@ const IndexInner = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignMatchRateQuery.data, campaignMatchRateQuery.isLoading, campaignGamMetricsQuery.data, filters.siteId, range.from, range.to]);
 
+  // Auto-trigger sync REAL do GAM (com viewability) quando o card "hoje" está zerado.
+  // Isso preenche site_metrics_daily do dia corrente, que a sync leve (total_requests_only)
+  // não popula. Roda no máximo 1x por sessão+site+dia.
+  const todayRevenueAutoSyncRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isTodayOnlyRange(range.from, range.to)) return;
+    if (siteMetricsQuery.isLoading || siteRealRevenueQuery.isLoading) return;
+    const impressions = Number(siteMetricsQuery.data?.impressions ?? 0);
+    const realImpr = Number(siteRealRevenueQuery.data?.impressions ?? 0);
+    // Se já existe dado significativo de hoje, não sincroniza
+    if (impressions > 50 && realImpr > 50) return;
+    const key = `gam-today-sync-v1:${filters.siteId}:${range.from}`;
+    if (todayRevenueAutoSyncRef.current.has(key)) return;
+    try { if (sessionStorage.getItem(key)) return; } catch { /* ignore */ }
+    todayRevenueAutoSyncRef.current.add(key);
+    try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+    (async () => {
+      try {
+        await supabase.functions.invoke("gam-sync-revenue", {
+          body: {
+            from: range.from,
+            to: range.to,
+            site_id: filters.siteId !== "all" ? filters.siteId : undefined,
+            revenue_only: true,
+            skip_viewability: false,
+            skip_snapshot_regen: true,
+          },
+        });
+        // Espera o background terminar e refetch
+        setTimeout(() => {
+          siteMetricsQuery.refetch();
+          siteRealRevenueQuery.refetch();
+        }, 90_000);
+      } catch (e) {
+        console.warn("[gam-today-sync] falhou", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteMetricsQuery.data, siteMetricsQuery.isLoading, siteRealRevenueQuery.data, siteRealRevenueQuery.isLoading, filters.siteId, range.from, range.to]);
+
+
   // Melhor Match (últimos 10 dias, ignorando o range do filtro).
   // Fonte: gam_campaign_source_revenue (utm_source='google'), respeitando o site selecionado.
   const campaignBestMatchQuery = useQuery({

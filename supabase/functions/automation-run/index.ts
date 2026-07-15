@@ -1045,7 +1045,7 @@ async function syncGamRevenueWindow(userId: string, siteId: string, fromIso: str
         from: fromIso,
         to: toIso,
         revenue_only: true,
-        skip_viewability: true,
+        skip_viewability: false,
         skip_snapshot_regen: true,
       }),
     });
