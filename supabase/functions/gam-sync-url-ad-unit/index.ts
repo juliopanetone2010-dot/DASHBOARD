@@ -218,7 +218,6 @@ async function runReportSafe(networkCode: string, accessToken: string, range: an
 async function runReport(networkCode: string, accessToken: string, range: any, dimensions: string[], metrics: string[], debug: string[]) {
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const reportBody = {
-    visibility: "DRAFT",
     reportDefinition: { reportType: "HISTORICAL", dimensions, metrics, dateRange: range },
   };
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
