@@ -47,6 +47,18 @@ import { NET_FACTOR, REV_SHARE_PCT } from "@/engine/rules";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabasePagination";
 
+const toLocalISODate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const isTodayOnlyRange = (from: string, to: string) => {
+  const today = toLocalISODate(new Date());
+  return from === today && to === today;
+};
+
 const Index = () => {
   return (
     <FilterProvider>
@@ -216,7 +228,8 @@ const IndexInner = () => {
   const siteMetricsQuery = useQuery({
     queryKey: ["site-metrics-daily", filters.siteId, range.from, range.to],
     queryFn: async () => {
-      const rows = await fetchAllRows<any>(() => {
+      let effectiveDate: string | null = null;
+      let rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("site_metrics_daily")
           .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
@@ -224,8 +237,31 @@ const IndexInner = () => {
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: false }).order("id", { ascending: true });
       });
+
+      if (rows.length === 0 && isTodayOnlyRange(range.from, range.to)) {
+        let latestQ = supabase
+          .from("site_metrics_daily")
+          .select("date")
+          .lte("date", range.to)
+          .order("date", { ascending: false })
+          .limit(1);
+        if (filters.siteId !== "all") latestQ = latestQ.eq("site_id", filters.siteId);
+        const { data: latestRows } = await latestQ;
+        effectiveDate = latestRows?.[0]?.date ?? null;
+        if (effectiveDate) {
+          rows = await fetchAllRows<any>(() => {
+            let q = supabase
+              .from("site_metrics_daily")
+              .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency, ecpm_native")
+              .eq("date", effectiveDate!);
+            if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+            return q.order("date", { ascending: false }).order("id", { ascending: true });
+          });
+        }
+      }
+
       if (import.meta.env.DEV) {
-        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, count: rows.length, sample: rows[0] });
+        console.info("[site-metrics-daily] rows", { siteId: filters.siteId, from: range.from, to: range.to, effectiveDate, count: rows.length, sample: rows[0] });
       }
       const fxForMetrics = fxQuery.data?.rate ?? 5;
       const totals = rows.reduce((a, r: any) => {
@@ -244,7 +280,7 @@ const IndexInner = () => {
       }, { impr: 0, meas: 0, view: 0, rev: 0, currency: "USD" });
       const viewability = totals.meas > 0 ? (totals.view / totals.meas) * 100 : 0;
       const ecpmNative = totals.impr > 0 ? (totals.rev / totals.impr) * 1000 : 0;
-      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr };
+      return { viewability, ecpmNative, currency: filters.siteId === "all" ? "GAM" : totals.currency, impressions: totals.impr, effectiveDate };
     },
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
@@ -252,23 +288,46 @@ const IndexInner = () => {
 
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
-  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
+  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number; effectiveDate: string | null }>({
     queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
-      const rows = await fetchAllRows<any>(() => {
+      let effectiveDate: string | null = null;
+      let rows = await fetchAllRows<any>(() => {
         let q = supabase.from("site_metrics_daily")
-          .select("id, revenue_native, currency, impressions, site_id")
+          .select("id, date, revenue_native, currency, impressions, site_id")
           .gte("date", range.from).lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
+
+      if (rows.length === 0 && isTodayOnlyRange(range.from, range.to)) {
+        let latestQ = supabase
+          .from("site_metrics_daily")
+          .select("date")
+          .lte("date", range.to)
+          .order("date", { ascending: false })
+          .limit(1);
+        if (filters.siteId !== "all") latestQ = latestQ.eq("site_id", filters.siteId);
+        const { data: latestRows } = await latestQ;
+        effectiveDate = latestRows?.[0]?.date ?? null;
+        if (effectiveDate) {
+          rows = await fetchAllRows<any>(() => {
+            let q = supabase.from("site_metrics_daily")
+              .select("id, date, revenue_native, currency, impressions, site_id")
+              .eq("date", effectiveDate!);
+            if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
+            return q.order("date", { ascending: true }).order("id", { ascending: true });
+          });
+        }
+      }
+
       const totals = rows.reduce((a, r: any) => {
         const cur = String(r.currency || "USD").toUpperCase();
         a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
         a.impressions += Number(r.impressions ?? 0);
         return a;
       }, { byCurrency: {} as Record<string, number>, impressions: 0 });
-      return totals;
+      return { ...totals, effectiveDate };
     },
     enabled: canUseRealGamTotals,
     staleTime: 30_000,
@@ -1040,7 +1099,10 @@ const IndexInner = () => {
               <Badge variant="outline">Receita GAM líquida (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
-                <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
+                <Badge variant="secondary">
+                  Hoje: GAM pode atrasar
+                  {siteRealRevenueQuery.data?.effectiveDate ? ` — exibindo ${siteRealRevenueQuery.data.effectiveDate}` : " — exibindo último dado disponível"}
+                </Badge>
               )}
               {totals.revenue === 0 && (
                 <Badge variant="secondary">Sem receita do GAM no período</Badge>
@@ -1086,7 +1148,7 @@ const IndexInner = () => {
                   realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
                     ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
                     : realGamRevenueNetDisplay > 0
-                      ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                      ? `GAM líquido${siteRealRevenueQuery.data?.effectiveDate ? ` (${siteRealRevenueQuery.data.effectiveDate})` : ""} · bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}% · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                       : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                 }
               />
