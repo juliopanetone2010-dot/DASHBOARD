@@ -179,9 +179,18 @@ export default function AdminUsers() {
                           {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString("pt-BR") : "—"}
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-1">
+                          <div className="flex gap-1 flex-wrap">
                             <Button size="sm" variant="outline" onClick={() => setEditUser(u)}>Editar</Button>
-                            <Button size="sm" variant="ghost" onClick={async () => {
+                            <Button size="sm" variant="ghost" title="Definir senha manualmente" onClick={async () => {
+                              const pw = prompt(`Definir nova senha para ${u.email} (mínimo 8 caracteres):`);
+                              if (!pw) return;
+                              if (pw.length < 8) { toast.error("Senha muito curta (mínimo 8 caracteres)"); return; }
+                              try {
+                                await callAdmin("set_password", { user_id: u.id, password: pw });
+                                toast.success(`Senha definida. Envie para ${u.email}: ${pw}`, { duration: 20000 });
+                              } catch (e) { toast.error((e as Error).message); }
+                            }}><Key className="h-4 w-4" /></Button>
+                            <Button size="sm" variant="ghost" title="Enviar email de reset" onClick={async () => {
                               try { await callAdmin("reset_password", { email: u.email }); toast.success("Email de reset enviado"); }
                               catch (e) { toast.error((e as Error).message); }
                             }}><Mail className="h-4 w-4" /></Button>
@@ -265,6 +274,7 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("viewer");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   return (
@@ -272,11 +282,22 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Convidar novo usuário</DialogTitle>
-          <DialogDescription>O usuário recebe um email para definir a senha.</DialogDescription>
+          <DialogDescription>Defina uma senha manualmente e envie ao usuário — o email de convite pode não chegar.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@empresa.com" /></div>
           <div><Label>Nome</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome completo" /></div>
+          <div>
+            <Label>Senha inicial (mínimo 8 caracteres)</Label>
+            <div className="flex gap-2">
+              <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Deixe em branco para gerar automaticamente" />
+              <Button type="button" variant="outline" onClick={() => {
+                const pw = Math.random().toString(36).slice(2, 10) + "Aa1!";
+                setPassword(pw);
+              }}>Gerar</Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">A senha será mostrada após criar — copie e envie ao usuário.</p>
+          </div>
           <div>
             <Label>Papel</Label>
             <Select value={role} onValueChange={setRole}>
@@ -295,13 +316,14 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
           <Button disabled={submitting || !email} onClick={async () => {
             setSubmitting(true);
             try {
-              await callAdmin("invite", { email, name, role });
-              toast.success("Convite enviado");
-              setEmail(""); setName(""); setRole("viewer");
+              const res = await callAdmin("invite", { email, name, role, password: password || undefined });
+              const finalPw = (res as any)?.password ?? password;
+              toast.success(`Usuário criado. Login: ${email} · Senha: ${finalPw}`, { duration: 30000 });
+              setEmail(""); setName(""); setRole("viewer"); setPassword("");
               onOpenChange(false); onDone();
             } catch (e) { toast.error((e as Error).message); }
             finally { setSubmitting(false); }
-          }}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Convidar"}</Button>
+          }}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar usuário"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
