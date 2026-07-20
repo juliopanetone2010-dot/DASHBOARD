@@ -48,6 +48,7 @@ Deno.serve(async (req) => {
       case "invite": return await inviteUser(admin, body, callerId);
       case "update_profile": return await updateProfile(admin, body, callerId);
       case "reset_password": return await resetPassword(admin, body);
+      case "set_password": return await setPassword(admin, body, callerId);
       case "set_site_access": return await setSiteAccess(admin, body, callerId);
       case "set_module_perms": return await setModulePerms(admin, body, callerId);
       case "set_ga_perms": return await setGaPerms(admin, body, callerId);
