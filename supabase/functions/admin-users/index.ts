@@ -119,25 +119,26 @@ async function inviteUser(admin: any, body: any, callerId: string) {
   const email = String(body.email ?? "").trim().toLowerCase();
   const role = (body.role as string) ?? "viewer";
   const name = (body.name as string) ?? email.split("@")[0];
+  const providedPassword = typeof body.password === "string" && body.password.length >= 8 ? body.password : null;
   if (!email.includes("@")) return jsonResp({ error: "Email inválido" }, 400);
 
-  // Tenta gerar invite link; se já existe, devolve o usuário existente.
   const { data: existing } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
   const found = (existing?.users ?? []).find((u: any) => (u.email ?? "").toLowerCase() === email);
   let userId = found?.id as string | undefined;
+  let finalPassword: string | null = providedPassword;
 
   if (!userId) {
-    const tempPass = crypto.randomUUID() + "Aa1!";
+    if (!finalPassword) finalPassword = crypto.randomUUID().slice(0, 12) + "Aa1!";
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
-      password: tempPass,
-      email_confirm: false,
+      password: finalPassword,
+      email_confirm: true,
       user_metadata: { display_name: name },
     });
     if (createErr) return jsonResp({ error: createErr.message }, 400);
     userId = created.user?.id;
-    // Envia email de recovery pra que ele defina a senha
-    await admin.auth.admin.generateLink({ type: "recovery", email });
+  } else if (finalPassword) {
+    await admin.auth.admin.updateUserById(userId, { password: finalPassword, email_confirm: true });
   }
 
   if (!userId) return jsonResp({ error: "Falha ao criar usuário" }, 500);
@@ -155,9 +156,20 @@ async function inviteUser(admin: any, body: any, callerId: string) {
     can_view_dashboard: true,
   }, { onConflict: "user_id" });
 
-  await logAudit(admin, callerId, "invite_user", { resource_id: userId, after: { email, role, name } });
+  await logAudit(admin, callerId, "invite_user", { resource_id: userId, after: { email, role, name, password_set: !!providedPassword } });
 
-  return jsonResp({ ok: true, user_id: userId });
+  return jsonResp({ ok: true, user_id: userId, password: finalPassword });
+}
+
+async function setPassword(admin: any, body: any, callerId: string) {
+  const userId = String(body.user_id ?? "");
+  const password = String(body.password ?? "");
+  if (!userId) return jsonResp({ error: "user_id obrigatório" }, 400);
+  if (password.length < 8) return jsonResp({ error: "Senha deve ter ao menos 8 caracteres" }, 400);
+  const { error } = await admin.auth.admin.updateUserById(userId, { password, email_confirm: true });
+  if (error) return jsonResp({ error: error.message }, 400);
+  await logAudit(admin, callerId, "set_password", { resource_id: userId });
+  return jsonResp({ ok: true });
 }
 
 async function updateProfile(admin: any, body: any, callerId: string) {
