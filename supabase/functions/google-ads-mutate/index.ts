@@ -263,7 +263,9 @@ Deno.serve(async (req) => {
         await logAction("skipped", { reason: "Sem budget vinculado" });
         return json({ error: "Campanha sem orçamento configurado" });
       }
-      const nextMicros = Math.max(10_000, Math.round(currentMicros * (1 + deltaPct / 100)));
+      // Google Ads exige que amount_micros seja múltiplo de 10.000 (unidade mínima da moeda)
+      const rawNext = currentMicros * (1 + deltaPct / 100);
+      const nextMicros = Math.max(10_000, Math.round(rawNext / 10_000) * 10_000);
       const mutateBody = {
         operations: [{
           update: {
