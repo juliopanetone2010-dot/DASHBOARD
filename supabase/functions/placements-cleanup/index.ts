@@ -543,6 +543,9 @@ Deno.serve(async (req) => {
       eligible: eligibleIds.length,
       total: campIds.length,
       bad: items.length,
+      review_only: reviewOnly,
+      deletable: items.length - reviewOnly,
+      unsafe_campaigns: unsafeCampaigns.length,
       grouped: cpAgg.size,
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
@@ -562,6 +565,7 @@ Deno.serve(async (req) => {
       grand_revenue_brl,
       grand_profit_brl,
     };
+
 
     if (mode === "preview") return json({ ok: true, items, stats, campaign_totals });
 
