@@ -542,10 +542,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
+                                  const dataUnsafe = i.data_ok === false;
                                   const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60", dataUnsafe && "bg-warning/5")}>
                                       <TableCell>
                                         <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
@@ -553,7 +554,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                       <TableCell className="text-xs">
                                         {i.type}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
-                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                        {dataUnsafe
+                                          ? <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning" title={i.data_warning ?? "Receita GAM incompleta no período"}>dados incompletos</Badge>
+                                          : disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>
