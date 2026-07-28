@@ -479,7 +479,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </span>
             </DialogDescription>
           </DialogHeader>
+          {!!stats?.review_only && (
+            <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+              <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) estão com receita do Ad Manager incompleta neste período (falta de sync ou atribuição parcial).
+              O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” antes de decidir.
+            </div>
+          )}
           <div className="overflow-auto flex-1 border border-border rounded-lg">
+
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
