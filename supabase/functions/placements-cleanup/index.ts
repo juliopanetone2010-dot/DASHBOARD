@@ -166,10 +166,42 @@ Deno.serve(async (req) => {
     }
     const eligibleIds = [...eligible];
 
+    // ============================================================
+    // QUALIDADE DE DADOS (anti-exclusão indevida)
+    // Antes de julgar qualquer placement, medimos se o período tem
+    // dados de receita GAM completos para cada campanha. Se faltar
+    // dia de GAM (sync falhou/atrasou) ou se a receita por placement
+    // cobrir pouco da receita total da campanha, o ROI por placement
+    // fica artificialmente negativo → NÃO pode virar exclusão.
+    // ============================================================
+    const costDaysByCampaign = new Map<string, Set<string>>();
+    const dmRevenueUsdByCampaign = new Map<string, number>();
+    for (const chunk of chunkArr(eligibleIds, 200)) {
+      const { data, error } = await admin
+        .from("daily_metrics")
+        .select("campaign_id, date, spend, revenue")
+        .eq("user_id", userId)
+        .in("campaign_id", chunk)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      if (error) return json({ error: error.message });
+      for (const r of data ?? []) {
+        const cid = String(r.campaign_id);
+        if ((Number(r.spend) || 0) > 0) {
+          const set = costDaysByCampaign.get(cid) ?? new Set<string>();
+          set.add(String(r.date));
+          costDaysByCampaign.set(cid, set);
+        }
+        dmRevenueUsdByCampaign.set(cid, (dmRevenueUsdByCampaign.get(cid) ?? 0) + (Number(r.revenue) || 0));
+      }
+    }
+
     const ads = await fetchLiveAdsPlacements(admin, userId, eligibleIds, campMap, from, to);
 
-    type GamRow = { campaign_id: string; placement: string; revenue_usd: number };
+    type GamRow = { campaign_id: string; placement: string; revenue_usd: number; date: string };
     const gam: GamRow[] = [];
+    const gamDaysByCampaign = new Map<string, Set<string>>();
     for (const chunk of chunkArr(eligibleIds, 50)) {
       let start = 0;
       for (;;) {
@@ -177,7 +209,7 @@ Deno.serve(async (req) => {
         // receita de outros sites que usem a mesma conta Ads.
         let gamQuery = admin
           .from("gam_placement_revenue")
-          .select("campaign_id, placement, revenue_usd")
+          .select("campaign_id, placement, revenue_usd, date")
           .eq("user_id", userId)
           .in("campaign_id", chunk)
           .gte("date", from)
@@ -187,10 +219,17 @@ Deno.serve(async (req) => {
         if (error) return json({ error: error.message });
         const rows = (data ?? []) as GamRow[];
         gam.push(...rows);
+        for (const r of rows) {
+          const cid = String(r.campaign_id);
+          const set = gamDaysByCampaign.get(cid) ?? new Set<string>();
+          set.add(String(r.date));
+          gamDaysByCampaign.set(cid, set);
+        }
         if (rows.length < 1000) break;
         start += 1000;
       }
     }
+
 
     // Agrupa receita GAM por (campaign, placement-normalizado)
     const revByCampaign = new Map<string, Map<string, number>>();
