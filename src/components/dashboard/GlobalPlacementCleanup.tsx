@@ -39,8 +39,13 @@ interface PreviewItem {
   impressions: number;
   match_utm: boolean;
   reason: string;
+  data_ok?: boolean;
+  data_warning?: string | null;
+  coverage_pct?: number;
+  missing_gam_days?: number;
   campaigns: PreviewCampaign[];
 }
+
 interface CampaignTotal {
   campaign_id: string; name: string; google_account_id?: string;
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
