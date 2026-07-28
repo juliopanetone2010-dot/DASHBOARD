@@ -585,9 +585,9 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "apply") {
-      const selected: ApplyItem[] = Array.isArray(body?.items) && body.items.length
+      const selectedRaw: ApplyItem[] = Array.isArray(body?.items) && body.items.length
         ? body.items as ApplyItem[]
-        : items.map((i) => ({
+        : items.filter((i) => i.data_ok).map((i) => ({
           key: i.key,
           placement: i.placement,
           type: i.type,
@@ -607,13 +607,32 @@ Deno.serve(async (req) => {
         }));
 
       // ============================================================
+      // TRAVA DE DADOS INCOMPLETOS (bloqueio duro, não desligável)
+      // Nunca negativa placement de campanha cujo período está sem
+      // receita GAM completa — o ROI negativo pode ser só falta de sync.
+      // ============================================================
+      const dataRejected: any[] = [];
+      const selected: ApplyItem[] = [];
+      for (const it of selectedRaw) {
+        const bad = it.campaigns.filter((c) => qualityByCampaign.get(String(c.campaign_id))?.data_ok === false);
+        if (bad.length > 0) {
+          const q = qualityByCampaign.get(String(bad[0].campaign_id));
+          dataRejected.push({ placement: it.placement, reason: "dados_incompletos", detail: q?.warning ?? null, coverage_pct: q?.coverage_pct ?? null });
+          console.warn(`[data-guard] BLOQUEIO REJEITADO: ${it.placement} — ${q?.warning}`);
+          continue;
+        }
+        selected.push(it);
+      }
+
+      // ============================================================
       // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
       // direto no banco (gam_placement_revenue + ads_placements) antes
       // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
       // Match por root domain + variantes (sk2.x.com, www.x.com etc).
       // ============================================================
-      const safetyRejected: any[] = [];
+      const safetyRejected: any[] = [...dataRejected];
       const safetyApproved: ApplyItem[] = [];
+
 
       if (disableSafetyRecheck) {
         // Usuário desligou a trava: aprova tudo direto, sem re-checar ROI real.
