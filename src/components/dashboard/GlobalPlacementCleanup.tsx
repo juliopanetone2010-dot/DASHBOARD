@@ -39,8 +39,13 @@ interface PreviewItem {
   impressions: number;
   match_utm: boolean;
   reason: string;
+  data_ok?: boolean;
+  data_warning?: string | null;
+  coverage_pct?: number;
+  missing_gam_days?: number;
   campaigns: PreviewCampaign[];
 }
+
 interface CampaignTotal {
   campaign_id: string; name: string; google_account_id?: string;
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
@@ -48,12 +53,14 @@ interface CampaignTotal {
 }
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
+  review_only?: number; deletable?: number; unsafe_campaigns?: number;
   skipped_safety?: number; ads_rows?: number; gam_rows?: number;
   with_match?: number; without_match?: number; match_pct?: number;
   gam_total_usd?: number; gam_attributed_usd?: number; gam_attributed_pct?: number;
   period?: { from: string; to: string };
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
+
 interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
 interface GamSyncResp {
   ok?: boolean;
@@ -103,7 +110,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
-  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  // Tipo suportado pela API de negative placements
+  const typeSupported = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  // Só pode excluir se o tipo é suportado E os dados de receita do período são confiáveis.
+  const canExclude = (i: PreviewItem) => typeSupported(i) && i.data_ok !== false;
+
 
   // carrega config persistida
   useEffect(() => {
@@ -468,7 +479,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </span>
             </DialogDescription>
           </DialogHeader>
+          {!!stats?.review_only && (
+            <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+              <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) estão com receita do Ad Manager incompleta neste período (falta de sync ou atribuição parcial).
+              O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” antes de decidir.
+            </div>
+          )}
           <div className="overflow-auto flex-1 border border-border rounded-lg">
+
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
@@ -531,10 +549,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <TableBody>
                                 {list.map((i) => {
                                   const isApp = i.type !== "WEBSITE";
+                                  const dataUnsafe = i.data_ok === false;
                                   const disabled = !canExclude(i);
                                   const c = i.campaigns.find((x) => x.campaign_id === camp.campaign_id);
                                   return (
-                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60")}>
+                                    <TableRow key={itemKey(i)} className={cn(disabled && "opacity-60", dataUnsafe && "bg-warning/5")}>
                                       <TableCell>
                                         <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
@@ -542,7 +561,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                       <TableCell className="text-xs">
                                         {i.type}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
-                                        {disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+                                        {dataUnsafe
+                                          ? <Badge variant="outline" className="ml-1 text-[9px] border-warning text-warning" title={i.data_warning ?? "Receita GAM incompleta no período"}>dados incompletos</Badge>
+                                          : disabled && <Badge variant="secondary" className="ml-1 text-[9px]">manual</Badge>}
+
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtNumber(i.clicks)}</TableCell>
                                       <TableCell className="text-right tabular-nums text-xs">{fmtBRL(c?.cost_brl ?? 0)}</TableCell>

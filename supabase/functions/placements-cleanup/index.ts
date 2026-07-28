@@ -166,10 +166,42 @@ Deno.serve(async (req) => {
     }
     const eligibleIds = [...eligible];
 
+    // ============================================================
+    // QUALIDADE DE DADOS (anti-exclusão indevida)
+    // Antes de julgar qualquer placement, medimos se o período tem
+    // dados de receita GAM completos para cada campanha. Se faltar
+    // dia de GAM (sync falhou/atrasou) ou se a receita por placement
+    // cobrir pouco da receita total da campanha, o ROI por placement
+    // fica artificialmente negativo → NÃO pode virar exclusão.
+    // ============================================================
+    const costDaysByCampaign = new Map<string, Set<string>>();
+    const dmRevenueUsdByCampaign = new Map<string, number>();
+    for (const chunk of chunkArr(eligibleIds, 200)) {
+      const { data, error } = await admin
+        .from("daily_metrics")
+        .select("campaign_id, date, spend, revenue")
+        .eq("user_id", userId)
+        .in("campaign_id", chunk)
+        .gte("date", from)
+        .lte("date", to)
+        .limit(50000);
+      if (error) return json({ error: error.message });
+      for (const r of data ?? []) {
+        const cid = String(r.campaign_id);
+        if ((Number(r.spend) || 0) > 0) {
+          const set = costDaysByCampaign.get(cid) ?? new Set<string>();
+          set.add(String(r.date));
+          costDaysByCampaign.set(cid, set);
+        }
+        dmRevenueUsdByCampaign.set(cid, (dmRevenueUsdByCampaign.get(cid) ?? 0) + (Number(r.revenue) || 0));
+      }
+    }
+
     const ads = await fetchLiveAdsPlacements(admin, userId, eligibleIds, campMap, from, to);
 
-    type GamRow = { campaign_id: string; placement: string; revenue_usd: number };
+    type GamRow = { campaign_id: string; placement: string; revenue_usd: number; date: string };
     const gam: GamRow[] = [];
+    const gamDaysByCampaign = new Map<string, Set<string>>();
     for (const chunk of chunkArr(eligibleIds, 50)) {
       let start = 0;
       for (;;) {
@@ -177,7 +209,7 @@ Deno.serve(async (req) => {
         // receita de outros sites que usem a mesma conta Ads.
         let gamQuery = admin
           .from("gam_placement_revenue")
-          .select("campaign_id, placement, revenue_usd")
+          .select("campaign_id, placement, revenue_usd, date")
           .eq("user_id", userId)
           .in("campaign_id", chunk)
           .gte("date", from)
@@ -187,10 +219,17 @@ Deno.serve(async (req) => {
         if (error) return json({ error: error.message });
         const rows = (data ?? []) as GamRow[];
         gam.push(...rows);
+        for (const r of rows) {
+          const cid = String(r.campaign_id);
+          const set = gamDaysByCampaign.get(cid) ?? new Set<string>();
+          set.add(String(r.date));
+          gamDaysByCampaign.set(cid, set);
+        }
         if (rows.length < 1000) break;
         start += 1000;
       }
     }
+
 
     // Agrupa receita GAM por (campaign, placement-normalizado)
     const revByCampaign = new Map<string, Map<string, number>>();
@@ -338,10 +377,49 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============================================================
+    // PERFIL DE CONFIABILIDADE POR CAMPANHA
+    // data_ok=false → os números de receita por placement não são
+    // confiáveis nesse período; o item aparece só como REVISÃO e
+    // nunca é exclusível automaticamente.
+    // ============================================================
+    type CampQuality = { data_ok: boolean; missing_gam_days: string[]; coverage_pct: number; warning: string | null };
+    const qualityByCampaign = new Map<string, CampQuality>();
+    const MIN_COVERAGE_PCT = 70;
+    for (const cid of eligibleIds) {
+      const costDays = costDaysByCampaign.get(cid) ?? new Set<string>();
+      const gamDays = gamDaysByCampaign.get(cid) ?? new Set<string>();
+      const missing = [...costDays].filter((d) => !gamDays.has(d)).sort();
+      const placementUsd = campaignRevenueTotals.get(cid) ?? 0;
+      const campaignUsd = dmRevenueUsdByCampaign.get(cid) ?? 0;
+      const coverage = campaignUsd > 0 ? (placementUsd / campaignUsd) * 100 : (placementUsd > 0 ? 100 : 0);
+      const reasons: string[] = [];
+      if (costDays.size > 0 && gamDays.size === 0) {
+        reasons.push("nenhum dado de receita GAM por placement no período");
+      } else if (missing.length > 0) {
+        reasons.push(`${missing.length} dia(s) com gasto e sem receita GAM (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""})`);
+      }
+      if (campaignUsd > 0 && coverage < MIN_COVERAGE_PCT) {
+        reasons.push(`só ${round(coverage)}% da receita da campanha está atribuída a placements`);
+      }
+      qualityByCampaign.set(cid, {
+        data_ok: reasons.length === 0,
+        missing_gam_days: missing,
+        coverage_pct: round(coverage),
+        warning: reasons.length ? reasons.join(" · ") : null,
+      });
+    }
+    const unsafeCampaigns = eligibleIds.filter((cid) => qualityByCampaign.get(cid)?.data_ok === false);
+    if (unsafeCampaigns.length) {
+      console.warn(`[placements-cleanup] ${unsafeCampaigns.length} campanha(s) com dados incompletos — placements marcados como revisão, não exclusão.`);
+    }
+
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
+    let reviewOnly = 0;
     let withMatch = 0, withoutMatch = 0;
+
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
       if (!meta) continue;
@@ -362,7 +440,11 @@ Deno.serve(async (req) => {
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
       if (roi > maxRoiPct) continue;
 
-      const reason = !matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo");
+      const quality = qualityByCampaign.get(v.campaign_id) ?? { data_ok: true, missing_gam_days: [], coverage_pct: 100, warning: null };
+      if (!quality.data_ok) reviewOnly++;
+      const reason = !quality.data_ok
+        ? "dados_incompletos"
+        : (!matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo"));
       const itemKey = `${v.campaign_id}|${v.placement}`;
       items.push({
         key: itemKey,
@@ -378,6 +460,10 @@ Deno.serve(async (req) => {
         impressions: v.impressions,
         match_utm: matched,
         reason,
+        data_ok: quality.data_ok,
+        data_warning: quality.warning,
+        coverage_pct: quality.coverage_pct,
+        missing_gam_days: quality.missing_gam_days.length,
         campaigns: [{
           campaign_id: v.campaign_id,
           name: meta.name,
@@ -388,6 +474,7 @@ Deno.serve(async (req) => {
           roi_pct: round(roi),
         }],
       });
+
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
@@ -456,6 +543,9 @@ Deno.serve(async (req) => {
       eligible: eligibleIds.length,
       total: campIds.length,
       bad: items.length,
+      review_only: reviewOnly,
+      deletable: items.length - reviewOnly,
+      unsafe_campaigns: unsafeCampaigns.length,
       grouped: cpAgg.size,
       skipped_safety: skippedSafety,
       skipped_blacklisted: skippedAlreadyBlacklisted,
@@ -476,6 +566,7 @@ Deno.serve(async (req) => {
       grand_profit_brl,
     };
 
+
     if (mode === "preview") return json({ ok: true, items, stats, campaign_totals });
 
     if (mode === "notify") {
@@ -494,9 +585,9 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "apply") {
-      const selected: ApplyItem[] = Array.isArray(body?.items) && body.items.length
+      const selectedRaw: ApplyItem[] = Array.isArray(body?.items) && body.items.length
         ? body.items as ApplyItem[]
-        : items.map((i) => ({
+        : items.filter((i) => i.data_ok).map((i) => ({
           key: i.key,
           placement: i.placement,
           type: i.type,
@@ -516,13 +607,32 @@ Deno.serve(async (req) => {
         }));
 
       // ============================================================
+      // TRAVA DE DADOS INCOMPLETOS (bloqueio duro, não desligável)
+      // Nunca negativa placement de campanha cujo período está sem
+      // receita GAM completa — o ROI negativo pode ser só falta de sync.
+      // ============================================================
+      const dataRejected: any[] = [];
+      const selected: ApplyItem[] = [];
+      for (const it of selectedRaw) {
+        const bad = it.campaigns.filter((c) => qualityByCampaign.get(String(c.campaign_id))?.data_ok === false);
+        if (bad.length > 0) {
+          const q = qualityByCampaign.get(String(bad[0].campaign_id));
+          dataRejected.push({ placement: it.placement, reason: "dados_incompletos", detail: q?.warning ?? null, coverage_pct: q?.coverage_pct ?? null });
+          console.warn(`[data-guard] BLOQUEIO REJEITADO: ${it.placement} — ${q?.warning}`);
+          continue;
+        }
+        selected.push(it);
+      }
+
+      // ============================================================
       // TRAVA DE SEGURANÇA: re-verifica ROI REAL de cada placement
       // direto no banco (gam_placement_revenue + ads_placements) antes
       // de negativar. Se o ROI real for > maxRoiPct, NÃO bloqueia.
       // Match por root domain + variantes (sk2.x.com, www.x.com etc).
       // ============================================================
-      const safetyRejected: any[] = [];
+      const safetyRejected: any[] = [...dataRejected];
       const safetyApproved: ApplyItem[] = [];
+
 
       if (disableSafetyRecheck) {
         // Usuário desligou a trava: aprova tudo direto, sem re-checar ROI real.
