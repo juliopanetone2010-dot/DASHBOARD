@@ -440,7 +440,11 @@ Deno.serve(async (req) => {
       const roi = v.cost > 0 ? (profitBrl / v.cost) * 100 : 0;
       if (roi > maxRoiPct) continue;
 
-      const reason = !matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo");
+      const quality = qualityByCampaign.get(v.campaign_id) ?? { data_ok: true, missing_gam_days: [], coverage_pct: 100, warning: null };
+      if (!quality.data_ok) reviewOnly++;
+      const reason = !quality.data_ok
+        ? "dados_incompletos"
+        : (!matched ? "sem_match_utm" : (roi <= -50 ? "roi_critico" : "roi_baixo"));
       const itemKey = `${v.campaign_id}|${v.placement}`;
       items.push({
         key: itemKey,
@@ -456,6 +460,10 @@ Deno.serve(async (req) => {
         impressions: v.impressions,
         match_utm: matched,
         reason,
+        data_ok: quality.data_ok,
+        data_warning: quality.warning,
+        coverage_pct: quality.coverage_pct,
+        missing_gam_days: quality.missing_gam_days.length,
         campaigns: [{
           campaign_id: v.campaign_id,
           name: meta.name,
@@ -466,6 +474,7 @@ Deno.serve(async (req) => {
           roi_pct: round(roi),
         }],
       });
+
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
