@@ -377,10 +377,49 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============================================================
+    // PERFIL DE CONFIABILIDADE POR CAMPANHA
+    // data_ok=false → os números de receita por placement não são
+    // confiáveis nesse período; o item aparece só como REVISÃO e
+    // nunca é exclusível automaticamente.
+    // ============================================================
+    type CampQuality = { data_ok: boolean; missing_gam_days: string[]; coverage_pct: number; warning: string | null };
+    const qualityByCampaign = new Map<string, CampQuality>();
+    const MIN_COVERAGE_PCT = 70;
+    for (const cid of eligibleIds) {
+      const costDays = costDaysByCampaign.get(cid) ?? new Set<string>();
+      const gamDays = gamDaysByCampaign.get(cid) ?? new Set<string>();
+      const missing = [...costDays].filter((d) => !gamDays.has(d)).sort();
+      const placementUsd = campaignRevenueTotals.get(cid) ?? 0;
+      const campaignUsd = dmRevenueUsdByCampaign.get(cid) ?? 0;
+      const coverage = campaignUsd > 0 ? (placementUsd / campaignUsd) * 100 : (placementUsd > 0 ? 100 : 0);
+      const reasons: string[] = [];
+      if (costDays.size > 0 && gamDays.size === 0) {
+        reasons.push("nenhum dado de receita GAM por placement no período");
+      } else if (missing.length > 0) {
+        reasons.push(`${missing.length} dia(s) com gasto e sem receita GAM (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""})`);
+      }
+      if (campaignUsd > 0 && coverage < MIN_COVERAGE_PCT) {
+        reasons.push(`só ${round(coverage)}% da receita da campanha está atribuída a placements`);
+      }
+      qualityByCampaign.set(cid, {
+        data_ok: reasons.length === 0,
+        missing_gam_days: missing,
+        coverage_pct: round(coverage),
+        warning: reasons.length ? reasons.join(" · ") : null,
+      });
+    }
+    const unsafeCampaigns = eligibleIds.filter((cid) => qualityByCampaign.get(cid)?.data_ok === false);
+    if (unsafeCampaigns.length) {
+      console.warn(`[placements-cleanup] ${unsafeCampaigns.length} campanha(s) com dados incompletos — placements marcados como revisão, não exclusão.`);
+    }
+
     const items = [];
     let skippedSafety = 0;
     let skippedAlreadyBlacklisted = 0;
+    let reviewOnly = 0;
     let withMatch = 0, withoutMatch = 0;
+
     for (const v of cpAgg.values()) {
       const meta = campMap.get(v.campaign_id);
       if (!meta) continue;
