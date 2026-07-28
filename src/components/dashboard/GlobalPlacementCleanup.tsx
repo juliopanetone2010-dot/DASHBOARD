@@ -110,7 +110,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const itemKey = (i: PreviewItem) => i.key ?? `${i.campaigns[0]?.campaign_id ?? "global"}|${i.placement}`;
-  const canExclude = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  // Tipo suportado pela API de negative placements
+  const typeSupported = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
+  // Só pode excluir se o tipo é suportado E os dados de receita do período são confiáveis.
+  const canExclude = (i: PreviewItem) => typeSupported(i) && i.data_ok !== false;
+
 
   // carrega config persistida
   useEffect(() => {
