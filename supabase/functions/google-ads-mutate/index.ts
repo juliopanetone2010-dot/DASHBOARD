@@ -3,6 +3,7 @@
 // - adjust_cpa: ajusta target_cpa_micros de todos os ad groups da campanha por % (delta)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds, normalizeApiSet } from "../_shared/google_api_set.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -24,9 +25,6 @@ Deno.serve(async (req) => {
       return json({ error: "action inválida" });
     }
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const token = authHeader.replace("Bearer ", "");
@@ -72,10 +70,12 @@ Deno.serve(async (req) => {
 
     const { data: acc, error: aErr } = await admin
       .from("google_accounts")
-      .select("customer_id, refresh_token, login_customer_id")
+      .select("customer_id, refresh_token, login_customer_id, api_set")
       .eq("id", camp.google_account_id)
       .maybeSingle();
     if (aErr || !acc?.refresh_token) return json({ error: "Conta Ads sem refresh token" });
+
+    const { clientId, clientSecret, devToken } = getCreds(acc.api_set ?? 1);
 
     // Access token
     const tokRes = await fetch("https://oauth2.googleapis.com/token", {

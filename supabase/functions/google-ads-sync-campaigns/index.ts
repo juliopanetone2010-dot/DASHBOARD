@@ -5,6 +5,7 @@
 // Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const STANDARD_UTM_SUFFIX = [
   "utm_source=google",
@@ -52,9 +53,6 @@ Deno.serve(async (req) => {
       dateClause = `segments.date BETWEEN '${dateFrom}' AND '${dateTo}'`;
     }
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
 
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const token = authHeader.replace("Bearer ", "");
@@ -91,7 +89,7 @@ Deno.serve(async (req) => {
     // Busca todas as contas conectadas (MCCs e contas diretas)
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id")
+      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set")
       .eq("user_id", userId)
       .not("refresh_token", "is", null);
 
@@ -104,7 +102,8 @@ Deno.serve(async (req) => {
     const debugLogs: string[] = [];
 
     // Função pra obter access_token
-    const getAccessToken = async (refreshToken: string) => {
+    const getAccessToken = async (refreshToken: string, apiSet: unknown = 1) => {
+      const { clientId, clientSecret } = getCreds(apiSet);
       const r = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -123,7 +122,8 @@ Deno.serve(async (req) => {
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
       try {
-        const accessToken = await getAccessToken(root.refresh_token!);
+        const { devToken } = getCreds((root as any).api_set ?? 1);
+        const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
         let leafAccounts: Array<{
           id: string; // db row id
           customer_id: string;

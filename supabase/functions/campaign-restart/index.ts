@@ -6,6 +6,7 @@
 // - abort: encerra o fluxo manualmente
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const NET_FACTOR = 0.935;
 
@@ -620,15 +621,16 @@ async function applyTargetCpa(admin: any, _userId: string, accountId: string, ca
 
 async function loadGAdsContext(admin: any, accountId: string): Promise<{ customerId?: string; apiBase?: string; headers?: Record<string, string>; error?: string }> {
   const { data: acc } = await admin.from("google_accounts")
-    .select("customer_id, login_customer_id, refresh_token")
+    .select("customer_id, login_customer_id, refresh_token, api_set")
     .eq("id", accountId).maybeSingle();
   if (!acc?.refresh_token || !acc?.customer_id) return { error: "Conta sem refresh token" };
+  const { clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1);
   const tokRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: acc.refresh_token,
       grant_type: "refresh_token",
     }),
@@ -637,7 +639,7 @@ async function loadGAdsContext(admin: any, accountId: string): Promise<{ custome
   if (!tokRes.ok) return { error: `token: ${JSON.stringify(tokJson).slice(0, 200)}` };
   const headers: Record<string, string> = {
     Authorization: `Bearer ${tokJson.access_token}`,
-    "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+    "developer-token": devToken,
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;

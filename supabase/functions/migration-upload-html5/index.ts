@@ -1,5 +1,6 @@
 // Recebe um ZIP HTML5, sobe como MEDIA_BUNDLE asset na conta destino e cria o ad pendente.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,7 +42,7 @@ Deno.serve(async (req) => {
     if (pending.status === "uploaded") return json({ error: "anúncio já foi recriado" }, 400);
 
     const { data: dstAcc } = await admin.from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id, is_mcc, account_name")
+      .select("id, customer_id, refresh_token, login_customer_id, is_mcc, account_name, api_set")
       .eq("id", pending.destination_google_account_id).eq("user_id", userId).maybeSingle();
     if (!dstAcc?.refresh_token) return json({ error: "conta destino sem refresh_token" }, 400);
     if (dstAcc.is_mcc) {
@@ -69,13 +70,14 @@ Deno.serve(async (req) => {
       if (up.error) console.error("storage upload error:", up.error);
     } catch (e) { console.error("storage encoding error:", (e as Error).message); }
 
+    const { clientId, clientSecret, devToken } = getCreds((dstAcc as any).api_set ?? 1);
     // Token + headers para Google Ads
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-        client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+        client_id: clientId,
+        client_secret: clientSecret,
         refresh_token: dstAcc.refresh_token,
         grant_type: "refresh_token",
       }),
@@ -84,7 +86,7 @@ Deno.serve(async (req) => {
     if (!tokenRes.ok) return json({ error: `oauth: ${JSON.stringify(tokenJson)}` }, 500);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${tokenJson.access_token}`,
-      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "developer-token": devToken,
       "Content-Type": "application/json",
     };
     if (dstAcc.login_customer_id) headers["login-customer-id"] = dstAcc.login_customer_id;

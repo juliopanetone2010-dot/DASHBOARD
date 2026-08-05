@@ -3,6 +3,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { getNetFactor, getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 // Fallback caso a leitura falhe (será sobrescrito por getNetFactor() runtime).
 const DEFAULT_NET_FACTOR = 1 - DEFAULT_REV_SHARE_PCT / 100; // 0.935
@@ -839,7 +840,7 @@ async function fetchLiveAdsPlacements(
 
   const { data: accs, error } = await admin
     .from("google_accounts")
-    .select("id, customer_id, refresh_token, login_customer_id")
+    .select("id, customer_id, refresh_token, login_customer_id, api_set")
     .eq("user_id", userId)
     .in("id", [...byAccount.keys()]);
   if (error) throw new Error(error.message);
@@ -855,10 +856,10 @@ async function fetchLiveAdsPlacements(
   await Promise.all([...byAccount.entries()].map(async ([accountId, campaignIds]) => {
     const acc = accMap.get(accountId);
     if (!acc?.refresh_token || !acc?.customer_id) return;
-    const token = await getGoogleToken(acc.refresh_token, tokenCache);
+    const token = await getGoogleToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
-      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "developer-token": devTokenFor((acc as any).api_set ?? 1),
       "Content-Type": "application/json",
     };
     if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
@@ -920,14 +921,15 @@ async function fetchLiveAdsPlacements(
   return out;
 }
 
-async function getGoogleToken(refreshToken: string, cache: Map<string, string>) {
+async function getGoogleToken(refreshToken: string, cache: Map<string, string>, apiSet: unknown = 1) {
+  const { clientId, clientSecret } = getCreds(apiSet);
   if (cache.has(refreshToken)) return cache.get(refreshToken)!;
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
@@ -1052,11 +1054,10 @@ function json(payload: unknown) {
 }
 
 async function applyNegativePlacements(admin: any, userId: string, items: ApplyItem[]) {
-  const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
   const accountIds = [...new Set(items.flatMap((i) => i.campaigns.map((c) => c.google_account_id)).filter(Boolean))];
   const { data: accs } = await admin
     .from("google_accounts")
-    .select("id, customer_id, refresh_token, login_customer_id")
+    .select("id, customer_id, refresh_token, login_customer_id, api_set")
     .in("id", accountIds);
   const accMap = new Map<string, any>();
   const tokenCache = new Map<string, string>();
@@ -1084,10 +1085,10 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
 
   for (const g of ops.values()) {
     try {
-      const token = await getGoogleToken(g.acc.refresh_token, tokenCache);
+      const token = await getGoogleToken(g.acc.refresh_token, tokenCache, (g.acc as any).api_set ?? 1);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
-        "developer-token": devToken,
+        "developer-token": devTokenFor((g.acc as any).api_set ?? 1),
         "Content-Type": "application/json",
       };
       if (g.acc.login_customer_id) headers["login-customer-id"] = g.acc.login_customer_id;

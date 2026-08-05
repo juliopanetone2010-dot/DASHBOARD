@@ -1,24 +1,24 @@
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { listApiSets, normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
 Deno.serve((req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
-  const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN");
-  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-
   const url = new URL(req.url);
   const redirectUri = url.searchParams.get("redirect_uri") ?? "";
   const state = url.searchParams.get("state") ?? crypto.randomUUID();
+  const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
 
-  const configured = Boolean(clientId && clientSecret && devToken);
+  const creds = tryGetCreds(apiSet);
 
-  if (!configured || !redirectUri) {
+  if (!creds || !redirectUri) {
     return new Response(
       JSON.stringify({
-        configured,
-        error: !configured
-          ? "Faltam secrets: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_ADS_DEVELOPER_TOKEN"
+        configured: !!creds,
+        api_set: apiSet,
+        api_sets: listApiSets(),
+        error: !creds
+          ? `Faltam secrets do conjunto ${apiSet}: GOOGLE_CLIENT_ID_${apiSet} / GOOGLE_CLIENT_SECRET_${apiSet} / GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`
           : "redirect_uri obrigatório",
       }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -26,7 +26,7 @@ Deno.serve((req) => {
   }
 
   const params = new URLSearchParams({
-    client_id: clientId!,
+    client_id: creds.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     access_type: "offline",
@@ -37,7 +37,7 @@ Deno.serve((req) => {
   });
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-  return new Response(JSON.stringify({ configured: true, auth_url: authUrl, state }), {
+  return new Response(JSON.stringify({ configured: true, api_set: apiSet, auth_url: authUrl, state }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

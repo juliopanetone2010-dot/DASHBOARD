@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { COUNTRY_BY_ID } from "./countries.ts";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 type CampaignRow = { campaign_id: string | number | null; name: string | null; google_account_id: string | null };
 type AccountRow = { id: string; customer_id: string | null; refresh_token: string | null; login_customer_id: string | null };
@@ -110,7 +111,7 @@ Deno.serve(async (req) => {
 
     const { data: accs } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id")
+      .select("id, customer_id, refresh_token, login_customer_id, api_set")
       .eq("user_id", userId)
       .in("id", [...byAccount.keys()]);
     const accMap = new Map<string, AccountRow>();
@@ -123,10 +124,10 @@ Deno.serve(async (req) => {
     for (const [accountId, { ids }] of byAccount) {
       const acc = accMap.get(accountId);
       if (!acc?.refresh_token || !acc?.customer_id) continue;
-      const token = await getToken(acc.refresh_token, tokenCache);
+      const token = await getToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
-        "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+        "developer-token": devTokenFor((acc as any).api_set ?? 1),
         "Content-Type": "application/json",
       };
       if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
@@ -241,20 +242,22 @@ Deno.serve(async (req) => {
   }
 });
 
-async function getToken(refreshToken: string, cache: Map<string, string>) {
-  if (cache.has(refreshToken)) return cache.get(refreshToken)!;
+async function getToken(refreshToken: string, cache: Map<string, string>, apiSet: unknown = 1) {
+  const cacheKey = `${apiSet}:${refreshToken}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey)!;
+  const { clientId, clientSecret } = getCreds(apiSet);
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken, grant_type: "refresh_token",
     }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
-  cache.set(refreshToken, j.access_token);
+  cache.set(cacheKey, j.access_token);
   return j.access_token as string;
 }
 
@@ -275,10 +278,10 @@ async function resolveGeoTargets(
   for (const acc of accounts) {
     if (!acc?.refresh_token || !acc?.customer_id) continue;
     try {
-      const token = await getToken(acc.refresh_token, tokenCache);
+      const token = await getToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
-        "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+        "developer-token": devTokenFor((acc as any).api_set ?? 1),
         "Content-Type": "application/json",
       };
       if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;

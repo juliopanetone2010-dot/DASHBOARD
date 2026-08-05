@@ -13,6 +13,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -97,13 +98,12 @@ Deno.serve(async (req) => {
     ).filter(Boolean))] as string[];
     const { data: accs } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id")
+      .select("id, customer_id, refresh_token, login_customer_id, api_set")
       .in("id", accountIds.length ? accountIds : ["__none__"]);
     const accMap = new Map<string, any>();
     for (const a of accs ?? []) accMap.set(a.id, a);
 
     const tokenCache = new Map<string, string>();
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
     const summary: any[] = [];
     let reverted = 0, failed = 0, skipped = 0;
 
@@ -113,10 +113,10 @@ Deno.serve(async (req) => {
       if (!acc?.refresh_token) { skipped++; summary.push({ id: act.id, status: "skip_no_account" }); continue; }
 
       try {
-        const accessToken = await getToken(acc.refresh_token, tokenCache);
+        const accessToken = await getToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
         const headers: Record<string, string> = {
           Authorization: `Bearer ${accessToken}`,
-          "developer-token": devToken,
+          "developer-token": devTokenFor((acc as any).api_set ?? 1),
           "Content-Type": "application/json",
         };
         if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
@@ -297,21 +297,23 @@ function hostOf(u: string): string {
   } catch { return u.replace(/^https?:\/\//, "").replace(/^www\./, "").toLowerCase(); }
 }
 
-async function getToken(refreshToken: string, cache: Map<string, string>): Promise<string> {
-  if (cache.has(refreshToken)) return cache.get(refreshToken)!;
+async function getToken(refreshToken: string, cache: Map<string, string>, apiSet: unknown = 1): Promise<string> {
+  const cacheKey = `${apiSet}:${refreshToken}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey)!;
+  const { clientId, clientSecret } = getCreds(apiSet);
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
-  cache.set(refreshToken, j.access_token);
+  cache.set(cacheKey, j.access_token);
   return j.access_token;
 }
 

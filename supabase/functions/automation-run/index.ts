@@ -6,6 +6,7 @@
 // - Executa SOMENTE para pares site_id + google_account_id habilitados em site_automation_config
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const NET_FACTOR = 0.935;
 const DEFAULT_STOPLOSS_ROI = -20;
@@ -1063,14 +1064,12 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
   try {
     const { data: acc } = await admin
       .from("google_accounts")
-      .select("customer_id, login_customer_id, refresh_token")
+      .select("customer_id, login_customer_id, refresh_token, api_set")
       .eq("id", accountId)
       .maybeSingle();
     if (!acc?.refresh_token || !acc?.customer_id) return { updated: 0, error: "no_refresh_token" };
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
+    const { clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1);
 
     const tokRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",

@@ -2,6 +2,7 @@
 // Usa GAQL: detail_placement_view
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const ALLOWED_PRESETS = new Set(["TODAY","YESTERDAY","LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS"]);
 
@@ -56,14 +57,14 @@ Deno.serve(async (req) => {
 
     const { data: account, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, login_customer_id, refresh_token")
+      .select("id, customer_id, login_customer_id, refresh_token, api_set")
       .eq("id", camp.google_account_id)
       .maybeSingle();
     if (accErr || !account?.refresh_token) {
       return json({ error: "Conta Ads sem refresh_token" });
     }
 
-    const accessToken = await getAccessToken(account.refresh_token);
+    const accessToken = await getAccessToken(account.refresh_token, (account as any).api_set ?? 1);
 
     const query = `
       SELECT
@@ -90,7 +91,7 @@ Deno.serve(async (req) => {
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
-      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "developer-token": devTokenFor((account as any).api_set ?? 1),
       "Content-Type": "application/json",
     };
     if (account.login_customer_id) headers["login-customer-id"] = account.login_customer_id;
@@ -178,13 +179,14 @@ Deno.serve(async (req) => {
   }
 });
 
-async function getAccessToken(refreshToken: string) {
+async function getAccessToken(refreshToken: string, apiSet: unknown = 1) {
+  const { clientId, clientSecret } = getCreds(apiSet);
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
