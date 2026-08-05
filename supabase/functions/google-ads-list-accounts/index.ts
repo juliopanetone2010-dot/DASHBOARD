@@ -3,7 +3,7 @@
 // no MCC para listar customer_client (sub-contas), inclusive nome e moeda.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
+import { getCreds, tryGetCreds } from "../_shared/google_api_set.ts";
 
 interface SyncBody {
   manager_account_id?: string; // id da row em google_accounts (o MCC). Se ausente, sincroniza todos os MCCs do user.
@@ -18,11 +18,8 @@ Deno.serve(async (req) => {
       return json({ error: "Login obrigatório" }, 401);
     }
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN");
-    // credenciais reais são resolvidas por conta (api_set) dentro do loop
-    if (!clientId || !clientSecret || !devToken) {
+    // Credenciais são resolvidas por conta (api_set) dentro do loop.
+    if (!tryGetCreds(1) && !tryGetCreds(2) && !tryGetCreds(3)) {
       return json({ error: "Secrets OAuth/Ads não configurados" }, 500);
     }
 
@@ -99,7 +96,7 @@ Deno.serve(async (req) => {
             method: "POST",
             headers: {
               Authorization: `Bearer ${accessToken}`,
-              "developer-token": devToken,
+              "developer-token": mgrCreds.devToken,
               "login-customer-id": mgr.customer_id,
               "Content-Type": "application/json",
             },
