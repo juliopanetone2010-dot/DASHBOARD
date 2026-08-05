@@ -1892,6 +1892,7 @@ export type Database = {
       google_accounts: {
         Row: {
           account_name: string | null
+          api_set: number
           created_at: string
           currency: string | null
           customer_id: string
@@ -1907,6 +1908,7 @@ export type Database = {
         }
         Insert: {
           account_name?: string | null
+          api_set?: number
           created_at?: string
           currency?: string | null
           customer_id: string
@@ -1922,6 +1924,7 @@ export type Database = {
         }
         Update: {
           account_name?: string | null
+          api_set?: number
           created_at?: string
           currency?: string | null
           customer_id?: string
