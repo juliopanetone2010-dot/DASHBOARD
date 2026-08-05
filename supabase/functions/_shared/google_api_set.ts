@@ -44,9 +44,6 @@ export function getCreds(apiSetRaw: unknown = 1): GoogleAdsCreds {
   return { clientId, clientSecret, devToken, apiSet };
 }
 
-  return { clientId, clientSecret, devToken, apiSet };
-}
-
 /** Versão que não lança — útil para status/diagnóstico. */
 export function tryGetCreds(apiSetRaw: unknown = 1): GoogleAdsCreds | null {
   try {
