@@ -239,6 +239,7 @@ async function duplicateCampaign(
     .eq("id", item.google_account_id)
     .maybeSingle();
   if (!acc?.refresh_token) return { error: "Conta Ads sem refresh token" };
+  const { clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1);
 
   // Carrega campanha do banco (nome, etc)
   const { data: campRow } = await admin
@@ -254,8 +255,8 @@ async function duplicateCampaign(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: acc.refresh_token, grant_type: "refresh_token",
     }),
   });
@@ -265,7 +266,7 @@ async function duplicateCampaign(
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
-    "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+    "developer-token": devToken,
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;

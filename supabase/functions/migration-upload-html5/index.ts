@@ -70,13 +70,14 @@ Deno.serve(async (req) => {
       if (up.error) console.error("storage upload error:", up.error);
     } catch (e) { console.error("storage encoding error:", (e as Error).message); }
 
+    const { clientId, clientSecret, devToken } = getCreds((dstAcc as any).api_set ?? 1);
     // Token + headers para Google Ads
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-        client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+        client_id: clientId,
+        client_secret: clientSecret,
         refresh_token: dstAcc.refresh_token,
         grant_type: "refresh_token",
       }),
@@ -85,7 +86,7 @@ Deno.serve(async (req) => {
     if (!tokenRes.ok) return json({ error: `oauth: ${JSON.stringify(tokenJson)}` }, 500);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${tokenJson.access_token}`,
-      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "developer-token": devToken,
       "Content-Type": "application/json",
     };
     if (dstAcc.login_customer_id) headers["login-customer-id"] = dstAcc.login_customer_id;
