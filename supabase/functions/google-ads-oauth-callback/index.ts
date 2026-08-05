@@ -2,6 +2,7 @@
 // e salva o(s) MCC(s) na tabela google_accounts (sem precisar customer_id digitado).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
 const GUEST_USER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -11,18 +12,18 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const { code, redirect_uri, account_name } = body ?? {};
-    console.log("[oauth-callback] received", { hasCode: !!code, redirect_uri });
+    const apiSet = normalizeApiSet(body?.api_set ?? 1);
+    console.log("[oauth-callback] received", { hasCode: !!code, redirect_uri, apiSet });
 
     if (!code || !redirect_uri) {
       return json({ error: "code e redirect_uri obrigatórios" });
     }
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN");
-    if (!clientId || !clientSecret || !devToken) {
-      return json({ error: "Secrets OAuth/Ads não configurados" });
+    const creds = tryGetCreds(apiSet);
+    if (!creds) {
+      return json({ error: `Secrets do conjunto ${apiSet} não configurados` });
     }
+    const { clientId, clientSecret, devToken } = creds;
 
     // 1) Troca authorization code por tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
