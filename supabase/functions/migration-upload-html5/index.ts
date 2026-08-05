@@ -1,5 +1,6 @@
 // Recebe um ZIP HTML5, sobe como MEDIA_BUNDLE asset na conta destino e cria o ad pendente.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,7 +42,7 @@ Deno.serve(async (req) => {
     if (pending.status === "uploaded") return json({ error: "anúncio já foi recriado" }, 400);
 
     const { data: dstAcc } = await admin.from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id, is_mcc, account_name")
+      .select("id, customer_id, refresh_token, login_customer_id, is_mcc, account_name, api_set")
       .eq("id", pending.destination_google_account_id).eq("user_id", userId).maybeSingle();
     if (!dstAcc?.refresh_token) return json({ error: "conta destino sem refresh_token" }, 400);
     if (dstAcc.is_mcc) {

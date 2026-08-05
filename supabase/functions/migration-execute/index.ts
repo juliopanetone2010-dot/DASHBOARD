@@ -2,6 +2,7 @@
 // trocando a Final URL manualmente. Suporta cross-account (re-uploads de imagens).
 // Nova campanha entra PAUSED no Funil Inteligente (não na automação principal).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,10 +55,10 @@ Deno.serve(async (req) => {
     // Carrega contas
     const [{ data: srcAcc }, { data: dstAcc }, { data: dstSite }, { data: srcCamp }] = await Promise.all([
       admin.from("google_accounts")
-        .select("id, customer_id, refresh_token, login_customer_id")
+        .select("id, customer_id, refresh_token, login_customer_id, api_set")
         .eq("id", body.source_google_account_id).eq("user_id", userId).maybeSingle(),
       admin.from("google_accounts")
-        .select("id, customer_id, refresh_token, login_customer_id")
+        .select("id, customer_id, refresh_token, login_customer_id, api_set")
         .eq("id", body.destination_google_account_id).eq("user_id", userId).maybeSingle(),
       admin.from("sites").select("id, name, domain").eq("id", body.destination_site_id).eq("user_id", userId).maybeSingle(),
       admin.from("campaigns").select("campaign_id, name, channel_type, google_account_id")

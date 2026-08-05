@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { getRevSharePct } from "../_shared/revshare.ts";
 import { computeCountryPerformance } from "../_shared/country_performance.ts";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 interface ApplyItem {
   campaign_id: string;
@@ -200,7 +201,7 @@ Deno.serve(async (req) => {
       try {
         const { data: acc } = await admin
           .from("google_accounts")
-          .select("customer_id, refresh_token, login_customer_id")
+          .select("customer_id, refresh_token, login_customer_id, api_set")
           .eq("id", accountId)
           .maybeSingle();
         if (!acc?.refresh_token) continue;

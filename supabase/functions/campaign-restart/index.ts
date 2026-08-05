@@ -6,6 +6,7 @@
 // - abort: encerra o fluxo manualmente
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const NET_FACTOR = 0.935;
 
@@ -620,7 +621,7 @@ async function applyTargetCpa(admin: any, _userId: string, accountId: string, ca
 
 async function loadGAdsContext(admin: any, accountId: string): Promise<{ customerId?: string; apiBase?: string; headers?: Record<string, string>; error?: string }> {
   const { data: acc } = await admin.from("google_accounts")
-    .select("customer_id, login_customer_id, refresh_token")
+    .select("customer_id, login_customer_id, refresh_token, api_set")
     .eq("id", accountId).maybeSingle();
   if (!acc?.refresh_token || !acc?.customer_id) return { error: "Conta sem refresh token" };
   const tokRes = await fetch("https://oauth2.googleapis.com/token", {
