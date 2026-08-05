@@ -2,6 +2,7 @@
 // Padrão: utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds, normalizeApiSet } from "../_shared/google_api_set.ts";
 
 const SUFFIX = [
   "utm_source=google",
@@ -46,9 +47,6 @@ Deno.serve(async (req) => {
       byAcc.set(c.google_account_id, list);
     }
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
 
     let totalOk = 0;
     let totalFail = 0;
@@ -56,9 +54,16 @@ Deno.serve(async (req) => {
 
     for (const [accId, camps] of byAcc) {
       const { data: acc } = await admin.from("google_accounts")
-        .select("customer_id, refresh_token, login_customer_id, account_name")
+        .select("customer_id, refresh_token, login_customer_id, account_name, api_set")
         .eq("id", accId).maybeSingle();
       if (!acc?.refresh_token) { totalFail += camps.length; errors.push({ account_id: accId, error: "sem refresh_token" }); continue; }
+
+      let clientId: string, clientSecret: string, devToken: string;
+      try {
+        ({ clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1));
+      } catch (e) {
+        totalFail += camps.length; errors.push({ account_id: accId, error: String(e) }); continue;
+      }
 
       const tokRes = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
