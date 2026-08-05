@@ -3,6 +3,7 @@
 // no MCC para listar customer_client (sub-contas), inclusive nome e moeda.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 interface SyncBody {
   manager_account_id?: string; // id da row em google_accounts (o MCC). Se ausente, sincroniza todos os MCCs do user.
@@ -20,6 +21,7 @@ Deno.serve(async (req) => {
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN");
+    // credenciais reais são resolvidas por conta (api_set) dentro do loop
     if (!clientId || !clientSecret || !devToken) {
       return json({ error: "Secrets OAuth/Ads não configurados" }, 500);
     }
@@ -43,7 +45,7 @@ Deno.serve(async (req) => {
     // Pega os MCCs alvo
     let q = admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, account_name")
+      .select("id, customer_id, refresh_token, account_name, api_set")
       .eq("user_id", userId)
       .eq("is_mcc", true)
       .not("refresh_token", "is", null);
@@ -57,14 +59,15 @@ Deno.serve(async (req) => {
     const summary: Array<{ manager: string; synced: number; error?: string }> = [];
 
     for (const mgr of managers) {
+      const mgrCreds = getCreds((mgr as any).api_set ?? 1);
       try {
         // Refresh access token
         const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
-            client_id: clientId,
-            client_secret: clientSecret,
+            client_id: mgrCreds.clientId,
+            client_secret: mgrCreds.clientSecret,
             refresh_token: mgr.refresh_token!,
             grant_type: "refresh_token",
           }),
@@ -134,6 +137,7 @@ Deno.serve(async (req) => {
                 is_mcc: false,
                 status: "connected",
                 refresh_token: mgr.refresh_token,
+                api_set: (mgr as any).api_set ?? 1,
                 last_synced_at: new Date().toISOString(),
               },
               { onConflict: "user_id,customer_id" },
