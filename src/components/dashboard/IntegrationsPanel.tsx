@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,20 @@ import { AccountSiteMappingPanel } from "./AccountSiteMappingPanel";
 import type {
   AccountSiteLink, GamAccount, GoogleAccount, Site,
 } from "@/types/domain";
+
+interface ApiSetStatus {
+  api_set: number;
+  client_id: boolean;
+  client_secret: boolean;
+  developer_token: boolean;
+  configured: boolean;
+}
+
+interface OAuthStatusResp {
+  api_sets?: ApiSetStatus[];
+  configured_api_sets?: number[];
+  default_api_set?: number;
+}
 
 interface Props {
   googleAccounts: GoogleAccount[];
@@ -36,9 +50,45 @@ export function IntegrationsPanel(props: Props) {
   const [gamKey, setGamKey] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncingGam, setSyncingGam] = useState(false);
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatusResp | null>(null);
+  const [apiSet, setApiSet] = useState(1);
+  const [connecting, setConnecting] = useState(false);
 
-  const handleConnectAds = () => {
-    window.location.href = "/settings";
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
+      if (data) {
+        setOauthStatus(data);
+        if (data.default_api_set) setApiSet(data.default_api_set);
+      }
+    })();
+  }, []);
+
+  const apiSets = oauthStatus?.api_sets ?? [];
+  const configuredSets = oauthStatus?.configured_api_sets ?? [];
+
+  const handleConnectAds = async () => {
+    setConnecting(true);
+    const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
+    sessionStorage.setItem(
+      "oauth_pending",
+      JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
+    );
+    try {
+      const projectId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_SUPABASE_PROJECT_ID;
+      const fnUrl = `https://${projectId}.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
+      const res = await fetch(fnUrl);
+      const j = await res.json();
+      if (!j.auth_url) {
+        toast({ title: "Configuração incompleta", description: j.error ?? "Falhou", variant: "destructive" });
+        setConnecting(false);
+        return;
+      }
+      window.location.href = j.auth_url;
+    } catch (e) {
+      toast({ title: "Erro ao iniciar OAuth", description: String(e), variant: "destructive" });
+      setConnecting(false);
+    }
   };
 
   const handleSyncGam = async () => {
@@ -144,9 +194,49 @@ export function IntegrationsPanel(props: Props) {
             Sem digitar Customer ID. Ao autorizar, o sistema lista automaticamente as sub-contas
             disponíveis no MCC (nome, ID e moeda).
           </p>
+          <div className="space-y-1 mb-3">
+            <Label className="text-xs">Conjunto de credenciais (API)</Label>
+            <select
+              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={apiSet}
+              onChange={(e) => setApiSet(Number(e.target.value))}
+            >
+              {apiSets.map((s) => (
+                <option key={s.api_set} value={s.api_set} disabled={!s.configured}>
+                  Conjunto {s.api_set}{s.api_set === 1 ? " (MCC original)" : ""}
+                  {s.configured ? "" : " — não configurado"}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {apiSets.map((s) => (
+                <span
+                  key={s.api_set}
+                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${
+                    s.configured ? "border-success/40 text-success" : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {s.configured ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                  API {s.api_set}
+                </span>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground pt-1">
+              Cada conjunto = uma MCC / developer token separado (secrets
+              <code className="font-mono"> GOOGLE_CLIENT_ID_N</code>,
+              <code className="font-mono"> GOOGLE_CLIENT_SECRET_N</code>,
+              <code className="font-mono"> GOOGLE_ADS_DEVELOPER_TOKEN_N</code>).
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={handleConnectAds} size="sm" className="gap-1.5">
-              <Plug className="h-3.5 w-3.5" /> Conectar MCC
+            <Button
+              onClick={handleConnectAds}
+              size="sm"
+              className="gap-1.5"
+              disabled={connecting || !configuredSets.includes(apiSet)}
+            >
+              {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
+              Conectar MCC
             </Button>
             <Button onClick={handleSyncCampaigns} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
               {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
