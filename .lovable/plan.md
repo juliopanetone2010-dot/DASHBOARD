@@ -1,91 +1,77 @@
+# Plano: Suporte a Múltiplas Credenciais Google Ads (MCCs)
+
+## Contexto
+
+A maioria das contas Ads foram suspensas. Uma conta ainda permanece na MCC antiga. Uma nova MCC será criada/configurada. O app precisa suportar ambas as MCCs em paralelo, com seus próprios tokens de API.
 
 ## Objetivo
 
-Eliminar as divergências entre Dashboard, aba Países e Calendário Financeiro criando **uma única engine de reconciliação** entre Google Ads (custo) e Google Ad Manager (receita), cruzada exclusivamente por `campaign_id` (via `utm_campaign`), sem estimativas nem fallbacks proporcionais.
+Abrir espaço no app para múltiplos conjuntos de credenciais Google Ads (OAuth + developer token), permitindo que cada `google_accounts` utilize o API set correto. A MCC antiga continua operando; a nova MCC será cadastrada sem afetar a existente.
 
-## Regra de cruzamento (única fonte da verdade)
+## Mudanças técnicas
 
-- Custo: `daily_metrics` (Google Ads) por `campaign_id` + `date`.
-- Receita: `gam_placement_revenue` (GAM) por `campaign_id` + `date` (já vem com `utm_campaign` normalizado no `campaign_id`).
-- Junção: **INNER JOIN** por `campaign_id` (+ `date` quando aplicável). Nunca ratear por cliques/impressões/custo. Nunca usar `__aggregate__`.
-- Receita bruta GAM em USD → aplica rev share fixo de 6,5% → líquida. Converte para BRL apenas para exibição de custo/lucro; receita nativa preservada.
-- País da campanha vem de `campaign_country_metrics` (dimensão país já é do próprio Google Ads da campanha). A receita do país = receita GAM da campanha × (share do país **dentro da própria campanha**, calculado por impressões do Google Ads da campanha naquele país). Esse share é o único uso de proporção, e é **interno à campanha**, não distribui receita entre campanhas.
+### 1. Banco de dados
 
-## Arquitetura
+Adicionar coluna `api_set` (inteiro, default 1) na tabela `public.google_accounts`.
 
-Criar módulo compartilhado:
+- `api_set` indica qual conjunto de secrets usar (1, 2, 3...).
+- Default 1 preserva comportamento atual para todas as contas já cadastradas.
 
+### 2. Secrets do backend
+
+Criar padrão de secrets escalável:
+
+- `GOOGLE_CLIENT_ID_1`, `GOOGLE_CLIENT_SECRET_1`, `GOOGLE_ADS_DEVELOPER_TOKEN_1` → MCC antiga (já existem, renomeados mantendo fallback).
+- `GOOGLE_CLIENT_ID_2`, `GOOGLE_CLIENT_SECRET_2`, `GOOGLE_ADS_DEVELOPER_TOKEN_2` → nova MCC.
+- `GOOGLE_CLIENT_ID_3`... se necessário.
+
+Os secrets atuais (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ADS_DEVELOPER_TOKEN`) continuam como fallback `api_set = 1` para não quebrar o que já está rodando.
+
+### 3. Edge functions
+
+Criar helper compartilhado em `supabase/functions/_shared/google_api_set.ts` que resolve:
+
+```text
+api_set=1 -> GOOGLE_CLIENT_ID_1 / GOOGLE_CLIENT_SECRET_1 / GOOGLE_ADS_DEVELOPER_TOKEN_1
+             fallback -> GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_ADS_DEVELOPER_TOKEN
+api_set=2 -> GOOGLE_CLIENT_ID_2 / GOOGLE_CLIENT_SECRET_2 / GOOGLE_ADS_DEVELOPER_TOKEN_2
+...e assim por diante
 ```
-supabase/functions/_shared/reconciliation.ts   (Deno, server)
-src/lib/reconciliation.ts                       (mirror browser)
-```
 
-Exporta:
+Atualizar as seguintes edge functions para usarem o helper e passar/receber `api_set`:
 
-- `reconcileCampaigns({ siteId, accountIds, from, to, netFactor, fxUsdBrl })`
-  → `Map<campaign_id, { cost_brl, revenue_gross_usd, revenue_net_usd, revenue_net_brl, clicks, impressions, conversions, ecpm, roi, profit_brl, matched: boolean, match_rate }>`
-- `reconcileByDay(params)` → mesma estrutura agregada por `date`.
-- `reconcileByCountry(params)` → agregado por país, usando share intra-campanha por impressões Ads.
-- `reconcileTotals(params)` → totais gerais (usado pela Dashboard).
+- `google-ads-oauth-start` → recebe `api_set` por query/body e gera URL de OAuth com o client ID correto.
+- `google-ads-oauth-callback` → recebe `api_set` e salva a conta associada ao conjunto correto.
+- `google-ads-sync-campaigns`
+- `google-ads-sync-countries`
+- `google-ads-sync-creatives`
+- `google-ads-sync-placements`
+- `google-ads-mutate`
+- `google-ads-list-accounts`
+- `google-ads-apply-utm-bulk`
 
-Todas as telas consomem apenas esses métodos. Remover cálculos ad-hoc em:
-- `useDashboardData.ts` (totais)
-- `CountriesTab.tsx` (substitui `computeCountryPerformanceClient`)
-- `FinancialCalendarTab.tsx` (substitui leitura de `daily_financial_snapshots` como fonte primária)
-- `generate-daily-snapshot/index.ts` (passa a chamar `reconcileByDay` para gerar snapshot)
+Todas elas buscam o `refresh_token` e o `api_set` da tabela `google_accounts` antes de chamar a API Google Ads.
 
-## Aba Países
+### 4. Frontend
 
-- Loading state: skeleton por linha, com contador `carregando X/Y campanhas`.
-- Colunas: País, Campanhas, Custo, Receita, Lucro, ROI, Cliques, Conversões, CPA, CTR, eCPM, Match Rate.
-- Match Rate por país = campanhas do país com receita GAM > 0 / campanhas do país.
-- Assert em dev: `Σ receita países === totais Dashboard` (mesmo período/filtros). Diferença > 0,5% dispara warning visível ("Divergência X% — clique para depurar").
+Atualizar `src/pages/Settings.tsx` e `src/components/dashboard/IntegrationsPanel.tsx`:
 
-## Calendário Financeiro
+- Botão "Conectar MCC" passa a abrir um diálogo com seleção de "API set" (MCC 1, MCC 2...).
+- Listar as MCCs conectadas com a badge do API set usado.
+- Sincronização automática usa o `api_set` de cada conta.
 
-Reescrever `FinancialCalendarTab.tsx` + criar edge function `calendar-regenerate`:
+### 5. Status/check de configuração
 
-- Botões: **Atualizar mês** e **Regenerar dia**.
-- Fluxo "Regenerar mês":
-  1. Cliente chama `calendar-regenerate` com `{ site_id, month }`.
-  2. Edge function itera dias em série. Para cada dia:
-     - força `gam-sync-revenue` (revenue_only, sem cache),
-     - força `google-ads-sync-campaigns` (custo do dia),
-     - chama `reconcileByDay` para o dia,
-     - `upsert` em `daily_financial_snapshots` (idempotente).
-  3. Progresso via SSE (`text/event-stream`): envia `{day, index, total}` a cada dia.
-- UI mostra progress bar `Dia N/Total` durante o stream. Só re-renderiza a grade **após** `done`. Nenhuma escrita parcial na UI.
-- Cache: `staleTime: 0` e `refetchOnMount: 'always'` na query do calendário após regen.
-- Validação: ao terminar, roda `reconcileTotals` do mesmo período e compara com `Σ snapshots`. Se diferir, mostra badge de erro e loga.
+Atualizar `google-ads-oauth-status` para retornar status de cada API set configurado (`1`, `2`, etc.), facilitando saber se os secrets da nova MCC foram preenchidos.
 
-## Migração / compat
+## Próximos passos
 
-- `daily_financial_snapshots` permanece como cache; passa a ser gerado exclusivamente por `reconcileByDay`.
-- `country_performance.ts` (shared) e `src/lib/countryPerformance.ts` viram wrappers finos sobre `reconciliation.ts` até serem removidos.
-- Nenhuma alteração de schema.
+1. Confirmar se a nova MCC já possui OAuth app criado no Google Cloud Console e se o developer token já foi solicitado/aprovado.
+2. Aprovar este plano.
+3. Implementar as mudanças.
+4. Cadastrar os secrets da nova MCC (`GOOGLE_CLIENT_ID_2`, `GOOGLE_CLIENT_SECRET_2`, `GOOGLE_ADS_DEVELOPER_TOKEN_2`).
+5. Conectar a nova MCC pelo app e sincronizar as campanhas.
 
-## Testes
+## Nota sobre acesso à API
 
-- `src/lib/reconciliation.test.ts`:
-  - INNER JOIN não inclui campanha sem GAM.
-  - Soma por país == soma por campanha == total.
-  - Rev share aplicado exatamente uma vez.
-  - Sem receita GAM → receita 0 (nunca estimada).
-
-## Entregáveis
-
-1. `_shared/reconciliation.ts` + mirror `src/lib/reconciliation.ts` + testes.
-2. `useDashboardData` refatorado para usar a engine.
-3. `CountriesTab` refatorado (remove `countryPerformance.ts` gradualmente).
-4. `FinancialCalendarTab` reescrito + edge function `calendar-regenerate` com SSE.
-5. `generate-daily-snapshot` passa a chamar a engine.
-
-## Detalhes técnicos
-
-- Paginação Supabase mantida em blocos de 1000 com `range()`.
-- `netFactor = 0.935` centralizado em `src/lib/revshare.ts` (já existe) — engine importa dali.
-- FX USD→BRL: sempre `exchange_rates` (fallback API), lido uma vez por chamada.
-- Serial (não paralelo) na regeneração do calendário para evitar quota do GAM/Ads.
-- Sem cache de query no calendário durante regen (`queryClient.removeQueries` antes de iniciar).
-
-Após aprovação, implemento na ordem: engine + testes → Dashboard → Países → Calendário + edge function.
+O print mostra "Acesso às Análises" — para poder editar campanhas (aumentar budget, pausar, etc.) é necessário solicitar **"Acesso básico"** na Central de API. A nova MCC também precisará passar por esse processo. Enquanto estiver em "Análises", o app lê dados mas não aplica alterações.
