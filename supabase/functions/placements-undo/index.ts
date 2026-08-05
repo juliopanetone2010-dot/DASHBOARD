@@ -31,7 +31,6 @@ Deno.serve(async (req) => {
     const userId = claims?.claims?.sub;
     if (!userId) return json({ error: "Token inválido" }, 401);
 
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
     const accIds = [...new Set(items.map((i) => i.google_account_id))];
     const { data: accs } = await admin
       .from("google_accounts").select("id, customer_id, login_customer_id, refresh_token, api_set")
@@ -59,7 +58,7 @@ Deno.serve(async (req) => {
         const token = await getGoogleToken(g.acc.refresh_token, tokenCache, (g.acc as any).api_set ?? 1);
         const headers: Record<string, string> = {
           Authorization: `Bearer ${token}`,
-          "developer-token": devToken,
+          "developer-token": devTokenFor((g.acc as any).api_set ?? 1),
           "Content-Type": "application/json",
         };
         if (g.acc.login_customer_id) headers["login-customer-id"] = g.acc.login_customer_id;
