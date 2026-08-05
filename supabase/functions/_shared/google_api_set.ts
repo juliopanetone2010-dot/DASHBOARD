@@ -68,8 +68,8 @@ export function listApiSets() {
     configured: boolean;
   }> = [];
   for (let i = 1; i <= MAX_API_SETS; i++) {
-    const client_id = !!pick("GOOGLE_CLIENT_ID", i);
-    const client_secret = !!pick("GOOGLE_CLIENT_SECRET", i);
+    const client_id = !!pick("GOOGLE_CLIENT_ID", i, true);
+    const client_secret = !!pick("GOOGLE_CLIENT_SECRET", i, true);
     const developer_token = !!pick("GOOGLE_ADS_DEVELOPER_TOKEN", i);
     out.push({
       api_set: i,
