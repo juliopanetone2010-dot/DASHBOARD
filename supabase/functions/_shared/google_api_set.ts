@@ -21,24 +21,29 @@ export function normalizeApiSet(v: unknown): number {
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
-function pick(base: string, apiSet: number): string {
+function pick(base: string, apiSet: number, shareable = false): string {
   const suffixed = env(`${base}_${apiSet}`);
   if (suffixed) return suffixed;
-  // fallback legado somente para o conjunto 1
+  // client id/secret podem ser compartilhados (mesmo app OAuth do Google Cloud
+  // atendendo várias MCCs). O developer token é sempre por conjunto.
+  if (shareable) return env(base) || env(`${base}_1`);
   return apiSet === 1 ? env(base) : "";
 }
 
 /** Retorna as credenciais do conjunto informado (lança se faltar algo). */
 export function getCreds(apiSetRaw: unknown = 1): GoogleAdsCreds {
   const apiSet = normalizeApiSet(apiSetRaw);
-  const clientId = pick("GOOGLE_CLIENT_ID", apiSet);
-  const clientSecret = pick("GOOGLE_CLIENT_SECRET", apiSet);
+  const clientId = pick("GOOGLE_CLIENT_ID", apiSet, true);
+  const clientSecret = pick("GOOGLE_CLIENT_SECRET", apiSet, true);
   const devToken = pick("GOOGLE_ADS_DEVELOPER_TOKEN", apiSet);
   if (!clientId || !clientSecret || !devToken) {
     throw new Error(
-      `Credenciais Google Ads do conjunto ${apiSet} não configuradas (GOOGLE_CLIENT_ID_${apiSet} / GOOGLE_CLIENT_SECRET_${apiSet} / GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet})`,
+      `Credenciais Google Ads do conjunto ${apiSet} não configuradas (falta ${!clientId ? `GOOGLE_CLIENT_ID_${apiSet}` : !clientSecret ? `GOOGLE_CLIENT_SECRET_${apiSet}` : `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`})`,
     );
   }
+  return { clientId, clientSecret, devToken, apiSet };
+}
+
   return { clientId, clientSecret, devToken, apiSet };
 }
 
