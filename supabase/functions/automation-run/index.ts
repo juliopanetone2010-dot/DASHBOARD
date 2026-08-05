@@ -1069,9 +1069,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
       .maybeSingle();
     if (!acc?.refresh_token || !acc?.customer_id) return { updated: 0, error: "no_refresh_token" };
 
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
+    const { clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1);
 
     const tokRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",

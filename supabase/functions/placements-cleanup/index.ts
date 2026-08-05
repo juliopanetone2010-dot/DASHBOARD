@@ -859,7 +859,7 @@ async function fetchLiveAdsPlacements(
     const token = await getGoogleToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
-      "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+      "developer-token": devTokenFor((acc as any).api_set ?? 1),
       "Content-Type": "application/json",
     };
     if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
@@ -1054,7 +1054,6 @@ function json(payload: unknown) {
 }
 
 async function applyNegativePlacements(admin: any, userId: string, items: ApplyItem[]) {
-  const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
   const accountIds = [...new Set(items.flatMap((i) => i.campaigns.map((c) => c.google_account_id)).filter(Boolean))];
   const { data: accs } = await admin
     .from("google_accounts")
@@ -1089,7 +1088,7 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
       const token = await getGoogleToken(g.acc.refresh_token, tokenCache, (g.acc as any).api_set ?? 1);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
-        "developer-token": devToken,
+        "developer-token": devTokenFor((g.acc as any).api_set ?? 1),
         "Content-Type": "application/json",
       };
       if (g.acc.login_customer_id) headers["login-customer-id"] = g.acc.login_customer_id;

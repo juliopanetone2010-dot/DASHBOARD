@@ -194,9 +194,6 @@ Deno.serve(async (req) => {
       arr.push(cid);
       campsByAccount.set(meta.google_account_id, arr);
     }
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
     for (const [accountId, ids] of campsByAccount.entries()) {
       try {
         const { data: acc } = await admin
@@ -205,6 +202,7 @@ Deno.serve(async (req) => {
           .eq("id", accountId)
           .maybeSingle();
         if (!acc?.refresh_token) continue;
+        const { clientId, clientSecret, devToken } = getCreds((acc as any).api_set ?? 1);
         const tokRes = await fetch("https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },

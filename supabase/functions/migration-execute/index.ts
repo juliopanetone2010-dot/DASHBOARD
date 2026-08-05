@@ -157,11 +157,11 @@ interface RunArgs {
 async function runMigration(a: RunArgs) {
   const { admin, userId, srcAcc, dstAcc, srcCamp } = a;
 
-  const srcToken = await getAccessToken(srcAcc.refresh_token);
-  const dstToken = a.crossAccount ? await getAccessToken(dstAcc.refresh_token) : srcToken;
+  const srcToken = await getAccessToken(srcAcc.refresh_token, srcAcc.api_set ?? 1);
+  const dstToken = a.crossAccount ? await getAccessToken(dstAcc.refresh_token, dstAcc.api_set ?? 1) : srcToken;
 
-  const srcHeaders = buildHeaders(srcToken, srcAcc.login_customer_id);
-  const dstHeaders = buildHeaders(dstToken, dstAcc.login_customer_id);
+  const srcHeaders = buildHeaders(srcToken, srcAcc.login_customer_id, srcAcc.api_set ?? 1);
+  const dstHeaders = buildHeaders(dstToken, dstAcc.login_customer_id, dstAcc.api_set ?? 1);
   const srcBase = `https://googleads.googleapis.com/v21/customers/${srcAcc.customer_id}`;
   const dstBase = `https://googleads.googleapis.com/v21/customers/${dstAcc.customer_id}`;
 
@@ -662,13 +662,14 @@ async function runMigration(a: RunArgs) {
 
 // =============== HELPERS ===============
 
-async function getAccessToken(refreshToken: string) {
+async function getAccessToken(refreshToken: string, apiSet: unknown = 1) {
+  const { clientId, clientSecret } = getCreds(apiSet);
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
@@ -678,10 +679,10 @@ async function getAccessToken(refreshToken: string) {
   return j.access_token as string;
 }
 
-function buildHeaders(token: string, loginCid: string | null): Record<string, string> {
+function buildHeaders(token: string, loginCid: string | null, apiSet: unknown = 1): Record<string, string> {
   const h: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    "developer-token": Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!,
+    "developer-token": devTokenFor(apiSet),
     "Content-Type": "application/json",
   };
   if (loginCid) h["login-customer-id"] = loginCid;
