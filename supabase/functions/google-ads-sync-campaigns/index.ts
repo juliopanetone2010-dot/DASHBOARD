@@ -313,12 +313,46 @@ Deno.serve(async (req) => {
               });
             }
 
-            // ===== AUTO-APLICAR UTM PADRÃO em campanhas sem o sufixo correto =====
+            // ===== AUTO-APLICAR UTM PADRÃO =====
+            // Varre TODAS as campanhas da conta (inclusive novas / sem gasto no período)
+            // e força o final_url_suffix padrão em qualquer uma que esteja diferente.
+            const suffixByCampaign = new Map<string, string>();
             try {
-              const toFix = Array.from(uniqueCampaigns.entries())
-                .filter(([_, info]) => (info.final_url_suffix ?? "") !== STANDARD_UTM_SUFFIX)
-                // só campanhas habilitadas/pausadas (ignora removidas)
-                .filter(([_, info]) => info.status !== "REMOVED");
+              const allCampsRes = await fetch(
+                `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
+                {
+                  method: "POST",
+                  headers,
+                  body: JSON.stringify({
+                    query: `
+                      SELECT campaign.id, campaign.status, campaign.final_url_suffix
+                      FROM campaign
+                      WHERE campaign.status != 'REMOVED'
+                    `,
+                  }),
+                },
+              );
+              const allCampsJson = await allCampsRes.json();
+              const allRows = allCampsRes.ok ? ((allCampsJson.results ?? []) as Array<{ campaign: { id: string; status?: string; finalUrlSuffix?: string } }>) : [];
+              if (!allCampsRes.ok) {
+                debugLogs.push(`auto-utm list err ${leaf.customer_id}: ${allCampsJson?.error?.message ?? "?"}`);
+              }
+
+              const toFix: string[] = [];
+              for (const r of allRows) {
+                const cur = r.campaign.finalUrlSuffix ?? "";
+                suffixByCampaign.set(r.campaign.id, cur);
+                if (cur !== STANDARD_UTM_SUFFIX) toFix.push(r.campaign.id);
+              }
+              // fallback: se a listagem falhou, usa o que veio do relatório de métricas
+              if (allRows.length === 0) {
+                for (const [cid, info] of uniqueCampaigns) {
+                  if (info.status === "REMOVED") continue;
+                  suffixByCampaign.set(cid, info.final_url_suffix ?? "");
+                  if ((info.final_url_suffix ?? "") !== STANDARD_UTM_SUFFIX) toFix.push(cid);
+                }
+              }
+
               if (toFix.length > 0) {
                 const CHUNK_MUT = 100;
                 let fixedOk = 0;
@@ -326,7 +360,7 @@ Deno.serve(async (req) => {
                 for (let i = 0; i < toFix.length; i += CHUNK_MUT) {
                   const slice = toFix.slice(i, i + CHUNK_MUT);
                   const mutateBody = {
-                    operations: slice.map(([cid]) => ({
+                    operations: slice.map((cid) => ({
                       update: {
                         resourceName: `customers/${leaf.customer_id}/campaigns/${cid}`,
                         finalUrlSuffix: STANDARD_UTM_SUFFIX,
@@ -355,6 +389,8 @@ Deno.serve(async (req) => {
                     }
                     fixedOk += (mj.results?.length ?? slice.length) - failed.size;
                     fixedFail += failed.size;
+                    // marca como padrão as que deram certo
+                    slice.forEach((cid, idx) => { if (!failed.has(idx)) suffixByCampaign.set(cid, STANDARD_UTM_SUFFIX); });
                   }
                 }
                 debugLogs.push(`auto-utm ${leaf.customer_id}: ok=${fixedOk} fail=${fixedFail} (de ${toFix.length})`);
@@ -362,6 +398,7 @@ Deno.serve(async (req) => {
             } catch (e) {
               debugLogs.push(`auto-utm exception ${leaf.customer_id}: ${String(e)}`);
             }
+
 
             // NOTE: Fallback de Target CPA por ad_group foi REMOVIDO propositalmente.
             // Só exibimos CPA quando a campanha usa estratégia TARGET_CPA definida
@@ -377,18 +414,24 @@ Deno.serve(async (req) => {
 
             // Bulk upsert campanhas
             if (uniqueCampaigns.size > 0) {
-              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => ({
-                user_id: userId,
-                google_account_id: leaf.id,
-                campaign_id: cid,
-                name: info.name,
-                status: info.status.toLowerCase(),
-                channel_type: info.channel,
-                budget_micros: info.budget_micros,
-                target_cpa_micros: info.target_cpa_micros,
-                bidding_strategy_type: info.bidding_strategy_type,
-                start_date: info.start_date,
-              }));
+              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => {
+                const suffix = suffixByCampaign.get(cid) ?? info.final_url_suffix ?? null;
+                return {
+                  user_id: userId,
+                  google_account_id: leaf.id,
+                  campaign_id: cid,
+                  name: info.name,
+                  status: info.status.toLowerCase(),
+                  channel_type: info.channel,
+                  budget_micros: info.budget_micros,
+                  target_cpa_micros: info.target_cpa_micros,
+                  bidding_strategy_type: info.bidding_strategy_type,
+                  start_date: info.start_date,
+                  final_url_suffix: suffix,
+                  utm_applied_at: suffix === STANDARD_UTM_SUFFIX ? new Date().toISOString() : null,
+                };
+              });
+
               const { error: campErr } = await admin
                 .from("campaigns")
                 .upsert(campaignRows, { onConflict: "user_id,google_account_id,campaign_id" });
