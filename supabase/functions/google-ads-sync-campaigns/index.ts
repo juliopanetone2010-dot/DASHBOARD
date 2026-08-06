@@ -414,18 +414,24 @@ Deno.serve(async (req) => {
 
             // Bulk upsert campanhas
             if (uniqueCampaigns.size > 0) {
-              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => ({
-                user_id: userId,
-                google_account_id: leaf.id,
-                campaign_id: cid,
-                name: info.name,
-                status: info.status.toLowerCase(),
-                channel_type: info.channel,
-                budget_micros: info.budget_micros,
-                target_cpa_micros: info.target_cpa_micros,
-                bidding_strategy_type: info.bidding_strategy_type,
-                start_date: info.start_date,
-              }));
+              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => {
+                const suffix = suffixByCampaign.get(cid) ?? info.final_url_suffix ?? null;
+                return {
+                  user_id: userId,
+                  google_account_id: leaf.id,
+                  campaign_id: cid,
+                  name: info.name,
+                  status: info.status.toLowerCase(),
+                  channel_type: info.channel,
+                  budget_micros: info.budget_micros,
+                  target_cpa_micros: info.target_cpa_micros,
+                  bidding_strategy_type: info.bidding_strategy_type,
+                  start_date: info.start_date,
+                  final_url_suffix: suffix,
+                  utm_applied_at: suffix === STANDARD_UTM_SUFFIX ? new Date().toISOString() : null,
+                };
+              });
+
               const { error: campErr } = await admin
                 .from("campaigns")
                 .upsert(campaignRows, { onConflict: "user_id,google_account_id,campaign_id" });
