@@ -1250,6 +1250,7 @@ export type Database = {
           campaign_id: string
           channel_type: string | null
           created_at: string
+          final_url_suffix: string | null
           google_account_id: string | null
           id: string
           name: string
@@ -1262,6 +1263,7 @@ export type Database = {
           target_cpa_micros: number | null
           updated_at: string
           user_id: string
+          utm_applied_at: string | null
         }
         Insert: {
           bidding_strategy_type?: string | null
@@ -1269,6 +1271,7 @@ export type Database = {
           campaign_id: string
           channel_type?: string | null
           created_at?: string
+          final_url_suffix?: string | null
           google_account_id?: string | null
           id?: string
           name: string
@@ -1281,6 +1284,7 @@ export type Database = {
           target_cpa_micros?: number | null
           updated_at?: string
           user_id: string
+          utm_applied_at?: string | null
         }
         Update: {
           bidding_strategy_type?: string | null
@@ -1288,6 +1292,7 @@ export type Database = {
           campaign_id?: string
           channel_type?: string | null
           created_at?: string
+          final_url_suffix?: string | null
           google_account_id?: string | null
           id?: string
           name?: string
@@ -1300,6 +1305,7 @@ export type Database = {
           target_cpa_micros?: number | null
           updated_at?: string
           user_id?: string
+          utm_applied_at?: string | null
         }
         Relationships: [
           {
