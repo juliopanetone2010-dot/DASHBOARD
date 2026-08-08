@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
     // Busca todas as contas conectadas (MCCs e contas diretas)
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set")
+      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
       .eq("user_id", userId)
       .not("refresh_token", "is", null);
 
@@ -97,6 +97,7 @@ Deno.serve(async (req) => {
     if (!accounts || accounts.length === 0) {
       return json({ error: "Nenhuma conta Google Ads conectada. Conecte primeiro." });
     }
+
 
     const summary: Array<Record<string, unknown>> = [];
     const debugLogs: string[] = [];
@@ -119,9 +120,20 @@ Deno.serve(async (req) => {
       return j.access_token as string;
     };
 
+    // Contas suspensas/canceladas não respondem à API (CUSTOMER_NOT_ENABLED).
+    // Elas são puladas silenciosamente para não derrubar o sync do site inteiro.
+    const INACTIVE = new Set(["suspended", "canceled", "cancelled", "closed"]);
+    const isInactiveErr = (msg: string) =>
+      /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
+
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
+      if (INACTIVE.has(String((root as any).status ?? "").toLowerCase())) {
+        summary.push({ root_account: root.customer_id, skipped: (root as any).status });
+        continue;
+      }
       try {
+
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
         let leafAccounts: Array<{
@@ -270,13 +282,17 @@ Deno.serve(async (req) => {
             debugLogs.push(`Account ${leaf.customer_id} campaigns status=${camRes.status} results=${camJson?.results?.length ?? 0}`);
 
             if (!camRes.ok) {
-              accountResults.push({
-                customer_id: leaf.customer_id,
-                name: leaf.name,
-                error: camJson?.error?.message ?? JSON.stringify(camJson),
-              });
+              const msg = camJson?.error?.message ?? JSON.stringify(camJson);
+              if (isInactiveErr(msg)) {
+                // conta desativada no Google Ads → marca no banco e ignora (não é falha do site)
+                await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" });
+              } else {
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: msg });
+              }
               continue;
             }
+
 
             const results = (camJson.results ?? []) as Array<{
               campaign: {
@@ -527,11 +543,12 @@ Deno.serve(async (req) => {
               metric_rows: results.length,
             });
           } catch (e) {
-            accountResults.push({
-              customer_id: leaf.customer_id,
-              name: leaf.name,
-              error: String(e),
-            });
+            const msg = String(e);
+            accountResults.push(
+              isInactiveErr(msg)
+                ? { customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" }
+                : { customer_id: leaf.customer_id, name: leaf.name, error: msg },
+            );
           }
         }
 
@@ -544,8 +561,14 @@ Deno.serve(async (req) => {
           accounts: accountResults,
         });
       } catch (e) {
-        summary.push({ root_account: root.customer_id, error: String(e) });
+        const msg = String(e);
+        summary.push(
+          isInactiveErr(msg)
+            ? { root_account: root.customer_id, skipped: "suspended" }
+            : { root_account: root.customer_id, error: msg },
+        );
       }
+
     }
 
     return json({ ok: true, summary, debug: debugLogs });
