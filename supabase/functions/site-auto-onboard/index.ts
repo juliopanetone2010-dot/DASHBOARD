@@ -50,7 +50,10 @@ async function callFn(name: string, body: unknown, authHeader: string) {
       try { parsed = JSON.parse(text); } catch { /* ignore */ }
       const parsedObj = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
       const summaryHasError = Array.isArray(parsedObj?.summary)
-        && parsedObj.summary.some((s) => s && typeof s === "object" && "error" in (s as Record<string, unknown>));
+        && parsedObj.summary.length > 0
+        // só falha se TODAS as entradas deram erro; contas suspensas/puladas não derrubam o sync
+        && parsedObj.summary.every((s) => s && typeof s === "object" && "error" in (s as Record<string, unknown>));
+
       const bodyHasError = !!parsedObj?.error || summaryHasError;
       if (r.status !== 429 || attempt === 2) return { ok: r.ok && !bodyHasError, status: r.status, body: parsed };
       await delay(15_000 * (attempt + 1));
