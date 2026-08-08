@@ -49,12 +49,13 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Localiza campanha + conta Ads
+    // Localiza campanha + conta Ads (sem filtrar por dono: acesso é validado via RBAC)
     const { data: camp, error: cErr } = await admin
       .from("campaigns")
-      .select("id, campaign_id, name, status, google_account_id")
-      .eq("user_id", userId)
+      .select("id, campaign_id, name, status, google_account_id, user_id")
       .eq("campaign_id", campaignId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (cErr || !camp) return json({ error: "Campanha não encontrada" });
     if (!camp.google_account_id) return json({ error: "Campanha sem conta Ads vinculada" });
@@ -62,11 +63,21 @@ Deno.serve(async (req) => {
       return json({ error: "Bloqueado: campanha não pertence à conta selecionada" });
     }
 
-    const resolvedSiteId = await resolveCampaignSiteId(admin, userId, campaignId, camp.google_account_id);
+    const ownerId = String(camp.user_id);
+    if (ownerId !== userId) {
+      const { data: allowed } = await admin.rpc("can_access_campaign", {
+        _uid: userId,
+        _campaign_id: campaignId,
+      });
+      if (!allowed) return json({ error: "Acesso negado a esta campanha" });
+    }
+
+    const resolvedSiteId = await resolveCampaignSiteId(admin, ownerId, campaignId, camp.google_account_id);
     if (!resolvedSiteId) return json({ error: "Bloqueado: campanha sem site confirmado" });
     if (requestedSiteId && requestedSiteId !== resolvedSiteId) {
       return json({ error: "Bloqueado: campanha não pertence ao site selecionado" });
     }
+
 
     const { data: acc, error: aErr } = await admin
       .from("google_accounts")
@@ -395,7 +406,7 @@ Deno.serve(async (req) => {
       for (const a of cleaned) {
         await admin.from("creative_metrics")
           .update({ ad_status: newStatus })
-          .eq("user_id", userId)
+          .eq("user_id", ownerId)
           .eq("campaign_id", camp.campaign_id)
           .eq("ad_group_id", a.ad_group_id)
           .eq("ad_id", a.ad_id);
