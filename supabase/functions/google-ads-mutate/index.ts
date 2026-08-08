@@ -406,7 +406,7 @@ Deno.serve(async (req) => {
       for (const a of cleaned) {
         await admin.from("creative_metrics")
           .update({ ad_status: newStatus })
-          .eq("user_id", userId)
+          .eq("user_id", ownerId)
           .eq("campaign_id", camp.campaign_id)
           .eq("ad_group_id", a.ad_group_id)
           .eq("ad_id", a.ad_id);
