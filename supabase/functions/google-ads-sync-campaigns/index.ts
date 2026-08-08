@@ -543,11 +543,12 @@ Deno.serve(async (req) => {
               metric_rows: results.length,
             });
           } catch (e) {
-            accountResults.push({
-              customer_id: leaf.customer_id,
-              name: leaf.name,
-              error: String(e),
-            });
+            const msg = String(e);
+            accountResults.push(
+              isInactiveErr(msg)
+                ? { customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" }
+                : { customer_id: leaf.customer_id, name: leaf.name, error: msg },
+            );
           }
         }
 
@@ -560,8 +561,14 @@ Deno.serve(async (req) => {
           accounts: accountResults,
         });
       } catch (e) {
-        summary.push({ root_account: root.customer_id, error: String(e) });
+        const msg = String(e);
+        summary.push(
+          isInactiveErr(msg)
+            ? { root_account: root.customer_id, skipped: "suspended" }
+            : { root_account: root.customer_id, error: msg },
+        );
       }
+
     }
 
     return json({ ok: true, summary, debug: debugLogs });
