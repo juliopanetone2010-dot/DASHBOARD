@@ -282,13 +282,17 @@ Deno.serve(async (req) => {
             debugLogs.push(`Account ${leaf.customer_id} campaigns status=${camRes.status} results=${camJson?.results?.length ?? 0}`);
 
             if (!camRes.ok) {
-              accountResults.push({
-                customer_id: leaf.customer_id,
-                name: leaf.name,
-                error: camJson?.error?.message ?? JSON.stringify(camJson),
-              });
+              const msg = camJson?.error?.message ?? JSON.stringify(camJson);
+              if (isInactiveErr(msg)) {
+                // conta desativada no Google Ads → marca no banco e ignora (não é falha do site)
+                await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" });
+              } else {
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: msg });
+              }
               continue;
             }
+
 
             const results = (camJson.results ?? []) as Array<{
               campaign: {
