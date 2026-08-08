@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
     // Busca todas as contas conectadas (MCCs e contas diretas)
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set")
+      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
       .eq("user_id", userId)
       .not("refresh_token", "is", null);
 
@@ -97,6 +97,7 @@ Deno.serve(async (req) => {
     if (!accounts || accounts.length === 0) {
       return json({ error: "Nenhuma conta Google Ads conectada. Conecte primeiro." });
     }
+
 
     const summary: Array<Record<string, unknown>> = [];
     const debugLogs: string[] = [];
