@@ -120,9 +120,20 @@ Deno.serve(async (req) => {
       return j.access_token as string;
     };
 
+    // Contas suspensas/canceladas não respondem à API (CUSTOMER_NOT_ENABLED).
+    // Elas são puladas silenciosamente para não derrubar o sync do site inteiro.
+    const INACTIVE = new Set(["suspended", "canceled", "cancelled", "closed"]);
+    const isInactiveErr = (msg: string) =>
+      /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
+
     // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
     for (const root of accounts) {
+      if (INACTIVE.has(String((root as any).status ?? "").toLowerCase())) {
+        summary.push({ root_account: root.customer_id, skipped: (root as any).status });
+        continue;
+      }
       try {
+
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
         let leafAccounts: Array<{
