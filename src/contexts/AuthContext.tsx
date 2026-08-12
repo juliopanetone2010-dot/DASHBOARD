@@ -27,10 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    // 2. Hidrata sessão atual
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    // 2. Hidrata sessão atual e valida o token (limpa sessões quebradas)
+    supabase.auth.getSession().then(async ({ data }) => {
+      const current = data.session;
+      setSession(current);
       setLoading(false);
+
+      if (current) {
+        const { error } = await supabase.auth.getUser();
+        const msg = error?.message?.toLowerCase() ?? "";
+        const invalid =
+          !!error &&
+          (msg.includes("jwt") ||
+            msg.includes("token") ||
+            msg.includes("session") ||
+            msg.includes("user not found"));
+        if (invalid) {
+          // Token/refresh token inválido em cache -> limpa para permitir novo login
+          await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+          setSession(null);
+        }
+      }
     });
 
     return () => subscription.unsubscribe();
