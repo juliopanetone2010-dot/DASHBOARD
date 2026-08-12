@@ -131,6 +131,19 @@ export default function Auth() {
             </form>
           </TabsContent>
         </Tabs>
+
+        <button
+          type="button"
+          className="mt-4 w-full text-xs text-muted-foreground underline"
+          onClick={() => {
+            Object.keys(localStorage)
+              .filter((k) => k.startsWith("sb-"))
+              .forEach((k) => localStorage.removeItem(k));
+            window.location.reload();
+          }}
+        >
+          Problemas para entrar? Limpar sessão e recarregar
+        </button>
       </div>
     </div>
   );
