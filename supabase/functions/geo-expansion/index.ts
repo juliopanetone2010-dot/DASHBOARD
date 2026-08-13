@@ -270,7 +270,7 @@ async function duplicateCampaign(
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-  const apiBase = `https://googleads.googleapis.com/v21/customers/${acc.customer_id}`;
+  const apiBase = `https://googleads.googleapis.com/v24/customers/${acc.customer_id}`;
   const sourceCampaignResource = `customers/${acc.customer_id}/campaigns/${item.campaign_id}`;
 
   // 1) Lê config completa da campanha origem
@@ -288,7 +288,7 @@ async function duplicateCampaign(
            campaign.target_impression_share.location,
            campaign.target_impression_share.location_fraction_micros,
            campaign.target_impression_share.cpc_bid_ceiling_micros,
-           campaign.start_date, campaign.end_date,
+           campaign.start_date_time, campaign.end_date_time,
            campaign.contains_eu_political_advertising,
            campaign.tracking_url_template, campaign.final_url_suffix,
            campaign.url_custom_parameters,

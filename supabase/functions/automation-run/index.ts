@@ -1102,7 +1102,7 @@ async function syncCampaignBudgets(admin: any, userId: string, accountId: string
       WHERE campaign.status = 'ENABLED'
     `;
     const res = await fetch(
-      `https://googleads.googleapis.com/v21/customers/${acc.customer_id}/googleAds:search`,
+      `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
       { method: "POST", headers, body: JSON.stringify({ query }) },
     );
     const json = await res.json();

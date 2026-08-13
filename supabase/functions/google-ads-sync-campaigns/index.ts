@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
             WHERE customer_client.manager = FALSE
           `;
           const cRes = await fetch(
-            `https://googleads.googleapis.com/v21/customers/${root.customer_id}/googleAds:search`,
+            `https://googleads.googleapis.com/v24/customers/${root.customer_id}/googleAds:search`,
             {
               method: "POST",
               headers: {
@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
             campaign.id,
             campaign.name,
             campaign.status,
-            campaign.start_date,
+            campaign.start_date_time,
             campaign.advertising_channel_type,
             campaign.final_url_suffix,
             campaign_budget.amount_micros,
@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
             }
 
             const camRes = await fetch(
-              `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
+              `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
               {
                 method: "POST",
                 headers,
@@ -279,7 +279,7 @@ Deno.serve(async (req) => {
               },
             );
             const camJson = await camRes.json();
-            debugLogs.push(`Account ${leaf.customer_id} campaigns status=${camRes.status} results=${camJson?.results?.length ?? 0}`);
+            debugLogs.push(`Account ${leaf.customer_id} campaigns status=${camRes.status} results=${camJson?.results?.length ?? 0}${camRes.ok ? "" : ` detail=${JSON.stringify(camJson?.error?.details ?? camJson?.error?.message ?? camJson).slice(0, 600)}`}`);
 
             if (!camRes.ok) {
               const msg = camJson?.error?.message ?? JSON.stringify(camJson);
@@ -297,7 +297,7 @@ Deno.serve(async (req) => {
             const results = (camJson.results ?? []) as Array<{
               campaign: {
                 id: string; name: string; status: string; advertisingChannelType?: string;
-                startDate?: string;
+                startDateTime?: string;
                 finalUrlSuffix?: string;
                 targetCpa?: { targetCpaMicros?: string };
                 biddingStrategyType?: string;
@@ -325,7 +325,7 @@ Deno.serve(async (req) => {
                 target_cpa_micros: cpaMicros,
                 bidding_strategy_type: strategy,
                 final_url_suffix: r.campaign.finalUrlSuffix ?? null,
-                start_date: r.campaign.startDate ?? null,
+                start_date: (r.campaign.startDateTime ?? null)?.slice(0, 10) ?? null,
               });
             }
 
@@ -335,7 +335,7 @@ Deno.serve(async (req) => {
             const suffixByCampaign = new Map<string, string>();
             try {
               const allCampsRes = await fetch(
-                `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
+                `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
                 {
                   method: "POST",
                   headers,
@@ -386,7 +386,7 @@ Deno.serve(async (req) => {
                     partialFailure: true,
                   };
                   const mr = await fetch(
-                    `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/campaigns:mutate`,
+                    `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/campaigns:mutate`,
                     { method: "POST", headers, body: JSON.stringify(mutateBody) },
                   );
                   const mj = await mr.json();
@@ -469,7 +469,7 @@ Deno.serve(async (req) => {
                 WHERE campaign.status != 'REMOVED'
               `;
               const adsRes = await fetch(
-                `https://googleads.googleapis.com/v21/customers/${leaf.customer_id}/googleAds:search`,
+                `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
                 { method: "POST", headers, body: JSON.stringify({ query: adsQuery }) },
               );
               const adsJson = await adsRes.json();
