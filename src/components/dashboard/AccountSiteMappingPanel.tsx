@@ -137,8 +137,8 @@ export function AccountSiteMappingPanel({
     }
   };
 
-  // Separar MCCs (gerenciadoras) das contas operacionais
-  const childAccounts = accounts.filter((a) => !a.is_mcc);
+  // Mostrar todas as contas para que o usuário possa mapear até as MCCs se desejar
+  const childAccounts = accounts;
   const mccCount = accounts.filter((a) => a.is_mcc).length;
 
   return (
