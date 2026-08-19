@@ -57,6 +57,8 @@ export function IntegrationsPanel(props: Props) {
   const [manualAccountName, setManualAccountName] = useState("");
   const [manualCustomerId, setManualCustomerId] = useState("");
   const [addingManual, setAddingManual] = useState(false);
+  const [manualDevToken, setManualDevToken] = useState("");
+  const [savingSecret, setSavingSecret] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -202,6 +204,33 @@ export function IntegrationsPanel(props: Props) {
     }
   };
 
+  const handleSaveDevToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualDevToken.trim()) {
+      toast({ title: "Developer Token obrigatório", variant: "destructive" });
+      return;
+    }
+    setSavingSecret(true);
+    try {
+      const secretName = apiSet === 1 ? "GOOGLE_ADS_DEVELOPER_TOKEN" : `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
+      const { error } = await supabase.functions.invoke("secrets-manager", {
+        body: { action: "set", name: secretName, value: manualDevToken.trim() }
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Developer Token salvo", description: `Configurado para o Conjunto ${apiSet}.` });
+      setManualDevToken("");
+      // Refresh status
+      const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
+      if (data) setOauthStatus(data);
+    } catch (e) {
+      toast({ title: "Erro ao salvar token", description: String(e), variant: "destructive" });
+    } finally {
+      setSavingSecret(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -257,11 +286,26 @@ export function IntegrationsPanel(props: Props) {
               ))}
             </div>
             <p className="text-[11px] text-muted-foreground pt-1">
-              Cada conjunto = uma MCC / developer token separado (secrets
-              <code className="font-mono"> GOOGLE_CLIENT_ID_N</code>,
-              <code className="font-mono"> GOOGLE_CLIENT_SECRET_N</code>,
-              <code className="font-mono"> GOOGLE_ADS_DEVELOPER_TOKEN_N</code>).
+              Cada conjunto = uma MCC / developer token separado.
             </p>
+            <form onSubmit={handleSaveDevToken} className="mt-2 space-y-2 border-t border-border/50 pt-2">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})</Label>
+              <div className="flex gap-2">
+                <Input 
+                  type="password"
+                  value={manualDevToken}
+                  onChange={(e) => setManualDevToken(e.target.value)}
+                  placeholder="Insira o Developer Token aqui..."
+                  className="h-8 text-xs"
+                />
+                <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
+                  {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
+                </Button>
+              </div>
+              <p className="text-[9px] text-muted-foreground italic">
+                O token será armazenado com segurança como secret no backend.
+              </p>
+            </form>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
