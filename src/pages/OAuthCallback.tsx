@@ -33,9 +33,11 @@ export default function OAuthCallback() {
         },
       );
       if (error || data?.error) {
-        console.error("[OAuthCallback] Error:", error, data);
+        console.error("[OAuthCallback] Error Data:", data);
+        console.error("[OAuthCallback] Invoke Error:", error);
         setState("error");
-        setMessage(data?.error ?? error?.message ?? "Falha no OAuth");
+        const detailedMsg = data?.error || error?.message || "Erro desconhecido na conexão";
+        setMessage(detailedMsg);
         return;
       }
       setState("ok");
