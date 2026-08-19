@@ -74,6 +74,9 @@ export function IntegrationsPanel(props: Props) {
   const configuredSets = oauthStatus?.configured_api_sets ?? [];
 
   const handleConnectAds = async () => {
+    // Abra a janela durante o clique do usuário. Se ela for criada apenas após
+    // o await, Chrome pode tratá-la como popup ou mantê-la dentro do preview.
+    const oauthWindow = window.open("about:blank", "google-ads-oauth");
     setConnecting(true);
     const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
     sessionStorage.setItem(
@@ -87,6 +90,7 @@ export function IntegrationsPanel(props: Props) {
       );
 
       if (error || !j?.auth_url) {
+        oauthWindow?.close();
         toast({
           title: "Configuração incompleta",
           description: j?.error || error?.message || "Falhou ao obter URL de autenticação",
@@ -95,23 +99,18 @@ export function IntegrationsPanel(props: Props) {
         setConnecting(false);
         return;
       }
-      // Google bloqueia OAuth dentro de iframes (preview)
-      try {
-        if (window.top && window.top !== window.self) {
-          window.top.location.href = j.auth_url;
-        } else {
-          window.location.href = j.auth_url;
-        }
-      } catch (e) {
-        console.error("Erro ao redirecionar via window.top:", e);
-        // Fallback: Abre em nova aba se o acesso ao top.location for bloqueado pelo navegador
-        window.open(j.auth_url, '_blank');
+      if (oauthWindow) {
+        oauthWindow.location.replace(j.auth_url);
+        oauthWindow.focus();
+      } else {
         toast({
-          title: "Redirecionamento bloqueado",
-          description: "O navegador bloqueou o redirecionamento automático. Abrindo em uma nova aba...",
+          title: "Pop-up bloqueado",
+          description: "Permita pop-ups para este site e clique novamente em Conectar MCC.",
+          variant: "destructive",
         });
       }
     } catch (e) {
+      oauthWindow?.close();
       toast({ title: "Erro ao iniciar OAuth", description: String(e), variant: "destructive" });
       setConnecting(false);
     }
