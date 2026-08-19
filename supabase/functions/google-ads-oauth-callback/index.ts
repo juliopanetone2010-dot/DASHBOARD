@@ -121,9 +121,11 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ query }),
         },
       );
-      const j = await r.json();
+      const t = await r.text();
+      let j: any = null;
+      try { j = JSON.parse(t); } catch { j = { error: { message: t.slice(0, 200) } }; }
       if (!r.ok) {
-        console.error(`[gaql] ${targetCid} (login=${loginCid}) failed`, r.status, JSON.stringify(j));
+        console.error(`[gaql] ${targetCid} (login=${loginCid}) failed`, r.status, JSON.stringify(j).slice(0, 300));
       }
       return { ok: r.ok, status: r.status, json: j };
     };
