@@ -294,20 +294,38 @@ export function IntegrationsPanel(props: Props) {
               Cada conjunto = uma MCC / developer token separado.
             </p>
             <form onSubmit={handleSaveDevToken} className="mt-2 space-y-2 border-t border-border/50 pt-2">
-              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})</Label>
-              <div className="flex gap-2">
-                <Input 
-                  type="password"
-                  value={manualDevToken}
-                  onChange={(e) => setManualDevToken(e.target.value)}
-                  placeholder="Insira o Developer Token aqui..."
-                  className="h-8 text-xs"
-                />
-                <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
-                  {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
-                </Button>
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})
+                </Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="password"
+                    value={manualDevToken}
+                    onChange={(e) => setManualDevToken(e.target.value)}
+                    placeholder="Insira o Developer Token aqui..."
+                    className="h-8 text-xs"
+                  />
+                  <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
+                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
+                  </Button>
+                </div>
               </div>
-              <p className="text-[9px] text-muted-foreground italic">
+              
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-2 mt-2">
+                <p className="text-[10px] text-amber-200 font-medium mb-1">
+                  ⚠️ Google Ads 403 Forbidden / Test User:
+                </p>
+                <p className="text-[9px] text-amber-200/80 leading-relaxed">
+                  Se ao clicar em "Conectar MCC" você vir um erro 403 ou "Acesso negado", 
+                  é porque o seu app no Google Cloud Console está em modo "Testing". 
+                  Acesse <strong>OAuth consent screen &gt; Test users</strong> no Google Cloud e adicione 
+                  o e-mail da conta que você está tentando logar. 
+                  Ou mude o status do app para "Production".
+                </p>
+              </div>
+
+              <p className="text-[9px] text-muted-foreground italic mt-1">
                 O token será armazenado com segurança como secret no backend.
               </p>
             </form>
