@@ -311,10 +311,10 @@ export function IntegrationsPanel(props: Props) {
               <Input value={gamEmail} onChange={(e) => setGamEmail(e.target.value)} placeholder="acc@projeto.iam.gserviceaccount.com" className="h-8 text-xs" />
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button type="submit" size="xs" className="h-7 text-[11px]">Salvar GAM</Button>
+              <Button type="submit" size="sm" className="h-7 text-[11px]">Salvar GAM</Button>
               <Button
                 type="button"
-                size="xs"
+                size="sm"
                 variant="secondary"
                 disabled={syncingGam}
                 onClick={handleSyncGam}
@@ -356,7 +356,7 @@ export function IntegrationsPanel(props: Props) {
                 />
               </div>
             </div>
-            <Button type="submit" size="xs" className="h-7 text-[11px] w-full" disabled={addingManual}>
+            <Button type="submit" size="sm" className="h-7 text-[11px] w-full" disabled={addingManual}>
               {addingManual ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
               Adicionar Manualmente
             </Button>
