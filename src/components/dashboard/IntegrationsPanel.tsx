@@ -33,6 +33,7 @@ interface Props {
   links: AccountSiteLink[];
   isGuest: boolean;
   onAddGoogleAccount: (input: Partial<GoogleAccount>) => Promise<void>;
+  onArchiveGoogleAccount: (id: string) => Promise<void>;
   onRemoveGoogleAccount: (id: string) => Promise<void>;
   onAddGamAccount: (input: Partial<GamAccount>) => Promise<void>;
   onRemoveGamAccount: (id: string) => Promise<void>;
@@ -309,6 +310,8 @@ export function IntegrationsPanel(props: Props) {
         isGuest={props.isGuest}
         onAddLink={props.onAddLink}
         onRemoveLink={props.onRemoveLink}
+        onArchiveAccount={props.onArchiveGoogleAccount}
+        onRemoveAccount={props.onRemoveGoogleAccount}
         onRefresh={props.onRefresh}
       />
 

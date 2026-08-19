@@ -42,6 +42,7 @@ export interface DashboardData {
   persistEngineAlerts: (alerts: EngineAlertDraft[]) => Promise<void>;
   // CRUD multi-conta
   addGoogleAccount: (input: Partial<GoogleAccount>) => Promise<void>;
+  archiveGoogleAccount: (id: string) => Promise<void>;
   removeGoogleAccount: (id: string) => Promise<void>;
   addGamAccount: (input: Partial<GamAccount>) => Promise<void>;
   removeGamAccount: (id: string) => Promise<void>;
@@ -595,18 +596,32 @@ export function useDashboardData(): DashboardData {
     await refresh();
   };
 
-  const removeGoogleAccount = async (id: string) => {
+  const archiveGoogleAccount = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      saveGuestStore({
-        ...store,
-        googleAccounts: store.googleAccounts.map((a) => a.id === id ? { ...a, status: "suspended" } : a),
-      });
+      const updated = store.googleAccounts.map((a) => (a.id === id ? { ...a, status: "suspended" as const } : a));
+      saveGuestStore({ ...store, googleAccounts: updated });
       await refresh();
       return;
     }
-    // Alterado: Apenas marca como suspenso para preservar histórico de ROI/Gastos
+    // Muda status para suspenso e remove vínculos para sair do dashboard "ativo"
+    // mas mantém o registro da conta para preservar as métricas vinculadas a google_account_id
     await supabase.from("google_accounts").update({ status: "suspended" }).eq("id", id);
+    await supabase.from("account_site_links").delete().eq("google_account_id", id);
+    await refresh();
+  };
+
+  const removeGoogleAccount = async (id: string) => {
+    if (!user) {
+      const store = loadGuestStore();
+      const updated = store.googleAccounts.filter((a) => a.id !== id);
+      saveGuestStore({ ...store, googleAccounts: updated });
+      await refresh();
+      return;
+    }
+    // Hard delete total (remove métricas por cascata se houver FK, ou deixa órfão)
+    await supabase.from("account_site_links").delete().eq("google_account_id", id);
+    await supabase.from("google_accounts").delete().eq("id", id);
     await refresh();
   };
 
@@ -704,33 +719,58 @@ export function useDashboardData(): DashboardData {
     await refresh();
   };
 
-  return {
-    campaigns: snap.campaigns,
-    metrics: snap.metrics,
-    placements: snap.placements,
-    rules: rulesLocalOverride ?? snap.rules,
-    alerts: snap.alerts,
-    googleAccounts: snap.googleAccounts,
-    gamAccounts: snap.gamAccounts,
-    sites: snap.sites,
-    links: snap.links,
-    loading: query.isLoading || query.isFetching,
-    refresh,
-    lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
-    dataReadiness: snap.dataReadiness,
-    isGuest,
-    saveRules,
-    acknowledgeAlert,
-    queueAction,
-    insertSampleData,
-    persistEngineAlerts,
-    addGoogleAccount,
-    removeGoogleAccount,
-    addGamAccount,
-    removeGamAccount,
-    addSite,
-    removeSite,
-    addLink,
-    removeLink,
-  };
+  return useMemo(
+    () => ({
+      campaigns: snap.campaigns,
+      metrics: snap.metrics,
+      placements: snap.placements,
+      rules: rulesLocalOverride ?? snap.rules,
+      alerts: snap.alerts,
+      googleAccounts: snap.googleAccounts,
+      gamAccounts: snap.gamAccounts,
+      sites: snap.sites,
+      links: snap.links,
+      loading: query.isLoading || query.isFetching,
+      refresh,
+      lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
+      dataReadiness: snap.dataReadiness,
+      isGuest,
+      saveRules,
+      acknowledgeAlert,
+      queueAction,
+      insertSampleData,
+      persistEngineAlerts,
+      addGoogleAccount,
+      archiveGoogleAccount,
+      removeGoogleAccount,
+      addGamAccount,
+      removeGamAccount,
+      addSite,
+      removeSite,
+      addLink,
+      removeLink,
+    }),
+    [
+      snap,
+      query.isLoading,
+      query.isFetching,
+      refresh,
+      rulesLocalOverride,
+      isGuest,
+      saveRules,
+      acknowledgeAlert,
+      queueAction,
+      insertSampleData,
+      persistEngineAlerts,
+      addGoogleAccount,
+      archiveGoogleAccount,
+      removeGoogleAccount,
+      addGamAccount,
+      removeGamAccount,
+      addSite,
+      removeSite,
+      addLink,
+      removeLink,
+    ],
+  );
 }
