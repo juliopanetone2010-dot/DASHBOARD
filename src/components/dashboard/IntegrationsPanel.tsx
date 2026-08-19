@@ -85,24 +85,20 @@ export function IntegrationsPanel(props: Props) {
     );
     try {
       // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
-      const functionUrl = `/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
-      
       const { data: sessionData } = await supabase.auth.getSession();
-      const response = await fetch(functionUrl, {
+      const { data, error } = await supabase.functions.invoke("google-ads-oauth-start", {
         method: "GET",
-        headers: {
-          "Authorization": `Bearer ${sessionData.session?.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY
+        queryParams: {
+          redirect_uri: redirectUri,
+          api_set: apiSet.toString()
         }
       });
 
-      const j = await response.json();
-
-      if (!response.ok || !j?.auth_url) {
+      if (error || !data?.auth_url) {
         oauthWindow?.close();
         toast({
           title: "Erro na Conexão",
-          description: j?.error || "Falhou ao obter URL de autenticação",
+          description: data?.error || error?.message || "Falhou ao obter URL de autenticação",
           variant: "destructive",
         });
         setConnecting(false);
@@ -111,10 +107,10 @@ export function IntegrationsPanel(props: Props) {
 
       if (oauthWindow) {
         // Redirecionamento direto para o Google
-        oauthWindow.location.href = j.auth_url;
+        oauthWindow.location.href = data.auth_url;
       } else {
         // Fallback caso o popup tenha sido bloqueado mesmo após o clique
-        window.top.location.href = j.auth_url;
+        window.top.location.href = data.auth_url;
       }
     } catch (e) {
       oauthWindow?.close();
