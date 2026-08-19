@@ -1,43 +1,38 @@
-# Plan - Fix OAuth Callback Loop and 403 Errors
+# Plan - Fix Historical Data Visibility after MCC Sync
 
-The user is experiencing a persistent error when connecting their Google Ads MCC account, even after several attempts to fix the OAuth flow. The screenshot shows a "non-2xx status code" from the edge function, which usually implies an unhandled error or a missing credential in the OAuth callback.
+The user reports that old campaigns are not appearing even after connecting and syncing the MCC. This is likely because the synchronization defaults to a narrow window (e.g., LAST_7_DAYS) and might not be capturing historical data for newly connected accounts unless a broader sync is triggered.
 
 ## Technical Details
 
 1.  **Issue Identification**:
-    *   The browser console error in previous turns suggested `SecurityError: Failed to set a named property 'href' on 'Location'`.
-    *   The current image shows a "non-2xx status code" error.
-    *   `google-ads-oauth-callback` is likely returning a 500 because `tryGetCreds` or the token exchange is failing.
-    *   Credentials check shows `GOOGLE_ADS_DEVELOPER_TOKEN_2` is SET, but `GOOGLE_CLIENT_ID_2` and `GOOGLE_CLIENT_SECRET_2` are MISSING. The code uses fallbacks, but any inconsistency in environment propagation can cause issues.
+    *   `google-ads-sync-campaigns` defaults to `segments.date DURING LAST_7_DAYS` if no date range is provided.
+    *   Newly added MCC sub-accounts are "upserted" during the sync, but their historical metrics (beyond 7 days) are not automatically pulled.
+    *   The `site-auto-onboard` function orchestrates the sync but might be using limited parameters.
 
 2.  **Proposed Fixes**:
-    *   **Frontend**: Enhance `OAuthCallback.tsx` to handle the `api_set` persistence better. If it's lost in session storage, the callback might try set 1 instead of 2.
-    *   **Backend (Start)**: Ensure `google-ads-oauth-start` explicitly includes the `api_set` in the `state` parameter of the OAuth URL, so it can be reliably recovered even if `sessionStorage` fails.
-    *   **Backend (Callback)**: Update `google-ads-oauth-callback` to prioritize the `api_set` found in the `state` parameter from Google, making the flow stateless and more robust.
-    *   **Debug Visibility**: Add more detailed error reporting to the UI to distinguish between "Auth Denied (403)", "Invalid Credentials", and "Network Error".
+    *   **Backend (Sync)**: Update `google-ads-sync-campaigns` to handle a special `historical: true` flag that triggers a broader sync (e.g., LAST_90_DAYS or a custom range) for new accounts.
+    *   **Frontend**: Add an option in the Integrations panel to "Sync Full History" (e.g., last 90 days) specifically for newly added accounts.
+    *   **Automation**: When a new account is detected (first sync), automatically trigger a one-time historical sync for the last 30-60 days to ensure the dashboard isn't empty.
+    *   **Visibility**: Ensure the dashboard filters (e.g., "Últimos 30 dias") actually have data to show by ensuring the sync window matches or exceeds the UI defaults.
 
 ## Proposed Changes
 
-### Frontend Edits
-
-#### `src/pages/OAuthCallback.tsx`
-*   Add logic to parse the `state` parameter from the URL.
-*   If `api_set` is not in `sessionStorage`, try to extract it from the `state` JSON.
-
-#### `src/components/dashboard/IntegrationsPanel.tsx`
-*   Ensure the `state` passed to the start function includes the `api_set`.
-
 ### Backend Edits (Edge Functions)
 
-#### `supabase/functions/google-ads-oauth-start/index.ts`
-*   Include `{ apiSet }` in the `state` string sent to Google.
+#### `supabase/functions/google-ads-sync-campaigns/index.ts`
+*   Increase the default sync window from 7 days to 30 days to better match the dashboard's "Últimos 30 dias" default view.
+*   Add support for a `window_days` parameter to allow the frontend to request deeper history.
 
-#### `supabase/functions/google-ads-oauth-callback/index.ts`
-*   Extract `api_set` from the `state` parameter if available.
-*   Improve logging to pinpoint where the 500 error is coming from.
+#### `supabase/functions/site-auto-onboard/index.ts`
+*   Ensure that when new accounts are discovered, it triggers a `google-ads-sync-campaigns` call with a larger window.
+
+### Frontend Edits
+
+#### `src/components/dashboard/IntegrationsPanel.tsx`
+*   Update the "Sincronizar contas e campanhas" button to trigger a 30-day sync by default.
+*   Add a "Deep Sync (90 dias)" option for users who need to recover older historical data.
 
 ## Verification Plan
 
-1.  **Code Review**: Verify `normalizeApiSet` and credential resolution logic.
-2.  **Manual Test**: Trigger the flow and verify the `state` parameter in the Google URL.
-3.  **Simulation**: Use `curl` to simulate a callback with a mock code and verify it reaches the credential resolution step without crashing.
+1.  **Manual Test**: Check the `google-ads-sync-campaigns` logs to verify the date clause being generated.
+2.  **Database Check**: Verify that `daily_metrics` table is being populated with dates further back than the last 7 days after the fix.
