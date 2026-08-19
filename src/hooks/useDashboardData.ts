@@ -42,6 +42,7 @@ export interface DashboardData {
   persistEngineAlerts: (alerts: EngineAlertDraft[]) => Promise<void>;
   // CRUD multi-conta
   addGoogleAccount: (input: Partial<GoogleAccount>) => Promise<void>;
+  archiveGoogleAccount: (id: string) => Promise<void>;
   removeGoogleAccount: (id: string) => Promise<void>;
   addGamAccount: (input: Partial<GamAccount>) => Promise<void>;
   removeGamAccount: (id: string) => Promise<void>;
@@ -724,9 +725,10 @@ export function useDashboardData(): DashboardData {
     queueAction,
     insertSampleData,
     persistEngineAlerts,
-    addGoogleAccount,
-    removeGoogleAccount,
-    addGamAccount,
+      addGoogleAccount,
+      archiveGoogleAccount,
+      removeGoogleAccount,
+      addGamAccount,
     removeGamAccount,
     addSite,
     removeSite,
