@@ -141,7 +141,6 @@ export function AccountSiteMappingPanel({
   // Filtrar contas pelo API Set selecionado
   const childAccounts = useMemo(() => {
     if (!selectedApiSet) return accounts;
-    // @ts-ignore - api_set existe no banco e deve estar vindo no payload se tipado corretamente
     return accounts.filter(a => a.api_set === selectedApiSet || a.is_mcc);
   }, [accounts, selectedApiSet]);
 
