@@ -6,7 +6,7 @@ Deno.serve((req) => {
 
   const url = new URL(req.url);
   const redirectUri = url.searchParams.get("redirect_uri") ?? "";
-  const state = url.searchParams.get("state") ?? crypto.randomUUID();
+  const state = url.searchParams.get("state") ?? JSON.stringify({ id: crypto.randomUUID(), api_set: apiSet });
   const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
 
   const devToken = devTokenFor(apiSet);

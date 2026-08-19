@@ -12,6 +12,7 @@ export default function OAuthCallback() {
 
   useEffect(() => {
     const code = params.get("code");
+    const state = params.get("state");
     const err = params.get("error");
     if (err) { setState("error"); setMessage(err); return; }
     if (!code) { setState("error"); setMessage("Código ausente."); return; }
@@ -25,6 +26,7 @@ export default function OAuthCallback() {
         {
           body: {
             code,
+            state,
             redirect_uri: `${window.location.origin}/oauth/google-ads/callback`,
             ...pending,
           },

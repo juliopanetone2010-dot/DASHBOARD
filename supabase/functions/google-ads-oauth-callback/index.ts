@@ -11,9 +11,21 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { code, redirect_uri, account_name } = body ?? {};
-    const apiSet = normalizeApiSet(body?.api_set ?? 1);
-    console.log("[oauth-callback] received", { hasCode: !!code, redirect_uri, apiSet });
+    const { code, state, redirect_uri, account_name } = body ?? {};
+    
+    let apiSet = normalizeApiSet(body?.api_set ?? 1);
+    
+    // Tenta extrair api_set do state (JSON vindo do start)
+    if (state) {
+      try {
+        const parsedState = JSON.parse(state);
+        if (parsedState.api_set) apiSet = normalizeApiSet(parsedState.api_set);
+      } catch (e) {
+        console.log("[oauth-callback] state is not JSON, using default/provided apiSet");
+      }
+    }
+    
+    console.log("[oauth-callback] received", { hasCode: !!code, hasState: !!state, redirect_uri, apiSet });
 
     if (!code || !redirect_uri) {
       return json({ error: "code e redirect_uri obrigatórios" });
