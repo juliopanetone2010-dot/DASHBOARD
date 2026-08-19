@@ -437,8 +437,8 @@ export function IntegrationsPanel(props: Props) {
               <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
                 {accessibleAccounts.length === 0 ? (
                   <div className="text-center py-4 space-y-2">
-                    <p className="text-xs text-muted-foreground">Nenhuma MCC vinculada encontrada para este conjunto (API {apiSet}).</p>
-                    <p className="text-[10px] text-muted-foreground italic">Certifique-se de que completou o "Passo 1" com sucesso.</p>
+                    <p className="text-xs text-muted-foreground">Nenhuma conta encontrada vinculada a este MCC.</p>
+                    <p className="text-[10px] text-muted-foreground italic">Certifique-se de que a conta 719-750-3782 é a que foi conectada no "Passo 1".</p>
                   </div>
                 ) : (
                   accessibleAccounts.map((mcc: any) => (
