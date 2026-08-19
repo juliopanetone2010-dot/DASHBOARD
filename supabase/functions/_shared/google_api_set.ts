@@ -24,9 +24,16 @@ export function normalizeApiSet(v: unknown): number {
 function pick(base: string, apiSet: number, shareable = false): string {
   const suffixed = env(`${base}_${apiSet}`);
   if (suffixed) return suffixed;
+
   // client id/secret podem ser compartilhados (mesmo app OAuth do Google Cloud
-  // atendendo várias MCCs). O developer token é sempre por conjunto.
-  if (shareable) return env(base) || env(`${base}_1`);
+  // atendendo várias MCCs).
+  if (shareable) {
+    // Tenta o valor global sem sufixo ou o valor do conjunto 1
+    return env(base) || env(`${base}_1`);
+  }
+
+  // Developer token não deve ter fallback automático para evitar confusão entre MCCs
+  // mas permitimos o legado sem sufixo para o conjunto 1.
   return apiSet === 1 ? env(base) : "";
 }
 
