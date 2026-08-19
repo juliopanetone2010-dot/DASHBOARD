@@ -85,12 +85,11 @@ export function IntegrationsPanel(props: Props) {
     );
     try {
       // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
-      const { data: sessionData } = await supabase.auth.getSession();
       const { data, error } = await supabase.functions.invoke("google-ads-oauth-start", {
         method: "GET",
-        queryParams: {
-          redirect_uri: redirectUri,
-          api_set: apiSet.toString()
+        headers: {
+          "x-redirect-uri": redirectUri,
+          "x-api-set": apiSet.toString()
         }
       });
 

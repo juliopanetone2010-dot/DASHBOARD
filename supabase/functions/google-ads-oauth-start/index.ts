@@ -5,9 +5,9 @@ Deno.serve((req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const url = new URL(req.url);
-  const redirectUri = url.searchParams.get("redirect_uri") ?? "";
-  const state = url.searchParams.get("state") ?? JSON.stringify({ id: crypto.randomUUID(), api_set: apiSet });
-  const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
+  const redirectUri = req.headers.get("x-redirect-uri") || url.searchParams.get("redirect_uri") || "";
+  const state = url.searchParams.get("state") ?? JSON.stringify({ id: crypto.randomUUID(), api_set: normalizeApiSet(req.headers.get("x-api-set") || url.searchParams.get("api_set") || 1) });
+  const apiSet = normalizeApiSet(req.headers.get("x-api-set") || url.searchParams.get("api_set") || 1);
 
   const devToken = devTokenFor(apiSet);
   const creds = tryGetCreds(apiSet);
