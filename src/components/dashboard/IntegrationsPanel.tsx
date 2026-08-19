@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, RotateCcw, ShieldCheck, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
