@@ -31,6 +31,7 @@ export default function OAuthCallback() {
         },
       );
       if (error || data?.error) {
+        console.error("[OAuthCallback] Error:", error, data);
         setState("error");
         setMessage(data?.error ?? error?.message ?? "Falha no OAuth");
         return;
