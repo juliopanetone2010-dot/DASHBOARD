@@ -76,12 +76,17 @@ export function IntegrationsPanel(props: Props) {
       JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
     );
     try {
-      const projectId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_SUPABASE_PROJECT_ID;
-      const fnUrl = `https://${projectId}.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
-      const res = await fetch(fnUrl);
-      const j = await res.json();
-      if (!j.auth_url) {
-        toast({ title: "Configuração incompleta", description: j.error ?? "Falhou", variant: "destructive" });
+      const { data: j, error } = await supabase.functions.invoke(
+        `google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`,
+        { method: "GET" }
+      );
+
+      if (error || !j?.auth_url) {
+        toast({
+          title: "Configuração incompleta",
+          description: j?.error || error?.message || "Falhou ao obter URL de autenticação",
+          variant: "destructive",
+        });
         setConnecting(false);
         return;
       }

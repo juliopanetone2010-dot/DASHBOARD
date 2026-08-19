@@ -1,5 +1,5 @@
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
-import { listApiSets, normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
+import { devTokenFor, listApiSets, normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
 Deno.serve((req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
