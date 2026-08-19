@@ -577,7 +577,7 @@ export function useDashboardData(): DashboardData {
 
   // ===== CRUD multi-conta =====
 
-  const addGoogleAccount = async (input: Partial<GoogleAccount>) => {
+  const addGoogleAccount = useCallback(async (input: Partial<GoogleAccount>) => {
     const row = {
       customer_id: input.customer_id ?? "",
       login_customer_id: input.login_customer_id ?? null,
@@ -594,9 +594,9 @@ export function useDashboardData(): DashboardData {
     }
     await supabase.from("google_accounts").insert({ ...row, user_id: user.id });
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const archiveGoogleAccount = async (id: string) => {
+  const archiveGoogleAccount = useCallback(async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
       const updated = store.googleAccounts.map((a) => (a.id === id ? { ...a, status: "suspended" as const } : a));
@@ -604,14 +604,12 @@ export function useDashboardData(): DashboardData {
       await refresh();
       return;
     }
-    // Muda status para suspenso e remove vínculos para sair do dashboard "ativo"
-    // mas mantém o registro da conta para preservar as métricas vinculadas a google_account_id
     await supabase.from("google_accounts").update({ status: "suspended" }).eq("id", id);
     await supabase.from("account_site_links").delete().eq("google_account_id", id);
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const removeGoogleAccount = async (id: string) => {
+  const removeGoogleAccount = useCallback(async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
       const updated = store.googleAccounts.filter((a) => a.id !== id);
@@ -619,13 +617,12 @@ export function useDashboardData(): DashboardData {
       await refresh();
       return;
     }
-    // Hard delete total (remove métricas por cascata se houver FK, ou deixa órfão)
     await supabase.from("account_site_links").delete().eq("google_account_id", id);
     await supabase.from("google_accounts").delete().eq("id", id);
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const addGamAccount = async (input: Partial<GamAccount>) => {
+  const addGamAccount = useCallback(async (input: Partial<GamAccount>) => {
     const row = {
       network_code: input.network_code ?? "",
       account_name: input.account_name ?? null,
@@ -641,9 +638,9 @@ export function useDashboardData(): DashboardData {
     }
     await supabase.from("gam_accounts").insert({ ...row, user_id: user.id });
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const removeGamAccount = async (id: string) => {
+  const removeGamAccount = useCallback(async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
       saveGuestStore({ ...store, gamAccounts: store.gamAccounts.filter((a) => a.id !== id) });
@@ -652,9 +649,9 @@ export function useDashboardData(): DashboardData {
     }
     await supabase.from("gam_accounts").delete().eq("id", id);
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const addSite = async (input: Partial<Site>) => {
+  const addSite = useCallback(async (input: Partial<Site>) => {
     const row = {
       name: input.name ?? "",
       domain: input.domain ?? "",
@@ -671,9 +668,9 @@ export function useDashboardData(): DashboardData {
     }
     await supabase.from("sites").insert({ ...row, user_id: user.id });
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const removeSite = async (id: string) => {
+  const removeSite = useCallback(async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
       saveGuestStore({
@@ -687,9 +684,9 @@ export function useDashboardData(): DashboardData {
     await supabase.from("account_site_links").delete().eq("site_id", id);
     await supabase.from("sites").delete().eq("id", id);
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const addLink = async (googleAccountId: string, siteId: string) => {
+  const addLink = useCallback(async (googleAccountId: string, siteId: string) => {
     if (!user) {
       const store = loadGuestStore();
       const filtered = store.links.filter((l) => l.google_account_id !== googleAccountId);
@@ -706,9 +703,9 @@ export function useDashboardData(): DashboardData {
       user_id: user.id, google_account_id: googleAccountId, site_id: siteId,
     });
     await refresh();
-  };
+  }, [user, refresh]);
 
-  const removeLink = async (id: string) => {
+  const removeLink = useCallback(async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
       saveGuestStore({ ...store, links: store.links.filter((l) => l.id !== id) });
@@ -717,7 +714,7 @@ export function useDashboardData(): DashboardData {
     }
     await supabase.from("account_site_links").delete().eq("id", id);
     await refresh();
-  };
+  }, [user, refresh]);
 
   return useMemo(
     () => ({
