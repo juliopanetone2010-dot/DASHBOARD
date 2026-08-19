@@ -36,6 +36,7 @@ export function AccountSiteMappingPanel({
   }, [accounts, links]);
 
   const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [selectedApiSet, setSelectedApiSet] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -137,8 +138,12 @@ export function AccountSiteMappingPanel({
     }
   };
 
-  // Mostrar todas as contas para que o usuário possa mapear até as MCCs se desejar
-  const childAccounts = accounts;
+  // Filtrar contas pelo API Set selecionado
+  const childAccounts = useMemo(() => {
+    if (!selectedApiSet) return accounts;
+    return accounts.filter(a => a.api_set === selectedApiSet || a.is_mcc);
+  }, [accounts, selectedApiSet]);
+
   const mccCount = accounts.filter((a) => a.is_mcc).length;
 
   return (
@@ -159,11 +164,19 @@ export function AccountSiteMappingPanel({
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 bg-muted/50 rounded-md px-2 py-1 border border-border">
             <span className="text-[10px] font-medium uppercase text-muted-foreground">MCC:</span>
-            <Select onValueChange={(v) => handleSyncMccWithApiSet(Number(v))}>
+            <Select 
+              value={selectedApiSet?.toString() || ""} 
+              onValueChange={(v) => {
+                const apiSet = v === "all" ? null : Number(v);
+                setSelectedApiSet(apiSet);
+                if (apiSet) handleSyncMccWithApiSet(apiSet);
+              }}
+            >
               <SelectTrigger className="h-7 w-32 text-xs border-none bg-transparent focus:ring-0">
                 <SelectValue placeholder="Selecionar MCC" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">Ver Todas</SelectItem>
                 {[1, 2, 3, 4, 5].map(i => (
                   <SelectItem key={i} value={i.toString()}>MCC (API {i})</SelectItem>
                 ))}
