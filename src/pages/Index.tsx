@@ -663,7 +663,7 @@ const IndexInner = () => {
           body: { site_id: nextFilters.siteId, force: true, from: quickFrom, to, quick_only: true },
         });
         await supabase.functions.invoke("site-auto-onboard", { body: { site_id: nextFilters.siteId, force: true, from, to, skip_quick_revenue: true } });
-        toast({ title: "Receita atualizada", description: "Hoje e ontem foram conferidos direto no Ad Manager; o restante continua sincronizando em segundo plano." });
+        toast({ title: "Sincronização iniciada", description: "O gasto do Google Ads e a receita do Ad Manager (hoje/ontem) estão sendo atualizados. O histórico completo continua em segundo plano." });
       }
       lastSyncRef.current = { key: cacheKey, at: Date.now() };
       await data.refresh();

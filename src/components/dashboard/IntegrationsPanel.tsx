@@ -182,7 +182,7 @@ export function IntegrationsPanel(props: Props) {
       const x = s as { total_campaigns_synced?: number };
       return acc + (x.total_campaigns_synced ?? 0);
     }, 0);
-    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s).` });
+    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s). Se os dados não aparecerem imediatamente, aguarde a sincronização do Ad Manager concluir.` });
     await props.onRefresh();
   };
 
