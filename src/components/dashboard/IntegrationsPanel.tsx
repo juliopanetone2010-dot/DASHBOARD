@@ -238,7 +238,7 @@ export function IntegrationsPanel(props: Props) {
               onClick={handleConnectAds}
               size="sm"
               className="gap-1.5"
-              disabled={connecting || !configuredSets.includes(apiSet)}
+              disabled={connecting}
             >
               {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
               Conectar MCC
