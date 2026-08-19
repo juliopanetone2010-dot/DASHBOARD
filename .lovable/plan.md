@@ -1,77 +1,43 @@
-# Plano: Suporte a Múltiplas Credenciais Google Ads (MCCs)
+# Plan - Fix OAuth Callback Loop and 403 Errors
 
-## Contexto
+The user is experiencing a persistent error when connecting their Google Ads MCC account, even after several attempts to fix the OAuth flow. The screenshot shows a "non-2xx status code" from the edge function, which usually implies an unhandled error or a missing credential in the OAuth callback.
 
-A maioria das contas Ads foram suspensas. Uma conta ainda permanece na MCC antiga. Uma nova MCC será criada/configurada. O app precisa suportar ambas as MCCs em paralelo, com seus próprios tokens de API.
+## Technical Details
 
-## Objetivo
+1.  **Issue Identification**:
+    *   The browser console error in previous turns suggested `SecurityError: Failed to set a named property 'href' on 'Location'`.
+    *   The current image shows a "non-2xx status code" error.
+    *   `google-ads-oauth-callback` is likely returning a 500 because `tryGetCreds` or the token exchange is failing.
+    *   Credentials check shows `GOOGLE_ADS_DEVELOPER_TOKEN_2` is SET, but `GOOGLE_CLIENT_ID_2` and `GOOGLE_CLIENT_SECRET_2` are MISSING. The code uses fallbacks, but any inconsistency in environment propagation can cause issues.
 
-Abrir espaço no app para múltiplos conjuntos de credenciais Google Ads (OAuth + developer token), permitindo que cada `google_accounts` utilize o API set correto. A MCC antiga continua operando; a nova MCC será cadastrada sem afetar a existente.
+2.  **Proposed Fixes**:
+    *   **Frontend**: Enhance `OAuthCallback.tsx` to handle the `api_set` persistence better. If it's lost in session storage, the callback might try set 1 instead of 2.
+    *   **Backend (Start)**: Ensure `google-ads-oauth-start` explicitly includes the `api_set` in the `state` parameter of the OAuth URL, so it can be reliably recovered even if `sessionStorage` fails.
+    *   **Backend (Callback)**: Update `google-ads-oauth-callback` to prioritize the `api_set` found in the `state` parameter from Google, making the flow stateless and more robust.
+    *   **Debug Visibility**: Add more detailed error reporting to the UI to distinguish between "Auth Denied (403)", "Invalid Credentials", and "Network Error".
 
-## Mudanças técnicas
+## Proposed Changes
 
-### 1. Banco de dados
+### Frontend Edits
 
-Adicionar coluna `api_set` (inteiro, default 1) na tabela `public.google_accounts`.
+#### `src/pages/OAuthCallback.tsx`
+*   Add logic to parse the `state` parameter from the URL.
+*   If `api_set` is not in `sessionStorage`, try to extract it from the `state` JSON.
 
-- `api_set` indica qual conjunto de secrets usar (1, 2, 3...).
-- Default 1 preserva comportamento atual para todas as contas já cadastradas.
+#### `src/components/dashboard/IntegrationsPanel.tsx`
+*   Ensure the `state` passed to the start function includes the `api_set`.
 
-### 2. Secrets do backend
+### Backend Edits (Edge Functions)
 
-Criar padrão de secrets escalável:
+#### `supabase/functions/google-ads-oauth-start/index.ts`
+*   Include `{ apiSet }` in the `state` string sent to Google.
 
-- `GOOGLE_CLIENT_ID_1`, `GOOGLE_CLIENT_SECRET_1`, `GOOGLE_ADS_DEVELOPER_TOKEN_1` → MCC antiga (já existem, renomeados mantendo fallback).
-- `GOOGLE_CLIENT_ID_2`, `GOOGLE_CLIENT_SECRET_2`, `GOOGLE_ADS_DEVELOPER_TOKEN_2` → nova MCC.
-- `GOOGLE_CLIENT_ID_3`... se necessário.
+#### `supabase/functions/google-ads-oauth-callback/index.ts`
+*   Extract `api_set` from the `state` parameter if available.
+*   Improve logging to pinpoint where the 500 error is coming from.
 
-Os secrets atuais (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ADS_DEVELOPER_TOKEN`) continuam como fallback `api_set = 1` para não quebrar o que já está rodando.
+## Verification Plan
 
-### 3. Edge functions
-
-Criar helper compartilhado em `supabase/functions/_shared/google_api_set.ts` que resolve:
-
-```text
-api_set=1 -> GOOGLE_CLIENT_ID_1 / GOOGLE_CLIENT_SECRET_1 / GOOGLE_ADS_DEVELOPER_TOKEN_1
-             fallback -> GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_ADS_DEVELOPER_TOKEN
-api_set=2 -> GOOGLE_CLIENT_ID_2 / GOOGLE_CLIENT_SECRET_2 / GOOGLE_ADS_DEVELOPER_TOKEN_2
-...e assim por diante
-```
-
-Atualizar as seguintes edge functions para usarem o helper e passar/receber `api_set`:
-
-- `google-ads-oauth-start` → recebe `api_set` por query/body e gera URL de OAuth com o client ID correto.
-- `google-ads-oauth-callback` → recebe `api_set` e salva a conta associada ao conjunto correto.
-- `google-ads-sync-campaigns`
-- `google-ads-sync-countries`
-- `google-ads-sync-creatives`
-- `google-ads-sync-placements`
-- `google-ads-mutate`
-- `google-ads-list-accounts`
-- `google-ads-apply-utm-bulk`
-
-Todas elas buscam o `refresh_token` e o `api_set` da tabela `google_accounts` antes de chamar a API Google Ads.
-
-### 4. Frontend
-
-Atualizar `src/pages/Settings.tsx` e `src/components/dashboard/IntegrationsPanel.tsx`:
-
-- Botão "Conectar MCC" passa a abrir um diálogo com seleção de "API set" (MCC 1, MCC 2...).
-- Listar as MCCs conectadas com a badge do API set usado.
-- Sincronização automática usa o `api_set` de cada conta.
-
-### 5. Status/check de configuração
-
-Atualizar `google-ads-oauth-status` para retornar status de cada API set configurado (`1`, `2`, etc.), facilitando saber se os secrets da nova MCC foram preenchidos.
-
-## Próximos passos
-
-1. Confirmar se a nova MCC já possui OAuth app criado no Google Cloud Console e se o developer token já foi solicitado/aprovado.
-2. Aprovar este plano.
-3. Implementar as mudanças.
-4. Cadastrar os secrets da nova MCC (`GOOGLE_CLIENT_ID_2`, `GOOGLE_CLIENT_SECRET_2`, `GOOGLE_ADS_DEVELOPER_TOKEN_2`).
-5. Conectar a nova MCC pelo app e sincronizar as campanhas.
-
-## Nota sobre acesso à API
-
-O print mostra "Acesso às Análises" — para poder editar campanhas (aumentar budget, pausar, etc.) é necessário solicitar **"Acesso básico"** na Central de API. A nova MCC também precisará passar por esse processo. Enquanto estiver em "Análises", o app lê dados mas não aplica alterações.
+1.  **Code Review**: Verify `normalizeApiSet` and credential resolution logic.
+2.  **Manual Test**: Trigger the flow and verify the `state` parameter in the Google URL.
+3.  **Simulation**: Use `curl` to simulate a callback with a mock code and verify it reaches the credential resolution step without crashing.
