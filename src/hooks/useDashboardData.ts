@@ -596,18 +596,32 @@ export function useDashboardData(): DashboardData {
     await refresh();
   };
 
-  const removeGoogleAccount = async (id: string) => {
+  const archiveGoogleAccount = async (id: string) => {
     if (!user) {
       const store = loadGuestStore();
-      saveGuestStore({
-        ...store,
-        googleAccounts: store.googleAccounts.map((a) => a.id === id ? { ...a, status: "suspended" } : a),
-      });
+      const updated = store.googleAccounts.map((a) => (a.id === id ? { ...a, status: "suspended" as const } : a));
+      saveGuestStore({ ...store, googleAccounts: updated });
       await refresh();
       return;
     }
-    // Alterado: Apenas marca como suspenso para preservar histórico de ROI/Gastos
+    // Muda status para suspenso e remove vínculos para sair do dashboard "ativo"
+    // mas mantém o registro da conta para preservar as métricas vinculadas a google_account_id
     await supabase.from("google_accounts").update({ status: "suspended" }).eq("id", id);
+    await supabase.from("account_site_links").delete().eq("google_account_id", id);
+    await refresh();
+  };
+
+  const removeGoogleAccount = async (id: string) => {
+    if (!user) {
+      const store = loadGuestStore();
+      const updated = store.googleAccounts.filter((a) => a.id !== id);
+      saveGuestStore({ ...store, googleAccounts: updated });
+      await refresh();
+      return;
+    }
+    // Hard delete total (remove métricas por cascata se houver FK, ou deixa órfão)
+    await supabase.from("account_site_links").delete().eq("google_account_id", id);
+    await supabase.from("google_accounts").delete().eq("id", id);
     await refresh();
   };
 
