@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, AlertCircle, Save, RefreshCw, Briefcase } from "lucide-react";
+import { AccountActions } from "./AccountActions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,13 +15,15 @@ interface Props {
   isGuest: boolean;
   onAddLink: (googleAccountId: string, siteId: string) => Promise<void>;
   onRemoveLink: (id: string) => Promise<void>;
+  onArchiveAccount?: (id: string) => Promise<void>;
+  onRemoveAccount?: (id: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }
 
 const NONE = "__none__";
 
 export function AccountSiteMappingPanel({
-  accounts, sites, links, isGuest, onAddLink, onRemoveLink, onRefresh,
+  accounts, sites, links, isGuest, onAddLink, onRemoveLink, onArchiveAccount, onRemoveAccount, onRefresh,
 }: Props) {
   // Mapeamento atual: account_id -> site_id (ou NONE)
   const initial = useMemo(() => {
@@ -176,6 +179,14 @@ export function AccountSiteMappingPanel({
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-warning shrink-0">
                       <AlertCircle className="h-3.5 w-3.5" /> Não vinculado
                     </span>
+                  )}
+                  {onArchiveAccount && onRemoveAccount && (
+                    <AccountActions
+                      accountId={acc.id}
+                      accountName={acc.account_name ?? acc.customer_id}
+                      onArchive={onArchiveAccount}
+                      onRemove={onRemoveAccount}
+                    />
                   )}
                 </header>
 

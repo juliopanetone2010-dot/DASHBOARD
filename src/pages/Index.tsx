@@ -1211,12 +1211,13 @@ const IndexInner = () => {
               <IntegrationsPanel
                 googleAccounts={data.googleAccounts}
                 gamAccounts={data.gamAccounts}
-                sites={data.sites}
-                links={data.links}
-                isGuest={data.isGuest}
-                onAddGoogleAccount={data.addGoogleAccount}
-                onRemoveGoogleAccount={data.removeGoogleAccount}
-                onAddGamAccount={data.addGamAccount}
+          sites={data.sites}
+          links={data.links}
+          isGuest={data.isGuest}
+          onAddGoogleAccount={data.addGoogleAccount}
+          onArchiveGoogleAccount={data.archiveGoogleAccount}
+          onRemoveGoogleAccount={data.removeGoogleAccount}
+          onAddGamAccount={data.addGamAccount}
                 onRemoveGamAccount={data.removeGamAccount}
                 onAddSite={data.addSite}
                 onRemoveSite={data.removeSite}
