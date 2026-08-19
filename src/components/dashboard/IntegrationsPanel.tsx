@@ -202,12 +202,16 @@ export function IntegrationsPanel(props: Props) {
               value={apiSet}
               onChange={(e) => setApiSet(Number(e.target.value))}
             >
-              {apiSets.map((s) => (
-                <option key={s.api_set} value={s.api_set} disabled={!s.configured}>
-                  Conjunto {s.api_set}{s.api_set === 1 ? " (MCC original)" : ""}
-                  {s.configured ? "" : " — não configurado"}
-                </option>
-              ))}
+              {[1, 2, 3, 4, 5].map((i) => {
+                const s = apiSets.find((x) => x.api_set === i);
+                const isConfigured = s?.configured ?? false;
+                return (
+                  <option key={i} value={i}>
+                    Conjunto {i}{i === 1 ? " (MCC original)" : ""}
+                    {isConfigured ? "" : " — não configurado"}
+                  </option>
+                );
+              })}
             </select>
             <div className="flex flex-wrap gap-1.5 pt-1">
               {apiSets.map((s) => (
