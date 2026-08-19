@@ -85,12 +85,13 @@ export function IntegrationsPanel(props: Props) {
     );
     try {
       // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
-      const functionUrl = `https://pxlgkpuaaptbubsnvfkz.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
+      const functionUrl = `/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
       
+      const { data: sessionData } = await supabase.auth.getSession();
       const response = await fetch(functionUrl, {
         method: "GET",
         headers: {
-          "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          "Authorization": `Bearer ${sessionData.session?.access_token}`,
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY
         }
       });
