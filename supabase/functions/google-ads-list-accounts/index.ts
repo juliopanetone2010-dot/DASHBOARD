@@ -132,6 +132,10 @@ Deno.serve(async (req) => {
         for (const r of rows) {
           const cc = r.customerClient;
           const childCid = String(cc.id);
+          
+          // Se for o próprio MCC que estamos listando, ignoramos no upsert de filhas
+          if (childCid === mgr.customer_id) continue;
+
           const { error } = await admin
             .from("google_accounts")
             .upsert(
@@ -143,7 +147,7 @@ Deno.serve(async (req) => {
                 account_name: cc.descriptiveName ?? `Conta ${childCid}`,
                 descriptive_name: cc.descriptiveName ?? null,
                 currency: cc.currencyCode ?? null,
-                is_mcc: false,
+                is_mcc: cc.manager ?? false,
                 status: "connected",
                 refresh_token: mgr.refresh_token,
                 api_set: (mgr as any).api_set ?? 1,
