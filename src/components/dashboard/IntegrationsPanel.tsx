@@ -159,11 +159,15 @@ export function IntegrationsPanel(props: Props) {
     await props.onRefresh();
   };
 
-  const handleSyncCampaigns = async () => {
+  const handleSyncCampaigns = async (deep = false) => {
     setSyncing(true);
     const { data, error } = await supabase.functions.invoke<{
       ok?: boolean; error?: string; summary?: unknown[]; debug?: string[];
-    }>("google-ads-sync-campaigns", { body: {} });
+    }>("google-ads-sync-campaigns", { 
+      body: { 
+        window_days: deep ? 90 : 30 
+      } 
+    });
     setSyncing(false);
     console.log("[sync-campaigns] response", data, error);
     if (error || data?.error) {
@@ -178,7 +182,10 @@ export function IntegrationsPanel(props: Props) {
       const x = s as { total_campaigns_synced?: number };
       return acc + (x.total_campaigns_synced ?? 0);
     }, 0);
-    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s). Se os dados não aparecerem imediatamente, aguarde a sincronização do Ad Manager concluir.` });
+    toast({ 
+      title: deep ? "Sincronização profunda completa" : "Sincronização completa", 
+      description: `${total} campanha(s) sincronizada(s). Se os dados antigos ainda não aparecerem, aguarde alguns minutos.` 
+    });
     await props.onRefresh();
   };
 
@@ -374,9 +381,13 @@ export function IntegrationsPanel(props: Props) {
               {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
               Conectar MCC
             </Button>
-            <Button onClick={handleSyncCampaigns} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
+            <Button onClick={() => handleSyncCampaigns(false)} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
               {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sincronizar contas e campanhas
+              Sincronizar contas (30 dias)
+            </Button>
+            <Button onClick={() => handleSyncCampaigns(true)} size="sm" variant="outline" disabled={syncing} className="gap-1.5">
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              Deep Sync (90 dias)
             </Button>
             <Button variant="outline" size="sm" asChild>
               <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">

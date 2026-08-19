@@ -29,6 +29,7 @@ Deno.serve(async (req) => {
     let dateFrom: string | null = null;
     let dateTo: string | null = null;
     let accountIds: string[] = [];
+    let windowDays: number | null = null;
     let bodyUserId: string | null = null;
     let bodySiteId: string | null = null;
     try {
@@ -40,14 +41,17 @@ Deno.serve(async (req) => {
         accountIds = Array.isArray((body as any).account_ids)
           ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
           : [];
+        windowDays = typeof (body as any).window_days === "number" ? (body as any).window_days : null;
         bodyUserId = typeof (body as any).user_id === "string" ? (body as any).user_id : null;
         bodySiteId = typeof (body as any).site_id === "string" ? (body as any).site_id : null;
       }
     } catch (_) { /* no body */ }
 
     const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
-    let dateClause = "segments.date DURING LAST_7_DAYS";
-    if (datePreset && ALLOWED_PRESETS.has(String(datePreset).toUpperCase())) {
+    let dateClause = "segments.date DURING LAST_30_DAYS"; // Aumentado de 7 para 30 por padrão
+    if (windowDays) {
+      dateClause = `segments.date DURING LAST_${windowDays}_DAYS`;
+    } else if (datePreset && ALLOWED_PRESETS.has(String(datePreset).toUpperCase())) {
       dateClause = `segments.date DURING ${String(datePreset).toUpperCase()}`;
     } else if (dateFrom && dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
       dateClause = `segments.date BETWEEN '${dateFrom}' AND '${dateTo}'`;
