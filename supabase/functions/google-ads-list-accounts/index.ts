@@ -138,6 +138,10 @@ Deno.serve(async (req) => {
           // Se for o próprio MCC que estamos listando, ignoramos no upsert de filhas
           if (childCid === mgr.customer_id) continue;
 
+          // Mapeamos o status do Google Ads para o status da nossa tabela
+          // Se a conta estiver ENABLED no Google, marcamos como connected aqui
+          const accountStatus = cc.status === 'ENABLED' ? 'connected' : 'suspended';
+
           const { error } = await admin
             .from("google_accounts")
             .upsert(
@@ -150,7 +154,7 @@ Deno.serve(async (req) => {
                 descriptive_name: cc.descriptiveName ?? null,
                 currency: cc.currencyCode ?? null,
                 is_mcc: cc.manager ?? false,
-                status: "connected",
+                status: accountStatus,
                 refresh_token: mgr.refresh_token,
                 api_set: (mgr as any).api_set ?? 1,
                 last_synced_at: new Date().toISOString(),
