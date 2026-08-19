@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[oauth-callback] uncaught error", e);
-    return json({ error: String(e) });
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
 
