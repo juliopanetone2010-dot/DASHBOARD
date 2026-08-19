@@ -34,7 +34,7 @@ function pick(base: string, apiSet: number, shareable = false): string {
 
   // Developer token não deve ter fallback automático para evitar confusão entre MCCs
   // mas permitimos o legado sem sufixo para o conjunto 1.
-  return apiSet === 1 ? env(base) : "";
+  return (apiSet === 1) ? (env(base) || env(`${base}_1`)) : env(`${base}_${apiSet}`);
 }
 
 /** Retorna as credenciais do conjunto informado (lança se faltar algo). */
