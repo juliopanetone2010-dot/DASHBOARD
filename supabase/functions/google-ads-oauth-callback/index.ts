@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
 
     // 2) Descobre quais customer IDs o usuário liberou
     const listRes = await fetch(
-      "https://googleads.googleapis.com/v17/customers:listAccessibleCustomers",
+      "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
       {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
@@ -72,13 +72,14 @@ Deno.serve(async (req) => {
         },
       },
     );
-    const listJson = await listRes.json();
+    const listText = await listRes.text();
+    let listJson: any = null;
+    try { listJson = JSON.parse(listText); } catch { /* HTML response */ }
     console.log("[oauth-callback] listAccessibleCustomers status", listRes.status);
-    if (!listRes.ok) {
-      console.error("[oauth-callback] list failed", listJson);
+    if (!listRes.ok || !listJson) {
+      console.error("[oauth-callback] list failed", listRes.status, listText.slice(0, 300));
       return json({
-        error: `Falhou ao listar customers: ${listJson?.error?.message ?? JSON.stringify(listJson)}`,
-        detail: listJson,
+        error: `Falhou ao listar contas (status ${listRes.status}): ${listJson?.error?.message ?? listText.slice(0, 200)}`,
       }, 400);
     }
     const resourceNames: string[] = listJson.resourceNames ?? [];
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
       };
       if (loginCid) headers["login-customer-id"] = loginCid;
       const r = await fetch(
-        `https://googleads.googleapis.com/v17/customers/${targetCid}/googleAds:search`,
+        `https://googleads.googleapis.com/v24/customers/${targetCid}/googleAds:search`,
         {
           method: "POST",
           headers,
