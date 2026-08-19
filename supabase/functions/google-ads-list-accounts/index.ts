@@ -62,11 +62,8 @@ Deno.serve(async (req) => {
     if (mErr) return json({ error: mErr.message }, 500);
     if (!managers || managers.length === 0) {
       console.log(`[list-accounts] No MCC found for userId=${userId} (api_set=${body.api_set || 'any'})`);
-      return json({ 
-        error: "Nenhum MCC conectado encontrado", 
-        message: "Você precisa primeiro conectar uma MCC no passo 1 (OAuth) antes de listar as contas.",
-        hint: body.api_set ? `Nenhum MCC encontrado especificamente para o Conjunto ${body.api_set}` : "Nenhum MCC encontrado em nenhum conjunto."
-      }, 404);
+      // Em vez de 404, retornamos OK com sumário vazio para evitar erros de toast no frontend
+      return json({ ok: true, summary: [], message: "Nenhum MCC conectado encontrado." });
     }
 
     const summary: Array<{ manager: string; synced: number; error?: string }> = [];
