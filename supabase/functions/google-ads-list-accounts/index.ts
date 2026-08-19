@@ -1,6 +1,3 @@
-// Sincroniza as contas filhas de um MCC já conectado.
-// Usa o refresh_token salvo para gerar access_token e chama GoogleAdsService.search
-// no MCC para listar customer_client (sub-contas), inclusive nome e moeda.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { getCreds, tryGetCreds } from "../_shared/google_api_set.ts";
@@ -20,8 +17,6 @@ Deno.serve(async (req) => {
       return json({ error: "Login obrigatório" }, 401);
     }
 
-    // O frontend agora envia api_set e force_all. 
-    // Vamos validar se pelo menos o conjunto 1 (padrão) está disponível se nenhum for especificado.
     if (!tryGetCreds(1) && !tryGetCreds(2) && !tryGetCreds(3) && !tryGetCreds(4) && !tryGetCreds(5)) {
       return json({ error: "Nenhuma credencial Google Ads configurada nos Secrets" }, 500);
     }
@@ -52,8 +47,6 @@ Deno.serve(async (req) => {
     if (body.api_set) {
       q = q.eq("api_set", body.api_set);
     } else if (!body.force_all) {
-      // Se não for force_all e nem api_set, pegar apenas o padrão (1) para evitar lentidão
-      // O frontend agora passa api_set ou force_all.
       q = q.eq("api_set", 1);
     }
 
@@ -61,8 +54,6 @@ Deno.serve(async (req) => {
     const { data: managers, error: mErr } = await q;
     if (mErr) return json({ error: mErr.message }, 500);
     if (!managers || managers.length === 0) {
-      console.log(`[list-accounts] No MCC found for userId=${userId} (api_set=${body.api_set || 'any'})`);
-      // Em vez de 404, retornamos OK com sumário vazio para evitar erros de toast no frontend
       return json({ ok: true, summary: [], message: "Nenhum MCC conectado encontrado." });
     }
 
@@ -71,7 +62,6 @@ Deno.serve(async (req) => {
     for (const mgr of managers) {
       const mgrCreds = getCreds((mgr as any).api_set ?? 1);
       try {
-        // Refresh access token
         const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -89,8 +79,7 @@ Deno.serve(async (req) => {
         }
         const accessToken: string = tokenJson.access_token;
 
-        // GAQL: lista customer_clients do MCC de forma recursiva para pegar sub-MCCs e suas contas
-        // Removemos o filtro de status ENABLED e manager para capturar toda a estrutura hierárquica visível
+        // GAQL search recursive to get all hierarchy level by level or via level attribute
         const query = `
           SELECT
             customer_client.id,
@@ -99,9 +88,9 @@ Deno.serve(async (req) => {
             customer_client.manager,
             customer_client.status,
             customer_client.level,
-            customer_client.applied_labels,
             customer_client.test_account
           FROM customer_client
+          WHERE customer_client.status = 'ENABLED'
         `;
 
         const searchRes = await fetch(
@@ -127,20 +116,18 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number; status?: string } }> =
-          searchJson.results ?? [];
+        const rows: any[] = searchJson.results ?? [];
 
         let synced = 0;
         for (const r of rows) {
           const cc = r.customerClient;
+          if (!cc) continue;
+          
           const childCid = String(cc.id);
           
-          // Se for o próprio MCC que estamos listando, ignoramos no upsert de filhas
-          if (childCid === mgr.customer_id) continue;
-
-          // Mapeamos o status do Google Ads para o status da nossa tabela
-          // Se a conta estiver ENABLED no Google, marcamos como connected aqui
-          const accountStatus = cc.status === 'ENABLED' ? 'connected' : 'suspended';
+          // Upsert ALL accounts found in the hierarchy tree
+          // If it's a manager, we keep its refresh token for future listing if needed
+          const isManager = cc.manager ?? false;
 
           const { error } = await admin
             .from("google_accounts")
@@ -150,11 +137,11 @@ Deno.serve(async (req) => {
                 customer_id: childCid,
                 login_customer_id: mgr.customer_id,
                 manager_account_id: mgr.id,
-                account_name: cc.descriptiveName ?? `Conta ${childCid}`,
+                account_name: cc.descriptiveName ?? (isManager ? `MCC ${childCid}` : `Conta ${childCid}`),
                 descriptive_name: cc.descriptiveName ?? null,
                 currency: cc.currencyCode ?? null,
-                is_mcc: cc.manager ?? false,
-                status: accountStatus,
+                is_mcc: isManager,
+                status: 'connected',
                 refresh_token: mgr.refresh_token,
                 api_set: (mgr as any).api_set ?? 1,
                 last_synced_at: new Date().toISOString(),
