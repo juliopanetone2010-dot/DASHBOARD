@@ -95,7 +95,12 @@ export function IntegrationsPanel(props: Props) {
         setConnecting(false);
         return;
       }
-      window.location.href = j.auth_url;
+      // Google bloqueia OAuth dentro de iframes (preview) → força janela de topo
+      if (window.top && window.top !== window.self) {
+        window.top.location.href = j.auth_url;
+      } else {
+        window.location.href = j.auth_url;
+      }
     } catch (e) {
       toast({ title: "Erro ao iniciar OAuth", description: String(e), variant: "destructive" });
       setConnecting(false);
