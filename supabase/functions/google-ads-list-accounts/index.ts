@@ -6,7 +6,9 @@ import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { getCreds, tryGetCreds } from "../_shared/google_api_set.ts";
 
 interface SyncBody {
-  manager_account_id?: string; // id da row em google_accounts (o MCC). Se ausente, sincroniza todos os MCCs do user.
+  manager_account_id?: string;
+  api_set?: number;
+  force_all?: boolean;
 }
 
 Deno.serve(async (req) => {
@@ -39,13 +41,21 @@ Deno.serve(async (req) => {
 
     const body = (await req.json().catch(() => ({}))) as SyncBody;
 
-    // Pega os MCCs alvo
     let q = admin
       .from("google_accounts")
       .select("id, customer_id, refresh_token, account_name, api_set")
       .eq("user_id", userId)
       .eq("is_mcc", true)
       .not("refresh_token", "is", null);
+
+    if (body.api_set) {
+      q = q.eq("api_set", body.api_set);
+    } else if (!body.force_all) {
+      // Se não for force_all e nem api_set, pegar apenas o padrão (1) para evitar lentidão
+      // O frontend agora passa api_set ou force_all.
+      q = q.eq("api_set", 1);
+    }
+
     if (body.manager_account_id) q = q.eq("id", body.manager_account_id);
     const { data: managers, error: mErr } = await q;
     if (mErr) return json({ error: mErr.message }, 500);

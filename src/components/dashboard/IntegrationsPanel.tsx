@@ -261,7 +261,7 @@ export function IntegrationsPanel(props: Props) {
     setListingAccounts(true);
     try {
       const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
-        body: { api_set: apiSet }
+        body: { api_set: apiSet, force_all: true }
       });
       if (error) throw error;
       
@@ -446,7 +446,7 @@ export function IntegrationsPanel(props: Props) {
                         {mcc.synced} conta(s) sincronizada(s) e disponível(is) para mapeamento.
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">Nenhuma conta filha ativa encontrada.</p>
+                      <p className="text-xs text-muted-foreground italic">Nenhuma conta ativa encontrada nessa MCC.</p>
                     )}
                   </div>
                 ))}
