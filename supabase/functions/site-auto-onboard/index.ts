@@ -170,7 +170,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 1. campanhas (Google Ads)
     const ads = await callFn(
       "google-ads-sync-campaigns",
-      { from, to: effectiveTo, site_id: siteId, account_ids: accountIds, user_id: userId },
+      { from, to: effectiveTo, site_id: siteId, account_ids: accountIds, user_id: userId, window_days: incremental ? 7 : 30 },
       authHeader,
     );
     console.log("[auto-onboard] ads sync", { siteId, status: ads.status });
