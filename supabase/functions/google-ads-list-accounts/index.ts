@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
         }
         const accessToken: string = tokenJson.access_token;
 
-        // GAQL: lista customer_clients ativos do MCC (não inclui o próprio MCC)
+        // GAQL: lista customer_clients do MCC de forma recursiva para pegar sub-MCCs e suas contas
         const query = `
           SELECT
             customer_client.id,
@@ -100,7 +100,6 @@ Deno.serve(async (req) => {
             customer_client.level
           FROM customer_client
           WHERE customer_client.status = 'ENABLED'
-            AND customer_client.manager = FALSE
         `;
 
         const searchRes = await fetch(
