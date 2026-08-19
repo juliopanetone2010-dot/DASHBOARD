@@ -16,6 +16,8 @@ Deno.serve((req) => {
     // novo: status de cada conjunto de credenciais
     api_sets: sets,
     configured_api_sets: sets.filter((s) => s.configured).map((s) => s.api_set),
-    default_api_set: tryGetCreds(1) ? 1 : (sets.find((s) => s.configured)?.api_set ?? 1),
+    // default_api_set: se o conjunto 1 estiver ok, ele é o padrão. 
+    // Senão, o primeiro conjunto configurado.
+    default_api_set: set1.configured ? 1 : (sets.find((s) => s.configured)?.api_set ?? 1),
   }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
