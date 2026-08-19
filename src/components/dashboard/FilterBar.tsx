@@ -175,11 +175,15 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
               {visibleAccounts.map((a) => (
                 <DropdownMenuCheckboxItem
                   key={a.id}
+                  className={cn(a.status === "suspended" || a.status === "canceled" ? "opacity-60 italic" : "")}
                   checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
                   onCheckedChange={() => toggleAccount(a.id)}
                   onSelect={(event) => event.preventDefault()}
                 >
-                  <span className="truncate">{a.account_name ?? a.customer_id}</span>
+                  <span className="truncate">
+                    {a.account_name ?? a.customer_id}
+                    {(a.status === "suspended" || a.status === "canceled") && " (Inativa)"}
+                  </span>
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
