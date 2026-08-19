@@ -1,0 +1,1 @@
+UPDATE google_accounts SET status = 'connected' WHERE customer_id = '4808206735';
