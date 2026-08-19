@@ -54,6 +54,9 @@ export function IntegrationsPanel(props: Props) {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatusResp | null>(null);
   const [apiSet, setApiSet] = useState(1);
   const [connecting, setConnecting] = useState(false);
+  const [manualAccountName, setManualAccountName] = useState("");
+  const [manualCustomerId, setManualCustomerId] = useState("");
+  const [addingManual, setAddingManual] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -175,6 +178,28 @@ export function IntegrationsPanel(props: Props) {
     });
     setGamName(""); setGamNetwork(""); setGamEmail(""); setGamKey("");
     toast({ title: "GAM cadastrado" });
+  };
+
+  const handleAddManualAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualCustomerId.trim()) {
+      toast({ title: "Customer ID obrigatório", variant: "destructive" });
+      return;
+    }
+    setAddingManual(true);
+    try {
+      await props.onAddGoogleAccount({
+        customer_id: manualCustomerId.trim(),
+        account_name: manualAccountName.trim() || `Conta ${manualCustomerId}`,
+        status: "connected",
+        is_mcc: false,
+      });
+      setManualAccountName("");
+      setManualCustomerId("");
+      toast({ title: "Conta adicionada manualmente" });
+    } finally {
+      setAddingManual(false);
+    }
   };
 
   return (
