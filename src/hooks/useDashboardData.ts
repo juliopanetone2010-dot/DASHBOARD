@@ -390,7 +390,11 @@ export function useDashboardData(): DashboardData {
 
     if (import.meta.env.DEV) {
       console.info("[dashboard] site isolation", {
-        siteId: filters.siteId, siteAccountIds, manualAccountIds, effectiveAccountIds,
+        siteId: filters.siteId, 
+        siteAccountIds, 
+        manualAccountIds, 
+        effectiveAccountIds,
+        linksFound: snap?.links?.length ?? 0
       });
     }
 
