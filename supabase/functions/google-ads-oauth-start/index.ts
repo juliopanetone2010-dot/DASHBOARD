@@ -12,6 +12,8 @@ Deno.serve((req) => {
   const devToken = devTokenFor(apiSet);
   const creds = tryGetCreds(apiSet);
 
+  console.log(`[oauth-start] apiSet=${apiSet} hasDevToken=${!!devToken} hasCreds=${!!creds}`);
+
   if (!devToken || !redirectUri) {
     return new Response(
       JSON.stringify({
