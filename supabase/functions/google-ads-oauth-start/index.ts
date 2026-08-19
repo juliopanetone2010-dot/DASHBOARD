@@ -9,8 +9,8 @@ Deno.serve((req) => {
   const state = url.searchParams.get("state") ?? crypto.randomUUID();
   const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
 
-  const creds = tryGetCreds(apiSet);
   const devToken = devTokenFor(apiSet);
+  const creds = tryGetCreds(apiSet);
 
   if (!devToken || !redirectUri) {
     return new Response(
