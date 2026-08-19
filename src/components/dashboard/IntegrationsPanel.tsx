@@ -84,30 +84,36 @@ export function IntegrationsPanel(props: Props) {
       JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
     );
     try {
-      const { data: j, error } = await supabase.functions.invoke(
-        `google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`,
-        { method: "GET" }
-      );
+      // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
+      const functionUrl = `https://pxlgkpuaaptbubsnvfkz.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
+      
+      const response = await fetch(functionUrl, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY
+        }
+      });
 
-      if (error || !j?.auth_url) {
+      const j = await response.json();
+
+      if (!response.ok || !j?.auth_url) {
         oauthWindow?.close();
         toast({
-          title: "Configuração incompleta",
-          description: j?.error || error?.message || "Falhou ao obter URL de autenticação",
+          title: "Erro na Conexão",
+          description: j?.error || "Falhou ao obter URL de autenticação",
           variant: "destructive",
         });
         setConnecting(false);
         return;
       }
+
       if (oauthWindow) {
-        oauthWindow.location.replace(j.auth_url);
-        oauthWindow.focus();
+        // Redirecionamento direto para o Google
+        oauthWindow.location.href = j.auth_url;
       } else {
-        toast({
-          title: "Pop-up bloqueado",
-          description: "Permita pop-ups para este site e clique novamente em Conectar MCC.",
-          variant: "destructive",
-        });
+        // Fallback caso o popup tenha sido bloqueado mesmo após o clique
+        window.top.location.href = j.auth_url;
       }
     } catch (e) {
       oauthWindow?.close();
