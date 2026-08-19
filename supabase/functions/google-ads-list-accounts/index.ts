@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
         const accessToken: string = tokenJson.access_token;
 
         // GAQL: lista customer_clients do MCC de forma recursiva para pegar sub-MCCs e suas contas
-        // Removido o filtro de manager = FALSE para garantir que pegue toda a hierarquia vinculada
+        // Removemos o filtro de status ENABLED e manager para capturar toda a estrutura hierárquica visível
         const query = `
           SELECT
             customer_client.id,
@@ -99,9 +99,9 @@ Deno.serve(async (req) => {
             customer_client.manager,
             customer_client.status,
             customer_client.level,
-            customer_client.client_customer
+            customer_client.applied_labels,
+            customer_client.test_account
           FROM customer_client
-          WHERE customer_client.status = 'ENABLED'
         `;
 
         const searchRes = await fetch(
@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number } }> =
+        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number; status?: string } }> =
           searchJson.results ?? [];
 
         let synced = 0;
@@ -137,6 +137,10 @@ Deno.serve(async (req) => {
           
           // Se for o próprio MCC que estamos listando, ignoramos no upsert de filhas
           if (childCid === mgr.customer_id) continue;
+
+          // Mapeamos o status do Google Ads para o status da nossa tabela
+          // Se a conta estiver ENABLED no Google, marcamos como connected aqui
+          const accountStatus = cc.status === 'ENABLED' ? 'connected' : 'suspended';
 
           const { error } = await admin
             .from("google_accounts")
@@ -150,7 +154,7 @@ Deno.serve(async (req) => {
                 descriptive_name: cc.descriptiveName ?? null,
                 currency: cc.currencyCode ?? null,
                 is_mcc: cc.manager ?? false,
-                status: "connected",
+                status: accountStatus,
                 refresh_token: mgr.refresh_token,
                 api_set: (mgr as any).api_set ?? 1,
                 last_synced_at: new Date().toISOString(),
