@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number } }> =
+        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number; status?: string } }> =
           searchJson.results ?? [];
 
         let synced = 0;
