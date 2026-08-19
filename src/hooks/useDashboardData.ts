@@ -462,7 +462,7 @@ export function useDashboardData(): DashboardData {
   const snap = query.data ?? emptySnapshot();
 
   // Mantém o snapshot local de regras para que saveRules tenha fallback otimista
-  const [rulesLocalOverride] = useState<RulesConfig | null>(null);
+  const rulesLocalOverride = null;
 
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: DASHBOARD_QK });
