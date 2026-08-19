@@ -59,6 +59,9 @@ export function IntegrationsPanel(props: Props) {
   const [addingManual, setAddingManual] = useState(false);
   const [manualDevToken, setManualDevToken] = useState("");
   const [savingSecret, setSavingSecret] = useState(false);
+  const [listingAccounts, setListingAccounts] = useState(false);
+  const [accessibleAccounts, setAccessibleAccounts] = useState<any[]>([]);
+  const [showAccountSelector, setShowAccountSelector] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -254,6 +257,28 @@ export function IntegrationsPanel(props: Props) {
     }
   };
 
+  const handleListAccounts = async () => {
+    setListingAccounts(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
+        body: { api_set: apiSet }
+      });
+      if (error) throw error;
+      
+      // A função retorna { summary: [...] } onde summary contém detalhes do MCC e contas filhas
+      // ou pode retornar direto a lista dependendo da implementação. 
+      // Ajustamos para o formato esperado pelo usuário.
+      const accounts = (data as any)?.summary || [];
+      setAccessibleAccounts(accounts);
+      setShowAccountSelector(true);
+      toast({ title: "Contas listadas", description: "Selecione as contas que deseja vincular." });
+    } catch (e) {
+      toast({ title: "Erro ao listar contas", description: String(e), variant: "destructive" });
+    } finally {
+      setListingAccounts(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -375,26 +400,62 @@ export function IntegrationsPanel(props: Props) {
             <Button
               onClick={handleConnectAds}
               size="sm"
-              className="gap-1.5"
+              className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               disabled={connecting}
             >
               {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
-              Conectar MCC
+              1. Conectar MCC
             </Button>
-            <Button onClick={() => handleSyncCampaigns(false)} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
-              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sincronizar contas (30 dias)
+
+            <Button
+              onClick={handleListAccounts}
+              size="sm"
+              variant="secondary"
+              className="gap-1.5"
+              disabled={listingAccounts || connecting}
+            >
+              {listingAccounts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              2. Selecionar Contas
             </Button>
-            <Button onClick={() => handleSyncCampaigns(true)} size="sm" variant="outline" disabled={syncing} className="gap-1.5">
+
+            <Button onClick={() => handleSyncCampaigns(false)} size="sm" variant="outline" disabled={syncing} className="gap-1.5">
               {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-              Deep Sync (90 dias)
+              3. Sincronizar (30d)
             </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">
-                Docs <ExternalLink className="h-3 w-3 ml-1.5" />
-              </a>
+
+            <Button onClick={() => handleSyncCampaigns(true)} size="sm" variant="ghost" disabled={syncing} className="gap-1.5 text-[10px] h-8">
+              Deep Sync (90d)
             </Button>
           </div>
+
+          {showAccountSelector && accessibleAccounts.length > 0 && (
+            <div className="mt-4 p-4 border border-dashed border-border rounded-lg bg-muted/20 animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold">Contas encontradas no MCC</h4>
+                <Button variant="ghost" size="sm" onClick={() => setShowAccountSelector(false)} className="h-7 text-xs">Fechar</Button>
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                {accessibleAccounts.map((mcc: any) => (
+                  <div key={mcc.manager} className="space-y-1.5 mb-3 last:mb-0">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">MCC: {mcc.manager}</p>
+                    {mcc.error ? (
+                      <p className="text-[10px] text-destructive italic">{mcc.error}</p>
+                    ) : mcc.synced > 0 ? (
+                      <div className="flex items-center gap-2 text-xs text-success bg-success/5 p-2 rounded border border-success/20">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {mcc.synced} conta(s) sincronizada(s) e disponível(is) para mapeamento.
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Nenhuma conta filha ativa encontrada.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-3 italic">
+                * As contas importadas aparecem automaticamente na seção "Mapeamento Ads ↔ Site" abaixo.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
