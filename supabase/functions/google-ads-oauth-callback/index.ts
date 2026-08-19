@@ -28,12 +28,12 @@ Deno.serve(async (req) => {
     console.log("[oauth-callback] received", { hasCode: !!code, hasState: !!state, redirect_uri, apiSet });
 
     if (!code || !redirect_uri) {
-      return json({ error: "code e redirect_uri obrigatórios" });
+      return json({ error: "code e redirect_uri obrigatórios" }, 400);
     }
 
     const creds = tryGetCreds(apiSet);
     if (!creds) {
-      return json({ error: `Secrets do conjunto ${apiSet} não configurados` });
+      return json({ error: `Secrets do conjunto ${apiSet} não configurados` }, 400);
     }
     const { clientId, clientSecret, devToken } = creds;
 
@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
       return json({
         error: `Falhou ao listar customers: ${listJson?.error?.message ?? JSON.stringify(listJson)}`,
         detail: listJson,
-      });
+      }, 400);
     }
     const resourceNames: string[] = listJson.resourceNames ?? [];
     const customerIds = resourceNames.map((r) => r.split("/")[1]);

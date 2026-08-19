@@ -32,11 +32,14 @@ export default function OAuthCallback() {
           },
         },
       );
-      if (error || data?.error) {
+      if (error || (data && "error" in data && data.error)) {
         console.error("[OAuthCallback] Error Data:", data);
         console.error("[OAuthCallback] Invoke Error:", error);
         setState("error");
-        const detailedMsg = data?.error || error?.message || "Erro desconhecido na conexão";
+        
+        // Se o erro for do invoke (rede/timeout) ou retornado explicitamente pelo backend
+        const errorData = (data as any);
+        const detailedMsg = errorData?.error || error?.message || "Erro desconhecido na conexão";
         setMessage(detailedMsg);
         return;
       }
