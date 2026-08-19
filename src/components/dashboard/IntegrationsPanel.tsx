@@ -54,6 +54,9 @@ export function IntegrationsPanel(props: Props) {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatusResp | null>(null);
   const [apiSet, setApiSet] = useState(1);
   const [connecting, setConnecting] = useState(false);
+  const [manualAccountName, setManualAccountName] = useState("");
+  const [manualCustomerId, setManualCustomerId] = useState("");
+  const [addingManual, setAddingManual] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -177,6 +180,28 @@ export function IntegrationsPanel(props: Props) {
     toast({ title: "GAM cadastrado" });
   };
 
+  const handleAddManualAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualCustomerId.trim()) {
+      toast({ title: "Customer ID obrigatório", variant: "destructive" });
+      return;
+    }
+    setAddingManual(true);
+    try {
+      await props.onAddGoogleAccount({
+        customer_id: manualCustomerId.trim(),
+        account_name: manualAccountName.trim() || `Conta ${manualCustomerId}`,
+        status: "connected",
+        is_mcc: false,
+      });
+      setManualAccountName("");
+      setManualCustomerId("");
+      toast({ title: "Conta adicionada manualmente" });
+    } finally {
+      setAddingManual(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -260,48 +285,83 @@ export function IntegrationsPanel(props: Props) {
           </div>
         </div>
 
-        <form onSubmit={handleAddGam} className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center">
-              <Plug className="h-4 w-4 text-accent-foreground" />
+        <div className="space-y-4">
+          <form onSubmit={handleAddGam} className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center">
+                <Plug className="h-4 w-4 text-accent-foreground" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Google Ad Manager</h3>
+                <p className="text-[11px] text-muted-foreground">Service Account</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold">Google Ad Manager (Service Account)</h3>
-              <p className="text-xs text-muted-foreground">Network code + chave JSON (configurada no backend)</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nome</Label>
+                <Input value={gamName} onChange={(e) => setGamName(e.target.value)} placeholder="Rede principal" className="h-8 text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Network code</Label>
+                <Input value={gamNetwork} onChange={(e) => setGamNetwork(e.target.value)} placeholder="21700000" className="h-8 text-xs" />
+              </div>
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs">Nome</Label>
-              <Input value={gamName} onChange={(e) => setGamName(e.target.value)} placeholder="Rede principal" />
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Email da Service Account</Label>
+              <Input value={gamEmail} onChange={(e) => setGamEmail(e.target.value)} placeholder="acc@projeto.iam.gserviceaccount.com" className="h-8 text-xs" />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Network code</Label>
-              <Input value={gamNetwork} onChange={(e) => setGamNetwork(e.target.value)} placeholder="21700000" />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button type="submit" size="sm" className="h-7 text-[11px]">Salvar GAM</Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={syncingGam}
+                onClick={handleSyncGam}
+                className="h-7 text-[11px] gap-1"
+              >
+                {syncingGam ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                Sincronizar
+              </Button>
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Service account email</Label>
-            <Input value={gamEmail} onChange={(e) => setGamEmail(e.target.value)} placeholder="acc@projeto.iam.gserviceaccount.com" />
-          </div>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button type="submit" size="sm">Salvar GAM</Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={syncingGam}
-              onClick={handleSyncGam}
-              className="gap-1.5"
-            >
-              {syncingGam ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sincronizar receita GAM
+          </form>
+
+          <form onSubmit={handleAddManualAccount} className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-accent/50 flex items-center justify-center">
+                <Plug className="h-4 w-4 text-accent-foreground" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Adicionar Conta Ads Manual</h3>
+                <p className="text-[11px] text-muted-foreground">Para contas que não aparecem no MCC</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nome da Conta</Label>
+                <Input 
+                  value={manualAccountName} 
+                  onChange={(e) => setManualAccountName(e.target.value)} 
+                  placeholder="Minha Conta" 
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer ID</Label>
+                <Input 
+                  value={manualCustomerId} 
+                  onChange={(e) => setManualCustomerId(e.target.value)} 
+                  placeholder="123-456-7890" 
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+            <Button type="submit" size="sm" className="h-7 text-[11px] w-full" disabled={addingManual}>
+              {addingManual ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+              Adicionar Manualmente
             </Button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            A chave JSON da service account é armazenada como secret no backend (não digite aqui).
-          </p>
-        </form>
+          </form>
+        </div>
       </div>
 
       {/* Sites */}
