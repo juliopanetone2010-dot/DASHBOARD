@@ -90,6 +90,7 @@ Deno.serve(async (req) => {
         const accessToken: string = tokenJson.access_token;
 
         // GAQL: lista customer_clients do MCC de forma recursiva para pegar sub-MCCs e suas contas
+        // Removido o filtro de manager = FALSE para garantir que pegue toda a hierarquia vinculada
         const query = `
           SELECT
             customer_client.id,
@@ -97,7 +98,8 @@ Deno.serve(async (req) => {
             customer_client.currency_code,
             customer_client.manager,
             customer_client.status,
-            customer_client.level
+            customer_client.level,
+            customer_client.client_customer
           FROM customer_client
           WHERE customer_client.status = 'ENABLED'
         `;
@@ -125,7 +127,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string } }> =
+        const rows: Array<{ customerClient: { id: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; level?: number } }> =
           searchJson.results ?? [];
 
         let synced = 0;
