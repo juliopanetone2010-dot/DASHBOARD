@@ -428,32 +428,41 @@ export function IntegrationsPanel(props: Props) {
             </Button>
           </div>
 
-          {showAccountSelector && accessibleAccounts.length > 0 && (
+          {showAccountSelector && (
             <div className="mt-4 p-4 border border-dashed border-border rounded-lg bg-muted/20 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-semibold">Contas encontradas no MCC</h4>
                 <Button variant="ghost" size="sm" onClick={() => setShowAccountSelector(false)} className="h-7 text-xs">Fechar</Button>
               </div>
               <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                {accessibleAccounts.map((mcc: any) => (
-                  <div key={mcc.manager} className="space-y-1.5 mb-3 last:mb-0">
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">MCC: {mcc.manager}</p>
-                    {mcc.error ? (
-                      <p className="text-[10px] text-destructive italic">{mcc.error}</p>
-                    ) : mcc.synced > 0 ? (
-                      <div className="flex items-center gap-2 text-xs text-success bg-success/5 p-2 rounded border border-success/20">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        {mcc.synced} conta(s) sincronizada(s) e disponível(is) para mapeamento.
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">Nenhuma conta ativa encontrada nessa MCC.</p>
-                    )}
+                {accessibleAccounts.length === 0 ? (
+                  <div className="text-center py-4 space-y-2">
+                    <p className="text-xs text-muted-foreground">Nenhuma MCC vinculada encontrada para este conjunto (API {apiSet}).</p>
+                    <p className="text-[10px] text-muted-foreground italic">Certifique-se de que completou o "Passo 1" com sucesso.</p>
                   </div>
-                ))}
+                ) : (
+                  accessibleAccounts.map((mcc: any) => (
+                    <div key={mcc.manager} className="space-y-1.5 mb-3 last:mb-0">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">MCC: {mcc.manager}</p>
+                      {mcc.error ? (
+                        <p className="text-[10px] text-destructive italic">{mcc.error}</p>
+                      ) : mcc.synced > 0 ? (
+                        <div className="flex items-center gap-2 text-xs text-success bg-success/5 p-2 rounded border border-success/20">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          {mcc.synced} conta(s) sincronizada(s) e disponível(is) para mapeamento.
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">Nenhuma conta ativa encontrada nessa MCC.</p>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
-              <p className="text-[10px] text-muted-foreground mt-3 italic">
-                * As contas importadas aparecem automaticamente na seção "Mapeamento Ads ↔ Site" abaixo.
-              </p>
+              {accessibleAccounts.length > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-3 italic">
+                  * As contas importadas aparecem automaticamente na seção "Mapeamento Ads ↔ Site" abaixo.
+                </p>
+              )}
             </div>
           )}
         </div>
