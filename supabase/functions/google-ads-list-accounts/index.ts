@@ -20,9 +20,10 @@ Deno.serve(async (req) => {
       return json({ error: "Login obrigatório" }, 401);
     }
 
-    // Credenciais são resolvidas por conta (api_set) dentro do loop.
-    if (!tryGetCreds(1) && !tryGetCreds(2) && !tryGetCreds(3)) {
-      return json({ error: "Secrets OAuth/Ads não configurados" }, 500);
+    // O frontend agora envia api_set e force_all. 
+    // Vamos validar se pelo menos o conjunto 1 (padrão) está disponível se nenhum for especificado.
+    if (!tryGetCreds(1) && !tryGetCreds(2) && !tryGetCreds(3) && !tryGetCreds(4) && !tryGetCreds(5)) {
+      return json({ error: "Nenhuma credencial Google Ads configurada nos Secrets" }, 500);
     }
 
     const userClient = createClient(
@@ -60,7 +61,9 @@ Deno.serve(async (req) => {
     const { data: managers, error: mErr } = await q;
     if (mErr) return json({ error: mErr.message }, 500);
     if (!managers || managers.length === 0) {
-      return json({ error: "Nenhum MCC conectado encontrado" }, 404);
+      console.log(`[list-accounts] No MCC found for userId=${userId} (api_set=${body.api_set || 'any'})`);
+      // Em vez de 404, retornamos OK com sumário vazio para evitar erros de toast no frontend
+      return json({ ok: true, summary: [], message: "Nenhum MCC conectado encontrado." });
     }
 
     const summary: Array<{ manager: string; synced: number; error?: string }> = [];
