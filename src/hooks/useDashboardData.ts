@@ -600,14 +600,13 @@ export function useDashboardData(): DashboardData {
       const store = loadGuestStore();
       saveGuestStore({
         ...store,
-        googleAccounts: store.googleAccounts.filter((a) => a.id !== id),
-        links: store.links.filter((l) => l.google_account_id !== id),
+        googleAccounts: store.googleAccounts.map((a) => a.id === id ? { ...a, status: "suspended" } : a),
       });
       await refresh();
       return;
     }
-    await supabase.from("account_site_links").delete().eq("google_account_id", id);
-    await supabase.from("google_accounts").delete().eq("id", id);
+    // Alterado: Apenas marca como suspenso para preservar histórico de ROI/Gastos
+    await supabase.from("google_accounts").update({ status: "suspended" }).eq("id", id);
     await refresh();
   };
 
