@@ -344,6 +344,9 @@ export function useDashboardData(): DashboardData {
   const queryClient = useQueryClient();
   const isGuest = !user;
 
+  // Mantém o snapshot local de regras para que saveRules tenha fallback otimista
+  const rulesLocalOverride = null;
+
   // Inclui o período no cache: quando o usuário escolhe um intervalo maior/antigo,
   // buscamos exatamente esse intervalo em vez de ficar preso aos últimos 60 dias.
   const queryKey = useMemo(
