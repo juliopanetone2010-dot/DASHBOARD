@@ -1075,40 +1075,63 @@ const IndexInner = () => {
             )}
 
             {/* Métricas */}
-            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <MetricCard
-                label="Gasto (Google Ads)"
-                value={fmtCurrency(totals.spend)}
-                icon={Wallet}
-                hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
-              />
-              <MetricCard
-                label="Receita (Ad Manager)"
-                value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
-                icon={DollarSign}
-                variant="primary"
-                hint={
-                  realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
-                    ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : realGamRevenueNetDisplay > 0
-                      ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
-                      : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
-                }
-              />
-              <MetricCard
-                label="Lucro"
-                value={fmtCurrency(totals.profit)}
-                icon={profitPositive ? TrendingUp : TrendingDown}
-                variant={profitPositive ? "success" : "danger"}
-                hint="BRL (receita convertida)"
-              />
-              <MetricCard
-                label="ROI / ROAS"
-                value={fmtPercent(totals.roi)}
-                icon={profitPositive ? TrendingUp : TrendingDown}
-                variant={profitPositive ? "success" : "danger"}
-                hint={`ROAS ${totals.roas.toFixed(2)}x`}
-              />
+            <section className="space-y-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <MetricCard
+                  label="Gasto (Google Ads)"
+                  value={fmtCurrency(totals.spend)}
+                  icon={Wallet}
+                  hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
+                />
+                <MetricCard
+                  label="Receita (Ad Manager)"
+                  value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
+                  icon={DollarSign}
+                  variant="primary"
+                  hint={
+                    realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
+                      ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
+                      : realGamRevenueNetDisplay > 0
+                        ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                        : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                  }
+                />
+                <MetricCard
+                  label="Lucro"
+                  value={fmtCurrency(totals.profit)}
+                  icon={profitPositive ? TrendingUp : TrendingDown}
+                  variant={profitPositive ? "success" : "danger"}
+                  hint="BRL (receita convertida)"
+                />
+                <MetricCard
+                  label="ROI / ROAS"
+                  value={fmtPercent(totals.roi)}
+                  icon={profitPositive ? TrendingUp : TrendingDown}
+                  variant={profitPositive ? "success" : "danger"}
+                  hint={`ROAS ${totals.roas.toFixed(2)}x`}
+                />
+              </div>
+
+              {filters.siteId !== "all" && linkedAccountIdsForSelectedSite.length === 0 && (
+                <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 animate-pulse">
+                  <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+                    <Plug className="h-5 w-5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">Configuração Pendente</p>
+                      <p className="text-xs opacity-90">
+                        Este site ({selectedSite?.name}) não tem nenhuma conta Google Ads vinculada. 
+                        Os gastos aparecerão como R$ 0,00 até que você faça o mapeamento na aba 
+                        <button 
+                          onClick={() => setActiveTab("integrations")} 
+                          className="underline font-bold ml-1 hover:opacity-80"
+                        >
+                          Integrações
+                        </button>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
             {siteMetricsQuery.data && (
