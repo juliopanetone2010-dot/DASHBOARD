@@ -168,9 +168,9 @@ export function AccountSiteMappingPanel({
             <Select 
               value={selectedApiSet?.toString() || ""} 
               onValueChange={(v) => {
-                const apiSet = Number(v);
+                const apiSet = v === "all" ? null : Number(v);
                 setSelectedApiSet(apiSet);
-                handleSyncMccWithApiSet(apiSet);
+                if (apiSet) handleSyncMccWithApiSet(apiSet);
               }}
             >
               <SelectTrigger className="h-7 w-32 text-xs border-none bg-transparent focus:ring-0">
