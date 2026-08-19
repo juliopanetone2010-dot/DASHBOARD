@@ -53,10 +53,13 @@ Deno.serve(async (req) => {
     console.log("[oauth-callback] token exchange status", tokenRes.status, "ok:", tokenRes.ok);
     if (!tokenRes.ok || !tokens.refresh_token || !tokens.access_token) {
       console.error("[oauth-callback] token exchange failed", tokens);
+      const errorMsg = tokens?.error_description || tokens?.error || JSON.stringify(tokens);
       return json({
-        error: `OAuth falhou: ${tokens?.error ?? "?"} - ${tokens?.error_description ?? JSON.stringify(tokens)}`,
+        error: `Falha na troca de token (OAuth): ${errorMsg}`,
         detail: tokens,
-      });
+        api_set: apiSet,
+        creds_used: { clientId: creds.clientId.slice(0, 8) + "..." }
+      }, 400);
     }
 
     // 2) Descobre quais customer IDs o usuário liberou
@@ -222,7 +225,7 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[oauth-callback] uncaught error", e);
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return json({ error: e instanceof Error ? e.message : String(e), stack: e instanceof Error ? e.stack : null }, 400);
   }
 });
 
