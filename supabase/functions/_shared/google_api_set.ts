@@ -80,7 +80,7 @@ export function listApiSets() {
       client_id,
       client_secret,
       developer_token,
-      configured: developer_token, // Simplified: ID/Secret are shareable, so developer_token is the primary missing bit per set
+      configured: developer_token && client_id && client_secret,
     });
   }
   return out;
