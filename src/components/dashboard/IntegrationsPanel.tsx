@@ -76,13 +76,10 @@ export function IntegrationsPanel(props: Props) {
       JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
     );
     try {
-      const { data: j, error } = await supabase.functions.invoke("google-ads-oauth-start", {
-        method: "GET",
-        queryParams: {
-          redirect_uri: redirectUri,
-          api_set: apiSet.toString(),
-        },
-      });
+      const { data: j, error } = await supabase.functions.invoke(
+        `google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`,
+        { method: "GET" }
+      );
 
       if (error || !j?.auth_url) {
         toast({
