@@ -212,7 +212,7 @@ export function IntegrationsPanel(props: Props) {
     }
     setSavingSecret(true);
     try {
-      const secretName = apiSet === 1 ? "GOOGLE_ADS_DEVELOPER_TOKEN" : `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
+      const secretName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
       const { error } = await supabase.functions.invoke("secrets-manager", {
         body: { action: "set", name: secretName, value: manualDevToken.trim() }
       });
