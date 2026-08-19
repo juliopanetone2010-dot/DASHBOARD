@@ -86,6 +86,7 @@ Deno.serve(async (req) => {
             customer_client.status,
             customer_client.level
           FROM customer_client
+          WHERE customer_client.status = 'ENABLED'
             AND customer_client.manager = FALSE
         `;
 
