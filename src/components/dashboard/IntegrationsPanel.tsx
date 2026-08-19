@@ -312,17 +312,40 @@ export function IntegrationsPanel(props: Props) {
                 </div>
               </div>
               
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-2 mt-2">
-                <p className="text-[10px] text-amber-200 font-medium mb-1">
-                  ⚠️ Google Ads 403 Forbidden / Test User:
-                </p>
-                <p className="text-[9px] text-amber-200/80 leading-relaxed">
-                  Se ao clicar em "Conectar MCC" você vir um erro 403 ou "Acesso negado", 
-                  é porque o seu app no Google Cloud Console está em modo "Testing". 
-                  Acesse <strong>OAuth consent screen &gt; Test users</strong> no Google Cloud e adicione 
-                  o e-mail da conta que você está tentando logar. 
-                  Ou mude o status do app para "Production".
-                </p>
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-3 mt-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                  <p className="text-[11px] text-amber-200 font-bold uppercase tracking-tight">
+                    Como resolver o erro 403 (Acesso Negado)
+                  </p>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-amber-100/90 font-semibold">
+                      Passo 1: Acesse o Google Cloud Console
+                    </p>
+                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
+                      Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1 border-t border-amber-500/20 pt-2">
+                    <p className="text-[10px] text-amber-100/90 font-semibold">
+                      Passo 2: Verifique o Status de Publicação
+                    </p>
+                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
+                      Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
+                    </p>
+                    <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
+                      Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
+                    </p>
+                  </div>
+
+                  <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
+                    Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
+                  </div>
+                </div>
               </div>
 
               <p className="text-[9px] text-muted-foreground italic mt-1">
