@@ -10,16 +10,30 @@ Deno.serve((req) => {
   const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
 
   const creds = tryGetCreds(apiSet);
+  const devToken = devTokenFor(apiSet);
 
-  if (!creds || !redirectUri) {
+  if (!devToken || !redirectUri) {
     return new Response(
       JSON.stringify({
-        configured: !!creds,
+        configured: !!devToken,
         api_set: apiSet,
         api_sets: listApiSets(),
-        error: !creds
-          ? `Faltam secrets do conjunto ${apiSet}: GOOGLE_CLIENT_ID_${apiSet} / GOOGLE_CLIENT_SECRET_${apiSet} / GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`
+        error: !devToken
+          ? `Falta Developer Token do conjunto ${apiSet}: GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`
           : "redirect_uri obrigatório",
+      }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // Se temos devToken mas tryGetCreds falhou, é porque faltam ID/Secret (que são shareable)
+  if (!creds) {
+    return new Response(
+      JSON.stringify({
+        configured: false,
+        api_set: apiSet,
+        api_sets: listApiSets(),
+        error: `Faltam credenciais OAuth (Client ID/Secret) para o conjunto ${apiSet}.`,
       }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
