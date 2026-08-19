@@ -81,14 +81,19 @@ const IndexInner = () => {
     && !(filters.siteId !== "all" && accountSelectionCoversSelectedSite);
   const campaignFilterIsRestrictive = filters.campaignId !== "all";
   const canUseRealGamTotals = !accountFilterIsRestrictive && !campaignFilterIsRestrictive;
+  
+  const countsByAccount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const l of data.links) {
+      counts.set(l.google_account_id, (counts.get(l.google_account_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [data.links]);
+
   const selectedSiteUsesSharedAccounts = useMemo(() => {
     if (filters.siteId === "all") return false;
-    const countsByAccount = new Map<string, number>();
-    for (const l of data.links) {
-      countsByAccount.set(l.google_account_id, (countsByAccount.get(l.google_account_id) ?? 0) + 1);
-    }
     return linkedAccountIdsForSelectedSite.some((id) => (countsByAccount.get(id) ?? 0) > 1);
-  }, [data.links, filters.siteId, linkedAccountIdsForSelectedSite]);
+  }, [countsByAccount, filters.siteId, linkedAccountIdsForSelectedSite]);
 
   const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
