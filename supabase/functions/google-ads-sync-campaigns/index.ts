@@ -208,7 +208,7 @@ Deno.serve(async (req) => {
                   account_name: name,
                   descriptive_name: name,
                   currency: r.customerClient.currencyCode ?? null,
-                  is_mcc: false,
+                  is_mcc: r.customerClient.manager ?? false,
                   status: appStatus,
                   refresh_token: root.refresh_token,
                   last_synced_at: new Date().toISOString(),
