@@ -114,19 +114,27 @@ Deno.serve(async (req) => {
     // Função pra obter access_token
     const getAccessToken = async (refreshToken: string, apiSet: unknown = 1) => {
       const { clientId, clientSecret } = getCreds(apiSet);
-      const r = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: "refresh_token",
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
-      return j.access_token as string;
+      try {
+        const r = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+            grant_type: "refresh_token",
+          }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          debugLogs.push(`Token refresh failed for set ${apiSet}: ${JSON.stringify(j)}`);
+          return null;
+        }
+        return j.access_token as string;
+      } catch (e) {
+        debugLogs.push(`Token refresh error for set ${apiSet}: ${e.message}`);
+        return null;
+      }
     };
 
     // Contas suspensas/canceladas não respondem à API (CUSTOMER_NOT_ENABLED).
@@ -145,23 +153,24 @@ Deno.serve(async (req) => {
 
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
+        if (!accessToken) {
+          summary.push({ root_account: root.customer_id, error: "Falha na autenticação (refresh token inválido ou expirado)" });
+          continue;
+        }
         let leafAccounts: Array<{
           id: string; // db row id
           customer_id: string;
           login_customer_id: string | null;
           name: string;
           currency: string | null;
+          is_mcc?: boolean;
         }> = [];
 
         if (root.is_mcc) {
           // Lista customer_clients NÃO-manager do MCC
-          const cq = `
-            SELECT customer_client.id, customer_client.descriptive_name,
-                   customer_client.currency_code, customer_client.manager,
-                   customer_client.status, customer_client.level
-            FROM customer_client
-            WHERE customer_client.manager = FALSE
-          `;
+          const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'";
+
+
           const cRes = await fetch(
             `https://googleads.googleapis.com/v24/customers/${root.customer_id}/googleAds:search`,
             {
@@ -178,11 +187,16 @@ Deno.serve(async (req) => {
           const cJson = await cRes.json();
           debugLogs.push(`MCC ${root.customer_id} listChildren status=${cRes.status}`);
           if (!cRes.ok) {
-            summary.push({ account: root.customer_id, error: `list children failed: ${JSON.stringify(cJson)}` });
+            const msg = cJson?.error?.message ?? JSON.stringify(cJson);
+            if (msg.includes("RESOURCE_EXHAUSTED")) {
+              summary.push({ account: root.customer_id, error: "Cota de API excedida (Developer Token)" });
+            } else {
+              summary.push({ account: root.customer_id, error: `list children failed: ${msg}` });
+            }
             continue;
           }
           const rows = (cJson.results ?? []) as Array<{
-            customerClient: { id: string; descriptiveName?: string; currencyCode?: string; status?: string };
+            customerClient: { id: string; descriptiveName?: string; currencyCode?: string; status?: string; manager?: boolean };
           }>;
 
           for (const r of rows) {
@@ -207,7 +221,7 @@ Deno.serve(async (req) => {
                   account_name: name,
                   descriptive_name: name,
                   currency: r.customerClient.currencyCode ?? null,
-                  is_mcc: false,
+                  is_mcc: r.customerClient.manager ?? false,
                   status: appStatus,
                   refresh_token: root.refresh_token,
                   last_synced_at: new Date().toISOString(),
@@ -223,7 +237,8 @@ Deno.serve(async (req) => {
                 login_customer_id: root.customer_id,
                 name,
                 currency: r.customerClient.currencyCode ?? null,
-              });
+                is_mcc: r.customerClient.manager ?? false,
+              } as any);
             }
           }
         } else {
@@ -234,30 +249,12 @@ Deno.serve(async (req) => {
             login_customer_id: root.login_customer_id ?? null,
             name: root.account_name ?? root.descriptive_name ?? root.customer_id,
             currency: root.currency ?? null,
+            is_mcc: false,
           }];
         }
 
         // Para cada conta-folha, busca campanhas + métricas (período selecionado)
-        const campaignQuery = `
-          SELECT
-            campaign.id,
-            campaign.name,
-            campaign.status,
-            campaign.start_date_time,
-            campaign.advertising_channel_type,
-            campaign.final_url_suffix,
-            campaign_budget.amount_micros,
-            campaign.target_cpa.target_cpa_micros,
-            campaign.bidding_strategy_type,
-            metrics.cost_micros,
-            metrics.clicks,
-            metrics.impressions,
-            metrics.conversions,
-            metrics.conversions_value,
-            segments.date
-          FROM campaign
-          WHERE ${dateClause}
-        `;
+        const campaignQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.start_date_time, campaign.advertising_channel_type, campaign.final_url_suffix, campaign_budget.amount_micros, campaign.target_cpa.target_cpa_micros, campaign.bidding_strategy_type, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value, segments.date FROM campaign WHERE ${dateClause}`;
 
         let totalCampaigns = 0;
         let totalMetrics = 0;
@@ -269,6 +266,7 @@ Deno.serve(async (req) => {
           leafAccounts = leafAccounts.filter((l) => accountIds.includes(l.id));
         }
         for (const leaf of leafAccounts) {
+          if ((leaf as any).is_mcc) continue; // Skip manager accounts for campaign sync
           try {
             const headers: Record<string, string> = {
               Authorization: `Bearer ${accessToken}`,
@@ -296,6 +294,8 @@ Deno.serve(async (req) => {
                 // conta desativada no Google Ads → marca no banco e ignora (não é falha do site)
                 await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" });
+              } else if (msg.includes("RESOURCE_EXHAUSTED")) {
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: "Cota de API excedida (Developer Token)" });
               } else {
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: msg });
               }
@@ -349,11 +349,8 @@ Deno.serve(async (req) => {
                   method: "POST",
                   headers,
                   body: JSON.stringify({
-                    query: `
-                      SELECT campaign.id, campaign.status, campaign.final_url_suffix
-                      FROM campaign
-                      WHERE campaign.status != 'REMOVED'
-                    `,
+                    query: "SELECT campaign.id, campaign.status, campaign.final_url_suffix FROM campaign WHERE campaign.status != 'REMOVED'",
+
                   }),
                 },
               );
@@ -467,16 +464,8 @@ Deno.serve(async (req) => {
             // ===== SYNC FINAL URLS (ad_group_ad.final_urls) =====
             // Garante que toda campanha (inclusive novas) tenha seu link visível na UI.
             try {
-              const adsQuery = `
-                SELECT
-                  campaign.id,
-                  ad_group.id,
-                  ad_group_ad.ad.id,
-                  ad_group_ad.ad.final_urls,
-                  ad_group_ad.status
-                FROM ad_group_ad
-                WHERE campaign.status != 'REMOVED'
-              `;
+              const adsQuery = "SELECT campaign.id, ad_group.id, ad_group_ad.ad.id, ad_group_ad.ad.final_urls, ad_group_ad.status FROM ad_group_ad WHERE campaign.status != 'REMOVED'";
+
               const adsRes = await fetch(
                 `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
                 { method: "POST", headers, body: JSON.stringify({ query: adsQuery }) },
