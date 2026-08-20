@@ -442,16 +442,8 @@ Deno.serve(async (req) => {
             // ===== SYNC FINAL URLS (ad_group_ad.final_urls) =====
             // Garante que toda campanha (inclusive novas) tenha seu link visível na UI.
             try {
-              const adsQuery = `
-                SELECT
-                  campaign.id,
-                  ad_group.id,
-                  ad_group_ad.ad.id,
-                  ad_group_ad.ad.final_urls,
-                  ad_group_ad.status
-                FROM ad_group_ad
-                WHERE campaign.status != 'REMOVED'
-              `;
+              const adsQuery = "SELECT campaign.id, ad_group.id, ad_group_ad.ad.id, ad_group_ad.ad.final_urls, ad_group_ad.status FROM ad_group_ad WHERE campaign.status != 'REMOVED'";
+
               const adsRes = await fetch(
                 `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
                 { method: "POST", headers, body: JSON.stringify({ query: adsQuery }) },
