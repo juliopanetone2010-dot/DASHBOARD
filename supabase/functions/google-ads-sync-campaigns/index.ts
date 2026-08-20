@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
 
     // Contas suspensas/canceladas não respondem à API (CUSTOMER_NOT_ENABLED).
     // Elas são puladas silenciosamente para não derrubar o sync do site inteiro.
-    const INACTIVE = new Set(["suspended", "canceled", "cancelled", "closed"]);
+    const INACTIVE = new Set(["suspended", "canceled", "cancelled", "closed", "inactive"]);
     const isInactiveErr = (msg: string) =>
       /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
 

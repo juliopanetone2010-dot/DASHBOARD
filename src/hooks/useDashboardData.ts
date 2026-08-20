@@ -338,7 +338,7 @@ const emptySnapshot = (): DashboardSnapshot => ({
   fetchedAt: 0,
 });
 
-const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed"];
+const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 
 
 export function useDashboardData(): DashboardData {

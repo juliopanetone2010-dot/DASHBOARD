@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
         const exp = await gaqlSearch(
           cid,
           cid,
-          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status IN ('ENABLED', 'SUSPENDED')`,
         );
         const results = exp.json?.results ?? [];
         console.log(`[oauth-callback] mcc ${cid} expanded -> ${results.length} clients`);
