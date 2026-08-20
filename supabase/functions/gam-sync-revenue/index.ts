@@ -159,6 +159,8 @@ async function runSync(req: Request): Promise<Response> {
     debug.push("got access token");
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
+    const usdToBrlRate = fxRates.usdBrl || 1;
+    debug.push(`[currency] Rate used for dashboard calculation: USD 1.00 = BRL ${usdToBrlRate.toFixed(4)}`);
 
     // Agrupa sites por network_code
     const byNetwork = new Map<string, typeof sites>();
@@ -386,7 +388,7 @@ async function runSync(req: Request): Promise<Response> {
         // Quando o GAM do site reporta em BRL nativo, normalizamos para "USD-equivalente"
         // dividindo por FX antes de gravar — assim todo o app downstream (que multiplica por FX
         // para exibir em BRL) continua correto, sem dupla conversão.
-        const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
+        const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1;
 
         // Viewability + eCPM por site/dia (report dedicado, separado de revenue para evitar rejeição do GAM)
         let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];

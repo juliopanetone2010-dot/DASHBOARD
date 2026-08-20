@@ -113,12 +113,35 @@ Deno.serve(async (req) => {
     const syncErrors: Array<{ account_id: string; error: string }> = [];
 
     // Helper for fetch with retry and backoff
-    async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+    async function fetchWithRetry(url: string, init: RequestInit, attempts = 3, adminClient?: any, siteId?: string): Promise<Response> {
       let lastErr: any;
       for (let i = 0; i < attempts; i++) {
         try {
+          // Check if we are within a blocked period from Google
+          if (siteId && adminClient) {
+             const { data: site } = await adminClient.from("sites").select("next_sync_allowed_at").eq("id", siteId).maybeSingle();
+             if (site?.next_sync_allowed_at && new Date(site.next_sync_allowed_at) > new Date()) {
+                const waitMs = new Date(site.next_sync_allowed_at).getTime() - Date.now();
+                console.warn(`[sync-campaigns] Quota blocked. Next sync allowed in ${Math.round(waitMs/1000)}s. Skipping.`);
+                return new Response(JSON.stringify({ error: { message: "RESOURCE_EXHAUSTED", details: { quotaErrorDetail: { retryDelaySeconds: Math.round(waitMs/1000) } } } }), { status: 429 });
+             }
+          }
+
           const res = await fetch(url, init);
           if (res.status === 429) {
+            const body = await res.clone().json().catch(() => ({}));
+            const retrySeconds = body?.error?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds || body?.detail?.details?.quotaErrorDetail?.retryDelaySeconds;
+            
+            if (retrySeconds && siteId && adminClient) {
+               console.warn(`[sync-campaigns] Google mandated retry after ${retrySeconds}s. Locking site ${siteId}.`);
+               await adminClient.from("sites").update({ 
+                 next_sync_allowed_at: new Date(Date.now() + retrySeconds * 1000).toISOString(),
+                 sync_status: "error",
+                 sync_error: `Quota exceeded. Retry allowed at ${new Date(Date.now() + retrySeconds * 1000).toLocaleString()}`
+               }).eq("id", siteId);
+               return res; // Return the 429 to be handled by caller
+            }
+
             const backoff = (i + 1) * 2000 + Math.random() * 1000;
             console.warn(`[sync-campaigns] 429 Resource Exhausted. Retrying in ${Math.round(backoff)}ms...`);
             await new Promise(r => setTimeout(r, backoff));
@@ -166,13 +189,21 @@ Deno.serve(async (req) => {
     const isInactiveErr = (msg: string) =>
       /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
 
-    // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
-    for (const root of accounts) {
-      if (INACTIVE.has(String((root as any).status ?? "").toLowerCase())) {
-        summary.push({ root_account: root.customer_id, skipped: (root as any).status });
-        continue;
+    // Semáforo de Sincronização Concorrente
+    if (bodySiteId) {
+      const { data: currentSite } = await admin.from("sites").select("sync_lock, next_sync_allowed_at").eq("id", bodySiteId).maybeSingle();
+      if (currentSite?.sync_lock) {
+        return json({ error: "Sincronização já em andamento para este site." });
       }
-      try {
+      if (currentSite?.next_sync_allowed_at && new Date(currentSite.next_sync_allowed_at) > new Date()) {
+        return json({ error: `Quota Google Ads excedida. Próxima tentativa permitida em ${new Date(currentSite.next_sync_allowed_at).toLocaleString()}` });
+      }
+      await admin.from("sites").update({ sync_lock: true, sync_status: "syncing", sync_started_at: new Date().toISOString() }).eq("id", bodySiteId);
+    }
+
+    try {
+      // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
+      for (const root of accounts) {
 
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
@@ -206,6 +237,9 @@ Deno.serve(async (req) => {
               },
               body: JSON.stringify({ query: cq }),
             },
+            3,
+            admin,
+            bodySiteId
           );
 
           const cJson = await cRes.json();
@@ -308,6 +342,9 @@ Deno.serve(async (req) => {
                 headers,
                 body: JSON.stringify({ query: campaignQuery }),
               },
+              3,
+              admin,
+              bodySiteId
             );
 
             const camJson = await camRes.json();
@@ -610,22 +647,20 @@ Deno.serve(async (req) => {
         failed_accounts: syncErrors.map(e => e.account_id),
       }, { onConflict: "site_id,source" });
 
-      if (!hasErrors) {
-        await admin.from("sites").update({ 
-          last_full_sync_at: new Date().toISOString(),
-          sync_status: "completed"
-        }).eq("id", bodySiteId);
-      } else {
-         await admin.from("sites").update({ 
-          sync_status: "error",
-          sync_error: `Sincronização incompleta. ${syncErrors.length} contas falharam.`
-        }).eq("id", bodySiteId);
-      }
+      await admin.from("sites").update({ 
+        sync_lock: false,
+        last_full_sync_at: hasErrors ? undefined : new Date().toISOString(),
+        sync_status: hasErrors ? "error" : "completed",
+        sync_error: hasErrors ? `Sincronização incompleta. ${syncErrors.length} contas falharam.` : null
+      }).eq("id", bodySiteId);
     }
 
     return json({ ok: true, summary, debug: debugLogs, errors: syncErrors });
 
   } catch (e) {
+    if (bodySiteId) {
+      await admin.from("sites").update({ sync_lock: false, sync_status: "error", sync_error: String(e) }).eq("id", bodySiteId);
+    }
     console.error("[sync-campaigns] uncaught", e);
     return json({ error: String(e) });
   }
