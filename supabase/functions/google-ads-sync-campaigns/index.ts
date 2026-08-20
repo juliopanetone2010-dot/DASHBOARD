@@ -114,19 +114,27 @@ Deno.serve(async (req) => {
     // Função pra obter access_token
     const getAccessToken = async (refreshToken: string, apiSet: unknown = 1) => {
       const { clientId, clientSecret } = getCreds(apiSet);
-      const r = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: "refresh_token",
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(`refresh failed: ${JSON.stringify(j)}`);
-      return j.access_token as string;
+      try {
+        const r = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+            grant_type: "refresh_token",
+          }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          debugLogs.push(`Token refresh failed for set ${apiSet}: ${JSON.stringify(j)}`);
+          return null;
+        }
+        return j.access_token as string;
+      } catch (e) {
+        debugLogs.push(`Token refresh error for set ${apiSet}: ${e.message}`);
+        return null;
+      }
     };
 
     // Contas suspensas/canceladas não respondem à API (CUSTOMER_NOT_ENABLED).
