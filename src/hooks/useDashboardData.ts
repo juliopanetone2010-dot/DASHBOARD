@@ -338,6 +338,9 @@ const emptySnapshot = (): DashboardSnapshot => ({
   fetchedAt: 0,
 });
 
+const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
+
+
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
   const { filters } = useDashboardFilters();
@@ -433,7 +436,7 @@ export function useDashboardData(): DashboardData {
       fetchAllRows<Placement>(() => buildPlacementsQuery()),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("google_accounts").select("*").order("status", { ascending: true }).order("account_name"),
+      supabase.from("google_accounts").select("*").not("status", "in", `(${INACTIVE_STATUSES.join(",")})`).order("status", { ascending: true }).order("account_name"),
       supabase.from("gam_accounts").select("*").order("account_name"),
       supabase.from("sites").select("*").order("name"),
       supabase.from("account_site_links").select("*"),
@@ -443,13 +446,16 @@ export function useDashboardData(): DashboardData {
         .order("last_finished_at", { ascending: false }),
     ]);
 
+    const googleAccounts = (ga.data ?? []) as GoogleAccount[];
+    const activeAccountIds = new Set(googleAccounts.map(a => a.id));
+
     return {
-      campaigns: c as Campaign[],
-      metrics: m as DailyMetric[],
+      campaigns: (c as Campaign[]).filter(cam => cam.google_account_id && activeAccountIds.has(cam.google_account_id)),
+      metrics: (m as DailyMetric[]).filter(met => met.google_account_id && activeAccountIds.has(met.google_account_id)),
       placements: p as Placement[],
       rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
       alerts: (a.data ?? []) as DomainAlert[],
-      googleAccounts: (ga.data ?? []) as GoogleAccount[],
+      googleAccounts,
       gamAccounts: (gam.data ?? []) as GamAccount[],
       sites: (s.data ?? []) as Site[],
       links: (l.data ?? []) as AccountSiteLink[],
