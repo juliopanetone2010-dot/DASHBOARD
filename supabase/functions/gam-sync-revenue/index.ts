@@ -1723,7 +1723,12 @@ async function applyGoogleUtmRevenue(
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
       const profit = revenueBrl - spendBrl;
-      const roi = spendBrl > 0 ? (profit / spendBrl) * 100 : 0;
+      
+      // Se receita é zero e há gasto, o ROI deve ser -100%, não -6.5% (RevShare).
+      // O revshare só deve incidir sobre a receita bruta.
+      const roi = spendBrl > 0 
+        ? (revenueUsd > 0 ? (profit / spendBrl) * 100 : -100)
+        : 0;
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });

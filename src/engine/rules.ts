@@ -142,12 +142,22 @@ export function aggregateByCampaign(
     const grossRevUsd = agg.revenue;
     const grossProfitBrl = agg.profit;
     const grossRevBrl = grossProfitBrl + agg.spend;
-    const shareBrl = grossRevBrl * REV_SHARE_PCT;
-    agg.revenue = grossRevUsd * NET_FACTOR;
-    agg.revenue_brl = grossRevBrl * NET_FACTOR;
-    agg.profit = grossProfitBrl - shareBrl;
-    agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
-    agg.roas = calcRoas(agg.profit + agg.spend, agg.spend);
+    
+    // Se a receita for 0, não há revshare a descontar e o lucro é exatamente -gasto.
+    if (grossRevUsd > 0) {
+      const shareBrl = grossRevBrl * REV_SHARE_PCT;
+      agg.revenue = grossRevUsd * NET_FACTOR;
+      agg.revenue_brl = grossRevBrl * NET_FACTOR;
+      agg.profit = grossProfitBrl - shareBrl;
+      agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
+    } else {
+      agg.revenue = 0;
+      agg.revenue_brl = 0;
+      agg.profit = -agg.spend;
+      agg.roi = agg.spend > 0 ? -100 : 0;
+    }
+    
+    agg.roas = calcRoas(agg.revenue_brl || 0, agg.spend);
     agg.ecpm = calcEcpm(agg.revenue, agg.impressions);
     agg.days = dayCount.get(agg.campaign_id)?.size ?? 0;
   }
