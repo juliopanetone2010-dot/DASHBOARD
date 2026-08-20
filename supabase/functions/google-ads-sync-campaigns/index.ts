@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
             continue;
           }
           const rows = (cJson.results ?? []) as Array<{
-            customerClient: { id: string; descriptiveName?: string; currencyCode?: string; status?: string };
+            customerClient: { id: string; descriptiveName?: string; currencyCode?: string; status?: string; manager?: boolean };
           }>;
 
           for (const r of rows) {
