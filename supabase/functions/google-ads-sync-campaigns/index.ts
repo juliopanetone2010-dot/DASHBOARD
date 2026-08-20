@@ -234,26 +234,7 @@ Deno.serve(async (req) => {
         }
 
         // Para cada conta-folha, busca campanhas + métricas (período selecionado)
-        const campaignQuery = `
-          SELECT
-            campaign.id,
-            campaign.name,
-            campaign.status,
-            campaign.start_date_time,
-            campaign.advertising_channel_type,
-            campaign.final_url_suffix,
-            campaign_budget.amount_micros,
-            campaign.target_cpa.target_cpa_micros,
-            campaign.bidding_strategy_type,
-            metrics.cost_micros,
-            metrics.clicks,
-            metrics.impressions,
-            metrics.conversions,
-            metrics.conversions_value,
-            segments.date
-          FROM campaign
-          WHERE ${dateClause}
-        `;
+        const campaignQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.start_date_time, campaign.advertising_channel_type, campaign.final_url_suffix, campaign_budget.amount_micros, campaign.target_cpa.target_cpa_micros, campaign.bidding_strategy_type, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value, segments.date FROM campaign WHERE ${dateClause}`;
 
         let totalCampaigns = 0;
         let totalMetrics = 0;
