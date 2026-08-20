@@ -160,7 +160,8 @@ Deno.serve(async (req) => {
                    customer_client.currency_code, customer_client.manager,
                    customer_client.status, customer_client.level
             FROM customer_client
-            WHERE customer_client.manager = FALSE OR customer_client.level <= 1
+            WHERE (customer_client.manager = FALSE OR customer_client.level <= 1)
+              AND customer_client.status = 'ENABLED'
           `;
           const cRes = await fetch(
             `https://googleads.googleapis.com/v24/customers/${root.customer_id}/googleAds:search`,
