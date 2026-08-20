@@ -153,6 +153,10 @@ Deno.serve(async (req) => {
 
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
+        if (!accessToken) {
+          summary.push({ root_account: root.customer_id, error: "Falha na autenticação (refresh token inválido ou expirado)" });
+          continue;
+        }
         let leafAccounts: Array<{
           id: string; // db row id
           customer_id: string;
