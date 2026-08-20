@@ -187,7 +187,12 @@ Deno.serve(async (req) => {
           const cJson = await cRes.json();
           debugLogs.push(`MCC ${root.customer_id} listChildren status=${cRes.status}`);
           if (!cRes.ok) {
-            summary.push({ account: root.customer_id, error: `list children failed: ${JSON.stringify(cJson)}` });
+            const msg = cJson?.error?.message ?? JSON.stringify(cJson);
+            if (msg.includes("RESOURCE_EXHAUSTED")) {
+              summary.push({ account: root.customer_id, error: "Cota de API excedida (Developer Token)" });
+            } else {
+              summary.push({ account: root.customer_id, error: `list children failed: ${msg}` });
+            }
             continue;
           }
           const rows = (cJson.results ?? []) as Array<{
