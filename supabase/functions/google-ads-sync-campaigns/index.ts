@@ -110,9 +110,32 @@ Deno.serve(async (req) => {
 
     const summary: Array<Record<string, unknown>> = [];
     const debugLogs: string[] = [];
+    const syncErrors: Array<{ account_id: string; error: string }> = [];
+
+    // Helper for fetch with retry and backoff
+    async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+      let lastErr: any;
+      for (let i = 0; i < attempts; i++) {
+        try {
+          const res = await fetch(url, init);
+          if (res.status === 429) {
+            const backoff = (i + 1) * 2000 + Math.random() * 1000;
+            console.warn(`[sync-campaigns] 429 Resource Exhausted. Retrying in ${Math.round(backoff)}ms...`);
+            await new Promise(r => setTimeout(r, backoff));
+            continue;
+          }
+          return res;
+        } catch (e) {
+          lastErr = e;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      throw lastErr || new Error("Max retries exceeded");
+    }
 
     // Função pra obter access_token
     const getAccessToken = async (refreshToken: string, apiSet: unknown = 1) => {
+
       const { clientId, clientSecret } = getCreds(apiSet);
       try {
         const r = await fetch("https://oauth2.googleapis.com/token", {
@@ -171,7 +194,7 @@ Deno.serve(async (req) => {
           const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'";
 
 
-          const cRes = await fetch(
+          const cRes = await fetchWithRetry(
             `https://googleads.googleapis.com/v24/customers/${root.customer_id}/googleAds:search`,
             {
               method: "POST",
@@ -184,6 +207,7 @@ Deno.serve(async (req) => {
               body: JSON.stringify({ query: cq }),
             },
           );
+
           const cJson = await cRes.json();
           debugLogs.push(`MCC ${root.customer_id} listChildren status=${cRes.status}`);
           if (!cRes.ok) {
@@ -277,7 +301,7 @@ Deno.serve(async (req) => {
               headers["login-customer-id"] = leaf.login_customer_id;
             }
 
-            const camRes = await fetch(
+            const camRes = await fetchWithRetry(
               `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
               {
                 method: "POST",
@@ -285,6 +309,7 @@ Deno.serve(async (req) => {
                 body: JSON.stringify({ query: campaignQuery }),
               },
             );
+
             const camJson = await camRes.json();
             debugLogs.push(`Account ${leaf.customer_id} campaigns status=${camRes.status} results=${camJson?.results?.length ?? 0}${camRes.ok ? "" : ` detail=${JSON.stringify(camJson?.error?.details ?? camJson?.error?.message ?? camJson).slice(0, 600)}`}`);
 
@@ -295,10 +320,14 @@ Deno.serve(async (req) => {
                 await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" });
               } else if (msg.includes("RESOURCE_EXHAUSTED")) {
-                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: "Cota de API excedida (Developer Token)" });
+                const errStr = "Cota de API excedida (Developer Token)";
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: errStr });
+                syncErrors.push({ account_id: leaf.customer_id, error: errStr });
               } else {
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: msg });
+                syncErrors.push({ account_id: leaf.customer_id, error: msg });
               }
+
               continue;
             }
 
@@ -569,7 +598,33 @@ Deno.serve(async (req) => {
 
     }
 
-    return json({ ok: true, summary, debug: debugLogs });
+    // Update sync_state with results
+    if (bodySiteId) {
+      const hasErrors = syncErrors.length > 0;
+      await admin.from("sync_state").upsert({
+        site_id: bodySiteId,
+        source: "google-ads-sync-campaigns",
+        last_status: hasErrors ? "partial_failure" : "success",
+        last_finished_at: new Date().toISOString(),
+        last_error: hasErrors ? `Failed accounts: ${syncErrors.map(e => e.account_id).join(", ")}` : null,
+        failed_accounts: syncErrors.map(e => e.account_id),
+      }, { onConflict: "site_id,source" });
+
+      if (!hasErrors) {
+        await admin.from("sites").update({ 
+          last_full_sync_at: new Date().toISOString(),
+          sync_status: "completed"
+        }).eq("id", bodySiteId);
+      } else {
+         await admin.from("sites").update({ 
+          sync_status: "error",
+          sync_error: `Sincronização incompleta. ${syncErrors.length} contas falharam.`
+        }).eq("id", bodySiteId);
+      }
+    }
+
+    return json({ ok: true, summary, debug: debugLogs, errors: syncErrors });
+
   } catch (e) {
     console.error("[sync-campaigns] uncaught", e);
     return json({ error: String(e) });
