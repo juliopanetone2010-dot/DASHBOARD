@@ -289,6 +289,8 @@ Deno.serve(async (req) => {
                 // conta desativada no Google Ads → marca no banco e ignora (não é falha do site)
                 await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, skipped: "suspended" });
+              } else if (msg.includes("RESOURCE_EXHAUSTED")) {
+                accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: "Cota de API excedida (Developer Token)" });
               } else {
                 accountResults.push({ customer_id: leaf.customer_id, name: leaf.name, error: msg });
               }
