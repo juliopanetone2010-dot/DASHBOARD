@@ -436,7 +436,7 @@ export function useDashboardData(): DashboardData {
       fetchAllRows<Placement>(() => buildPlacementsQuery()),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("google_accounts").select("*").order("status", { ascending: true }).order("account_name"),
+      supabase.from("google_accounts").select("*").not("status", "in", `(${INACTIVE_STATUSES.join(",")})`).order("status", { ascending: true }).order("account_name"),
       supabase.from("gam_accounts").select("*").order("account_name"),
       supabase.from("sites").select("*").order("name"),
       supabase.from("account_site_links").select("*"),
