@@ -1,22 +1,24 @@
-# Plano: Corrigir Visibilidade dos Gastos do Google Ads
+# Plan: Fix Site Revenue and Spend Discrepancy (Jardi Mastral)
 
-O usuário relatou que os gastos do Google Ads não estão aparecendo no dashboard ("Cade os gastos do google ads? nao estou entendendo"). Após análise, identifiquei que os dados de gastos existem no banco de dados (`daily_metrics`), mas o dashboard está exibindo R$ 0,00. O problema principal é que as contas do Google Ads e os Sites (GAM) não estão corretamente vinculados no ambiente atual, ou os filtros aplicados estão restringindo a visualização.
+The user is reporting that campaign spend ("gastos") for the site "Jardi Mastral" is incorrect. Previous context shows a discrepancy where site-level revenue exists but campaign-level revenue/spend is showing zero or -100% ROI.
 
-## Mudanças
+## Proposed Changes
 
-### Backend (Edge Functions)
-- Não são necessárias mudanças imediatas nas funções de sincronização, pois os dados estão sendo populados.
+### 1. Investigation Phase
+- Audit `account_site_links` for "Jardi Mastral" (Site ID: `4737bd19-5996-48a8-a7bb-406cfdbaa741`) to identify linked Google Ads accounts.
+- Compare `daily_metrics` (Google Ads spend) against `gam_campaign_source_revenue` (GAM revenue by campaign) for today and yesterday.
+- Check `google_accounts` status (active/archived) and `api_set` mapping for these accounts.
 
-### Frontend
-- **IntegrationsPanel**: Melhorar o feedback visual quando não há mapeamento entre contas Ads e sites.
-- **AccountSiteMappingPanel**: Facilitar a identificação de contas que possuem gastos mas não estão vinculadas a nenhum site.
-- **Dashboard Data Hook (`useDashboardData.ts`)**: Adicionar logs de depuração em desenvolvimento para rastrear por que os gastos estão sendo filtrados (isolamento por site).
-- **Dashboard Principal (`Index.tsx`)**: Ajustar a lógica de exibição para alertar o usuário se ele estiver visualizando um site que não tem nenhuma conta de Ads vinculada.
+### 2. Synchronization Fixes
+- Trigger a manual synchronization for the affected accounts using the appropriate API set.
+- Ensure `gam-sync-revenue` and `google-ads-sync-campaigns` functions are correctly attributing data to the site ID.
+- Verify if the `utm_source=google` filter in `gam_campaign_source_revenue` is capturing the correct campaign IDs from Google Ads.
 
-## Detalhes Técnicos
-- Verificação da lógica de `effectiveAccountIds` em `src/hooks/useDashboardData.ts`. Se um site for selecionado, mas não houver `account_site_links` para ele, o sistema filtra por um UUID vazio, resultando em zero gastos.
-- Ajuste no `MetricCard` de gastos para mostrar um aviso se houver contas desconectadas ou sem vínculo.
+### 3. UI/Engine Adjustments
+- If the discrepancy is caused by incomplete attribution, adjust `src/engine/rules.ts` to handle partial data more gracefully (already started in previous turns).
+- Revert the temporary text badge in `src/pages/Index.tsx` once the data is confirmed to be accurate.
 
-## Próximos Passos
-1. Corrigir o estado inicial do mapeamento para garantir que o usuário veja o que precisa vincular.
-2. Adicionar alertas de configuração pendente no dashboard.
+## Technical Details
+- **Tables involved:** `sites`, `account_site_links`, `google_accounts`, `daily_metrics`, `gam_campaign_source_revenue`, `site_metrics_daily`.
+- **Functions:** `google-ads-sync-campaigns`, `gam-sync-revenue`.
+- **Logic:** The system relies on `utm_campaign` matching the Google Ads `campaign_id`. If these don't match or the mapping is missing in `account_site_links`, the attribution fails.
