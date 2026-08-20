@@ -390,6 +390,39 @@ export function IntegrationsPanel(props: Props) {
                   </div>
                 </div>
               </div>
+24: 
+25:               <div className="bg-blue-500/10 border border-blue-500/20 rounded-md p-3 mt-4 space-y-2">
+26:                 <div className="flex items-center gap-2">
+27:                   <ShieldCheck className="h-4 w-4 text-blue-400" />
+28:                   <p className="text-[11px] text-blue-200 font-bold uppercase tracking-tight">
+29:                     Limites da API (RESOURCE_EXHAUSTED)
+30:                   </p>
+31:                 </div>
+32:                 
+33:                 <div className="space-y-3">
+34:                   <div className="space-y-1">
+35:                     <p className="text-[10px] text-blue-100/90 font-semibold">
+36:                       Test Access vs. Basic Access
+37:                     </p>
+38:                     <p className="text-[9px] text-blue-200/70 leading-relaxed">
+39:                       Se o seu token estiver em <strong>Test Access</strong>, ele não pode sincronizar contas de produção. Você deve aplicar para <strong>Basic Access</strong> no Google Ads API Center.
+40:                     </p>
+41:                   </div>
+42: 
+43:                   <div className="space-y-1 border-t border-blue-500/20 pt-2">
+44:                     <p className="text-[10px] text-blue-100/90 font-semibold">
+45:                       Consumo de Quota (Basic Access: 1.000 relatórios/dia)
+46:                     </p>
+47:                     <p className="text-[9px] text-blue-200/70 leading-relaxed">
+48:                       Cada sincronização de uma sub-conta consome <strong>1 requisição de relatório</strong>. 
+49:                       Se você tem 50 sub-contas e sincroniza a cada 1 hora, você consumirá 1.200 requisições/dia, <strong>excedendo o limite de 1.000 do Basic Access</strong>.
+50:                     </p>
+51:                     <p className="text-[9px] text-blue-200/70 leading-relaxed italic">
+52:                       Solução: Solicite <strong>Standard Access</strong> ou reduza a quantidade de contas/frequência de sincronização.
+53:                     </p>
+54:                   </div>
+55:                 </div>
+56:               </div>
 
               <p className="text-[9px] text-muted-foreground italic mt-1">
                 O token será armazenado com segurança como secret no backend.

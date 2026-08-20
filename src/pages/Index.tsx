@@ -1048,7 +1048,7 @@ const IndexInner = () => {
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
               {totals.revenue === 0 && (
-                <Badge variant="secondary">ta chegando ao limite muito rapido porque?</Badge>
+                <Badge variant="secondary">Por que meu Developer Token do Google Ads API está dando “RESOURCE_EXHAUSTED / Resource has been exhausted” tão rápido? Isso está acontecendo porque meu token ainda está em Test Account Access / modo de teste, em vez de Basic Access? Qual é exatamente o limite atual do meu token e quantas operações/requisições o sistema está consumindo por sincronização?</Badge>
               )}
               <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
                 {showDebug ? "Ocultar debug" : "Mostrar debug"}
