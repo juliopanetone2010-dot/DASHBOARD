@@ -327,11 +327,8 @@ Deno.serve(async (req) => {
                   method: "POST",
                   headers,
                   body: JSON.stringify({
-                    query: `
-                      SELECT campaign.id, campaign.status, campaign.final_url_suffix
-                      FROM campaign
-                      WHERE campaign.status != 'REMOVED'
-                    `,
+                    query: "SELECT campaign.id, campaign.status, campaign.final_url_suffix FROM campaign WHERE campaign.status != 'REMOVED'",
+
                   }),
                 },
               );
