@@ -3271,8 +3271,10 @@ export type Database = {
           last_full_sync_at: string | null
           name: string
           network_code: string
+          next_sync_allowed_at: string | null
           status: string
           sync_error: string | null
+          sync_lock: boolean | null
           sync_started_at: string | null
           sync_status: string
           updated_at: string
@@ -3289,8 +3291,10 @@ export type Database = {
           last_full_sync_at?: string | null
           name: string
           network_code: string
+          next_sync_allowed_at?: string | null
           status?: string
           sync_error?: string | null
+          sync_lock?: boolean | null
           sync_started_at?: string | null
           sync_status?: string
           updated_at?: string
@@ -3307,8 +3311,10 @@ export type Database = {
           last_full_sync_at?: string | null
           name?: string
           network_code?: string
+          next_sync_allowed_at?: string | null
           status?: string
           sync_error?: string | null
+          sync_lock?: boolean | null
           sync_started_at?: string | null
           sync_status?: string
           updated_at?: string

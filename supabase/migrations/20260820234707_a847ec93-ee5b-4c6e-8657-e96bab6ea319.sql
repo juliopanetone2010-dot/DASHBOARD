@@ -1,0 +1,2 @@
+UPDATE public.sites SET name = 'Jardim Astral' WHERE id = '4737bd19-5996-48a8-a7bb-406cfdbaa741';
+UPDATE public.gam_accounts SET account_name = 'Jardim Astral' WHERE id = '50e8b752-d0e5-42bd-95aa-38b18864565a';
