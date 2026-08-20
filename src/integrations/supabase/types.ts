@@ -3352,12 +3352,14 @@ export type Database = {
       sync_state: {
         Row: {
           created_at: string
+          failed_accounts: string[] | null
           google_account_id: string | null
           id: string
           last_error: string | null
           last_finished_at: string | null
           last_started_at: string | null
           last_status: string
+          metadata: Json | null
           rows_synced: number | null
           site_id: string | null
           source: string
@@ -3366,12 +3368,14 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          failed_accounts?: string[] | null
           google_account_id?: string | null
           id?: string
           last_error?: string | null
           last_finished_at?: string | null
           last_started_at?: string | null
           last_status?: string
+          metadata?: Json | null
           rows_synced?: number | null
           site_id?: string | null
           source: string
@@ -3380,12 +3384,14 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          failed_accounts?: string[] | null
           google_account_id?: string | null
           id?: string
           last_error?: string | null
           last_finished_at?: string | null
           last_started_at?: string | null
           last_status?: string
+          metadata?: Json | null
           rows_synced?: number | null
           site_id?: string | null
           source?: string
