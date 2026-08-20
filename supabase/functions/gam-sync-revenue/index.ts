@@ -900,15 +900,9 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
+    // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
     const metricGroups = [
-      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-      // AD_SERVER inclui receita de push/retenção (linhas onde utm_source=push aparece como
-      // line item do Ad Server). Mantemos no fastMode também — sem isso a sync horária do
-      // cron só captura AD_EXCHANGE e o push some do dashboard após alguns dias.
-      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-      ...(fastMode ? [] : [
-        { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-      ]),
+      { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
     ];
     for (const group of metricGroups) {
       try {
