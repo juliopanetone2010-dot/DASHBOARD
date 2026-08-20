@@ -358,9 +358,11 @@ export function useDashboardData(): DashboardData {
   );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
+    // Audit: dashboard fetch requested.
+    // We check session storage to avoid redundant loads within the same session
+    // unless a manual refresh or filter change occurs.
     const fetchRange = makeFetchRange(filters.fromDate, filters.toDate);
-    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: fetchRange.from, to: fetchRange.to, windowDays: FETCH_WINDOW_DAYS });
-
+    
     if (!user) {
       const store = loadGuestStore();
       return { ...store, dataReadiness: GUEST_READINESS, fetchedAt: Date.now() };
