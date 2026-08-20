@@ -1048,7 +1048,7 @@ const IndexInner = () => {
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
               {totals.revenue === 0 && (
-                <Badge variant="secondary">a receita está 0 mesmo?</Badge>
+                <Badge variant="secondary">preciso que voce puxe nos dados e veja se esta 0 mesmo</Badge>
               )}
               <Button variant="ghost" size="sm" onClick={() => setShowDebug((v) => !v)} className="ml-auto h-7">
                 {showDebug ? "Ocultar debug" : "Mostrar debug"}
