@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
 
         if (root.is_mcc) {
           // Lista customer_clients NÃO-manager do MCC
-          const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE (customer_client.manager = FALSE OR customer_client.level <= 1) AND customer_client.status = 'ENABLED'";
+          const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED'";
 
 
           const cRes = await fetch(
