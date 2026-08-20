@@ -446,13 +446,16 @@ export function useDashboardData(): DashboardData {
         .order("last_finished_at", { ascending: false }),
     ]);
 
+    const googleAccounts = (ga.data ?? []) as GoogleAccount[];
+    const activeAccountIds = new Set(googleAccounts.map(a => a.id));
+
     return {
-      campaigns: c as Campaign[],
-      metrics: m as DailyMetric[],
+      campaigns: (c as Campaign[]).filter(cam => cam.google_account_id && activeAccountIds.has(cam.google_account_id)),
+      metrics: (m as DailyMetric[]).filter(met => met.google_account_id && activeAccountIds.has(met.google_account_id)),
       placements: p as Placement[],
       rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
       alerts: (a.data ?? []) as DomainAlert[],
-      googleAccounts: (ga.data ?? []) as GoogleAccount[],
+      googleAccounts,
       gamAccounts: (gam.data ?? []) as GamAccount[],
       sites: (s.data ?? []) as Site[],
       links: (l.data ?? []) as AccountSiteLink[],
