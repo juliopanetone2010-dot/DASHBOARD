@@ -1655,7 +1655,8 @@ async function applyGoogleUtmRevenue(
   const { data: links } = await admin
     .from("account_site_links")
     .select("google_account_id")
-    .eq("user_id", userId)
+    // Removemos filtro por user_id aqui pois o site já pertence ao usuário
+    // e o link pode ter sido criado com um user_id divergente em sessões anteriores.
     .eq("site_id", siteId);
   const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
