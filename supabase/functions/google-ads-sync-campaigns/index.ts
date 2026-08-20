@@ -270,6 +270,7 @@ Deno.serve(async (req) => {
           leafAccounts = leafAccounts.filter((l) => accountIds.includes(l.id));
         }
         for (const leaf of leafAccounts) {
+          if ((leaf as any).is_mcc) continue; // Skip manager accounts for campaign sync
           try {
             const headers: Record<string, string> = {
               Authorization: `Bearer ${accessToken}`,
