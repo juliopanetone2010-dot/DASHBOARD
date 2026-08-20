@@ -48,14 +48,19 @@ Deno.serve(async (req) => {
     } catch (_) { /* no body */ }
 
     const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
-    let dateClause = "segments.date DURING LAST_30_DAYS"; // Aumentado de 7 para 30 por padrão
+    let dateClause = "segments.date DURING LAST_30_DAYS";
     if (windowDays) {
-      dateClause = `segments.date DURING LAST_${windowDays}_DAYS`;
+      const today = new Date();
+      const startDate = new Date();
+      startDate.setDate(today.getDate() - windowDays);
+      const formatDate = (d: Date) => d.toISOString().split("T")[0].replace(/-/g, "");
+      dateClause = `segments.date BETWEEN '${formatDate(startDate)}' AND '${formatDate(today)}'`;
     } else if (datePreset && ALLOWED_PRESETS.has(String(datePreset).toUpperCase())) {
       dateClause = `segments.date DURING ${String(datePreset).toUpperCase()}`;
     } else if (dateFrom && dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-      dateClause = `segments.date BETWEEN '${dateFrom}' AND '${dateTo}'`;
+      dateClause = `segments.date BETWEEN '${dateFrom.replace(/-/g, "")}' AND '${dateTo.replace(/-/g, "")}'`;
     }
+
 
 
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
