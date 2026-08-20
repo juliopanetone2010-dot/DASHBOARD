@@ -244,6 +244,7 @@ Deno.serve(async (req) => {
             login_customer_id: root.login_customer_id ?? null,
             name: root.account_name ?? root.descriptive_name ?? root.customer_id,
             currency: root.currency ?? null,
+            is_mcc: false,
           }];
         }
 
