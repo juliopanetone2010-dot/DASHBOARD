@@ -224,7 +224,8 @@ Deno.serve(async (req) => {
                 login_customer_id: root.customer_id,
                 name,
                 currency: r.customerClient.currencyCode ?? null,
-              });
+                is_mcc: r.customerClient.manager ?? false,
+              } as any);
             }
           }
         } else {
