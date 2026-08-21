@@ -1,6 +1,7 @@
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7'
-import { getCreds, getAccessTokenFor } from '../_shared/google_api_set.ts'
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0"
+import { getCreds, getAccessTokenFor } from "../_shared/google_api_set.ts"
+
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
