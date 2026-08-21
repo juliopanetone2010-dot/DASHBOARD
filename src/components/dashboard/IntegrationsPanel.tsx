@@ -167,66 +167,34 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Agora que você identificou e corrigiu o erro 400 URL_NAME, quero que faça uma validação prática.
+        Entendi. Então não altere mais nada no código.
 
-PUXE MANUALMENTE A RECEITA POR CAMPANHA DE HOJE (21/08/2026), da mesma forma que você conseguiu puxar e demonstrar os dados de ontem.
+Quero apenas confirmar se essa explicação de latência realmente corresponde ao comportamento histórico do meu sistema.
 
-NÃO quero esperar o cron.
-NÃO quero usar os dados de ontem.
-NÃO quero apenas receita geral do site.
+Analise os registros de ontem (20/08) e dos últimos 7 dias e me informe:
 
-Quero executar agora a sincronização de receita por campanha para HOJE.
+1. Qual foi o primeiro horário BRT de cada dia em que KEY_VALUES_NAME começou a retornar receita das campanhas?
 
-Faça o seguinte:
+2. Ontem, às 14h–15h BRT, a receita individual das campanhas já estava disponível?
 
-Execute manualmente gam-sync-revenue para 21/08/2026.
+3. Nos últimos 7 dias, houve algum dia em que KEY_VALUES_NAME continuou retornando 0 linhas até este horário?
 
-Use o fluxo corrigido:
-KEY_VALUES_NAME / CUSTOM_CRITERIA
+4. Qual foi o horário da última sincronização bem-sucedida de receita por campanha em cada dia?
 
-NÃO utilize URL_NAME, pois você já identificou que estava causando erro 400.
+Quero uma tabela:
 
-Pegue os Campaign IDs retornados pelo tracking.
+Data | Primeira receita por campanha disponível | Horário BRT | Quantidade de linhas | Receita geral já existia?
 
-Cruze com as campanhas do Google Ads.
+Se normalmente às 10h, 11h ou 12h as campanhas já tinham receita e somente hoje continuam zeradas às 14h+, então NÃO trate isso como atraso normal do GAM. Investigue o que mudou hoje.
 
-Grave a receita de hoje em gam_campaign_source_revenue.
+Também verifique se a alteração feita hoje em gam-sync-revenue, KEY_VALUES_NAME, CUSTOM_CRITERIA, EKV_DIMENSION ou na API REST v1 aconteceu antes ou depois de as campanhas começarem a ficar zeradas.
 
-Atualize os cálculos de receita, lucro, ROI e ROAS das campanhas.
+NÃO altere interface.
+NÃO altere código.
+NÃO faça novos fallbacks.
+Apenas consulte logs/banco/histórico e me mostre os horários reais.
 
-Depois valide com campanhas REAIS DE HOJE
-
-Pegue pelo menos 3 campanhas que possuem gasto hoje e me mostre:
-
-Campanha | Campaign ID | Gasto hoje | Receita GAM hoje | Receita convertida BRL | Lucro | ROI | ROAS
-
-Quero também saber:
-
-Quantos Campaign IDs o GAM retornou para hoje?
-
-Quantos tiveram correspondência com campanhas do Google Ads?
-
-Quantos registros foram gravados/atualizados em gam_campaign_source_revenue?
-
-A tabela de campanhas do dashboard passou a mostrar esses valores?
-
-SE CONTINUAR RETORNANDO ZERO
-
-Não responda simplesmente que é "delay do GAM".
-
-Mostre o resultado bruto da consulta de HOJE e compare com a mesma consulta de ONTEM.
-
-Quero saber se KEY_VALUES_NAME / CUSTOM_CRITERIA retorna Campaign IDs e receita hoje.
-
-Se ontem a consulta retorna dados e hoje não retorna, mostre isso explicitamente.
-
-Se hoje a API retornar receita por Campaign ID, mas o dashboard continuar zerado, corrija o processamento/banco.
-
-NÃO altere nenhum texto do dashboard.
-NÃO use Fast Visual Edit.
-NÃO coloque esta solicitação no painel.
-
-Execute a sincronização manual e me mostre o resultado real de HOJE.
+Esse teste vai matar a dúvida. Se nos últimos dias às 14h já tinha receita por campanha, mas hoje não tem, aí a história de “4–8 horas” fica bem mais fraca e tem que procurar uma regressão de hoje.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
