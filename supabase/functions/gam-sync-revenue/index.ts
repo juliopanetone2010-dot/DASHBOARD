@@ -1415,7 +1415,11 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
       // Prioridade exata para o header
       let idx = headers.findIndex(h => h.trim() === name);
       // Fallback para include caso o header venha com networkCode ou sufixos
-      if (idx === -1) idx = headers.findIndex(h => h.includes(name));
+      if (idx === -1) idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+      // Fallback agressivo: mapear AD_SERVER_REVENUE e AD_SERVER_CPM_AND_CPC_REVENUE que às vezes trocam
+      if (idx === -1 && name.includes("REVENUE")) {
+         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && h.toUpperCase().includes("SERVER"));
+      }
       return idx !== -1 ? Number(cols[idx] || 0) : 0;
     };
     
@@ -1424,8 +1428,19 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
     const adServerRev = (findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0) / 1_000_000;
     const adExchangeRev = (findMetric("AD_EXCHANGE_REVENUE") || 0) / 1_000_000;
     
+    // Se a receita for zero mas houver impressões, o header pode ser diferente (ex: "Column.AdServerRevenue")
+    // O CSV DUMP do GAM às vezes usa nomes amigáveis em vez dos nomes da API.
     row.impressions = adServerImpr + adExchangeImpr;
     row.revenue = adServerRev + adExchangeRev;
+
+    if (row.revenue === 0 && row.impressions > 0) {
+       // Tentativa desesperada de achar QUALQUER coluna de receita
+       const anyRevIdx = headers.findIndex(h => h.toLowerCase().includes("revenue"));
+       if (anyRevIdx !== -1) {
+          row.revenue = Number(cols[anyRevIdx] || 0) / 1_000_000;
+       }
+    }
+    
     row.date = row.dims[0];
     
     rows.push(row);
