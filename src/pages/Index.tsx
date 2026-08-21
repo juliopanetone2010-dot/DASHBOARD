@@ -744,7 +744,7 @@ const IndexInner = () => {
     ? realGamRevenueNetBrl / usdBrl
     : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
-  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
+  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 1;
   const totals = {
     spend: baseTotals.spend,
     revenue: totalRevenueUsd,
@@ -1049,24 +1049,24 @@ const IndexInner = () => {
               const adsAt = adsFreshnessQuery.data ?? null;
               const gamInfo = gamFreshnessQuery.data;
               return (
-                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] sm:text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-primary" />
-                    <span className="text-muted-foreground">Google Ads atualizado:</span>
-                    <span className="font-mono font-medium">{fmtFresh(adsAt)}</span>
+                    <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                    <span className="text-muted-foreground">Google Ads:</span>
+                    <span className="font-mono font-bold">{fmtFresh(adsAt)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-success" />
-                    <span className="font-mono font-medium">
-                      {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
+                    <span className="h-2 w-2 rounded-full bg-success shrink-0" />
+                    <span className="font-mono font-bold">
+                      {gamFreshnessQuery.isLoading ? "GAM…" : (gamInfo?.label?.replace("Ad Manager salvo até:", "GAM:") ?? "GAM: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" />
-                    <span className="text-muted-foreground">USD → BRL:</span>
-                    <span className="font-mono font-medium">
-                      R$ {usdBrl.toFixed(4)}
+                  <div className="flex items-center gap-1.5 sm:ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                    <span className="text-muted-foreground">USD:</span>
+                    <span className="font-mono font-bold">
+                      R$ {usdBrl.toFixed(2)}
                     </span>
                     {fxSource && (
                       <span className="text-muted-foreground">({fxSource})</span>
