@@ -252,7 +252,7 @@ const GUEST_READINESS: DataReadiness = { isReady: true, gamMinutesSinceSuccess: 
 // Threshold for considering the GAM sync stale. GAM data typically takes 1–6h
 // to consolidate; we treat anything older than 6h as stale → suppress false
 // -100% ROI alerts. Tunable here; could later move to rules_config.
-const GAM_FRESHNESS_MINUTES = 600;
+const GAM_FRESHNESS_MINUTES = 360;
 
 // Fetch window: we deliberately fetch a fixed broad window (last N days) on
 // every dashboard load, regardless of the user's current date filter. Date
