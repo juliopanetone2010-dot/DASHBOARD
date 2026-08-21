@@ -1174,10 +1174,9 @@ async function collectUrlAttribution(args: {
 }): Promise<AttributedRow[]> {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
   const out: AttributedRow[] = [];
-  // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
-  // O caminho correto agora é garantir UTM padrão em todas as campanhas via
-  // google-ads-sync-campaigns (auto-aplica final_url_suffix). Mantemos o helper desligado.
-  return out;
+  // A dimensão URL_NAME pode causar erro 400 em algumas redes se não estiver habilitada.
+  // Tentamos capturá-la para fallback quando UTMs falham.
+  try {
   // eslint-disable-next-line no-unreachable
   try {
     const reportRows = (await Promise.all(ranges.map((range) =>
