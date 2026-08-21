@@ -794,7 +794,7 @@ const IndexInner = () => {
   const activeTabMeta = TABS.find((t) => t.value === activeTab) ?? TABS[0];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-20 md:pb-0">
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -907,12 +907,15 @@ const IndexInner = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void allSites.syncAll(true, range); }}
-              disabled={!allSites.totalCount || allSites.processingCount > 0}
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
               className="gap-2"
               title="Sincroniza todos os sites"
             >
-              <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Sincronizar todos os sites
               {allSites.processingCount > 0 && (
                 <Badge variant="secondary" className="ml-1">
@@ -920,9 +923,18 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
-              <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {syncing ? "Sincronizando…" : "Atualizar"}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }} 
+              disabled={syncing || allSites.processingCount > 0} 
+              className="gap-2"
+            >
+              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
             </Button>
             {currentRole && (
               <Badge
@@ -1037,6 +1049,12 @@ const IndexInner = () => {
                       Atualizar
                     </Button>
                   </div>
+                  {allSites.processingCount > 0 && (
+                    <div className="w-full mt-1 pt-1 border-t border-border/50 flex items-center gap-2 text-[10px] text-primary animate-pulse">
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                      Sincronização em segundo plano ativa ({allSites.processingCount} site(s)). Os dados aparecerão em instantes.
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1322,6 +1340,28 @@ const IndexInner = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Mobile Sticky Update Bar */}
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-30 md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Atualização</span>
+          <span className="text-xs font-medium truncate">
+            {allSites.processingCount > 0 ? `Sincronizando ${allSites.processingCount} site(s)...` : "Dados prontos"}
+          </span>
+        </div>
+        <Button 
+          size="sm" 
+          className="gap-2 px-4 shadow-glow" 
+          onClick={() => {
+            handleRefresh();
+            void allSites.syncAll(true, range);
+          }}
+          disabled={syncing || allSites.processingCount > 0}
+        >
+          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          {syncing || allSites.processingCount > 0 ? "Aguarde..." : "Atualizar"}
+        </Button>
+      </div>
     </div>
   );
 };
