@@ -3,6 +3,8 @@
 // - Calcula ROI do dia atual com NET_FACTOR (mesma lógica do dashboard)
 // - Classifica em: testing | learning | standby | scaling | bad | paused
 // - Decide ação (pause | scale | cpa_up | cpa_down | none) respeitando cooldowns
+// - REGRAS DE SEGURANÇA: Automações (pause, scale, budget) EXIGEM attribution_status = 'consolidated'.
+//   Dados marcados como 'intraday' (predictive) são usados apenas para visualização no dashboard.
 // - Executa SOMENTE para pares site_id + google_account_id habilitados em site_automation_config
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -285,7 +287,7 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
 
   const { data: metrics } = await admin
     .from("daily_metrics")
-    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions, revenue")
+    .select("campaign_id, google_account_id, date, spend, profit, clicks, conversions, impressions, revenue, attribution_status")
     .eq("user_id", userId)
     .eq("google_account_id", accountId)
     .gte("date", fromIso)
@@ -305,6 +307,14 @@ async function runForSiteAccount(admin: any, cfg: any, siteCfg: SiteAutomationCo
     const spend = Number(r.spend) || 0;
     const profit = Number(r.profit) || 0;
     const revenue = Number(r.revenue) || 0;
+    const isIntraday = r.attribution_status === 'intraday';
+
+    // SAFEGUARD #3 — NÃO utilize valores 'intraday' (estimados/predictive) para automações.
+    // Se o dado for intraday, ignoramos este dia para fins de decisão automática.
+    if (isIntraday) {
+      agg.skippedUnsyncedDays++;
+      continue;
+    }
 
     // SAFEGUARD #2 — Dia com gasto > 0 mas receita=0 e profit=-spend é dia
     // ainda NÃO sincronizado pelo GAM. Tratar como ROI=-100% pausaria campanhas
