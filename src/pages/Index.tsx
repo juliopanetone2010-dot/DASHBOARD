@@ -794,7 +794,7 @@ const IndexInner = () => {
   const activeTabMeta = TABS.find((t) => t.value === activeTab) ?? TABS[0];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-20 md:pb-0">
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -907,12 +907,15 @@ const IndexInner = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void allSites.syncAll(true, range); }}
-              disabled={!allSites.totalCount || allSites.processingCount > 0}
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
               className="gap-2"
               title="Sincroniza todos os sites"
             >
-              <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Sincronizar todos os sites
               {allSites.processingCount > 0 && (
                 <Badge variant="secondary" className="ml-1">
