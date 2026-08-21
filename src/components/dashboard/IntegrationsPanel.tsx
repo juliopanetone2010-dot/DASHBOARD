@@ -199,7 +199,7 @@ export function IntegrationsPanel(props: Props) {
           
           <div className="pt-2 border-t border-border mt-2">
             <p className="text-[10px] text-muted-foreground italic border-l-2 border-success pl-2">
-              "Resincronização manual do Set 1 concluída. Os valores apresentados agora refletem exatamente o reportado pela Google Ads API (R$ 3,98 mil) para a data de hoje (21/08/2026)."
+              "quando vao conseguir atualizar as campanhas?"
             </p>
           </div>
         </div>
