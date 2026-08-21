@@ -1953,16 +1953,45 @@ async function applyGoogleUtmRevenue(
   const hasData = arr.length > 0 || googleCampaignRows.length > 0;
   
   if (!hasData) {
-    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (googlePlacementRows e googleCampaignRows vazios).`);
+    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM.`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
-    await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-    const CHUNK = 500;
-    for (let i = 0; i < arr.length; i += CHUNK) {
-      await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
+    
+    // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
+    const { data: existingPlacements } = await admin.from("gam_placement_revenue")
+      .select("campaign_id, placement, date, attribution_status")
+      .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    
+    const existingPMap = new Map<string, string>();
+    for (const r of (existingPlacements ?? []) as any[]) {
+      existingPMap.set(`${r.campaign_id}|${r.placement}|${r.date}`, r.attribution_status || 'consolidated');
     }
-    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
+
+    const finalPlacements = arr.filter(p => {
+      const key = `${p.campaign_id}|${p.placement}|${p.date}`;
+      const prevStatus = existingPMap.get(key);
+      if (prevStatus === 'consolidated' && p.attribution_status === 'intraday') {
+        return false;
+      }
+      return true;
+    });
+
+    if (finalPlacements.length > 0) {
+      for (const row of finalPlacements) {
+        await admin.from("gam_placement_revenue")
+          .delete()
+          .eq("user_id", userId)
+          .eq("site_id", siteId)
+          .eq("campaign_id", row.campaign_id)
+          .eq("placement", row.placement)
+          .eq("date", row.date);
+      }
+      const CHUNK = 500;
+      for (let i = 0; i < finalPlacements.length; i += CHUNK) {
+        await admin.from("gam_placement_revenue").insert(finalPlacements.slice(i, i + CHUNK));
+      }
+    }
+    debug.push(`[gam_placement_revenue] ${finalPlacements.length} linha(s) processadas.`);
 
     const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
     
