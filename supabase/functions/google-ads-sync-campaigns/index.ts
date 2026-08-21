@@ -638,9 +638,8 @@ Deno.serve(async (req) => {
         );
       }
     }
-  } catch (e) {
-    throw e;
-  }
+    }
+
 
 
 
