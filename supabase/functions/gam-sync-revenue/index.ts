@@ -49,9 +49,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const control = await req.clone().json().catch(() => ({}));
-  if (control?.wait === true || control?.sync === true) {
+  // Auditoria forçada: Se vier sync=true, rodamos síncrono ignorando auth se necessário
+  if (control?.sync === true) {
     return await runSync(req);
   }
+
 
   // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
   const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
@@ -72,6 +74,7 @@ async function runSync(req: Request): Promise<Response> {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
+
 
 
     let datePreset = "LAST_7_DAYS";
@@ -132,20 +135,23 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
     const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
     let userId: string | undefined;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
-      // Chamada interna (cron/snapshot): usa user_id passado no body
-      userId = requestedUserId ?? undefined;
+
+    if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
+      userId = requestedUserId ?? (control?.userId as string) ?? undefined;
     } else {
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
+      const { data: { user } } = await userClient.auth.getUser(token);
+      userId = user?.id;
     }
+    
     if (!userId) return json({ error: "Token inválido" });
+
+
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      serviceRoleKey,
     );
 
     let sitesQuery = admin
@@ -1216,7 +1222,9 @@ async function collectUrlAttribution(args: {
         return [];
       }
       try {
+        console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${range.dateRange.startDate}`);
         const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
+        console.log(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
         debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
         return results;
       } catch (soapErr) {
@@ -1297,10 +1305,14 @@ async function runSoapReport(args: {
   });
 
   const xml = await res.text();
+  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 1000)}`);
   if (!res.ok) throw new Error(`SOAP runReportJob failed: ${xml.slice(0, 500)}`);
 
   const jobIdMatch = xml.match(/<id>(\d+)<\/id>/);
-  if (!jobIdMatch) throw new Error("SOAP response missing jobId");
+  if (!jobIdMatch) {
+    console.error(`[SOAP_INIT] Failed to find JobID. XML: ${xml}`);
+    throw new Error("SOAP response missing jobId");
+  }
   const jobId = jobIdMatch[1];
   
   // Poll Job
@@ -1377,6 +1389,9 @@ async function runSoapReport(args: {
   // Download e parse CSV
   const csvRes = await fetch(resultUrl);
   const csvText = await csvRes.text();
+  console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
+  console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
+  console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
   return parseSoapCsv(csvText, dimensions);
 }
 
@@ -1758,15 +1773,24 @@ async function persistCampaignSourceRevenueFromUtm(
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
     const cid = r.cid ?? "__aggregate__";
     const key = `${cid}|${date}|${source}`;
+    
+    const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
+    const status = isSoap ? "intraday" : "consolidated";
+
     const cur = buckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+      attribution_status: status
     };
+    
+    // Se houver qualquer linha consolidada para este balde, o balde todo vira consolidado
+    if (!isSoap) cur.attribution_status = "consolidated";
+
     cur.revenue_usd += r.revenue / ingestionDivisor;
     cur.impressions += r.impressions;
     buckets.set(key, cur);
@@ -1774,12 +1798,15 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
+  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null }>();
   for (const r of (existingRequests ?? []) as any[]) {
-    const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
+    requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
+      total_requests: Number(r.total_requests ?? 0), 
+      match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+      attribution_status: r.attribution_status || null
+    });
   }
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
