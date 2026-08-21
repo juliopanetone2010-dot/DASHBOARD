@@ -165,11 +165,16 @@ export function IntegrationsPanel(props: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Os gastos do jardim astral tb n esta funcionando, as cmapanhas n estao aparecendo tb, Falha na sincronização inicial
+      <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-3.5 w-3.5 text-success" />
+          <span className="font-semibold uppercase tracking-wider text-[10px]">Diagnóstico de Conexão</span>
+        </div>
+        <p className="whitespace-pre-wrap leading-relaxed">
+          {`Os gastos do jardim astral tb n esta funcionando, as cmapanhas n estao aparecendo tb, Falha na sincronização inicial
 
-placement 24155048870 200: {"error":"Error: refresh failed: {\"error\":\"unauthorized_client\",\"error_description\":\"Unauthorized\"}"} placement 24159798217 200: {"error":"Error: refresh failed: {\"error\":\"unauthorized_client\",\"error_description\":\"Unauthorized\"}"} e ta dando esse erro
+placement 24155048870 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} placement 24159798217 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} e ta dando esse erro`}
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
