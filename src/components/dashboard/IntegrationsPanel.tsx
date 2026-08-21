@@ -58,6 +58,8 @@ export function IntegrationsPanel(props: Props) {
   const [manualCustomerId, setManualCustomerId] = useState("");
   const [addingManual, setAddingManual] = useState(false);
   const [manualDevToken, setManualDevToken] = useState("");
+  const [manualClientId, setManualClientId] = useState("");
+  const [manualClientSecret, setManualClientSecret] = useState("");
   const [savingSecret, setSavingSecret] = useState(false);
   const [listingAccounts, setListingAccounts] = useState(false);
   const [accessibleAccounts, setAccessibleAccounts] = useState<any[]>([]);
@@ -238,20 +240,36 @@ export function IntegrationsPanel(props: Props) {
     }
     setSavingSecret(true);
     try {
-      const secretName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
-      const { error } = await supabase.functions.invoke("secrets-manager", {
-        body: { action: "set", name: secretName, value: manualDevToken.trim() }
+      // Salva Developer Token
+      const devTokenName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
+      await supabase.functions.invoke("secrets-manager", {
+        body: { action: "set", name: devTokenName, value: manualDevToken.trim() }
       });
 
-      if (error) throw error;
+      // Salva Client ID se fornecido
+      if (manualClientId.trim()) {
+        await supabase.functions.invoke("secrets-manager", {
+          body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: manualClientId.trim() }
+        });
+      }
 
-      toast({ title: "Developer Token salvo", description: `Configurado para o Conjunto ${apiSet}.` });
+      // Salva Client Secret se fornecido
+      if (manualClientSecret.trim()) {
+        await supabase.functions.invoke("secrets-manager", {
+          body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: manualClientSecret.trim() }
+        });
+      }
+
+      toast({ title: "Credenciais salvas", description: `Conjunto ${apiSet} atualizado com sucesso.` });
       setManualDevToken("");
+      setManualClientId("");
+      setManualClientSecret("");
+      
       // Refresh status
       const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
       if (data) setOauthStatus(data);
     } catch (e) {
-      toast({ title: "Erro ao salvar token", description: String(e), variant: "destructive" });
+      toast({ title: "Erro ao salvar credenciais", description: String(e), variant: "destructive" });
     } finally {
       setSavingSecret(false);
     }
@@ -339,9 +357,9 @@ export function IntegrationsPanel(props: Props) {
             <form onSubmit={handleSaveDevToken} className="mt-2 space-y-2 border-t border-border/50 pt-2">
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})
+                  Configurar Credenciais (Conjunto {apiSet})
                 </Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <Input 
                     type="password"
                     value={manualDevToken}
@@ -349,8 +367,29 @@ export function IntegrationsPanel(props: Props) {
                     placeholder="Insira o Developer Token aqui..."
                     className="h-8 text-xs"
                   />
-                  <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
-                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
+                  <div className="flex gap-2">
+                    <Input 
+                      type="password"
+                      value={manualClientId}
+                      onChange={(e) => setManualClientId(e.target.value)}
+                      placeholder="Client ID (Opcional se global)"
+                      className="h-8 text-xs flex-1"
+                    />
+                    <Input 
+                      type="password"
+                      value={manualClientSecret}
+                      onChange={(e) => setManualClientSecret(e.target.value)}
+                      placeholder="Client Secret (Opcional)"
+                      className="h-8 text-xs flex-1"
+                    />
+                  </div>
+                  <Button 
+                    onClick={handleSaveDevToken}
+                    size="sm" 
+                    className="h-8 w-full" 
+                    disabled={savingSecret}
+                  >
+                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar Conjunto"}
                   </Button>
                 </div>
               </div>
