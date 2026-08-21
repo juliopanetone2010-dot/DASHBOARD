@@ -167,34 +167,58 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Entendi. Então não altere mais nada no código.
+        Agora encontramos a causa real.
 
-Quero apenas confirmar se essa explicação de latência realmente corresponde ao comportamento histórico do meu sistema.
+Antes o ROI intraday funcionava porque existia atribuição baseada na URL/UTM. A migração para a REST v1 removeu esse caminho rápido e passou a depender de dimensões de targeting que só consolidam mais tarde.
 
-Analise os registros de ontem (20/08) e dos últimos 7 dias e me informe:
+Quero RESTAURAR o comportamento intraday antigo.
 
-1. Qual foi o primeiro horário BRT de cada dia em que KEY_VALUES_NAME começou a retornar receita das campanhas?
+Não quero rateio proporcional da receita geral.
 
-2. Ontem, às 14h–15h BRT, a receita individual das campanhas já estava disponível?
+Faça primeiro uma auditoria da implementação antiga e identifique exatamente como URL_NAME/URL bruta era usada para extrair:
 
-3. Nos últimos 7 dias, houve algum dia em que KEY_VALUES_NAME continuou retornando 0 linhas até este horário?
+utm_campaign={"{"}campaignid{"}"}
 
-4. Qual foi o horário da última sincronização bem-sucedida de receita por campanha em cada dia?
+e
 
-Quero uma tabela:
+utm_placement={"{"}campaignid{"}"}_{"{"}placement{"}"}
 
-Data | Primeira receita por campanha disponível | Horário BRT | Quantidade de linhas | Receita geral já existia?
+Depois implemente a melhor alternativa compatível com a API atual.
 
-Se normalmente às 10h, 11h ou 12h as campanhas já tinham receita e somente hoje continuam zeradas às 14h+, então NÃO trate isso como atraso normal do GAM. Investigue o que mudou hoje.
+Prioridade:
 
-Também verifique se a alteração feita hoje em gam-sync-revenue, KEY_VALUES_NAME, CUSTOM_CRITERIA, EKV_DIMENSION ou na API REST v1 aconteceu antes ou depois de as campanhas começarem a ficar zeradas.
+ Verifique se existe na REST v1 alguma dimensão equivalente que devolva a URL/página ou um identificador do tráfego com granularidade suficiente.
 
-NÃO altere interface.
-NÃO altere código.
-NÃO faça novos fallbacks.
-Apenas consulte logs/banco/histórico e me mostre os horários reais.
+ Se REST v1 não suportar, verifique se o caminho anterior via Ad Manager SOAP ReportService ainda pode ser utilizado SOMENTE para essa consulta intraday.
 
-Esse teste vai matar a dúvida. Se nos últimos dias às 14h já tinha receita por campanha, mas hoje não tem, aí a história de “4–8 horas” fica bem mais fraca e tem que procurar uma regressão de hoje.
+ Se usar SOAP, faça uma consulta mínima apenas para receita por URL/campaign ID, sem migrar o restante do sistema.
+
+ Extraia o Campaign ID diretamente de utm_campaign ou, como fallback, da parte anterior ao _ em utm_placement.
+
+ Grave a receita real por Campaign ID em gam_campaign_source_revenue.
+
+ Continue usando o relatório consolidado por custom dimension à noite para reconciliar/corrigir os valores definitivos.
+
+A arquitetura deve ficar:
+
+INTRADAY → URL/UTM → Campaign ID → receita por campanha
+
+CONSOLIDADO → custom dimension → validação/reconciliação
+
+Quero preservar precisão real. Não estimar, não dividir receita geral por clique, gasto ou sessão.
+
+Antes de alterar o código, me diga:
+
+Método antigo usado:
+Método intraday possível agora:
+REST v1 suporta? SIM/NÃO
+SOAP suporta? SIM/NÃO
+Dimensão exata que será usada:
+Latência esperada:
+
+Só depois implemente.
+
+Não altere interface nem textos.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
