@@ -337,18 +337,17 @@ async function runSync(req: Request): Promise<Response> {
           }
         }
         
-        // Se não temos atribuição, ou se temos apenas dados consolidados de dias anteriores e hoje está vazio
         const todayStr = new Date().toISOString().slice(0, 10);
-        const hasGoogleCampaignDataForToday = attribution.googleCampaignRows.some(r => r.date === todayStr);
-        
-        if (!hasGoogleCampaignDataForToday && hasBudget(10_000)) {
+        // attribution já foi populado pelo collectUtmAttribution (via REST v1)
+        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr);
+
+        if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds, debug);
           const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
           if (urlRows.length > 0) {
             const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
-            // Mescla os dados do SOAP com os dados consolidados existentes
-            // O SOAP só entra se não houver dado consolidado para aquela campanha/data/placement
+            // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
             attribution.googleCampaignRows.push(...soapAttribution.googleCampaignRows.filter(sr => 
               !attribution.googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date)
             ));
@@ -359,6 +358,7 @@ async function runSync(req: Request): Promise<Response> {
             debug.push(`[${networkCode}] SOAP Intraday adicionou ${soapAttribution.googleCampaignRows.length} campanhas.`);
           }
         }
+
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
