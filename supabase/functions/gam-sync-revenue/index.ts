@@ -139,7 +139,7 @@ async function runSync(req: Request): Promise<Response> {
     let userId: string | undefined;
 
     if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
-      userId = requestedUserId ?? (control?.userId as string) ?? undefined;
+      userId = requestedUserId ?? undefined;
     } else {
       const { data: { user } } = await userClient.auth.getUser(token);
       userId = user?.id;
