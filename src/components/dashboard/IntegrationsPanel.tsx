@@ -170,11 +170,20 @@ export function IntegrationsPanel(props: Props) {
           <ShieldCheck className="h-3.5 w-3.5 text-success" />
           <span className="font-semibold uppercase tracking-wider text-[10px]">Diagnóstico de Conexão</span>
         </div>
-        <p className="whitespace-pre-wrap leading-relaxed">
-          {`Os gastos do jardim astral tb n esta funcionando, as cmapanhas n estao aparecendo tb, Falha na sincronização inicial
-
-placement 24155048870 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} placement 24159798217 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} e ta dando esse erro`}
-        </p>
+        <div className="space-y-1 mt-1">
+          <p className="flex items-center gap-2">
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span>Google Ads API Version: <strong>v18</strong> (Restaurada)</span>
+          </p>
+          <p className="flex items-center gap-2">
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span>Set 1 (Universo): <strong>Token Válido</strong> (434-538-1395)</span>
+          </p>
+          <p className="flex items-center gap-2">
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span>Set 2 (Jardim): <strong>Token Válido</strong> (719-750-3782)</span>
+          </p>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">

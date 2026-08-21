@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
               AND campaign_criterion.status = ENABLED
               AND campaign.id IN (${inList})
           `;
-          const r = await fetch(`https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`, {
+          const r = await fetch(`https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`, {
             method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
           });
           const j = await r.json();

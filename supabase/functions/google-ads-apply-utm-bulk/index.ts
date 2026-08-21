@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
           partialFailure: true,
         };
         const r = await fetch(
-          `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/campaigns:mutate`,
+          `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/campaigns:mutate`,
           { method: "POST", headers, body: JSON.stringify(mutateBody) },
         );
         const j = await r.json();
