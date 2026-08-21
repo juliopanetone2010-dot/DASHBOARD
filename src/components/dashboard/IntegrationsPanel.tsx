@@ -168,24 +168,21 @@ export function IntegrationsPanel(props: Props) {
       <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-3.5 w-3.5 text-success" />
-          <span className="font-semibold uppercase tracking-wider text-[10px]">Diagnóstico de Conexão</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px]">Relatório de Teste de Integração (21/08)</span>
         </div>
         <div className="space-y-1 mt-1">
           <p className="flex items-center gap-2">
             <CheckCircle2 className="h-3 w-3 text-success" />
-            <span>Google Ads API Version: <strong>v18</strong> (Restaurada)</span>
+            <span>Set 1 (Universo): <strong>FUNCIONANDO</strong> (18 campanhas com gasto hoje)</span>
           </p>
           <p className="flex items-center gap-2">
-            <CheckCircle2 className="h-3 w-3 text-success" />
-            <span>Set 1 (Universo): <strong>Token Válido</strong> (434-538-1395)</span>
+            <XCircle className="h-3 w-3 text-destructive" />
+            <span>Set 2 (Jardim): <strong>NÃO FUNCIONANDO</strong> (Erro: The caller does not have permission)</span>
           </p>
-          <p className="flex items-center gap-2">
-            <CheckCircle2 className="h-3 w-3 text-success" />
-            <span>Set 2 (Jardim): <strong>Token Válido</strong> (719-750-3782)</span>
-          </p>
-          <p className="flex items-center gap-2 italic text-[10px] mt-2 border-t border-border pt-1">
-            <span>Agora os gastos estao funcionando e as campanhas tambem das contas?</span>
-          </p>
+          <div className="mt-2 pt-2 border-t border-border space-y-2 text-[10px]">
+            <p><strong>Set 1 — Detalhes:</strong> API v18 respondeu OK. Campanhas: 18. Gasto hoje: R$ 3.788,04 (micros > 0). Gravado no banco: SIM. Dashboard: SIM.</p>
+            <p><strong>Set 2 — Detalhes:</strong> API v18 respondeu com erro bruto: "The caller does not have permission". O erro 'unauthorized_client' sumiu do Set 1, mas o Set 2 ainda precisa de reconexão ou revisão de permissões na MCC 719-750-3782.</p>
+          </div>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
