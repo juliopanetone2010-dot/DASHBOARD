@@ -920,9 +920,18 @@ const IndexInner = () => {
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
-              <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {syncing ? "Sincronizando…" : "Atualizar"}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }} 
+              disabled={syncing || allSites.processingCount > 0} 
+              className="gap-2"
+            >
+              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
             </Button>
             {currentRole && (
               <Badge
@@ -1037,6 +1046,12 @@ const IndexInner = () => {
                       Atualizar
                     </Button>
                   </div>
+                  {allSites.processingCount > 0 && (
+                    <div className="w-full mt-1 pt-1 border-t border-border/50 flex items-center gap-2 text-[10px] text-primary animate-pulse">
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                      Sincronização em segundo plano ativa ({allSites.processingCount} site(s)). Os dados aparecerão em instantes.
+                    </div>
+                  )}
                 </div>
               );
             })()}
