@@ -942,22 +942,22 @@ const IndexInner = () => {
             </div>
             
             <Button
-              variant="outline"
+              variant="default"
               size="sm"
               onClick={() => {
                 handleRefresh();
                 void allSites.syncAll(true, range);
               }}
               disabled={syncing || allSites.processingCount > 0}
-              className="gap-2 border-primary/30 text-primary hover:bg-primary/10 shadow-sm bg-background/50 h-9"
+              className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg h-10 px-4 font-bold border-none"
             >
-              <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              <span className="hidden sm:inline font-bold">
+              <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-5 w-5 animate-spin" : "h-5 w-5"} />
+              <span className="hidden sm:inline">
                 {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Gastos"}
               </span>
-              <span className="sm:hidden font-bold text-[11px]">Atualizar</span>
+              <span className="sm:hidden text-[12px]">Atualizar</span>
               {allSites.processingCount > 0 && (
-                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[11px] bg-white/20 text-white">
                   {allSites.processingCount}
                 </Badge>
               )}
