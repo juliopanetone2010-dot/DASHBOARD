@@ -73,8 +73,6 @@ Deno.serve(async (req) => {
       dateClause = `segments.date BETWEEN '${dateFrom.replace(/-/g, "")}' AND '${dateTo.replace(/-/g, "")}'`;
     }
 
-      try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
-    }
     let userId: string | undefined;
     if (isServiceRole) {
       const adminPre = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
