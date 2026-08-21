@@ -638,10 +638,6 @@ Deno.serve(async (req) => {
         );
       }
     }
-    }
-  } catch (e) {
-    throw e;
-  }
 
     if (bodySiteId) {
       const hasErrors = syncErrors.length > 0;
