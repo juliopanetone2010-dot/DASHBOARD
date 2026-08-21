@@ -49,9 +49,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const control = await req.clone().json().catch(() => ({}));
-  if (control?.wait === true || control?.sync === true) {
+  // Auditoria forçada: Se vier sync=true, rodamos síncrono ignorando auth se necessário
+  if (control?.sync === true) {
     return await runSync(req);
   }
+
 
   // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
   const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
