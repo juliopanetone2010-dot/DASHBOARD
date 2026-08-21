@@ -400,31 +400,13 @@ export function IntegrationsPanel(props: Props) {
                 </div>
               </div>
                 
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <p className="text-[10px] text-amber-100/90 font-semibold">
-                    Passo 1: Acesse o Google Cloud Console
-                  </p>
-                  <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                    Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
-                  </p>
-                </div>
-
-                <div className="space-y-1 border-t border-amber-500/20 pt-2">
-                  <p className="text-[10px] text-amber-100/90 font-semibold">
-                    Passo 2: Verifique o Status de Publicação
-                  </p>
-                  <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                    Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
-                  </p>
-                  <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
-                    Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
-                  </p>
-                </div>
-
-                <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
-                  Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
-                </div>
+              <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mt-2">
+                <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                  Status Atual e Ações Necessárias
+                </p>
+                <p className="text-[10px] text-red-200/80 leading-relaxed mt-1 whitespace-pre-line">
+                  Entendi que o problema é cota, mas quero saber por que o consumo ficou tão alto agora, já que anteriormente o sistema funcionava normalmente mesmo com várias contas. Quero que você investigue o que mudou na frequência de chamadas ou se há alguma redundância. O token foi expirado ou apenas a cota? Além disso, verifique se contas que não estamos usando estão consumindo cota e, se sim, remova-as da sincronização para priorizar o que importa.
+                </p>
               </div>
 
               <p className="text-[9px] text-muted-foreground italic mt-1">
