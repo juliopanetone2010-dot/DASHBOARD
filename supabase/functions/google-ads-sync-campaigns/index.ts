@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
        dateClause = "segments.date DURING TODAY";
     }
 
+
     if (windowDays) {
       const today = new Date();
       const startDate = new Date();
