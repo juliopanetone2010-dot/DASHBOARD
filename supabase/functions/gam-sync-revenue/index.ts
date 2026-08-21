@@ -757,6 +757,19 @@ function safeDecode(s: string): string {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
+function parseUrlParams(url: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    const search = url.split("?")[1];
+    if (!search) return out;
+    for (const part of search.split("&")) {
+      const [k, v] = part.split("=");
+      if (k && v) out[k.toLowerCase()] = safeDecode(v);
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
 // Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
 // ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
 function cleanPlacementLabel(s: string): string {
