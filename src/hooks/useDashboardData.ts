@@ -52,6 +52,7 @@ export interface DashboardData {
   removeLink: (id: string) => Promise<void>;
 }
 
+const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 const GUEST_USER_ID = "guest";
 const GUEST_STORE_KEY = "arbitrage-dashboard-guest-v2";
 const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
@@ -338,7 +339,6 @@ const emptySnapshot = (): DashboardSnapshot => ({
   fetchedAt: 0,
 });
 
-const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 
 
 export function useDashboardData(): DashboardData {

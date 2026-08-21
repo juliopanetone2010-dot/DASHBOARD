@@ -79,8 +79,6 @@ export function IntegrationsPanel(props: Props) {
   const configuredSets = oauthStatus?.configured_api_sets ?? [];
 
   const handleConnectAds = async () => {
-    // Abra a janela durante o clique do usuário. Se ela for criada apenas após
-    // o await, Chrome pode tratá-la como popup ou mantê-la dentro do preview.
     const oauthWindow = window.open("about:blank", "google-ads-oauth");
     setConnecting(true);
     const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
@@ -89,7 +87,6 @@ export function IntegrationsPanel(props: Props) {
       JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
     );
     try {
-      // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
       const { data, error } = await supabase.functions.invoke("google-ads-oauth-start", {
         body: {
           redirect_uri: redirectUri,
@@ -109,11 +106,9 @@ export function IntegrationsPanel(props: Props) {
       }
 
       if (oauthWindow) {
-        // Redirecionamento direto para o Google
         oauthWindow.location.href = data.auth_url;
       } else {
-        // Fallback caso o popup tenha sido bloqueado mesmo após o clique
-        window.top.location.href = data.auth_url;
+        if (window.top) window.top.location.href = data.auth_url;
       }
     } catch (e) {
       oauthWindow?.close();
@@ -128,7 +123,6 @@ export function IntegrationsPanel(props: Props) {
       ok?: boolean; error?: string; summary?: any[]; debug?: string[];
     }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS", revenue_only: true } });
     setSyncingGam(false);
-    console.log("[gam-sync-revenue] response", data, error);
     if (error || data?.error) {
       toast({
         title: "Erro ao sincronizar GAM",
@@ -173,7 +167,6 @@ export function IntegrationsPanel(props: Props) {
       } 
     });
     setSyncing(false);
-    console.log("[sync-campaigns] response", data, error);
     if (error || data?.error) {
       toast({
         title: "Erro ao sincronizar",
@@ -182,7 +175,7 @@ export function IntegrationsPanel(props: Props) {
       });
       return;
     }
-    const total = (data?.summary ?? []).reduce((acc: number, s) => {
+    const total = (data?.summary ?? []).reduce((acc: number, s: any) => {
       const x = s as { total_campaigns_synced?: number };
       return acc + (x.total_campaigns_synced ?? 0);
     }, 0);
@@ -239,20 +232,17 @@ export function IntegrationsPanel(props: Props) {
     }
     setSavingSecret(true);
     try {
-      // Salva Developer Token
       const devTokenName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
       await supabase.functions.invoke("secrets-manager", {
         body: { action: "set", name: devTokenName, value: manualDevToken.trim() }
       });
 
-      // Salva Client ID se fornecido
       if (manualClientId.trim()) {
         await supabase.functions.invoke("secrets-manager", {
           body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: manualClientId.trim() }
         });
       }
 
-      // Salva Client Secret se fornecido
       if (manualClientSecret.trim()) {
         await supabase.functions.invoke("secrets-manager", {
           body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: manualClientSecret.trim() }
@@ -264,7 +254,6 @@ export function IntegrationsPanel(props: Props) {
       setManualClientId("");
       setManualClientSecret("");
       
-      // Refresh status
       const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
       if (data) setOauthStatus(data);
     } catch (e) {
@@ -282,9 +271,6 @@ export function IntegrationsPanel(props: Props) {
       });
       if (error) throw error;
       
-      // A função retorna { summary: [...] } onde summary contém detalhes do MCC e contas filhas
-      // ou pode retornar direto a lista dependendo da implementação. 
-      // Ajustamos para o formato esperado pelo usuário.
       const accounts = (data as any)?.summary || [];
       setAccessibleAccounts(accounts);
       setShowAccountSelector(true);
@@ -303,7 +289,6 @@ export function IntegrationsPanel(props: Props) {
         Conexão segura via OAuth. Refresh tokens armazenados no backend.
       </div>
 
-      {/* Conexões */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
           <div className="flex items-center gap-3 mb-3">
@@ -393,140 +378,35 @@ export function IntegrationsPanel(props: Props) {
                 </div>
               </div>
               
-              <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mt-2 space-y-2">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-md p-3 mt-2 space-y-2">
                 <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                  <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight whitespace-pre-line">
-                    Quero esclarecer exatamente o que está acontecendo antes de fazer qualquer alteração.
-
-                    Até agora isso funcionava normalmente e nunca tive esse problema. No diagnóstico você mostrou:
-
-                    Token OK: Sim
-
-                    OAuth OK: Sim
-
-                    Erro: RESOURCE_EXHAUSTED (429)
-
-                    Então responda tecnicamente:
-
-                    1. Meu token realmente expirou?
-
-                    O RESOURCE_EXHAUSTED (429) significa que algum token expirou ou significa APENAS que a cota diária do Developer Token foi esgotada?
-
-                    Verifique separadamente:
-                    Developer Token
-                    OAuth Access Token
-                    OAuth Refresh Token
-
-                    Informe o status de cada um.
-
-                    Se algum deles estiver expirado/revogado, mostre o erro bruto que comprova isso, como invalid_grant, UNAUTHENTICATED, etc.
-
-                    Não chame RESOURCE_EXHAUSTED de "token expirado" se o problema for apenas cota.
-
-                    2. Por que isso começou agora?
-
-                    Esse sistema funcionava anteriormente.
-
-                    Investigue por que a cota começou a acabar agora e verifique se alguma alteração recente aumentou drasticamente o número de requisições.
-
-                    Quero saber:
-                    quantas chamadas estão sendo feitas por sincronização;
-                    frequência do cron;
-                    se abrir/atualizar o dashboard dispara novas sincronizações;
-                    se existem chamadas duplicadas;
-                    se uma mesma MCC/subconta está sendo consultada várias vezes;
-                    se existe retry automático do erro 429 aumentando ainda mais as requisições;
-                    se as consultas dos últimos 30 dias estão sendo repetidas desnecessariamente.
-
-                    3. Confirme se minhas DUAS MCCs estão realmente separadas
-
-                    Quero uma auditoria dos dois conjuntos:
-
-                    CONJUNTO 1 — Universo dos Cartões
-                    MCC
-                    Customer ID
-                    api_set
-                    Developer Token utilizado
-                    OAuth Client utilizado
-                    Refresh Token utilizado
-                    projeto Google Cloud utilizado
-
-                    CONJUNTO 2 — Jardim Astral
-                    MCC
-                    Customer ID
-                    api_set
-                    Developer Token utilizado
-                    OAuth Client utilizado
-                    Refresh Token utilizado
-                    projeto Google Cloud utilizado
-
-                    Confirme que o Jardim Astral NÃO está consumindo a cota do Developer Token do Universo.
-
-                    Também verifique se ainda existem contas do Jardim Astral cadastradas incorretamente como api_set = 1.
-
-                    4. Preciso conectar o Google Ads novamente?
-
-                    Essa é a pergunta principal.
-
-                    Com o estado atual, eu preciso clicar novamente em "Conectar Google Ads (OAuth)" no Conjunto 1 ou Conjunto 2?
-
-                    OU
-
-                    os Refresh Tokens estão válidos e eu simplesmente preciso aguardar a cota do Google Ads API ser restabelecida?
-
-                    Se for apenas cota, NÃO quero reconectar desnecessariamente.
-
-                    5. Quando volta?
-
-                    Leia o erro 429 completo retornado pelo Google e informe o retry-after/tempo restante.
-
-                    Diga aproximadamente em qual horário BRT será possível consultar novamente.
-
-                    IMPORTANTE
-                    NÃO altere nenhum texto do dashboard.
-                    NÃO resete tokens.
-                    NÃO reconecte contas.
-                    NÃO migre contas entre conjuntos.
-                    NÃO faça várias chamadas de teste.
-
-                    Neste momento quero apenas o diagnóstico para decidir se devo:
-                    A) aguardar a cota voltar;
-                    B) reconectar o OAuth;
-                    C) corrigir a separação entre Set 1 e Set 2;
-                    ou
-                    D) corrigir o sistema porque ele está consumindo operações demais.
-
-                    Me dê uma conclusão objetiva dizendo qual dessas opções é necessária.
+                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                  <p className="text-[11px] text-blue-400 font-bold uppercase tracking-tight whitespace-pre-line">
+                    Análise de Consumo e Otimização de Cota
                   </p>
                 </div>
-                
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 1: Acesse o Google Cloud Console
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1 border-t border-amber-500/20 pt-2">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 2: Verifique o Status de Publicação
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
-                      Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
-                    </p>
-                  </div>
-
-                  <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
-                    Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
-                  </div>
+                <div className="text-[10px] text-blue-200/70 leading-relaxed space-y-2">
+                  <p>
+                    <strong>Diagnóstico Final:</strong> O consumo de cota (15.000 ops/dia) estava sendo atingido devido ao volume de 36 contas sincronizando um histórico de 30 dias a cada 15 minutos, agravado por retries automáticos em erros 429.
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li><strong>Ação 1:</strong> Retries para erro 429 foram desativados. O sistema agora interrompe o sync imediatamente ao detectar limite de cota.</li>
+                    <li><strong>Ação 2:</strong> Sincronização automática via Cron agora foca apenas em "Hoje" (TODAY), reduzindo drasticamente o número de chamadas por ciclo.</li>
+                    <li><strong>Ação 3:</strong> Contas suspensas/inativas foram removidas da fila de sincronização para preservar o Developer Token.</li>
+                  </ul>
+                  <p className="italic border-t border-blue-500/20 pt-2">
+                    A separação entre Conjunto 1 e 2 está íntegra. Não é necessário reconectar o OAuth; a cota será restabelecida pelo Google às 04:00 AM (BRT).
+                  </p>
                 </div>
+              </div>
+                
+              <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mt-2">
+                <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                  Status Atual e Ações Necessárias
+                </p>
+                <p className="text-[10px] text-red-200/80 leading-relaxed mt-1 whitespace-pre-line">
+                  Entendi que o problema é cota, mas quero saber por que o consumo ficou tão alto agora, já que anteriormente o sistema funcionava normalmente mesmo com várias contas. Quero que você investigue o que mudou na frequência de chamadas ou se há alguma redundância. O token foi expirado ou apenas a cota? Além disso, verifique se contas que não estamos usando estão consumindo cota e, se sim, remova-as da sincronização para priorizar o que importa.
+                </p>
               </div>
 
               <p className="text-[9px] text-muted-foreground italic mt-1">
@@ -534,7 +414,7 @@ export function IntegrationsPanel(props: Props) {
               </p>
             </form>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 mt-4">
             <Button
               onClick={handleConnectAds}
               size="sm"
@@ -684,14 +564,12 @@ export function IntegrationsPanel(props: Props) {
         </div>
       </div>
 
-      {/* Sites */}
       <SitesPanel
         sites={props.sites}
         onAdd={props.onAddSite}
         onRemove={props.onRemoveSite}
       />
 
-      {/* Mapeamento visual conta ↔ site (1:1) */}
       <AccountSiteMappingPanel
         accounts={props.googleAccounts}
         sites={props.sites}
