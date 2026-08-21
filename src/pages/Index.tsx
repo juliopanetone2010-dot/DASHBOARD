@@ -953,7 +953,7 @@ const IndexInner = () => {
             >
               <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-5 w-5 animate-spin" : "h-5 w-5"} />
               <span className="hidden sm:inline">
-                {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Gastos"}
+                {syncing || allSites.processingCount > 0 ? "Sincronizando..." : "Atualizar Gastos"}
               </span>
               <span className="sm:hidden text-[12px]">Atualizar</span>
               {allSites.processingCount > 0 && (
