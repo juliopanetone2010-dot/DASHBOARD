@@ -1939,14 +1939,16 @@ async function applyGoogleUtmRevenue(
     // 1. Inicializa com dados das campanhas (pode vir de SOAP/URL_NAME sem placement)
     for (const r of googleCampaignRows) {
       if (!r.cid) continue;
-      const key = `${r.cid}|${r.date}`;
+      const date = r.date ?? today;
+      const source = (r.source || "google").toLowerCase();
+      const key = `${r.cid}|${date}`;
       
-      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
+      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP") || r.raw.includes("PREDICTIVE");
       const status = isSoap ? "intraday" : "consolidated";
 
       const cur = sourceByCampaign.get(key) ?? { 
-        user_id: userId, site_id: siteId, campaign_id: r.cid, date: r.date, 
-        utm_source: r.source || "google", revenue_usd: 0, impressions: 0, 
+        user_id: userId, site_id: siteId, campaign_id: r.cid, date, 
+        utm_source: source, revenue_usd: 0, impressions: 0, 
         attribution_status: status 
       };
       
