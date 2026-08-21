@@ -370,29 +370,17 @@ export function IntegrationsPanel(props: Props) {
                   <div className="flex gap-2">
                     <Input 
                       type="password"
+                      value={manualClientId}
+                      onChange={(e) => setManualClientId(e.target.value)}
                       placeholder="Client ID (Opcional se global)"
                       className="h-8 text-xs flex-1"
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) {
-                          supabase.functions.invoke("secrets-manager", {
-                            body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: val }
-                          });
-                        }
-                      }}
                     />
                     <Input 
                       type="password"
+                      value={manualClientSecret}
+                      onChange={(e) => setManualClientSecret(e.target.value)}
                       placeholder="Client Secret (Opcional)"
                       className="h-8 text-xs flex-1"
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) {
-                          supabase.functions.invoke("secrets-manager", {
-                            body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: val }
-                          });
-                        }
-                      }}
                     />
                   </div>
                   <Button 
