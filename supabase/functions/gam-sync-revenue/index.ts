@@ -339,7 +339,7 @@ async function runSync(req: Request): Promise<Response> {
         
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr);
+        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0);
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
