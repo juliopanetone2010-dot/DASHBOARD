@@ -49,6 +49,11 @@ Deno.serve(async (req) => {
 
     const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
     let dateClause = "segments.date DURING LAST_30_DAYS";
+    // Default to a narrow window for automated crons to save API quota
+    if (isServiceRole && !windowDays && !datePreset && !dateFrom) {
+       dateClause = "segments.date DURING TODAY";
+    }
+
     if (windowDays) {
       const today = new Date();
       const startDate = new Date();
@@ -100,6 +105,7 @@ Deno.serve(async (req) => {
       .from("google_accounts")
       .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
       .eq("user_id", userId)
+      .not("status", "in", `(${Array.from(INACTIVE).map(s => `'${s}'`).join(",")})`)
       .not("refresh_token", "is", null);
 
     if (accErr) return json({ error: accErr.message });
@@ -123,34 +129,33 @@ Deno.serve(async (req) => {
              if (site?.next_sync_allowed_at && new Date(site.next_sync_allowed_at) > new Date()) {
                 const waitMs = new Date(site.next_sync_allowed_at).getTime() - Date.now();
                 console.warn(`[sync-campaigns] Quota blocked. Next sync allowed in ${Math.round(waitMs/1000)}s. Skipping.`);
-                return new Response(JSON.stringify({ error: { message: "RESOURCE_EXHAUSTED", details: { quotaErrorDetail: { retryDelaySeconds: Math.round(waitMs/1000) } } } }), { status: 429 });
+                return new Response(JSON.stringify({ error: { message: "RESOURCE_EXHAUSTED", details: [{ quotaErrorDetail: { retryDelaySeconds: Math.round(waitMs/1000) } }] } }), { status: 429 });
              }
           }
 
           const res = await fetch(url, init);
           if (res.status === 429) {
             const body = await res.clone().json().catch(() => ({}));
-            const retrySeconds = body?.error?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds || body?.detail?.details?.quotaErrorDetail?.retryDelaySeconds;
+            const retrySeconds = body?.error?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds || body?.detail?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds;
             
-            if (retrySeconds && siteId && adminClient) {
-               console.warn(`[sync-campaigns] Google mandated retry after ${retrySeconds}s. Locking site ${siteId}.`);
+            if (siteId && adminClient) {
+               console.warn(`[sync-campaigns] 429 Resource Exhausted. Locking site ${siteId}${retrySeconds ? ` for ${retrySeconds}s` : ""}.`);
+               const lockUntil = new Date(Date.now() + (retrySeconds || 3600) * 1000).toISOString();
                await adminClient.from("sites").update({ 
-                 next_sync_allowed_at: new Date(Date.now() + retrySeconds * 1000).toISOString(),
+                 next_sync_allowed_at: lockUntil,
                  sync_status: "error",
-                 sync_error: `Quota exceeded. Retry allowed at ${new Date(Date.now() + retrySeconds * 1000).toLocaleString()}`
+                 sync_error: `Quota exceeded. Retry allowed at ${new Date(lockUntil).toLocaleString()}`
                }).eq("id", siteId);
-               return res; // Return the 429 to be handled by caller
             }
-
-            const backoff = (i + 1) * 2000 + Math.random() * 1000;
-            console.warn(`[sync-campaigns] 429 Resource Exhausted. Retrying in ${Math.round(backoff)}ms...`);
-            await new Promise(r => setTimeout(r, backoff));
-            continue;
+            // CRITICAL: Do NOT retry 429 errors. Stop immediately to preserve quota.
+            return res;
           }
           return res;
         } catch (e) {
           lastErr = e;
-          await new Promise(r => setTimeout(r, 1000));
+          if (i < attempts - 1) {
+            await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+          }
         }
       }
       throw lastErr || new Error("Max retries exceeded");
