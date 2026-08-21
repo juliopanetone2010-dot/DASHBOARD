@@ -217,8 +217,11 @@ Deno.serve(async (req) => {
             const camJson = await camRes.json();
             if (!camRes.ok) {
               const msg = camJson?.error?.message ?? "Error";
+              const rawError = JSON.stringify(camJson.error);
+              console.error(`[SYNC ERROR] Account: ${leaf.customer_id}, Login: ${leaf.login_customer_id}, Set: ${root.api_set}, Error: ${rawError}`);
+              
               if (isInactiveErr(msg)) await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
-              else syncErrors.push({ account_id: leaf.customer_id, error: msg });
+              else syncErrors.push({ account_id: leaf.customer_id, error: msg, raw: camJson.error, api_set: root.api_set, login_customer_id: leaf.login_customer_id });
               continue;
             }
 
