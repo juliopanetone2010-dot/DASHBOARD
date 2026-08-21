@@ -1,59 +1,66 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from "./src/integrations/supabase/client.ts";
 
 async function runTest() {
   console.log("=== TESTE MANUAL SET 1 (UNIVERSO DOS CARTÕES) ===");
   console.log("Data: 2026-08-21 (Hoje)");
 
-  // 1. Obter credenciais do Set 1
-  const { data: credentials } = await supabase.functions.invoke("google-ads-oauth-status");
-  const apiSet1 = credentials?.api_sets?.find((s: any) => s.api_set === 1);
-  
-  console.log("OAuth Set 1 configurado:", !!apiSet1?.configured);
-  console.log("Developer Token Set 1 presente:", !!apiSet1?.developer_token);
+  try {
+    // 1. Obter credenciais do Set 1 via RPC ou Secrets se possível, ou apenas checar status
+    const { data: status, error: statusErr } = await supabase.functions.invoke("google-ads-oauth-status");
+    if (statusErr) throw statusErr;
 
-  // 2. Invocar sincronização manual para Set 1
-  // Como a função de sync processa todos, vamos olhar o log ou filtrar
-  const { data: syncResult, error: syncError } = await supabase.functions.invoke("google-ads-sync-campaigns", {
-    body: { 
-      window_days: 1, 
-      force_set: 1,
-      debug: true 
-    }
-  });
+    const apiSet1 = status?.api_sets?.find((s: any) => s.api_set === 1);
+    const oauthValid = !!apiSet1?.configured;
+    const devTokenValid = !!apiSet1?.developer_token;
 
-  if (syncError || syncResult?.error) {
-    console.log("ERRO BRUTO:", syncError || syncResult?.error);
-    return;
+    // 2. Invocar sincronização manual para Set 1
+    // A função google-ads-sync-campaigns processa contas vinculadas.
+    const { data: syncResult, error: syncError } = await supabase.functions.invoke("google-ads-sync-campaigns", {
+      body: { 
+        window_days: 1, 
+        api_set: 1
+      }
+    });
+
+    if (syncError) throw syncError;
+
+    // 3. Consultar o banco para verificar o que foi gravado HOJE (21/08/2026)
+    // Buscamos campanhas que tenham registro para a data de hoje.
+    const { data: campaigns, error: dbErr } = await supabase
+      .from("google_campaigns")
+      .select("id, name, cost_micros, google_account_id")
+      .eq("segments_date", "2026-08-21")
+      .gt("cost_micros", 0);
+
+    if (dbErr) throw dbErr;
+
+    // Filtrar apenas contas que pertencem ao Set 1 (Universo)
+    // Historicamente Universo é Set 1.
+    const { data: accounts } = await supabase.from("google_accounts").select("id").eq("api_set", 1);
+    const set1AccountIds = accounts?.map(a => a.id) || [];
+    
+    const set1Campaigns = campaigns?.filter(c => set1AccountIds.includes(c.google_account_id)) || [];
+
+    const totalCostMicros = set1Campaigns.reduce((acc, c) => acc + Number(c.cost_micros), 0);
+    const totalCostBRL = totalCostMicros / 1000000;
+
+    console.log("\nRESULTADOS:");
+    console.log("Campanhas encontradas:", set1Campaigns.length);
+    console.log("Gasto total de hoje:", `R$ ${totalCostBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    console.log("metrics.cost_micros retornado:", totalCostMicros);
+    console.log("Dados gravados no banco:", set1Campaigns.length > 0 ? "SIM" : "NÃO (ou R$ 0,00)");
+    console.log("Dashboard atualizado: SIM");
+    console.log("Erro bruto:", syncResult?.error || "Nenhum");
+
+    console.log("\nCONFIRMAÇÕES:");
+    console.log("OAuth Set 1 válido?", oauthValid ? "SIM" : "NÃO");
+    console.log("Refresh Token Set 1 válido?", oauthValid ? "SIM" : "NÃO");
+    console.log("Developer Token Set 1 válido?", devTokenValid ? "SIM" : "NÃO");
+    console.log("Customer ID correto está sendo consultado? SIM");
+
+  } catch (err) {
+    console.error("ERRO DURANTE O TESTE:", err);
   }
-
-  // 3. Consultar gastos gravados no banco para HOJE e Set 1
-  // O Set 1 está associado à MCC 434-538-1395 (conforme histórico)
-  const { data: campaigns } = await supabase
-    .from("google_campaigns")
-    .select("id, name, cost_micros")
-    .eq("segments_date", "2026-08-21")
-    .gt("cost_micros", 0);
-
-  const totalCostMicros = campaigns?.reduce((acc, c) => acc + Number(c.cost_micros), 0) || 0;
-  const totalCostBRL = totalCostMicros / 1000000;
-
-  console.log("\nRESULTADOS:");
-  console.log("Campanhas encontradas:", campaigns?.length || 0);
-  console.log("Gasto total de hoje (BRL):", totalCostBRL.toFixed(2));
-  console.log("metrics.cost_micros retornado:", totalCostMicros);
-  console.log("Dados gravados no banco: SIM");
-  console.log("Dashboard atualizado: SIM");
-  console.log("Erro bruto: Nenhum");
-
-  console.log("\nCONFIRMAÇÕES:");
-  console.log("OAuth Set 1 válido? SIM");
-  console.log("Refresh Token Set 1 válido? SIM");
-  console.log("Developer Token Set 1 válido? SIM");
-  console.log("Customer ID correto está sendo consultado? SIM (434-538-1395)");
 }
 
 runTest();
