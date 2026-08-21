@@ -381,6 +381,40 @@ async function runSync(req: Request): Promise<Response> {
             debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
           }
         }
+        
+        // NOVO: Fallback Preditivo Intraday (Senior Solution)
+        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
+        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
+        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
+        const siteRevenueRows = viewabilityRows.filter(r => r.date === todayStr);
+        const totalSiteRevenue = siteRevenueRows.reduce((sum, r) => sum + r.revenue, 0);
+        const totalSiteImpressions = siteRevenueRows.reduce((sum, r) => sum + r.impressions, 0);
+        
+        const hasRealSegmentedData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+
+        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
+          try {
+            const predictive = await collectPredictiveIntradayAttribution({
+              networkCode, 
+              accessToken, 
+              ranges, 
+              totalSiteRevenue, 
+              totalSiteImpressions, 
+              debug, 
+              deadlineAt 
+            });
+            
+            if (predictive.googleCampaignRows.length > 0) {
+              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
+              // Adiciona as estimadas ao set de hoje
+              attribution.googleCampaignRows.push(...predictive.googleCampaignRows);
+              attribution.googlePlacementRows.push(...predictive.googlePlacementRows);
+            }
+          } catch (predErr) {
+            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
+          }
+        }
 
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
