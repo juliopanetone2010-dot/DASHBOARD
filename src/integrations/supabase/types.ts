@@ -1663,6 +1663,7 @@ export type Database = {
       }
       gam_campaign_source_revenue: {
         Row: {
+          attribution_status: string | null
           campaign_id: string
           created_at: string
           date: string
@@ -1676,6 +1677,7 @@ export type Database = {
           utm_source: string
         }
         Insert: {
+          attribution_status?: string | null
           campaign_id: string
           created_at?: string
           date: string
@@ -1689,6 +1691,7 @@ export type Database = {
           utm_source: string
         }
         Update: {
+          attribution_status?: string | null
           campaign_id?: string
           created_at?: string
           date?: string
@@ -1705,6 +1708,7 @@ export type Database = {
       }
       gam_placement_revenue: {
         Row: {
+          attribution_status: string | null
           campaign_id: string
           created_at: string
           date: string
@@ -1719,6 +1723,7 @@ export type Database = {
           utm_source: string | null
         }
         Insert: {
+          attribution_status?: string | null
           campaign_id: string
           created_at?: string
           date: string
@@ -1733,6 +1738,7 @@ export type Database = {
           utm_source?: string | null
         }
         Update: {
+          attribution_status?: string | null
           campaign_id?: string
           created_at?: string
           date?: string

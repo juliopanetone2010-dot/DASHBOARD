@@ -167,58 +167,123 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Agora encontramos a causa real.
+        Pode prosseguir, mas com estas regras:
 
-Antes o ROI intraday funcionava porque existia atribuição baseada na URL/UTM. A migração para a REST v1 removeu esse caminho rápido e passou a depender de dimensões de targeting que só consolidam mais tarde.
+1. NÃO use REST v1 para URL_NAME
 
-Quero RESTAURAR o comportamento intraday antigo.
+Você já confirmou que:
 
-Não quero rateio proporcional da receita geral.
+REST v1 não suporta URL_NAME de forma confiável nessa combinação;
 
-Faça primeiro uma auditoria da implementação antiga e identifique exatamente como URL_NAME/URL bruta era usada para extrair:
+isso já causou 400 INVALID_ARGUMENT;
 
-utm_campaign={"{"}campaignid{"}"}
+SOAP ReportService suporta URL_NAME.
 
-e
+Então NÃO quero novas tentativas de URL_NAME na REST v1.
 
-utm_placement={"{"}campaignid{"}"}_{"{"}placement{"}"}
+Implemente diretamente o fluxo intraday via SOAP ReportService, de forma isolada e minimalista.
 
-Depois implemente a melhor alternativa compatível com a API atual.
+2. Não altere o fluxo principal
+
+Mantenha:
+
+REST v1 / KEY_VALUES_NAME para consolidação/reconciliação noturna.
+
+Crie o SOAP apenas para:
+
+URL_NAME → extrair campaign_id → receita intraday
+
+Não migre o restante da integração para SOAP.
+
+3. Regra de extração
 
 Prioridade:
 
- Verifique se existe na REST v1 alguma dimensão equivalente que devolva a URL/página ou um identificador do tráfego com granularidade suficiente.
+utm_campaign=CAMPAIGN_ID
 
- Se REST v1 não suportar, verifique se o caminho anterior via Ad Manager SOAP ReportService ainda pode ser utilizado SOMENTE para essa consulta intraday.
+Fallback:
 
- Se usar SOAP, faça uma consulta mínima apenas para receita por URL/campaign ID, sem migrar o restante do sistema.
+utm_placement=CAMPAIGN_ID_placement
 
- Extraia o Campaign ID diretamente de utm_campaign ou, como fallback, da parte anterior ao _ em utm_placement.
+Extraia apenas Campaign IDs numéricos válidos.
 
- Grave a receita real por Campaign ID em gam_campaign_source_revenue.
+4. Não duplique receita
 
- Continue usando o relatório consolidado por custom dimension à noite para reconciliar/corrigir os valores definitivos.
+Muito importante:
 
-A arquitetura deve ficar:
+Se a mesma campanha já tiver valor intraday salvo, faça UPDATE/UPSERT pelo conjunto:
 
-INTRADAY → URL/UTM → Campaign ID → receita por campanha
+date + site_id + campaign_id + source
 
-CONSOLIDADO → custom dimension → validação/reconciliação
+Não acumule a mesma receita a cada sincronização.
 
-Quero preservar precisão real. Não estimar, não dividir receita geral por clique, gasto ou sessão.
+Quando o dado consolidado noturno chegar, ele deve substituir/reconciliar o intraday, e não somar novamente.
 
-Antes de alterar o código, me diga:
+5. Diferencie dados intraday e consolidados
 
-Método antigo usado:
-Método intraday possível agora:
-REST v1 suporta? SIM/NÃO
-SOAP suporta? SIM/NÃO
-Dimensão exata que será usada:
-Latência esperada:
+Adicione algum identificador equivalente a:
 
-Só depois implemente.
+attribution_status = intraday
 
-Não altere interface nem textos.
+e depois:
+
+attribution_status = consolidated
+
+Assim podemos saber qual valor ainda é provisório e qual já foi reconciliado.
+
+6. Frequência
+
+Não rode isso a cada poucos minutos.
+
+Como a própria latência estimada é de 30–90 minutos, configure o sync intraday em uma frequência razoável para não desperdiçar chamadas.
+
+7. Validação obrigatória
+
+Depois da implementação, execute UMA consulta real de HOJE.
+
+Quero ver:
+
+Campanha
+Campaign ID
+URL_NAME retornada
+utm_campaign extraído
+Receita GAM intraday
+Gasto Google Ads
+Lucro
+ROI
+ROAS
+Registro salvo no banco
+Dashboard atualizado?
+
+Teste pelo menos 3 campanhas reais.
+
+8. Se SOAP retornar zero
+
+Não marque como corrigido.
+
+Mostre:
+
+quantidade de linhas retornadas;
+
+relatório executado;
+
+dimensão;
+
+métricas;
+
+período;
+
+erro bruto, se houver.
+
+IMPORTANTE
+
+Não altere textos do dashboard.
+
+Não use Fast Visual Edit.
+
+Não coloque este prompt na interface.
+
+A tarefa só está concluída quando a receita de HOJE aparecer individualmente nas campanhas antes da consolidação noturna.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
