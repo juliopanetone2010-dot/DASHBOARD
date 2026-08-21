@@ -1534,7 +1534,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               <TableRow>
                 <TableHead>Campaign ID</TableHead>
                 <TableHead>Nome</TableHead>
-                <TableHead className="text-right">ROI {c.attribution_status === 'intraday' && <span className="text-[10px] opacity-50 ml-1">(ESTIMADO)</span>}</TableHead>
+                <TableHead className="text-right">ROI</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
