@@ -864,7 +864,20 @@ const IndexInner = () => {
                     className="w-full justify-start gap-2"
                   >
                     <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                    {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Agora"}
+                    {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }}
+                    disabled={allSites.processingCount > 0}
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    Sincronizar todos os sites
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => { insertSampleData(); setMenuOpen(false); }} className="w-full justify-start gap-2">
                     <Plus className="h-4 w-4" /> Dados de teste
