@@ -25,17 +25,18 @@ async function forceSyncSet1() {
     const syncResult = await syncRes.json();
     console.log("Resposta da Sync:", JSON.stringify(syncResult, null, 2));
 
-    const camRes = await fetch(`${SUPABASE_URL}/rest/v1/google_campaigns?segments_date=eq.2026-08-21&cost_micros=gt.0&select=id,name,cost_micros`, {
+    // Validar gasto total atualizado na tabela daily_metrics
+    const metricRes = await fetch(`${SUPABASE_URL}/rest/v1/daily_metrics?date=eq.2026-08-21&select=spend`, {
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
     });
-    const campaigns = await camRes.json();
+    const metrics = await metricRes.json();
     
-    const totalCostMicros = campaigns.reduce((acc: number, c: any) => acc + Number(c.cost_micros), 0);
-    const totalCostBRL = totalCostMicros / 1000000;
+    const totalSpend = metrics.reduce((acc: number, m: any) => acc + Number(m.spend), 0);
+    const totalCostMicros = totalSpend * 1000000;
 
     console.log("\nVALORES ATUALIZADOS:");
-    console.log("Campanhas com gasto:", campaigns.length);
-    console.log("Novo Gasto Total:", `R$ ${totalCostBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    console.log("Campanhas com gasto:", metrics.length);
+    console.log("Novo Gasto Total:", `R$ ${totalSpend.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
     console.log("metrics.cost_micros:", totalCostMicros);
 
   } catch (err) {

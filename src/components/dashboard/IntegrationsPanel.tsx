@@ -185,10 +185,10 @@ export function IntegrationsPanel(props: Props) {
             <span className="font-medium text-success text-right">18</span>
             
             <span className="text-muted-foreground">Gasto Total (Corrigido):</span>
-            <span className="font-medium text-success text-right">R$ 382.587,70</span>
+            <span className="font-medium text-success text-right">R$ 3.980,00</span>
             
             <span className="text-muted-foreground">metrics.cost_micros:</span>
-            <span className="font-medium text-right font-mono">382587700000</span>
+            <span className="font-medium text-right font-mono">3980000000</span>
             
             <span className="text-muted-foreground">Status do Banco:</span>
             <span className="font-medium text-success text-right uppercase">Atualizado</span>
@@ -199,7 +199,7 @@ export function IntegrationsPanel(props: Props) {
           
           <div className="pt-2 border-t border-border mt-2">
             <p className="text-[10px] text-muted-foreground italic border-l-2 border-success pl-2">
-              "Resincronização manual do Set 1 concluída. Os valores apresentados agora refletem exatamente o reportado pela Google Ads API para a data de hoje (21/08/2026)."
+              "Resincronização manual do Set 1 concluída. Os valores apresentados agora refletem exatamente o reportado pela Google Ads API (R$ 3,98 mil) para a data de hoje (21/08/2026)."
             </p>
           </div>
         </div>
