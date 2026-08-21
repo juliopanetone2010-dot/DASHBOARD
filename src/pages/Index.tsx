@@ -1253,6 +1253,7 @@ const IndexInner = () => {
                 onRefresh={data.refresh}
                 dateRange={{ from: range.from, to: range.to }}
                 siteId={filters.siteId}
+                isIntraday={data.dataReadiness.isIntraday}
               />
             </section>
             </DashboardErrorBoundary>
