@@ -890,15 +890,32 @@ async function collectUtmAttribution(args: {
     ];
     for (const group of metricGroups) {
       try {
-        const groupRows = (await Promise.all(ranges.map((range) =>
-          runReport({
+        const groupRows = (await Promise.all(ranges.map(async (range) => {
+          const rows = await runReport({
             networkCode, accessToken, range,
             dimensions: ["DATE", "KEY_VALUES_NAME"],
             metrics: group.metrics,
             debug,
             deadlineAt,
-          })
-        ))).flat();
+          });
+          // Se KEY_VALUES_NAME retornar 0 rows para a data, tentamos CUSTOM_CRITERIA imediatamente
+          if (rows.length === 0) {
+            debug.push(`[${networkCode}/${label}/${group.label}] 0 rows com KEY_VALUES_NAME, tentando CUSTOM_CRITERIA fallback imediato para ${range.dateRange.startDate}...`);
+            try {
+              return await runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", "CUSTOM_CRITERIA"],
+                metrics: group.metrics,
+                debug,
+                deadlineAt,
+              });
+            } catch (err) {
+              debug.push(`[${networkCode}/${label}/${group.label}] fallback CUSTOM_CRITERIA falhou: ${String(err).slice(0, 100)}`);
+              return [];
+            }
+          }
+          return rows;
+        }))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
         reportRows.push(...groupRows);
       } catch (e) {
