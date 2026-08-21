@@ -134,7 +134,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "spend", label: "Gasto", width: 100 },
     { key: "revenue", label: "Receita", width: 110 },
     { key: "profit", label: "Lucro", width: 110 },
-    { key: "roi", label: "ROI (ESTIMADO)", width: 110 },
+    { key: "roi", label: "ROI", width: 110 },
     { key: "trend", label: "Tendência", width: 100 },
     { key: "roas", label: "ROAS", width: 80 },
     { key: "ecpm", label: "eCPM", width: 100 },
