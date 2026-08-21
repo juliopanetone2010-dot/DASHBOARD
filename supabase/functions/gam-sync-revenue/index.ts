@@ -1156,7 +1156,97 @@ async function runUtmPairCandidates(
       out.push({ label: c.label, rows });
     } catch (e) {
       debug.push(`[${networkCode}/${c.label}] erro=${String(e).slice(0, 500)}`);
+}
+
+async function collectPredictiveIntradayAttribution(args: {
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  totalSiteRevenue: number;
+  totalSiteImpressions: number;
+  debug: string[];
+  deadlineAt?: number;
+}): Promise<AttributionResult> {
+  const { networkCode, accessToken, ranges, totalSiteRevenue, totalSiteImpressions, debug, deadlineAt } = args;
+  
+  // REGRA SENIOR: Puxar apenas impressões (sem receita) para evitar Erro 400 e latência.
+  // Google libera dimensões de targeting com métricas de inventário (impressões) instantaneamente.
+  const metrics = ["AD_SERVER_IMPRESSIONS", "AD_EXCHANGE_IMPRESSIONS"];
+  const label = "PREDICTIVE_INTRADAY";
+
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ 
+        networkCode, 
+        accessToken, 
+        range, 
+        dimensions: ["DATE", "KEY_VALUES_NAME"], 
+        metrics, 
+        debug, 
+        deadlineAt 
+      })
+    ))).flat();
+
+    if (reportRows.length === 0) {
+      debug.push(`[${label}] 0 rows encontrados para impressões intraday.`);
+      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
     }
+
+    // Agregamos as impressões por campanha
+    const campaignImpressions = new Map<string, { impr: number; date: string; rawKv: string }>();
+    let totalAttributedImpressions = 0;
+
+    for (const r of reportRows) {
+      const rawKv = r.dims[1] || "";
+      const kv = parseKeyValueDimension(rawKv);
+      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+      if (!cid || !r.date) continue;
+
+      const key = `${cid}|${r.date}`;
+      const cur = campaignImpressions.get(key) ?? { impr: 0, date: r.date, rawKv };
+      cur.impr += r.impressions;
+      totalAttributedImpressions += r.impressions;
+      campaignImpressions.set(key, cur);
+    }
+
+    if (totalAttributedImpressions === 0) {
+      debug.push(`[${label}] Impressões atribuídas = 0.`);
+      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+    }
+
+    // Distribuímos a receita proporcionalmente
+    const googleCampaignRows: AttributedRow[] = [];
+    for (const [key, data] of campaignImpressions.entries()) {
+      const [cid] = key.split("|");
+      const share = data.impr / totalSiteImpressions;
+      const estimatedRev = totalSiteRevenue * share;
+      
+      googleCampaignRows.push({
+        date: data.date,
+        impressions: data.impr,
+        revenue: estimatedRev,
+        source: "google",
+        cid: cid,
+        placement: null,
+        raw: `PREDICTIVE|utm_source=google|raw=${data.rawKv.slice(0, 150)}|share=${(share * 100).toFixed(2)}%`
+      });
+    }
+
+    debug.push(`[${label}] Sucesso: ${googleCampaignRows.length} campanhas estimadas via share de impressões.`);
+    
+    return {
+      retentionRows: [],
+      googleCampaignRows,
+      googlePlacementRows: [],
+      campaignSource: label,
+      placementSource: label
+    };
+
+  } catch (e) {
+    debug.push(`[${label}] Erro na coleta: ${String(e)}`);
+    return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+  }
+}
   }
   return out;
 }
