@@ -876,7 +876,6 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
   return [...campaignAgg.values()];
 }
 
-
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
 async function fetchUtmKeyIds(
   networkCode: string,
