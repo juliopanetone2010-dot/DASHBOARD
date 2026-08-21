@@ -476,6 +476,40 @@ async function runSync(req: Request): Promise<Response> {
         }));
 
 
+        // NOVO: Fallback Preditivo Intraday (Senior Solution)
+        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
+        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
+        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
+        const siteTodayRows = viewabilityRows.filter(r => r.date === todayStr);
+        const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
+        const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
+        
+        const hasRealSegmentedData = googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+
+        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
+          try {
+            const predictive = await collectPredictiveIntradayAttribution({
+              networkCode, 
+              accessToken, 
+              ranges, 
+              totalSiteRevenue, 
+              totalSiteImpressions, 
+              debug, 
+              deadlineAt 
+            });
+            
+            if (predictive.googleCampaignRows.length > 0) {
+              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
+              // Adiciona as estimadas ao set de hoje para persistência
+              googleCampaignRows.push(...predictive.googleCampaignRows);
+              googlePlacementRows.push(...predictive.googlePlacementRows);
+            }
+          } catch (predErr) {
+            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
+          }
+        }
+
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
