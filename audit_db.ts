@@ -1,8 +1,8 @@
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function audit() {
@@ -34,14 +34,6 @@ async function audit() {
       console.log(` - ID: ${r.campaign_id} | Rev: ${r.revenue} | Status: ${r.attribution_status} | Source: ${r.source}`);
     });
   }
-
-  // 3. Verificar se existem URLs mapeadas para hoje
-  const { data: urls } = await supabase
-    .from('campaign_final_urls')
-    .select('count')
-    .eq('user_id', '1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9');
-  
-  console.log(`URLs no cache (campaign_final_urls): ${urls?.[0]?.count || 0}`);
 }
 
 audit();
