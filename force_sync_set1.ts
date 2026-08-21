@@ -1,12 +1,16 @@
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Missing environment variables VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY");
+  process.exit(1);
+}
+
 async function forceSyncSet1() {
   console.log("=== FORÇANDO SINCRONIZAÇÃO SET 1 (UNIVERSO) ===");
   console.log("Data: 2026-08-21 (Hoje)");
 
   try {
-    // 1. Invocação de sincronização profunda para Set 1
     const syncRes = await fetch(`${SUPABASE_URL}/functions/v1/google-ads-sync-campaigns`, {
       method: "POST",
       headers: {
@@ -15,14 +19,12 @@ async function forceSyncSet1() {
       },
       body: JSON.stringify({ 
         date_preset: "TODAY", 
-        api_set: 1,
-        force_refresh: true 
+        api_set: 1
       })
     });
     const syncResult = await syncRes.json();
     console.log("Resposta da Sync:", JSON.stringify(syncResult, null, 2));
 
-    // 2. Verificar novos valores no banco
     const camRes = await fetch(`${SUPABASE_URL}/rest/v1/google_campaigns?segments_date=eq.2026-08-21&cost_micros=gt.0&select=id,name,cost_micros`, {
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
     });
