@@ -150,8 +150,15 @@ Deno.serve(async (req) => {
           body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
         });
         const j = await r.json();
-        return r.ok ? j.access_token as string : null;
-      } catch { return null; }
+        if (!r.ok) {
+          console.error(`[AUTH ERROR] Set: ${apiSet}, Response: ${JSON.stringify(j)}`);
+          return null;
+        }
+        return j.access_token as string;
+      } catch (e) { 
+        console.error(`[AUTH FETCH ERROR] Set: ${apiSet}, Error: ${String(e)}`);
+        return null; 
+      }
     };
 
     const isInactiveErr = (msg: string) => /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
