@@ -397,72 +397,107 @@ export function IntegrationsPanel(props: Props) {
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
                   <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight whitespace-pre-line">
-                    O dashboard está exibindo Gasto Google Ads = R$ 0,00, mesmo existindo campanhas com gasto real.
+                    Quero esclarecer exatamente o que está acontecendo antes de fazer qualquer alteração.
 
-                    Quero descobrir a causa exata. NÃO altere textos do dashboard e NÃO simule valores.
+                    Até agora isso funcionava normalmente e nunca tive esse problema. No diagnóstico você mostrou:
 
-                    Faça um diagnóstico técnico completo do fluxo:
+                    Token OK: Sim
 
-                    Google Ads API → OAuth/Developer Token → MCC/Subconta → Query → Backend → Banco → Dashboard
+                    OAuth OK: Sim
 
-                    Verifique especificamente:
+                    Erro: RESOURCE_EXHAUSTED (429)
 
-                    Qual api_set está sendo usado para o site/conta selecionado.
+                    Então responda tecnicamente:
 
-                    Qual MCC está sendo utilizada.
+                    1. Meu token realmente expirou?
 
-                    Qual Customer ID está sendo consultado.
+                    O RESOURCE_EXHAUSTED (429) significa que algum token expirou ou significa APENAS que a cota diária do Developer Token foi esgotada?
 
-                    Se o Developer Token correspondente está válido e autorizado.
+                    Verifique separadamente:
+                    Developer Token
+                    OAuth Access Token
+                    OAuth Refresh Token
 
-                    Se o Refresh Token está válido.
+                    Informe o status de cada um.
 
-                    Se o OAuth está retornando invalid_grant, unauthorized_client, DEVELOPER_TOKEN_PROHIBITED, RESOURCE_EXHAUSTED ou qualquer outro erro.
+                    Se algum deles estiver expirado/revogado, mostre o erro bruto que comprova isso, como invalid_grant, UNAUTHENTICATED, etc.
 
-                    Faça UMA consulta mínima na Google Ads API buscando:
+                    Não chame RESOURCE_EXHAUSTED de "token expirado" se o problema for apenas cota.
 
-                    customer.id
-                    campaign.id
-                    campaign.name
-                    segments.date
-                    metrics.cost_micros
+                    2. Por que isso começou agora?
 
-                    Use o período de hoje.
+                    Esse sistema funcionava anteriormente.
 
-                    Mostre o resultado bruto retornado pela API antes de qualquer transformação.
+                    Investigue por que a cota começou a acabar agora e verifique se alguma alteração recente aumentou drasticamente o número de requisições.
 
-                    Se metrics.cost_micros retornar valor maior que zero, verifique se a conversão está correta:
-                    cost = cost_micros / 1_000_000
+                    Quero saber:
+                    quantas chamadas estão sendo feitas por sincronização;
+                    frequência do cron;
+                    se abrir/atualizar o dashboard dispara novas sincronizações;
+                    se existem chamadas duplicadas;
+                    se uma mesma MCC/subconta está sendo consultada várias vezes;
+                    se existe retry automático do erro 429 aumentando ainda mais as requisições;
+                    se as consultas dos últimos 30 dias estão sendo repetidas desnecessariamente.
 
-                    Depois verifique se esse valor está sendo salvo no banco.
+                    3. Confirme se minhas DUAS MCCs estão realmente separadas
 
-                    Mostre:
-                    último valor salvo de gasto;
-                    data/hora da última sincronização;
-                    último erro de sincronização;
-                    status da sincronização;
-                    Customer ID relacionado ao registro.
+                    Quero uma auditoria dos dois conjuntos:
 
-                    Depois confirme se o frontend está lendo o mesmo registro correto do banco.
+                    CONJUNTO 1 — Universo dos Cartões
+                    MCC
+                    Customer ID
+                    api_set
+                    Developer Token utilizado
+                    OAuth Client utilizado
+                    Refresh Token utilizado
+                    projeto Google Cloud utilizado
 
-                    Quero a resposta neste formato:
+                    CONJUNTO 2 — Jardim Astral
+                    MCC
+                    Customer ID
+                    api_set
+                    Developer Token utilizado
+                    OAuth Client utilizado
+                    Refresh Token utilizado
+                    projeto Google Cloud utilizado
 
-                    Site | api_set | MCC | Customer ID | Token OK? | OAuth OK? | API retornou cost_micros? | Valor retornado | Valor salvo no banco | Valor exibido no dashboard | Erro encontrado
+                    Confirme que o Jardim Astral NÃO está consumindo a cota do Developer Token do Universo.
 
-                    IMPORTANTE:
-                    Não faça sincronização de todas as contas.
-                    Não faça loops.
-                    Não dispare várias consultas.
-                    Faça apenas UMA chamada de teste para evitar consumir cota.
+                    Também verifique se ainda existem contas do Jardim Astral cadastradas incorretamente como api_set = 1.
 
-                    Se existir erro de token, mostre o erro bruto.
-                    Se existir erro de cota, mostre o retry-after.
+                    4. Preciso conectar o Google Ads novamente?
 
-                    Se a API retornar gasto correto e o dashboard continuar em zero, então investigue banco/mapeamento/frontend.
+                    Essa é a pergunta principal.
 
-                    Se a API já retornar zero ou erro, então o problema está antes do dashboard.
+                    Com o estado atual, eu preciso clicar novamente em "Conectar Google Ads (OAuth)" no Conjunto 1 ou Conjunto 2?
 
-                    Não considere resolvido até identificar exatamente em qual etapa o valor está virando R$ 0,00.
+                    OU
+
+                    os Refresh Tokens estão válidos e eu simplesmente preciso aguardar a cota do Google Ads API ser restabelecida?
+
+                    Se for apenas cota, NÃO quero reconectar desnecessariamente.
+
+                    5. Quando volta?
+
+                    Leia o erro 429 completo retornado pelo Google e informe o retry-after/tempo restante.
+
+                    Diga aproximadamente em qual horário BRT será possível consultar novamente.
+
+                    IMPORTANTE
+                    NÃO altere nenhum texto do dashboard.
+                    NÃO resete tokens.
+                    NÃO reconecte contas.
+                    NÃO migre contas entre conjuntos.
+                    NÃO faça várias chamadas de teste.
+
+                    Neste momento quero apenas o diagnóstico para decidir se devo:
+                    A) aguardar a cota voltar;
+                    B) reconectar o OAuth;
+                    C) corrigir a separação entre Set 1 e Set 2;
+                    ou
+                    D) corrigir o sistema porque ele está consumindo operações demais.
+
+                    Me dê uma conclusão objetiva dizendo qual dessas opções é necessária.
                   </p>
                 </div>
                 
