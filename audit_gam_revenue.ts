@@ -16,29 +16,29 @@ async function runAudit() {
   console.log("Data Alvo: 2026-08-21 (Hoje)");
   console.log("Data Comparação: 2026-08-20 (Ontem)");
 
-  // 1. Consulta no Banco de Dados (Estado Atual)
+  // 1. Consulta no Banco de Dados (Estado Atual) - Usando campaign_id
   const { data: dbRows, error: dbError } = await supabase
     .from('gam_campaign_source_revenue')
     .select('*')
-    .in('utm_campaign', campaignIds)
+    .in('campaign_id', campaignIds)
     .in('date', ['2026-08-20', '2026-08-21']);
 
   if (dbError) {
     console.error("Erro ao consultar banco:", dbError);
   } else {
     console.log("\n--- RESULTADOS ATUAIS NO BANCO ---");
-    console.log("Campaign ID | 20/08 (Receita) | 21/08 (Receita) | Status 21/08");
+    console.log("Campaign ID | 20/08 (Receita USD) | 21/08 (Receita USD) | Status 21/08");
     console.log("---------------------------------------------------------------");
 
     campaignIds.forEach(cid => {
-      const row20 = dbRows.find(r => r.utm_campaign === cid && r.date === '2026-08-20');
-      const row21 = dbRows.find(r => r.utm_campaign === cid && r.date === '2026-08-21');
+      const row20 = dbRows.find(r => r.campaign_id === cid && r.date === '2026-08-20');
+      const row21 = dbRows.find(r => r.campaign_id === cid && r.date === '2026-08-21');
       
-      const rev20 = row20 ? `$${row20.revenue.toFixed(2)}` : "$0.00";
-      const rev21 = row21 ? `$${row21.revenue.toFixed(2)}` : "$0.00";
+      const rev20 = row20 ? `$${row20.revenue_usd.toFixed(2)}` : "$0.00";
+      const rev21 = row21 ? `$${row21.revenue_usd.toFixed(2)}` : "$0.00";
       const status21 = row21?.attribution_status || "Não encontrado";
       
-      console.log(`${cid.padEnd(12)} | ${rev20.padEnd(14)} | ${rev21.padEnd(14)} | ${status21}`);
+      console.log(`${cid.padEnd(12)} | ${rev20.padEnd(15)} | ${rev21.padEnd(15)} | ${status21}`);
     });
   }
 
