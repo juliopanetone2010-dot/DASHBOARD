@@ -770,6 +770,7 @@ function parseUrlParams(url: string): Record<string, string> {
   return out;
 }
 
+
 // Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
 // ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
 function cleanPlacementLabel(s: string): string {
