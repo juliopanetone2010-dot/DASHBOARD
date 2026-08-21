@@ -49,11 +49,17 @@ Deno.serve(async (req) => {
 
     const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
     let dateClause = "segments.date DURING LAST_30_DAYS";
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const token = authHeader.replace("Bearer ", "");
+    let isServiceRole = token === SERVICE_ROLE;
+    if (!isServiceRole) {
+      try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
+    }
+
     // Default to a narrow window for automated crons to save API quota
     if (isServiceRole && !windowDays && !datePreset && !dateFrom) {
        dateClause = "segments.date DURING TODAY";
     }
-
 
     if (windowDays) {
       const today = new Date();
@@ -67,12 +73,6 @@ Deno.serve(async (req) => {
       dateClause = `segments.date BETWEEN '${dateFrom.replace(/-/g, "")}' AND '${dateTo.replace(/-/g, "")}'`;
     }
 
-
-
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const token = authHeader.replace("Bearer ", "");
-    let isServiceRole = token === SERVICE_ROLE;
-    if (!isServiceRole) {
       try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
     }
     let userId: string | undefined;
