@@ -1177,7 +1177,7 @@ async function collectUrlAttribution(args: {
   // A dimensão URL_NAME pode causar erro 400 em algumas redes se não estiver habilitada.
   // Tentamos capturá-la para fallback quando UTMs falham.
   try {
-  // eslint-disable-next-line no-unreachable
+  
     const reportRows = (await Promise.all(ranges.map((range) =>
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
     ))).flat();
