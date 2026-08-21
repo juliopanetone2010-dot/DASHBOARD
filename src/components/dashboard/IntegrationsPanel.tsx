@@ -397,7 +397,7 @@ export function IntegrationsPanel(props: Props) {
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
                   <p className="text-[11px] text-amber-200 font-bold uppercase tracking-tight">
-                    Por que ta dando token esgotado?
+                    Que horas os gastos vao ser  desbloqueados?  O botao de atualizar ainda esta sumido? e O porque a cota esta sendo expirada?
                   </p>
                 </div>
                 
