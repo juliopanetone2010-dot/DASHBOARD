@@ -339,7 +339,8 @@ async function runSync(req: Request): Promise<Response> {
         
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr);
+        // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
+        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
@@ -1194,7 +1195,10 @@ async function collectUrlAttribution(args: {
   // REST v1 causa 400 INVALID_ARGUMENT com URL_NAME + métricas combinadas.
   try {
     const reportRows = (await Promise.all(ranges.map(async (range) => {
-      if (!range?.dateRange?.startDate) return [];
+      if (!range?.dateRange?.startDate) {
+        debug.push(`[${networkCode}/SOAP] range invalido: ${JSON.stringify(range)}`);
+        return [];
+      }
       try {
         const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
         debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
@@ -1382,6 +1386,10 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
     return parts;
   };
 
+  if (!lines[0]) {
+    debug.push(`[parseSoapCsv] CSV sem headers`);
+    return [];
+  }
   const headers = parseLine(lines[0]);
   const rows: ReportRow[] = [];
   
