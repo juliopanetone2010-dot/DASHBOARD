@@ -337,11 +337,8 @@ async function runSync(req: Request): Promise<Response> {
         }
         
         if (attribution.googleCampaignRows.length === 0 && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] UTM fallbacks falharam, tentando URL_NAME candidate...`);
-          const urlCand = await runUrlNameCandidate(networkCode, accessToken, ranges, debug);
-          if (urlCand.rows.length > 0) {
-            attribution = rowsToAttributionResult(urlCand.rows, urlCand.label);
-          }
+          debug.push(`[${networkCode}] UTM fallbacks falharam, tentando CUSTOM_CRITERIA_FALLBACK...`);
+          // Note: URL_NAME candidate foi removido por incompatibilidade com a v1 REST API.
         }
         const utmRows = attribution.retentionRows;
         let googleCampaignRows = attribution.googleCampaignRows;
