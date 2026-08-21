@@ -927,8 +927,8 @@ const IndexInner = () => {
             </Button>
           </div>
           {/* Desktop actions */}
-          <div className="flex items-center gap-2 flex-wrap ml-auto md:ml-0">
-            <div className="hidden md:block">
+          <div className="flex items-center gap-2 ml-auto">
+            <div className="hidden lg:block">
               <GlobalSiteSelector
                 sites={data.sites}
                 links={data.links}
@@ -949,11 +949,13 @@ const IndexInner = () => {
                 void allSites.syncAll(true, range);
               }}
               disabled={syncing || allSites.processingCount > 0}
-              className="gap-2 border-primary/20 text-primary hover:bg-primary/10 shadow-sm"
+              className="gap-2 border-primary/30 text-primary hover:bg-primary/10 shadow-sm bg-background/50 h-9"
             >
               <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              <span className="hidden sm:inline">{syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Gastos"}</span>
-              <span className="sm:hidden">Atualizar</span>
+              <span className="hidden sm:inline font-bold">
+                {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Gastos"}
+              </span>
+              <span className="sm:hidden font-bold text-[11px]">Atualizar</span>
               {allSites.processingCount > 0 && (
                 <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
                   {allSites.processingCount}
@@ -962,7 +964,7 @@ const IndexInner = () => {
             </Button>
 
             {currentRole?.isSuperAdmin && (
-              <Button variant="outline" size="sm" asChild className="hidden md:flex gap-2" title="Gerenciar usuários">
+              <Button variant="outline" size="sm" asChild className="hidden md:flex gap-2 h-9" title="Gerenciar usuários">
                 <Link to="/admin/users"><UserCog className="h-4 w-4" /> Admins</Link>
               </Button>
             )}
