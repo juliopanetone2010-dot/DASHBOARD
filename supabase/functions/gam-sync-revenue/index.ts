@@ -1833,34 +1833,64 @@ async function persistCampaignSourceRevenueFromUtm(
   }
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
-  const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status")
+
+  // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
+  const { data: existing } = await admin.from("gam_campaign_source_revenue")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status,revenue_usd")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null }>();
-  for (const r of (existingRequests ?? []) as any[]) {
-    requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
+
+  const existingMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null; revenue_usd: number }>();
+  for (const r of (existing ?? []) as any[]) {
+    existingMap.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
       total_requests: Number(r.total_requests ?? 0), 
       match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
-      attribution_status: r.attribution_status || null
+      attribution_status: r.attribution_status || 'consolidated', // Default to consolidated if null
+      revenue_usd: Number(r.revenue_usd || 0)
     });
   }
+
+  const finalRows = [];
   for (const b of buckets.values()) {
-    const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
-    if (req && req.total_requests > 0) {
-      b.total_requests = req.total_requests;
-      b.match_rate_pct = req.match_rate_pct;
+    const key = `${b.campaign_id}|${b.date}|${b.utm_source}`;
+    const prev = existingMap.get(key);
+
+    if (prev) {
+      // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
+      if (prev.attribution_status === "consolidated" && b.attribution_status === "intraday") {
+        debug.push(`[gam_campaign_source_revenue] Ignorando intraday para ${key} pois já existe dado consolidado.`);
+        continue;
+      }
+      
+      // Preserva total_requests se já existirem
+      if (prev.total_requests > 0) {
+        b.total_requests = prev.total_requests;
+        b.match_rate_pct = prev.match_rate_pct;
+      }
     }
+    finalRows.push(b);
   }
-  const arr = [...buckets.values()];
-  if (arr.length === 0) {
-    debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
+
+  if (finalRows.length === 0) {
+    debug.push(`[gam_campaign_source_revenue] SKIP: nenhum dado novo ou mais confiável para inserir.`);
     return;
   }
-  await admin.from("gam_campaign_source_revenue")
-    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+
+  // Upsert individual ou em batch com tratamento de conflito seria melhor, 
+  // mas como a tabela tem delete/insert no código original, vamos manter a estrutura 
+  // mas filtrando o delete apenas para as chaves que estamos realmente atualizando.
+  for (const row of finalRows) {
+     await admin.from("gam_campaign_source_revenue")
+      .delete()
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .eq("campaign_id", row.campaign_id)
+      .eq("date", row.date)
+      .eq("utm_source", row.utm_source);
+  }
+
   const CHUNK = 500;
-  for (let i = 0; i < arr.length; i += CHUNK) {
-    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+  for (let i = 0; i < finalRows.length; i += CHUNK) {
+    await admin.from("gam_campaign_source_revenue").insert(finalRows.slice(i, i + CHUNK));
   }
   const sources = arr.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
