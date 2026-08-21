@@ -1914,7 +1914,7 @@ async function persistCampaignSourceRevenueFromUtm(
     };
     
     // Se houver qualquer linha consolidada para este balde, o balde todo vira consolidado
-    if (!isSoap) cur.attribution_status = "consolidated";
+    if (!isSoap && !isPredictive) cur.attribution_status = "consolidated";
 
     cur.revenue_usd += r.revenue / ingestionDivisor;
     cur.impressions += r.impressions;
