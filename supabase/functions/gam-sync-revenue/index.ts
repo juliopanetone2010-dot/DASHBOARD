@@ -770,6 +770,7 @@ function parseUrlParams(url: string): Record<string, string> {
   return out;
 }
 
+
 // Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
 // ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
 function cleanPlacementLabel(s: string): string {
@@ -873,19 +874,6 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
     if (!campaignAgg.has(key)) campaignAgg.set(key, row);
   }
   return [...campaignAgg.values()];
-}
-
-function parseUrlParams(raw: string | null | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  const value = safeDecode(String(raw ?? ""));
-  const query = value.includes("?") ? value.split("?").slice(1).join("?") : value;
-  for (const part of query.split(/[&#]/)) {
-    const [k, ...rest] = part.split("=");
-    if (!k || rest.length === 0) continue;
-    const key = safeDecode(k).trim().toLowerCase();
-    if (key.startsWith("utm_")) out[key] = safeDecode(rest.join("=")).trim();
-  }
-  return out;
 }
 
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
