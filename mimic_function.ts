@@ -31,7 +31,7 @@ async function testFunctionLogic() {
   console.log(`Auth Success. Access Token present: ${!!accessToken}`);
 
   const cq = "SELECT customer_client.id, customer_client.descriptive_name FROM customer_client WHERE customer_client.status = 'ENABLED'";
-  const url = `https://googleads.googleapis.com/v18/customers/${root.customer_id}/googleAds:search`;
+  const url = `https://googleads.googleapis.com/v18/customers/${root.customer_id.replace(/-/g, "")}/googleAds:search`;
   
   console.log(`Testing URL: ${url}`);
   const res = await fetch(url, {
