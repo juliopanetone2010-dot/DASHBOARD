@@ -173,9 +173,23 @@ Deno.serve(async (req) => {
     try {
       for (const root of accounts) {
         const { devToken } = getCreds((root as any).api_set ?? 1);
-        const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
+        const { clientId, clientSecret } = getCreds((root as any).api_set ?? 1);
+        
+        let accessToken: string | null = null;
+        let authErrorDetail: string | null = null;
+        try {
+          const r = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: root.refresh_token!, grant_type: "refresh_token" }),
+          });
+          const j = await r.json();
+          if (r.ok) accessToken = j.access_token;
+          else authErrorDetail = JSON.stringify(j);
+        } catch (e) { authErrorDetail = String(e); }
+
         if (!accessToken) {
-          summary.push({ root_account: root.customer_id, error: "Auth failed" });
+          summary.push({ root_account: root.customer_id, error: "Auth failed", detail: authErrorDetail, api_set: root.api_set });
           continue;
         }
 
