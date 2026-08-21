@@ -1377,6 +1377,9 @@ async function runSoapReport(args: {
   // Download e parse CSV
   const csvRes = await fetch(resultUrl);
   const csvText = await csvRes.text();
+  console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
+  console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
+  console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
   return parseSoapCsv(csvText, dimensions);
 }
 
