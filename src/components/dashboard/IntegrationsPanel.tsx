@@ -393,11 +393,11 @@ export function IntegrationsPanel(props: Props) {
                 </div>
               </div>
               
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-3 mt-2 space-y-2">
+              <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mt-2 space-y-2">
                 <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                  <p className="text-[11px] text-amber-200 font-bold uppercase tracking-tight">
-                    Que horas os gastos vao ser  desbloqueados?  O botao de atualizar ainda esta sumido? e O porque a cota esta sendo expirada?
+                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight">
+                    CONTINUA A MESMA COISA GASTOS ZERADOS E BOTAO ATUALIZAR SUMIU, O TOKEN FOI EXPIRADO VERIFIQUE PRA MIM
                   </p>
                 </div>
                 
