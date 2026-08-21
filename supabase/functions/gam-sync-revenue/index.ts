@@ -1376,6 +1376,8 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
   if (lines.length <= 1) return [];
   
   // O dump do GAM pode ter aspas
+  console.log(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 500)}`);
+  debug.push(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 200)}`);
   const parseLine = (line: string) => {
     const parts = [];
     let current = "";
