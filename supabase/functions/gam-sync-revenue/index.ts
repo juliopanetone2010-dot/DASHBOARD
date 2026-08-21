@@ -1194,7 +1194,10 @@ async function collectUrlAttribution(args: {
   // REST v1 causa 400 INVALID_ARGUMENT com URL_NAME + métricas combinadas.
   try {
     const reportRows = (await Promise.all(ranges.map(async (range) => {
-      if (!range?.dateRange?.startDate) return [];
+      if (!range?.dateRange?.startDate) {
+        debug.push(`[${networkCode}/SOAP] range invalido: ${JSON.stringify(range)}`);
+        return [];
+      }
       try {
         const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
         debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
@@ -1382,6 +1385,10 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
     return parts;
   };
 
+  if (!lines[0]) {
+    debug.push(`[parseSoapCsv] CSV sem headers`);
+    return [];
+  }
   const headers = parseLine(lines[0]);
   const rows: ReportRow[] = [];
   
