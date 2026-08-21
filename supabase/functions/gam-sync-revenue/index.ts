@@ -159,7 +159,8 @@ async function runSync(req: Request): Promise<Response> {
     debug.push("got access token");
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
-    const usdToBrlRate = fxRates.usdBrl || 1;
+    const usdToBrlRate = fxRates.usdBrl || 5.15; // Fallback seguro
+
     debug.push(`[currency] Rate used for dashboard calculation: USD 1.00 = BRL ${usdToBrlRate.toFixed(4)}`);
 
     // Agrupa sites por network_code
@@ -1210,15 +1211,26 @@ async function collectUrlAttribution(args: {
   return out;
 }
 
-function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlMap?: Map<string, string>): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
     const params = parseUrlParams(rawUrl);
-    const sourceRaw = params.utm_source ?? "";
-    const campaignRaw = params.utm_campaign ?? "";
-    const placementRaw = params.utm_placement ?? "";
-    const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    
+    // Tenta extrair ID da URL se UTM falhar
+    let cid = extractCampaignId(params.utm_campaign) ?? extractCampaignId(params.utm_placement);
+    if (!cid && finalUrlMap) {
+      // Busca reversa no mapa de URLs finais se disponível
+      for (const [campaignId, url] of finalUrlMap.entries()) {
+        if (rawUrl.includes(campaignId) || (url && rawUrl.includes(url))) {
+          cid = campaignId;
+          break;
+        }
+      }
+    }
+    if (!cid) cid = extractCampaignId(rawUrl);
+
+    const source = params.utm_source ? safeDecode(params.utm_source).toLowerCase().trim() : "google"; // Default para google se houver CID
+
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
