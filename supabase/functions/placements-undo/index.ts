@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
         // Busca os campaign_criteria negativos da campanha
         const query = `SELECT campaign_criterion.resource_name, campaign_criterion.placement.url, campaign_criterion.mobile_application.app_id, campaign_criterion.type, campaign_criterion.negative FROM campaign_criterion WHERE campaign.id = ${g.campaign_id} AND campaign_criterion.negative = TRUE AND campaign_criterion.type IN ('PLACEMENT','MOBILE_APPLICATION')`;
         const sr = await fetch(
-          `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/googleAds:search`,
+          `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query }) },
         );
         const sj = await sr.json();
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
           out.push({ campaign_id: g.campaign_id, removed: 0, note: "no_negative_found" });
         } else {
           const mr = await fetch(
-            `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
+            `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
             { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
           );
           const mj = await mr.json();

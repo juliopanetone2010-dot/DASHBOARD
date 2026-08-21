@@ -162,8 +162,8 @@ async function runMigration(a: RunArgs) {
 
   const srcHeaders = buildHeaders(srcToken, srcAcc.login_customer_id, srcAcc.api_set ?? 1);
   const dstHeaders = buildHeaders(dstToken, dstAcc.login_customer_id, dstAcc.api_set ?? 1);
-  const srcBase = `https://googleads.googleapis.com/v24/customers/${srcAcc.customer_id}`;
-  const dstBase = `https://googleads.googleapis.com/v24/customers/${dstAcc.customer_id}`;
+  const srcBase = `https://googleads.googleapis.com/v18/customers/${srcAcc.customer_id}`;
+  const dstBase = `https://googleads.googleapis.com/v18/customers/${dstAcc.customer_id}`;
 
   const srcCampResource = `customers/${srcAcc.customer_id}/campaigns/${srcCamp.campaign_id}`;
   const debug: any = {
