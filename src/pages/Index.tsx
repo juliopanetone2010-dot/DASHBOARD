@@ -927,20 +927,20 @@ const IndexInner = () => {
             </Button>
           </div>
           {/* Desktop actions */}
-          <div className="hidden md:flex items-center gap-2 flex-wrap">
-            <GlobalSiteSelector
-              sites={data.sites}
-              links={data.links}
-              onChange={(siteId) => {
-                const linked = siteId === "all"
-                  ? []
-                  : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
-                handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
-              }}
-            />
-            <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
-              <Plus className="h-4 w-4" /> Dados de teste
-            </Button>
+          <div className="flex items-center gap-2 flex-wrap ml-auto md:ml-0">
+            <div className="hidden md:block">
+              <GlobalSiteSelector
+                sites={data.sites}
+                links={data.links}
+                onChange={(siteId) => {
+                  const linked = siteId === "all"
+                    ? []
+                    : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
+                  handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
+                }}
+              />
+            </div>
+            
             <Button
               variant="outline"
               size="sm"
@@ -949,47 +949,20 @@ const IndexInner = () => {
                 void allSites.syncAll(true, range);
               }}
               disabled={syncing || allSites.processingCount > 0}
-              className="gap-2"
-              title="Sincroniza todos os sites"
+              className="gap-2 border-primary/20 text-primary hover:bg-primary/10 shadow-sm"
             >
               <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              Sincronizar todos os sites
+              <span className="hidden sm:inline">{syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Gastos"}</span>
+              <span className="sm:hidden">Atualizar</span>
               {allSites.processingCount > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {allSites.processingCount}/{allSites.totalCount}
+                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                  {allSites.processingCount}
                 </Badge>
               )}
             </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                handleRefresh();
-                void allSites.syncAll(true, range);
-              }} 
-              disabled={syncing || allSites.processingCount > 0} 
-              className="gap-2"
-            >
-              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
-            </Button>
-            {currentRole && (
-              <Badge
-                variant="outline"
-                className={
-                  currentRole.isSuperAdmin ? "border-purple-500 text-purple-600 bg-purple-500/10"
-                  : currentRole.role === "admin" ? "border-blue-500 text-blue-600 bg-blue-500/10"
-                  : currentRole.role === "manager" ? "border-amber-500 text-amber-600 bg-amber-500/10"
-                  : "border-slate-400 text-slate-600 bg-slate-400/10"
-                }
-              >
-                {currentRole.isSuperAdmin ? "Super Admin"
-                  : currentRole.role === "admin" ? "Admin"
-                  : currentRole.role === "manager" ? "Manager" : "Viewer"}
-              </Badge>
-            )}
+
             {currentRole?.isSuperAdmin && (
-              <Button variant="outline" size="sm" asChild className="gap-2" title="Gerenciar usuários">
+              <Button variant="outline" size="sm" asChild className="hidden md:flex gap-2" title="Gerenciar usuários">
                 <Link to="/admin/users"><UserCog className="h-4 w-4" /> Admins</Link>
               </Button>
             )}
