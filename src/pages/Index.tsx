@@ -1379,24 +1379,29 @@ const IndexInner = () => {
       </main>
 
       {/* Mobile Sticky Update Bar */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-30 md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-[60] md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
         <div className="flex flex-col min-w-0">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Atualização</span>
-          <span className="text-xs font-medium truncate">
-            {allSites.processingCount > 0 ? `Sincronizando ${allSites.processingCount} site(s)...` : "Dados prontos"}
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Status</span>
+          <span className="text-xs font-medium truncate text-primary">
+            {allSites.processingCount > 0 ? (
+              <span className="flex items-center gap-1.5 animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Sincronizando {allSites.processingCount} sites
+              </span>
+            ) : "Dados atualizados"}
           </span>
         </div>
         <Button 
           size="sm" 
-          className="gap-2 px-4 shadow-glow" 
+          className="gap-2 px-6 rounded-full shadow-glow-primary h-9" 
           onClick={() => {
             handleRefresh();
             void allSites.syncAll(true, range);
           }}
           disabled={syncing || allSites.processingCount > 0}
         >
-          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          {syncing || allSites.processingCount > 0 ? "Aguarde..." : "Atualizar"}
+          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+          {syncing || allSites.processingCount > 0 ? "Aguarde" : "Atualizar"}
         </Button>
       </div>
     </div>
