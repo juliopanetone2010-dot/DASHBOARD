@@ -79,8 +79,6 @@ export function IntegrationsPanel(props: Props) {
   const configuredSets = oauthStatus?.configured_api_sets ?? [];
 
   const handleConnectAds = async () => {
-    // Abra a janela durante o clique do usuário. Se ela for criada apenas após
-    // o await, Chrome pode tratá-la como popup ou mantê-la dentro do preview.
     const oauthWindow = window.open("about:blank", "google-ads-oauth");
     setConnecting(true);
     const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
@@ -89,7 +87,6 @@ export function IntegrationsPanel(props: Props) {
       JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
     );
     try {
-      // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
       const { data, error } = await supabase.functions.invoke("google-ads-oauth-start", {
         body: {
           redirect_uri: redirectUri,
@@ -109,10 +106,8 @@ export function IntegrationsPanel(props: Props) {
       }
 
       if (oauthWindow) {
-        // Redirecionamento direto para o Google
         oauthWindow.location.href = data.auth_url;
       } else {
-        // Fallback caso o popup tenha sido bloqueado mesmo após o clique
         window.top.location.href = data.auth_url;
       }
     } catch (e) {
@@ -128,7 +123,6 @@ export function IntegrationsPanel(props: Props) {
       ok?: boolean; error?: string; summary?: any[]; debug?: string[];
     }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS", revenue_only: true } });
     setSyncingGam(false);
-    console.log("[gam-sync-revenue] response", data, error);
     if (error || data?.error) {
       toast({
         title: "Erro ao sincronizar GAM",
@@ -173,7 +167,6 @@ export function IntegrationsPanel(props: Props) {
       } 
     });
     setSyncing(false);
-    console.log("[sync-campaigns] response", data, error);
     if (error || data?.error) {
       toast({
         title: "Erro ao sincronizar",
@@ -239,20 +232,17 @@ export function IntegrationsPanel(props: Props) {
     }
     setSavingSecret(true);
     try {
-      // Salva Developer Token
       const devTokenName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
       await supabase.functions.invoke("secrets-manager", {
         body: { action: "set", name: devTokenName, value: manualDevToken.trim() }
       });
 
-      // Salva Client ID se fornecido
       if (manualClientId.trim()) {
         await supabase.functions.invoke("secrets-manager", {
           body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: manualClientId.trim() }
         });
       }
 
-      // Salva Client Secret se fornecido
       if (manualClientSecret.trim()) {
         await supabase.functions.invoke("secrets-manager", {
           body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: manualClientSecret.trim() }
@@ -264,7 +254,6 @@ export function IntegrationsPanel(props: Props) {
       setManualClientId("");
       setManualClientSecret("");
       
-      // Refresh status
       const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
       if (data) setOauthStatus(data);
     } catch (e) {
@@ -282,9 +271,6 @@ export function IntegrationsPanel(props: Props) {
       });
       if (error) throw error;
       
-      // A função retorna { summary: [...] } onde summary contém detalhes do MCC e contas filhas
-      // ou pode retornar direto a lista dependendo da implementação. 
-      // Ajustamos para o formato esperado pelo usuário.
       const accounts = (data as any)?.summary || [];
       setAccessibleAccounts(accounts);
       setShowAccountSelector(true);
@@ -303,7 +289,6 @@ export function IntegrationsPanel(props: Props) {
         Conexão segura via OAuth. Refresh tokens armazenados no backend.
       </div>
 
-      {/* Conexões */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
           <div className="flex items-center gap-3 mb-3">
@@ -415,31 +400,30 @@ export function IntegrationsPanel(props: Props) {
                 </div>
               </div>
                 
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 1: Acesse o Google Cloud Console
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
-                    </p>
-                  </div>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-[10px] text-amber-100/90 font-semibold">
+                    Passo 1: Acesse o Google Cloud Console
+                  </p>
+                  <p className="text-[9px] text-amber-200/70 leading-relaxed">
+                    Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
+                  </p>
+                </div>
 
-                  <div className="space-y-1 border-t border-amber-500/20 pt-2">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 2: Verifique o Status de Publicação
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
-                      Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
-                    </p>
-                  </div>
+                <div className="space-y-1 border-t border-amber-500/20 pt-2">
+                  <p className="text-[10px] text-amber-100/90 font-semibold">
+                    Passo 2: Verifique o Status de Publicação
+                  </p>
+                  <p className="text-[9px] text-amber-200/70 leading-relaxed">
+                    Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
+                  </p>
+                  <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
+                    Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
+                  </p>
+                </div>
 
-                  <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
-                    Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
-                  </div>
+                <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
+                  Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
                 </div>
               </div>
 
@@ -448,7 +432,7 @@ export function IntegrationsPanel(props: Props) {
               </p>
             </form>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 mt-4">
             <Button
               onClick={handleConnectAds}
               size="sm"
@@ -598,14 +582,12 @@ export function IntegrationsPanel(props: Props) {
         </div>
       </div>
 
-      {/* Sites */}
       <SitesPanel
         sites={props.sites}
         onAdd={props.onAddSite}
         onRemove={props.onRemoveSite}
       />
 
-      {/* Mapeamento visual conta ↔ site (1:1) */}
       <AccountSiteMappingPanel
         accounts={props.googleAccounts}
         sites={props.sites}
