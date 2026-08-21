@@ -2041,26 +2041,42 @@ async function applyGoogleUtmRevenue(
     }
 
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
-    const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
-      .select("campaign_id,date,total_requests,match_rate_pct")
+    const { data: existingSource } = cids.length ? await admin.from("gam_campaign_source_revenue")
+      .select("campaign_id,date,total_requests,match_rate_pct,attribution_status")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
     
-    for (const r of (existingSourceRequests ?? []) as any[]) {
-      const req = Number(r.total_requests ?? 0);
-      if (req > 0) {
-        const key = `${r.campaign_id}|${r.date}`;
-        const cur = sourceByCampaign.get(key);
-        if (cur) {
-          cur.total_requests = req;
-          cur.match_rate_pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
+    const existingSMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string }>();
+    for (const r of (existingSource ?? []) as any[]) {
+      existingSMap.set(`${r.campaign_id}|${r.date}`, {
+        total_requests: Number(r.total_requests || 0),
+        match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+        attribution_status: r.attribution_status || 'consolidated'
+      });
+    }
+
+    const finalSourceRows = [];
+    for (const b of sourceByCampaign.values()) {
+      const key = `${b.campaign_id}|${b.date}`;
+      const prev = existingSMap.get(key);
+      if (prev) {
+        // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
+        if (prev.attribution_status === 'consolidated' && b.attribution_status === 'intraday') {
+          continue;
+        }
+        if (prev.total_requests > 0) {
+          b.total_requests = prev.total_requests;
+          b.match_rate_pct = prev.match_rate_pct;
         }
       }
+      finalSourceRows.push(b);
     }
-    const sourceRows = [...sourceByCampaign.values()];
-    for (let i = 0; i < sourceRows.length; i += CHUNK) {
-      await admin.from("gam_campaign_source_revenue").upsert(sourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+
+    if (finalSourceRows.length > 0) {
+      for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
+        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+      }
     }
-    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas (campanha+placement)`);
+    debug.push(`[gam_campaign_source_revenue/google] ${finalSourceRows.length} linha(s) processadas (consolidated/intraday sync)`);
   }
 
   const { data: links } = await admin
