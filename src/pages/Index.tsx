@@ -797,7 +797,7 @@ const IndexInner = () => {
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Mobile hamburger */}
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
@@ -852,9 +852,32 @@ const IndexInner = () => {
                       </Badge>
                     )}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { handleRefresh(); setMenuOpen(false); }} disabled={syncing} className="w-full justify-start gap-2">
-                    <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                    {syncing ? "Sincronizando…" : "Atualizar"}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      handleRefresh();
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }} 
+                    disabled={syncing || allSites.processingCount > 0} 
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }}
+                    disabled={allSites.processingCount > 0}
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    Sincronizar todos os sites
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => { insertSampleData(); setMenuOpen(false); }} className="w-full justify-start gap-2">
                     <Plus className="h-4 w-4" /> Dados de teste
@@ -888,6 +911,20 @@ const IndexInner = () => {
                 )}
               </p>
             </div>
+            
+            {/* Mobile-only Update Button in Header */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="md:hidden h-10 w-10 shrink-0 ml-auto border-primary/20 text-primary hover:bg-primary/10"
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
+            >
+              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            </Button>
           </div>
           {/* Desktop actions */}
           <div className="hidden md:flex items-center gap-2 flex-wrap">
@@ -1342,24 +1379,29 @@ const IndexInner = () => {
       </main>
 
       {/* Mobile Sticky Update Bar */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-30 md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-[60] md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
         <div className="flex flex-col min-w-0">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Atualização</span>
-          <span className="text-xs font-medium truncate">
-            {allSites.processingCount > 0 ? `Sincronizando ${allSites.processingCount} site(s)...` : "Dados prontos"}
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Status</span>
+          <span className="text-xs font-medium truncate text-primary">
+            {allSites.processingCount > 0 ? (
+              <span className="flex items-center gap-1.5 animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Sincronizando {allSites.processingCount} sites
+              </span>
+            ) : "Dados atualizados"}
           </span>
         </div>
         <Button 
           size="sm" 
-          className="gap-2 px-4 shadow-glow" 
+          className="gap-2 px-6 rounded-full shadow-glow-primary h-9" 
           onClick={() => {
             handleRefresh();
             void allSites.syncAll(true, range);
           }}
           disabled={syncing || allSites.processingCount > 0}
         >
-          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          {syncing || allSites.processingCount > 0 ? "Aguarde..." : "Atualizar"}
+          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+          {syncing || allSites.processingCount > 0 ? "Aguarde" : "Atualizar"}
         </Button>
       </div>
     </div>

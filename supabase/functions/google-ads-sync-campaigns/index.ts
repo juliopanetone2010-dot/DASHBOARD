@@ -282,6 +282,7 @@ Deno.serve(async (req) => {
                   is_mcc: r.customerClient.manager ?? false,
                   status: appStatus,
                   refresh_token: root.refresh_token,
+                  api_set: root.api_set ?? 1,
                   last_synced_at: new Date().toISOString(),
                 },
                 { onConflict: "user_id,customer_id" },
