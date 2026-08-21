@@ -665,10 +665,14 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     if (bodySiteId) {
+      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
       await admin.from("sites").update({ sync_lock: false, sync_status: "error", sync_error: String(e) }).eq("id", bodySiteId);
     }
     console.error("[sync-campaigns] uncaught", e);
-    return json({ error: String(e) });
+    return new Response(JSON.stringify({ error: String(e) }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
 
