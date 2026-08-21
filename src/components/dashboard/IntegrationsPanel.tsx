@@ -175,7 +175,7 @@ export function IntegrationsPanel(props: Props) {
       });
       return;
     }
-    const total = (data?.summary ?? []).reduce((acc: number, s) => {
+    const total = (data?.summary ?? []).reduce((acc: number, s: any) => {
       const x = s as { total_campaigns_synced?: number };
       return acc + (x.total_campaigns_synced ?? 0);
     }, 0);
