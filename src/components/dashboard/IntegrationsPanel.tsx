@@ -167,7 +167,66 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        puxa as camap nhas manualmente hj do universo
+        Agora que você identificou e corrigiu o erro 400 URL_NAME, quero que faça uma validação prática.
+
+PUXE MANUALMENTE A RECEITA POR CAMPANHA DE HOJE (21/08/2026), da mesma forma que você conseguiu puxar e demonstrar os dados de ontem.
+
+NÃO quero esperar o cron.
+NÃO quero usar os dados de ontem.
+NÃO quero apenas receita geral do site.
+
+Quero executar agora a sincronização de receita por campanha para HOJE.
+
+Faça o seguinte:
+
+Execute manualmente gam-sync-revenue para 21/08/2026.
+
+Use o fluxo corrigido:
+KEY_VALUES_NAME / CUSTOM_CRITERIA
+
+NÃO utilize URL_NAME, pois você já identificou que estava causando erro 400.
+
+Pegue os Campaign IDs retornados pelo tracking.
+
+Cruze com as campanhas do Google Ads.
+
+Grave a receita de hoje em gam_campaign_source_revenue.
+
+Atualize os cálculos de receita, lucro, ROI e ROAS das campanhas.
+
+Depois valide com campanhas REAIS DE HOJE
+
+Pegue pelo menos 3 campanhas que possuem gasto hoje e me mostre:
+
+Campanha | Campaign ID | Gasto hoje | Receita GAM hoje | Receita convertida BRL | Lucro | ROI | ROAS
+
+Quero também saber:
+
+Quantos Campaign IDs o GAM retornou para hoje?
+
+Quantos tiveram correspondência com campanhas do Google Ads?
+
+Quantos registros foram gravados/atualizados em gam_campaign_source_revenue?
+
+A tabela de campanhas do dashboard passou a mostrar esses valores?
+
+SE CONTINUAR RETORNANDO ZERO
+
+Não responda simplesmente que é "delay do GAM".
+
+Mostre o resultado bruto da consulta de HOJE e compare com a mesma consulta de ONTEM.
+
+Quero saber se KEY_VALUES_NAME / CUSTOM_CRITERIA retorna Campaign IDs e receita hoje.
+
+Se ontem a consulta retorna dados e hoje não retorna, mostre isso explicitamente.
+
+Se hoje a API retornar receita por Campaign ID, mas o dashboard continuar zerado, corrija o processamento/banco.
+
+NÃO altere nenhum texto do dashboard.
+NÃO use Fast Visual Edit.
+NÃO coloque esta solicitação no painel.
+
+Execute a sincronização manual e me mostre o resultado real de HOJE.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
