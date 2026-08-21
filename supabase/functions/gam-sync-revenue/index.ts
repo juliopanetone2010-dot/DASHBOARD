@@ -1833,34 +1833,64 @@ async function persistCampaignSourceRevenueFromUtm(
   }
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
-  const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status")
+
+  // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
+  const { data: existing } = await admin.from("gam_campaign_source_revenue")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status,revenue_usd")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null }>();
-  for (const r of (existingRequests ?? []) as any[]) {
-    requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
+
+  const existingMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null; revenue_usd: number }>();
+  for (const r of (existing ?? []) as any[]) {
+    existingMap.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
       total_requests: Number(r.total_requests ?? 0), 
       match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
-      attribution_status: r.attribution_status || null
+      attribution_status: r.attribution_status || 'consolidated', // Default to consolidated if null
+      revenue_usd: Number(r.revenue_usd || 0)
     });
   }
+
+  const finalRows = [];
   for (const b of buckets.values()) {
-    const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
-    if (req && req.total_requests > 0) {
-      b.total_requests = req.total_requests;
-      b.match_rate_pct = req.match_rate_pct;
+    const key = `${b.campaign_id}|${b.date}|${b.utm_source}`;
+    const prev = existingMap.get(key);
+
+    if (prev) {
+      // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
+      if (prev.attribution_status === "consolidated" && b.attribution_status === "intraday") {
+        debug.push(`[gam_campaign_source_revenue] Ignorando intraday para ${key} pois já existe dado consolidado.`);
+        continue;
+      }
+      
+      // Preserva total_requests se já existirem
+      if (prev.total_requests > 0) {
+        b.total_requests = prev.total_requests;
+        b.match_rate_pct = prev.match_rate_pct;
+      }
     }
+    finalRows.push(b);
   }
-  const arr = [...buckets.values()];
-  if (arr.length === 0) {
-    debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
+
+  if (finalRows.length === 0) {
+    debug.push(`[gam_campaign_source_revenue] SKIP: nenhum dado novo ou mais confiável para inserir.`);
     return;
   }
-  await admin.from("gam_campaign_source_revenue")
-    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+
+  // Upsert individual ou em batch com tratamento de conflito seria melhor, 
+  // mas como a tabela tem delete/insert no código original, vamos manter a estrutura 
+  // mas filtrando o delete apenas para as chaves que estamos realmente atualizando.
+  for (const row of finalRows) {
+     await admin.from("gam_campaign_source_revenue")
+      .delete()
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .eq("campaign_id", row.campaign_id)
+      .eq("date", row.date)
+      .eq("utm_source", row.utm_source);
+  }
+
   const CHUNK = 500;
-  for (let i = 0; i < arr.length; i += CHUNK) {
-    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+  for (let i = 0; i < finalRows.length; i += CHUNK) {
+    await admin.from("gam_campaign_source_revenue").insert(finalRows.slice(i, i + CHUNK));
   }
   const sources = arr.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
@@ -1923,16 +1953,45 @@ async function applyGoogleUtmRevenue(
   const hasData = arr.length > 0 || googleCampaignRows.length > 0;
   
   if (!hasData) {
-    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (googlePlacementRows e googleCampaignRows vazios).`);
+    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM.`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
-    await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-    const CHUNK = 500;
-    for (let i = 0; i < arr.length; i += CHUNK) {
-      await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
+    
+    // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
+    const { data: existingPlacements } = await admin.from("gam_placement_revenue")
+      .select("campaign_id, placement, date, attribution_status")
+      .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    
+    const existingPMap = new Map<string, string>();
+    for (const r of (existingPlacements ?? []) as any[]) {
+      existingPMap.set(`${r.campaign_id}|${r.placement}|${r.date}`, r.attribution_status || 'consolidated');
     }
-    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
+
+    const finalPlacements = arr.filter(p => {
+      const key = `${p.campaign_id}|${p.placement}|${p.date}`;
+      const prevStatus = existingPMap.get(key);
+      if (prevStatus === 'consolidated' && p.attribution_status === 'intraday') {
+        return false;
+      }
+      return true;
+    });
+
+    if (finalPlacements.length > 0) {
+      for (const row of finalPlacements) {
+        await admin.from("gam_placement_revenue")
+          .delete()
+          .eq("user_id", userId)
+          .eq("site_id", siteId)
+          .eq("campaign_id", row.campaign_id)
+          .eq("placement", row.placement)
+          .eq("date", row.date);
+      }
+      const CHUNK = 500;
+      for (let i = 0; i < finalPlacements.length; i += CHUNK) {
+        await admin.from("gam_placement_revenue").insert(finalPlacements.slice(i, i + CHUNK));
+      }
+    }
+    debug.push(`[gam_placement_revenue] ${finalPlacements.length} linha(s) processadas.`);
 
     const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
     
@@ -1982,26 +2041,42 @@ async function applyGoogleUtmRevenue(
     }
 
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
-    const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
-      .select("campaign_id,date,total_requests,match_rate_pct")
+    const { data: existingSource } = cids.length ? await admin.from("gam_campaign_source_revenue")
+      .select("campaign_id,date,total_requests,match_rate_pct,attribution_status")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
     
-    for (const r of (existingSourceRequests ?? []) as any[]) {
-      const req = Number(r.total_requests ?? 0);
-      if (req > 0) {
-        const key = `${r.campaign_id}|${r.date}`;
-        const cur = sourceByCampaign.get(key);
-        if (cur) {
-          cur.total_requests = req;
-          cur.match_rate_pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
+    const existingSMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string }>();
+    for (const r of (existingSource ?? []) as any[]) {
+      existingSMap.set(`${r.campaign_id}|${r.date}`, {
+        total_requests: Number(r.total_requests || 0),
+        match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+        attribution_status: r.attribution_status || 'consolidated'
+      });
+    }
+
+    const finalSourceRows = [];
+    for (const b of sourceByCampaign.values()) {
+      const key = `${b.campaign_id}|${b.date}`;
+      const prev = existingSMap.get(key);
+      if (prev) {
+        // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
+        if (prev.attribution_status === 'consolidated' && b.attribution_status === 'intraday') {
+          continue;
+        }
+        if (prev.total_requests > 0) {
+          b.total_requests = prev.total_requests;
+          b.match_rate_pct = prev.match_rate_pct;
         }
       }
+      finalSourceRows.push(b);
     }
-    const sourceRows = [...sourceByCampaign.values()];
-    for (let i = 0; i < sourceRows.length; i += CHUNK) {
-      await admin.from("gam_campaign_source_revenue").upsert(sourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+
+    if (finalSourceRows.length > 0) {
+      for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
+        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+      }
     }
-    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas (campanha+placement)`);
+    debug.push(`[gam_campaign_source_revenue/google] ${finalSourceRows.length} linha(s) processadas (consolidated/intraday sync)`);
   }
 
   const { data: links } = await admin

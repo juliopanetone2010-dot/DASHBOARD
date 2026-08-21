@@ -1114,7 +1114,7 @@ const IndexInner = () => {
                   hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
                 />
                 <MetricCard
-                  label="Receita (Ad Manager)"
+                  label={data.dataReadiness.isIntraday ? "RECEITA ESTIMADA" : "Receita (Ad Manager)"}
                   value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
                   icon={DollarSign}
                   variant="primary"
@@ -1127,14 +1127,14 @@ const IndexInner = () => {
                   }
                 />
                 <MetricCard
-                  label="Lucro"
+                  label={data.dataReadiness.isIntraday ? "LUCRO ESTIMADO" : "Lucro"}
                   value={fmtCurrency(totals.profit)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
                   hint="BRL (receita convertida)"
                 />
                 <MetricCard
-                  label="ROI / ROAS"
+                  label={data.dataReadiness.isIntraday ? "ROI ESTIMADO" : "ROI / ROAS"}
                   value={fmtPercent(totals.roi)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
@@ -1253,6 +1253,7 @@ const IndexInner = () => {
                 onRefresh={data.refresh}
                 dateRange={{ from: range.from, to: range.to }}
                 siteId={filters.siteId}
+                isIntraday={data.dataReadiness.isIntraday}
               />
             </section>
             </DashboardErrorBoundary>

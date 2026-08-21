@@ -31,9 +31,8 @@ export interface DashboardData {
   loading: boolean;
   refresh: () => Promise<void>;
   lastSyncedAt: Date | null;
-  // Readiness signal derived from sync_state. Used by the rules engine to suppress
-  // false -100% ROI alerts while GAM revenue is still consolidating.
-  dataReadiness: DataReadiness;
+  // readiness signal derived from sync_state.
+  dataReadiness: DataReadiness & { isIntraday?: boolean };
   isGuest: boolean;
   saveRules: (rules: RulesConfig) => Promise<void>;
   acknowledgeAlert: (id: string) => Promise<void>;
@@ -286,9 +285,10 @@ interface SyncStateRow {
   last_status: string;
   last_finished_at: string | null;
   last_error: string | null;
+  attribution_status?: string;
 }
 
-const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
+const computeReadiness = (rows: SyncStateRow[]): DataReadiness & { isIntraday?: boolean } => {
   // Pick the most recent GAM sync row (sources include "gam-sync-revenue",
   // "gam-sync-historical", etc.). We use whichever finished most recently.
   const gamRows = rows
@@ -323,7 +323,9 @@ const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
     return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: minutesSince };
   }
 
-  return { isReady: true, gamMinutesSinceSuccess: minutesSince };
+  const isIntraday = gam.attribution_status === "intraday";
+
+  return { isReady: true, gamMinutesSinceSuccess: minutesSince, isIntraday };
 };
 
 const emptySnapshot = (): DashboardSnapshot => ({
