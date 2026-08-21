@@ -1,7 +1,7 @@
 // Desfaz negativações de placements aplicadas em campanhas (Google Ads).
 // Body: { items: [{ campaign_id, google_account_id, placement }] }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 interface Item {

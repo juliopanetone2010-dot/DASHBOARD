@@ -1,7 +1,7 @@
 // Limpeza global de placements ruins.
 // Preview calcula placements ao vivo no Google Ads para o período completo, agrupando por campanha + placement.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getNetFactor, getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 

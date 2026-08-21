@@ -4,7 +4,7 @@
 // 3) Auto-aplica final_url_suffix padrão em qualquer campanha que não tenha
 // Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const STANDARD_UTM_SUFFIX = [

@@ -1,7 +1,7 @@
 // Troca code por tokens, descobre quais customer IDs o usuário liberou
 // e salva o(s) MCC(s) na tabela google_accounts (sem precisar customer_id digitado).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
 const GUEST_USER_ID = "00000000-0000-0000-0000-000000000000";
