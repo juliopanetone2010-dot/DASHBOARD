@@ -177,11 +177,11 @@ Não quero rateio proporcional da receita geral.
 
 Faça primeiro uma auditoria da implementação antiga e identifique exatamente como URL_NAME/URL bruta era usada para extrair:
 
-utm_campaign={{"{campaignid}"}}
+utm_campaign={"{"}campaignid{"}"}
 
 e
 
-utm_placement={{"{campaignid}"}}_{{"{placement}"}}
+utm_placement={"{"}campaignid{"}"}_{"{"}placement{"}"}
 
 Depois implemente a melhor alternativa compatível com a API atual.
 
