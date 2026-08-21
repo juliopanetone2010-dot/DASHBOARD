@@ -355,12 +355,21 @@ async function runSync(req: Request): Promise<Response> {
             
             // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
             for (const sr of soapAttribution.googleCampaignRows) {
-              const exists = attribution.googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date);
-              if (!exists) attribution.googleCampaignRows.push(sr);
+              const idx = attribution.googleCampaignRows.findIndex(gr => gr.cid === sr.cid && gr.date === sr.date);
+              if (idx === -1) {
+                attribution.googleCampaignRows.push(sr);
+              } else if (attribution.googleCampaignRows[idx].revenue < 0.0001 && sr.revenue > 0) {
+                // Sobrescreve se o consolidado for 0 mas o intraday tiver valor
+                attribution.googleCampaignRows[idx] = sr;
+              }
             }
             for (const sp of soapAttribution.googlePlacementRows) {
-              const exists = attribution.googlePlacementRows.some(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement);
-              if (!exists) attribution.googlePlacementRows.push(sp);
+              const idx = attribution.googlePlacementRows.findIndex(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement);
+              if (idx === -1) {
+                attribution.googlePlacementRows.push(sp);
+              } else if (attribution.googlePlacementRows[idx].revenue < 0.0001 && sp.revenue > 0) {
+                attribution.googlePlacementRows[idx] = sp;
+              }
             }
             attribution.retentionRows.push(...soapAttribution.retentionRows);
             debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
@@ -1868,13 +1877,18 @@ async function applyGoogleUtmRevenue(
     for (const r of googleCampaignRows) {
       if (!r.cid) continue;
       const key = `${r.cid}|${r.date}`;
+      
+      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
+      const status = isSoap ? "intraday" : "consolidated";
+
       const cur = sourceByCampaign.get(key) ?? { 
         user_id: userId, site_id: siteId, campaign_id: r.cid, date: r.date, 
-        utm_source: "google", revenue_usd: 0, impressions: 0, 
-        attribution_status: (r.raw.includes("SOAP") || r.raw.includes("URL_NAME")) ? "intraday" : "consolidated" 
+        utm_source: r.source || "google", revenue_usd: 0, impressions: 0, 
+        attribution_status: status 
       };
+      
       // Se tivermos qualquer linha consolidada para essa campanha/data, o status final do bucket é consolidado
-      if (!r.raw.includes("SOAP") && !r.raw.includes("URL_NAME")) cur.attribution_status = "consolidated";
+      if (!isSoap) cur.attribution_status = "consolidated";
       
       cur.revenue_usd += Number(r.revenue / ingestionDivisor || 0);
       cur.impressions += Number(r.impressions || 0);
