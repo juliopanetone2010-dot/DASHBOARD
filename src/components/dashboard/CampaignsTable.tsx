@@ -100,9 +100,10 @@ interface Props {
   onRefresh?: () => Promise<void> | void;
   dateRange?: { from: string; to: string };
   siteId?: string;
+  isIntraday?: boolean;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -172,7 +173,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     return { width: w, minWidth: w, maxWidth: w };
   };
 
-  type HeadDef = { label: string | ((isIntraday: boolean) => string); sortKey?: SortKey; align?: "left" | "right" };
+  type HeadDef = { label: string; sortKey?: SortKey; align?: "left" | "right" };
   const HEAD_DEFS: Record<ColKey, HeadDef> = {
     score: { label: "Saúde", sortKey: "score", align: "right" },
     startDate: { label: "Início gasto", align: "left" },
