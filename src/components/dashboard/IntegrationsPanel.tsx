@@ -58,6 +58,8 @@ export function IntegrationsPanel(props: Props) {
   const [manualCustomerId, setManualCustomerId] = useState("");
   const [addingManual, setAddingManual] = useState(false);
   const [manualDevToken, setManualDevToken] = useState("");
+  const [manualClientId, setManualClientId] = useState("");
+  const [manualClientSecret, setManualClientSecret] = useState("");
   const [savingSecret, setSavingSecret] = useState(false);
   const [listingAccounts, setListingAccounts] = useState(false);
   const [accessibleAccounts, setAccessibleAccounts] = useState<any[]>([]);
