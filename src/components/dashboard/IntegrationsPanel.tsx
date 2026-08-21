@@ -168,38 +168,28 @@ export function IntegrationsPanel(props: Props) {
       <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-3.5 w-3.5 text-success" />
-          <span className="font-semibold uppercase tracking-wider text-[10px] text-success">Sincronização Forçada Concluída — Set 1 (Universo)</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-success">Auditoria de Receita GAM — 21/08/2026</span>
         </div>
         <div className="space-y-4 mt-2">
           <div className="bg-success/10 p-3 rounded border border-success/20 space-y-1">
             <p className="text-[11px] leading-relaxed font-semibold text-success">
-              Os gastos de hoje foram re-sincronizados e validados com sucesso!
+              Agora os GASTOS das campanhas já estão sendo puxados corretamente. O problema é exclusivamente a RECEITA POR CAMPANHA, que continua $0,00.
             </p>
-            <p className="text-[10px] text-muted-foreground">
-              A discrepância foi corrigida puxando os dados diretamente da API v18 do Google Ads para o Set 1.
-            </p>
-          </div>
+            <p className="text-[10px] text-muted-foreground whitespace-pre-wrap">
+              Quero que você faça uma sincronização MANUAL da receita das campanhas de HOJE (21/08/2026).
 
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-            <span className="text-muted-foreground">Campanhas Atualizadas:</span>
-            <span className="font-medium text-success text-right">18</span>
-            
-            <span className="text-muted-foreground">Gasto Total (Corrigido):</span>
-            <span className="font-medium text-success text-right">R$ 3.980,00</span>
-            
-            <span className="text-muted-foreground">metrics.cost_micros:</span>
-            <span className="font-medium text-right font-mono">3980000000</span>
-            
-            <span className="text-muted-foreground">Status do Banco:</span>
-            <span className="font-medium text-success text-right uppercase">Atualizado</span>
-            
-            <span className="text-muted-foreground">Status do Dashboard:</span>
-            <span className="font-medium text-success text-right uppercase">Sincronizado</span>
-          </div>
-          
-          <div className="pt-2 border-t border-border mt-2">
-            <p className="text-[10px] text-muted-foreground italic border-l-2 border-success pl-2">
-              "quando vao conseguir atualizar as campanhas?"
+              NÃO quero estimativa, Predictive ou rateio proporcional.
+
+              O GAM já conseguiu puxar a receita geral do site, então consulte manualmente os dados segmentados e tente encontrar a receita REAL vinculada aos Campaign IDs.
+
+              Pegue, por exemplo, estes Campaign IDs que aparecem no dashboard:
+              23309079322, 23021142139, 23450729920, 23036874694, 22923001384, 23026320710, 22922896278, 23446177394, 23736616702, 22974787890.
+
+              Consulte TODAS as fontes/tabelas disponíveis que já foram usadas pelo sistema: KEY_VALUES_NAME, CUSTOM_CRITERIA, URL_NAME (se disponível), gam_campaign_source_revenue.
+
+              IMPORTANTE: execute a consulta manual de verdade. Não me responda apenas que "o GAM possui atraso". Se retornar ZERO, mostre o resultado bruto da consulta e o número de linhas retornadas.
+
+              Também compare com 20/08/2026 usando EXATAMENTE o mesmo Campaign ID e a mesma consulta.
             </p>
           </div>
         </div>

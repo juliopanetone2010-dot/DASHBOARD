@@ -1,4 +1,9 @@
-import { supabase } from "./src/integrations/supabase/client.ts";
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY!;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 async function runAudit() {
   const campaignIds = [
@@ -7,32 +12,41 @@ async function runAudit() {
     "23736616702", "22974787890"
   ];
 
-  console.log("Starting audit for 2026-08-20 and 2026-08-21...");
+  console.log("--- INÍCIO DA AUDITORIA DE ATRIBUIÇÃO GAM ---");
+  console.log("Data Alvo: 2026-08-21 (Hoje)");
+  console.log("Data Comparação: 2026-08-20 (Ontem)");
 
-  for (const cid of campaignIds) {
-    console.log(`\n--- Campaign ID: ${cid} ---`);
-    
-    // Check local database for current attribution
-    const { data: dbRows, error: dbError } = await supabase
-      .from('gam_campaign_source_revenue')
-      .select('*')
-      .eq('utm_campaign', cid)
-      .in('date', ['2026-08-20', '2026-08-21'])
-      .order('date', { ascending: false });
+  // 1. Consulta no Banco de Dados (Estado Atual)
+  const { data: dbRows, error: dbError } = await supabase
+    .from('gam_campaign_source_revenue')
+    .select('*')
+    .in('utm_campaign', campaignIds)
+    .in('date', ['2026-08-20', '2026-08-21']);
 
-    if (dbError) console.error("DB Error:", dbError);
-    
-    const row21 = dbRows?.find(r => r.date === '2026-08-21');
-    const row20 = dbRows?.find(r => r.date === '2026-08-20');
-
-    console.log(`20/08 -> Revenue: $${row20?.revenue || 0} | Status: ${row20?.attribution_status || 'N/A'}`);
-    console.log(`21/08 -> Revenue: $${row21?.revenue || 0} | Status: ${row21?.attribution_status || 'N/A'}`);
+  if (dbError) {
+    console.error("Erro ao consultar banco:", dbError);
+    return;
   }
 
-  // Attempt manual sync via edge function call for 21/08
-  console.log("\nAttempting targeted manual sync for 2026-08-21...");
-  const { data: syncResult, error: syncError } = await supabase.functions.invoke('gam-sync-revenue', {
-    body: { 
+  console.log("\n--- RESULTADOS ATUAIS NO BANCO ---");
+  console.log("Campaign ID | 20/08 (Receita) | 21/08 (Receita) | Status 21/08");
+  console.log("---------------------------------------------------------------");
+
+  campaignIds.forEach(cid => {
+    const row20 = dbRows.find(r => r.utm_campaign === cid && r.date === '2026-08-20');
+    const row21 = dbRows.find(r => r.utm_campaign === cid && r.date === '2026-08-21');
+    
+    const rev20 = row20 ? `$${row20.revenue.toFixed(2)}` : "$0.00";
+    const rev21 = row21 ? `$${row21.revenue.toFixed(2)}` : "$0.00";
+    const status21 = row21?.attribution_status || "Não encontrado";
+    
+    console.log(`${cid.padEnd(12)} | ${rev20.padEnd(14)} | ${rev21.padEnd(14)} | ${status21}`);
+  });
+
+  // 2. Acionamento do Sincronizador Manual via Edge Function
+  console.log("\n--- ACIONANDO SINCRONIZAÇÃO MANUAL (GAM-SYNC-REVENUE) ---");
+  const { data: syncData, error: syncFuncError } = await supabase.functions.invoke('gam-sync-revenue', {
+    body: {
       date_preset: "CUSTOM",
       start_date: "2026-08-21",
       end_date: "2026-08-21",
@@ -41,11 +55,13 @@ async function runAudit() {
     }
   });
 
-  if (syncError) {
-    console.error("Sync Error:", syncError);
+  if (syncFuncError) {
+    console.error("Erro na Edge Function:", syncFuncError);
   } else {
-    console.log("Sync Response Summary:", JSON.stringify(syncResult, null, 2));
+    console.log("Resposta da Função:", JSON.stringify(syncData, null, 2));
   }
+  
+  console.log("\n--- FIM DA AUDITORIA ---");
 }
 
-runAudit().catch(console.error);
+runAudit();
