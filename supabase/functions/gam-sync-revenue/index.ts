@@ -134,14 +134,21 @@ async function runSync(req: Request): Promise<Response> {
     const token = authHeader.replace("Bearer ", "");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
+    
+    // Debug temporário para ver por que o token do sandbox falha
+    // console.log(`[AUTH_DEBUG] token_len=${token.length} sr_key_len=${serviceRoleKey.length}`);
+
+    if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
       // Chamada interna (cron/snapshot): usa user_id passado no body
-      userId = requestedUserId ?? undefined;
+      userId = requestedUserId ?? (control?.userId as string) ?? undefined;
     } else {
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
+      const { data: { user } } = await userClient.auth.getUser(token);
+      userId = user?.id;
     }
-    if (!userId) return json({ error: "Token inválido" });
+    if (!userId) {
+      console.error(`[AUTH_ERROR] Failed to resolve userId. token_match=${token === serviceRoleKey}`);
+      return json({ error: "Token inválido" });
+    }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
