@@ -1427,10 +1427,10 @@ async function runSoapReport(args: {
   console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
   console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
   console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
-  return parseSoapCsv(csvText, dimensions);
+  return parseSoapCsv(csvText, dimensions, debug);
 }
 
-function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
+function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
   const lines = csv.split("\n").filter(l => l.trim().length > 0);
   if (lines.length <= 1) return [];
   
