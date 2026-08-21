@@ -1910,6 +1910,7 @@ export type Database = {
           manager_account_id: string | null
           refresh_token: string | null
           status: string
+          sync_enabled: boolean | null
           user_id: string
         }
         Insert: {
@@ -1926,6 +1927,7 @@ export type Database = {
           manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
+          sync_enabled?: boolean | null
           user_id: string
         }
         Update: {
@@ -1942,6 +1944,7 @@ export type Database = {
           manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
+          sync_enabled?: boolean | null
           user_id?: string
         }
         Relationships: []
