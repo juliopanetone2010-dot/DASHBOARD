@@ -52,17 +52,20 @@ async function executeManualSync() {
     })
   });
 
-  const childJson = await childRes.json();
+  const text = await childRes.text();
   if (!childRes.ok) {
+    let errDetail;
+    try { errDetail = JSON.parse(text); } catch { errDetail = text.slice(0, 500); }
     console.log("ERRO BRUTO API (Busca Contas):", JSON.stringify({
       status: childRes.status,
-      error: childJson.error,
+      error: errDetail,
       customer_id: mccCid,
       login_customer_id: mccCid,
       api_set: apiSet
     }, null, 2));
     return;
   }
+  const childJson = JSON.parse(text);
 
   const children = childJson.results || [];
   console.log(`Encontradas ${children.length} contas filhas.`);
