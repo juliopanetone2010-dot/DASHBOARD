@@ -26,7 +26,7 @@ async function test(apiSet: number, cid: string, version: string) {
   const authJson = await authRes.json();
   const accessToken = authJson.access_token;
 
-  const url = `https://googleads.googleapis.com/v18/customers/${cid.replace(/-/g, "")}/googleAds:search`;
+  const url = `https://googleads.googleapis.com/v17/customers/${cid.replace(/-/g, "")}/googleAds:search`;
   console.log(`Testing ${url} (Set ${apiSet})...`);
   
   const res = await fetch(url, {
