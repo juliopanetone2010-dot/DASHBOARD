@@ -66,7 +66,18 @@ async function runDiagnostic() {
     }),
   });
   
-  const listJson = await listRes.json();
+  const text = await listRes.text();
+  let listJson;
+  try {
+    listJson = JSON.parse(text);
+  } catch (e) {
+    console.error("ERRO: Resposta da API não é JSON (Step: list_accounts)");
+    console.error("Status:", listRes.status);
+    console.error("Content-Type:", listRes.headers.get("content-type"));
+    console.error("Body:", text.slice(0, 500));
+    return;
+  }
+  
   if (!listRes.ok) {
     console.error("ERRO ao listar contas:", JSON.stringify(listJson, null, 2));
     return;
