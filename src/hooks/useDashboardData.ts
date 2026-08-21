@@ -318,6 +318,7 @@ const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
     (Date.now() - new Date(gam.last_finished_at).getTime()) / 60_000,
   );
 
+  // Freshness check: if the last sync was long ago, mark as not ready to prevent false alerts.
   if (minutesSince > GAM_FRESHNESS_MINUTES) {
     return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: minutesSince };
   }
