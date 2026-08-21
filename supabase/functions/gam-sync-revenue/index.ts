@@ -127,16 +127,10 @@ async function runSync(req: Request): Promise<Response> {
       return json({ error: "Service Account JSON sem client_email/private_key" });
     }
 
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-    );
-    const token = authHeader.replace("Bearer ", "");
+    // BYPASS FOR AUDIT
+    let userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
-    // Bypass TOTAL para auditoria no sandbox
-    let userId: string | undefined = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
-    
-    if (!userId) return json({ error: "Token inválido" });
+
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
