@@ -167,53 +167,7 @@ export function IntegrationsPanel(props: Props) {
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Agora que você restaurou a lógica de atribuição, quero que você valide se REALMENTE está funcionando.
-
-NÃO altere textos do dashboard.
-
-Pegue UMA campanha ativa que tenha gasto hoje e faça o fluxo completo:
-
-Google Ads Campaign ID → utm_campaign / utm_placement → receita GAM → banco → ROI da campanha
-
-Quero que você puxe os dados reais dessa campanha e me mostre:
-
-Nome da campanha
-
-Campaign ID
-
-Customer ID
-
-Gasto Google Ads
-
-utm_campaign encontrado
-
-utm_placement encontrado
-
-Receita GAM atribuída
-
-Receita salva no banco
-
-Lucro calculado
-
-ROI calculado
-
-ROAS calculado
-
-Depois confirme se essa mesma receita/ROI está aparecendo corretamente na tabela de campanhas do dashboard.
-
-Se estiver funcionando, teste mais 2 campanhas para confirmar que não foi um caso isolado.
-
-Não use estimativa.
-Não replique o ROI geral.
-Não distribua receita proporcionalmente.
-
-Quero dados reais atribuídos por Campaign ID.
-
-No final me responda em uma tabela:
-
-Campanha | Campaign ID | Gasto | Receita | Lucro | ROI | ROAS | Dashboard correto?
-
-Se alguma continuar com receita R$0,00, investigue a causa antes de considerar concluído.
+        puxa as camap nhas manualmente hj do universo
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
