@@ -340,23 +340,30 @@ async function runSync(req: Request): Promise<Response> {
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
         // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
+                             attribution.googlePlacementRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds, debug);
           const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+          debug.push(`[${networkCode}] SOAP URL_NAME retornou ${urlRows.length} linhas brutas.`);
+          
           if (urlRows.length > 0) {
             const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
+            debug.push(`[${networkCode}] SOAP Intraday parsed: campaigns=${soapAttribution.googleCampaignRows.length}, placements=${soapAttribution.googlePlacementRows.length}`);
+            
             // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
-            attribution.googleCampaignRows.push(...soapAttribution.googleCampaignRows.filter(sr => 
-              !attribution.googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date)
-            ));
-            attribution.googlePlacementRows.push(...soapAttribution.googlePlacementRows.filter(sp => 
-              !attribution.googlePlacementRows.some(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement)
-            ));
+            for (const sr of soapAttribution.googleCampaignRows) {
+              const exists = attribution.googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date);
+              if (!exists) attribution.googleCampaignRows.push(sr);
+            }
+            for (const sp of soapAttribution.googlePlacementRows) {
+              const exists = attribution.googlePlacementRows.some(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement);
+              if (!exists) attribution.googlePlacementRows.push(sp);
+            }
             attribution.retentionRows.push(...soapAttribution.retentionRows);
-            debug.push(`[${networkCode}] SOAP Intraday adicionou ${soapAttribution.googleCampaignRows.length} campanhas.`);
+            debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
           }
         }
 
@@ -1403,13 +1410,16 @@ function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
     
     // Procura colunas de métricas. O ReportService expõe nomes como "AD_SERVER_IMPRESSIONS" 
     const findMetric = (name: string) => {
-      const idx = headers.findIndex(h => h.includes(name));
+      // Prioridade exata para o header
+      let idx = headers.findIndex(h => h.trim() === name);
+      // Fallback para include caso o header venha com networkCode ou sufixos
+      if (idx === -1) idx = headers.findIndex(h => h.includes(name));
       return idx !== -1 ? Number(cols[idx] || 0) : 0;
     };
     
     const adServerImpr = findMetric("AD_SERVER_IMPRESSIONS") || 0;
     const adExchangeImpr = findMetric("AD_EXCHANGE_IMPRESSIONS") || 0;
-    const adServerRev = ((findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0)) / 1_000_000;
+    const adServerRev = (findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0) / 1_000_000;
     const adExchangeRev = (findMetric("AD_EXCHANGE_REVENUE") || 0) / 1_000_000;
     
     row.impressions = adServerImpr + adExchangeImpr;
@@ -1431,6 +1441,13 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
     
     // Tenta extrair ID da URL se UTM falhar
     let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    
+    if (!cid) {
+      // Se não houver cid no UTM, tentamos extrair da URL crua 
+      // antes de tentar o map de final URLs (que pode ser ruidoso)
+      cid = extractCampaignId(rawUrl);
+    }
+    
     if (!cid && finalUrlMap) {
       // Busca reversa no mapa de URLs finais se disponível
       for (const [campaignId, url] of finalUrlMap.entries()) {
@@ -1441,7 +1458,7 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
         }
       }
     }
-    if (!cid) cid = extractCampaignId(rawUrl);
+    
 
     const source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : (cid ? "google" : "unknown"); 
 
@@ -1814,8 +1831,10 @@ async function applyGoogleUtmRevenue(
   // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
   // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
   const arr = [...placementBuckets.values()];
-  if (arr.length === 0) {
-    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (provável rate-limit/quota). Mantendo snapshot anterior.`);
+  const hasData = arr.length > 0 || googleCampaignRows.length > 0;
+  
+  if (!hasData) {
+    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (googlePlacementRows e googleCampaignRows vazios).`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
     await admin.from("gam_placement_revenue")
@@ -1827,19 +1846,50 @@ async function applyGoogleUtmRevenue(
     debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
 
     const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
-    for (const p of arr) {
-      const key = `${p.campaign_id}|${p.date}`;
-      const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0, attribution_status: p.attribution_status };
+    
+    // 1. Inicializa com dados das campanhas (pode vir de SOAP/URL_NAME sem placement)
+    for (const r of googleCampaignRows) {
+      if (!r.cid) continue;
+      const key = `${r.cid}|${r.date}`;
+      const cur = sourceByCampaign.get(key) ?? { 
+        user_id: userId, site_id: siteId, campaign_id: r.cid, date: r.date, 
+        utm_source: "google", revenue_usd: 0, impressions: 0, 
+        attribution_status: (r.raw.includes("SOAP") || r.raw.includes("URL_NAME")) ? "intraday" : "consolidated" 
+      };
       // Se tivermos qualquer linha consolidada para essa campanha/data, o status final do bucket é consolidado
-      if (p.attribution_status === "consolidated") cur.attribution_status = "consolidated";
-      cur.revenue_usd += Number(p.revenue_usd || 0);
-      cur.impressions += Number(p.impressions || 0);
+      if (!r.raw.includes("SOAP") && !r.raw.includes("URL_NAME")) cur.attribution_status = "consolidated";
+      
+      cur.revenue_usd += Number(r.revenue / ingestionDivisor || 0);
+      cur.impressions += Number(r.impressions || 0);
       sourceByCampaign.set(key, cur);
     }
+
+    // 2. Complementa/Sobrescreve com dados por placement se houver (mais detalhado)
+    // Nota: Se já adicionamos via googleCampaignRows, evitamos duplicar se a fonte for a mesma.
+    // Mas geralmente o sync roda OU um OU outro para o mesmo range de data.
+    if (arr.length > 0) {
+      for (const p of arr) {
+        const key = `${p.campaign_id}|${p.date}`;
+        let cur = sourceByCampaign.get(key);
+        if (!cur) {
+          cur = { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0, attribution_status: p.attribution_status };
+          sourceByCampaign.set(key, cur);
+        } else {
+          // Se já existe e a linha de placement é 'consolidated', garante o status
+          if (p.attribution_status === "consolidated") cur.attribution_status = "consolidated";
+          // Se a receita do placement for significativamente diferente do que já temos (ex: SOAP vs REST),
+          // confiamos no placement (REST) como fonte da verdade se for consolidado.
+          // Aqui, apenas somamos se não vier da mesma fonte, mas para simplificar:
+          // as googlePlacementRows no loop 1800 já são filtradas.
+        }
+      }
+    }
+
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
     const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
       .select("campaign_id,date,total_requests,match_rate_pct")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
+    
     for (const r of (existingSourceRequests ?? []) as any[]) {
       const req = Number(r.total_requests ?? 0);
       if (req > 0) {
@@ -1855,7 +1905,7 @@ async function applyGoogleUtmRevenue(
     for (let i = 0; i < sourceRows.length; i += CHUNK) {
       await admin.from("gam_campaign_source_revenue").upsert(sourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
     }
-    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas por placement`);
+    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas (campanha+placement)`);
   }
 
   const { data: links } = await admin
