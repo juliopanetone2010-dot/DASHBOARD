@@ -514,7 +514,7 @@ function MigrationDrawer({ item, accounts, sites, onClose, onSuccess }: DrawerPr
         <SheetFooter>
           <Button variant="outline" onClick={onClose} disabled={submitting}>Cancelar</Button>
           <Button onClick={submit} disabled={submitting}>
-            {submitting ? "Migrando…" : "Migrar agora"}
+            {submitting ? "Migrando…" : "submit"}
           </Button>
         </SheetFooter>
       </SheetContent>
