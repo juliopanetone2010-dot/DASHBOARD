@@ -1340,6 +1340,28 @@ const IndexInner = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Mobile Sticky Update Bar */}
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-30 md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Atualização</span>
+          <span className="text-xs font-medium truncate">
+            {allSites.processingCount > 0 ? `Sincronizando ${allSites.processingCount} site(s)...` : "Dados prontos"}
+          </span>
+        </div>
+        <Button 
+          size="sm" 
+          className="gap-2 px-4 shadow-glow" 
+          onClick={() => {
+            handleRefresh();
+            void allSites.syncAll(true, range);
+          }}
+          disabled={syncing || allSites.processingCount > 0}
+        >
+          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          {syncing || allSites.processingCount > 0 ? "Aguarde..." : "Atualizar"}
+        </Button>
+      </div>
     </div>
   );
 };
