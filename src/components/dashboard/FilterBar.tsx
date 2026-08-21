@@ -240,7 +240,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
         </div>
 
         {isDirty && (
-          <Button variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)} className="h-9 gap-1">
+          <Button variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)} className="h-8 gap-1 text-xs">
             <X className="h-3.5 w-3.5" /> Limpar
           </Button>
         )}

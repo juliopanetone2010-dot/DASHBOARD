@@ -805,7 +805,7 @@ const IndexInner = () => {
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col">
+              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col bg-background/95 backdrop-blur-sm">
                 <SheetHeader className="px-4 py-4 border-b">
                   <SheetTitle className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
@@ -1011,7 +1011,7 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-4 md:py-5 space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+      <main className="w-full max-w-[3440px] mx-auto px-2 sm:px-4 lg:px-6 py-2 md:py-5 space-y-4 md:space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="hidden md:block -mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList className="w-max md:w-auto flex-nowrap">
