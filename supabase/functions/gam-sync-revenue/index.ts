@@ -1215,12 +1215,16 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
     const params = parseUrlParams(rawUrl);
+    const sourceRaw = params.utm_source ?? "";
+    const campaignRaw = params.utm_campaign ?? "";
+    const placementRaw = params.utm_placement ?? "";
     
     // Tenta extrair ID da URL se UTM falhar
-    let cid = extractCampaignId(params.utm_campaign) ?? extractCampaignId(params.utm_placement);
+    let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     if (!cid && finalUrlMap) {
       // Busca reversa no mapa de URLs finais se disponível
       for (const [campaignId, url] of finalUrlMap.entries()) {
+
         if (rawUrl.includes(campaignId) || (url && rawUrl.includes(url))) {
           cid = campaignId;
           break;
@@ -1229,9 +1233,10 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
     }
     if (!cid) cid = extractCampaignId(rawUrl);
 
-    const source = params.utm_source ? safeDecode(params.utm_source).toLowerCase().trim() : "google"; // Default para google se houver CID
+    const source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : (cid ? "google" : "unknown"); 
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
+
     return {
       date: r.date,
       impressions: r.impressions,
