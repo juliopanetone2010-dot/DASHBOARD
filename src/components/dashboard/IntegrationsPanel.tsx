@@ -240,20 +240,36 @@ export function IntegrationsPanel(props: Props) {
     }
     setSavingSecret(true);
     try {
-      const secretName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
-      const { error } = await supabase.functions.invoke("secrets-manager", {
-        body: { action: "set", name: secretName, value: manualDevToken.trim() }
+      // Salva Developer Token
+      const devTokenName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
+      await supabase.functions.invoke("secrets-manager", {
+        body: { action: "set", name: devTokenName, value: manualDevToken.trim() }
       });
 
-      if (error) throw error;
+      // Salva Client ID se fornecido
+      if (manualClientId.trim()) {
+        await supabase.functions.invoke("secrets-manager", {
+          body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: manualClientId.trim() }
+        });
+      }
 
-      toast({ title: "Developer Token salvo", description: `Configurado para o Conjunto ${apiSet}.` });
+      // Salva Client Secret se fornecido
+      if (manualClientSecret.trim()) {
+        await supabase.functions.invoke("secrets-manager", {
+          body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: manualClientSecret.trim() }
+        });
+      }
+
+      toast({ title: "Credenciais salvas", description: `Conjunto ${apiSet} atualizado com sucesso.` });
       setManualDevToken("");
+      setManualClientId("");
+      setManualClientSecret("");
+      
       // Refresh status
       const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
       if (data) setOauthStatus(data);
     } catch (e) {
-      toast({ title: "Erro ao salvar token", description: String(e), variant: "destructive" });
+      toast({ title: "Erro ao salvar credenciais", description: String(e), variant: "destructive" });
     } finally {
       setSavingSecret(false);
     }
