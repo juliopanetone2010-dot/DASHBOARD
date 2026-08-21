@@ -1216,7 +1216,9 @@ async function collectUrlAttribution(args: {
         return [];
       }
       try {
+        console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${range.dateRange.startDate}`);
         const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
+        console.log(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
         debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
         return results;
       } catch (soapErr) {
@@ -1297,10 +1299,14 @@ async function runSoapReport(args: {
   });
 
   const xml = await res.text();
+  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 1000)}`);
   if (!res.ok) throw new Error(`SOAP runReportJob failed: ${xml.slice(0, 500)}`);
 
   const jobIdMatch = xml.match(/<id>(\d+)<\/id>/);
-  if (!jobIdMatch) throw new Error("SOAP response missing jobId");
+  if (!jobIdMatch) {
+    console.error(`[SOAP_INIT] Failed to find JobID. XML: ${xml}`);
+    throw new Error("SOAP response missing jobId");
+  }
   const jobId = jobIdMatch[1];
   
   // Poll Job
