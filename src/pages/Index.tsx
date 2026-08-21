@@ -1114,7 +1114,7 @@ const IndexInner = () => {
                   hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
                 />
                 <MetricCard
-                  label={data.dataReadiness.isIntraday ? "agora vou poder ver o roi das campanhas?" : "Receita (Ad Manager)"}
+                  label={data.dataReadiness.isIntraday ? "Receita ESTIMADA (Ad Manager)" : "Receita (Ad Manager)"}
                   value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
                   icon={DollarSign}
                   variant="primary"
@@ -1127,14 +1127,14 @@ const IndexInner = () => {
                   }
                 />
                 <MetricCard
-                  label={data.dataReadiness.isIntraday ? "agora vou poder ver o roi das campanhas?" : "Lucro"}
+                  label={data.dataReadiness.isIntraday ? "Lucro ESTIMADO" : "Lucro"}
                   value={fmtCurrency(totals.profit)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
                   hint="BRL (receita convertida)"
                 />
                 <MetricCard
-                  label={data.dataReadiness.isIntraday ? "agora vou poder ver o roi das campanhas?" : "ROI / ROAS"}
+                  label={data.dataReadiness.isIntraday ? "ROI ESTIMADO / ROAS" : "ROI / ROAS"}
                   value={fmtPercent(totals.roi)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
