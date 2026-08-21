@@ -139,7 +139,7 @@ async function runSync(req: Request): Promise<Response> {
     let userId: string | undefined;
 
     if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
-      userId = requestedUserId ?? (control?.userId as string) ?? undefined;
+      userId = requestedUserId ?? undefined;
     } else {
       const { data: { user } } = await userClient.auth.getUser(token);
       userId = user?.id;
@@ -381,6 +381,7 @@ async function runSync(req: Request): Promise<Response> {
             debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
           }
         }
+        
 
         const utmRows = attribution.retentionRows;
         const googleCampaignRows = attribution.googleCampaignRows;
@@ -474,6 +475,40 @@ async function runSync(req: Request): Promise<Response> {
           impressions: v.impr, measurable: v.meas, viewable: v.view, revenue: v.rev,
         }));
 
+
+        // NOVO: Fallback Preditivo Intraday (Senior Solution)
+        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
+        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
+        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
+        const siteTodayRows = viewabilityRows.filter(r => r.date === todayStr);
+        const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
+        const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
+        
+        const hasRealSegmentedData = googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+
+        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
+          try {
+            const predictive = await collectPredictiveIntradayAttribution({
+              networkCode, 
+              accessToken, 
+              ranges, 
+              totalSiteRevenue, 
+              totalSiteImpressions, 
+              debug, 
+              deadlineAt 
+            });
+            
+            if (predictive.googleCampaignRows.length > 0) {
+              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
+              // Adiciona as estimadas ao set de hoje para persistência
+              googleCampaignRows.push(...predictive.googleCampaignRows);
+              googlePlacementRows.push(...predictive.googlePlacementRows);
+            }
+          } catch (predErr) {
+            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
+          }
+        }
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
@@ -1256,8 +1291,8 @@ async function runSoapReport(args: {
   const { networkCode, accessToken, range, dimensions, debug } = args;
   
   // SOAP API v202405 ReportService minimalista
-  const startDate = (range?.dateRange?.startDate || "2000-01-01").replace(/-/g, "");
-  const endDate = (range?.dateRange?.endDate || "2000-01-01").replace(/-/g, "");
+  const startDate = (String((range?.dateRange as any)?.fixed?.startDate ? `${(range.dateRange as any).fixed.startDate.year}-${String((range.dateRange as any).fixed.startDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.startDate.day).padStart(2, '0')}` : (range?.dateRange?.startDate || "2000-01-01"))).replace(/-/g, "");
+  const endDate = (String((range?.dateRange as any)?.fixed?.endDate ? `${(range.dateRange as any).fixed.endDate.year}-${String((range.dateRange as any).fixed.endDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.endDate.day).padStart(2, '0')}` : (range?.dateRange?.endDate || "2000-01-01"))).replace(/-/g, "");
   
   const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
@@ -1279,14 +1314,14 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
-                   <v202405:year>${(range?.dateRange?.startDate || "").split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange?.startDate || "").split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange?.startDate || "").split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
+                   <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
+                   <v202405:day>${(range?.dateRange as any)?.fixed?.startDate?.day || (String(range?.dateRange?.startDate || "")).split("-")[2] || ""}</v202405:day>
                 </v202405:startDate>
                 <v202405:endDate>
-                   <v202405:year>${(range?.dateRange?.endDate || "").split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange?.endDate || "").split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange?.endDate || "").split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${(range?.dateRange as any)?.fixed?.endDate?.year || (String(range?.dateRange?.endDate || "")).split("-")[0] || ""}</v202405:year>
+                   <v202405:month>${(range?.dateRange as any)?.fixed?.endDate?.month || (String(range?.dateRange?.endDate || "")).split("-")[1] || ""}</v202405:month>
+                   <v202405:day>${(range?.dateRange as any)?.fixed?.endDate?.day || (String(range?.dateRange?.endDate || "")).split("-")[2] || ""}</v202405:day>
                 </v202405:endDate>
             </v202405:reportQuery>
          </v202405:reportJob>
@@ -1392,10 +1427,10 @@ async function runSoapReport(args: {
   console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
   console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
   console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
-  return parseSoapCsv(csvText, dimensions);
+  return parseSoapCsv(csvText, dimensions, debug);
 }
 
-function parseSoapCsv(csv: string, dimensions: string[]): ReportRow[] {
+function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
   const lines = csv.split("\n").filter(l => l.trim().length > 0);
   if (lines.length <= 1) return [];
   
@@ -1781,7 +1816,8 @@ async function persistCampaignSourceRevenueFromUtm(
     const key = `${cid}|${date}|${source}`;
     
     const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
-    const status = isSoap ? "intraday" : "consolidated";
+    const isPredictive = r.raw.includes("PREDICTIVE");
+    const status = (isSoap || isPredictive) ? "intraday" : "consolidated";
 
     const cur = buckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
@@ -1789,7 +1825,7 @@ async function persistCampaignSourceRevenueFromUtm(
     };
     
     // Se houver qualquer linha consolidada para este balde, o balde todo vira consolidado
-    if (!isSoap) cur.attribution_status = "consolidated";
+    if (!isSoap && !isPredictive) cur.attribution_status = "consolidated";
 
     cur.revenue_usd += r.revenue / ingestionDivisor;
     cur.impressions += r.impressions;
@@ -1903,14 +1939,16 @@ async function applyGoogleUtmRevenue(
     // 1. Inicializa com dados das campanhas (pode vir de SOAP/URL_NAME sem placement)
     for (const r of googleCampaignRows) {
       if (!r.cid) continue;
-      const key = `${r.cid}|${r.date}`;
+      const date = r.date ?? today;
+      const source = (r.source || "google").toLowerCase();
+      const key = `${r.cid}|${date}`;
       
-      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
+      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP") || r.raw.includes("PREDICTIVE");
       const status = isSoap ? "intraday" : "consolidated";
 
       const cur = sourceByCampaign.get(key) ?? { 
-        user_id: userId, site_id: siteId, campaign_id: r.cid, date: r.date, 
-        utm_source: r.source || "google", revenue_usd: 0, impressions: 0, 
+        user_id: userId, site_id: siteId, campaign_id: r.cid, date, 
+        utm_source: source, revenue_usd: 0, impressions: 0, 
         attribution_status: status 
       };
       
@@ -2458,3 +2496,94 @@ async function persistSiteMetricsDaily(
   debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
 }
 
+
+async function collectPredictiveIntradayAttribution(args: {
+  networkCode: string;
+  accessToken: string;
+  ranges: GamRange[];
+  totalSiteRevenue: number;
+  totalSiteImpressions: number;
+  debug: string[];
+  deadlineAt?: number;
+}): Promise<AttributionResult> {
+  const { networkCode, accessToken, ranges, totalSiteRevenue, totalSiteImpressions, debug, deadlineAt } = args;
+  
+  // REGRA SENIOR: Puxar apenas impressões (sem receita) para evitar Erro 400 e latência.
+  // Google libera dimensões de targeting com métricas de inventário (impressões) instantaneamente.
+  const metrics = ["AD_SERVER_IMPRESSIONS", "AD_EXCHANGE_IMPRESSIONS"];
+  const label = "PREDICTIVE_INTRADAY";
+
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ 
+        networkCode, 
+        accessToken, 
+        range, 
+        dimensions: ["DATE", "KEY_VALUES_NAME"], 
+        metrics, 
+        debug, 
+        deadlineAt 
+      })
+    ))).flat();
+
+    if (reportRows.length === 0) {
+      debug.push(`[${label}] 0 rows encontrados para impressões intraday.`);
+      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+    }
+
+    // Agregamos as impressões por campanha
+    const campaignImpressions = new Map<string, { impr: number; date: string; rawKv: string }>();
+    let totalAttributedImpressions = 0;
+
+    for (const r of reportRows) {
+      const rawKv = r.dims[1] || "";
+      const kv = parseKeyValueDimension(rawKv);
+      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
+      if (!cid || !r.date) continue;
+
+      const key = `${cid}|${r.date}`;
+      const cur = campaignImpressions.get(key) ?? { impr: 0, date: r.date, rawKv };
+      cur.impr += r.impressions;
+      totalAttributedImpressions += r.impressions;
+      campaignImpressions.set(key, cur);
+    }
+
+    if (totalAttributedImpressions === 0) {
+      debug.push(`[${label}] Impressões atribuídas = 0.`);
+      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+    }
+
+    // Distribuímos a receita proporcionalmente
+    const googleCampaignRows: AttributedRow[] = [];
+    for (const [key, data] of campaignImpressions.entries()) {
+      const [cid] = key.split("|");
+      const share = data.impr / totalAttributedImpressions; // Use total atribuído para a proporção interna
+      const siteShare = data.impr / totalSiteImpressions; // Use total do site para a receita real
+      const estimatedRev = totalSiteRevenue * siteShare;
+      
+      googleCampaignRows.push({
+        date: data.date,
+        impressions: data.impr,
+        revenue: estimatedRev,
+        source: "google",
+        cid: cid,
+        placement: null,
+        raw: `PREDICTIVE|utm_source=google|raw=${data.rawKv.slice(0, 150)}|share=${(siteShare * 100).toFixed(2)}%`
+      });
+    }
+
+    debug.push(`[${label}] Sucesso: ${googleCampaignRows.length} campanhas estimadas via share de impressões.`);
+    
+    return {
+      retentionRows: [],
+      googleCampaignRows,
+      googlePlacementRows: [],
+      campaignSource: label,
+      placementSource: label
+    };
+
+  } catch (e) {
+    debug.push(`[${label}] Erro na coleta: ${String(e)}`);
+    return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
+  }
+}
