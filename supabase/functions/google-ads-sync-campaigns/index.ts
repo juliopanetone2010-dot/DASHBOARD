@@ -150,8 +150,15 @@ Deno.serve(async (req) => {
           body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
         });
         const j = await r.json();
-        return r.ok ? j.access_token as string : null;
-      } catch { return null; }
+        if (!r.ok) {
+          console.error(`[AUTH ERROR] Set: ${apiSet}, Response: ${JSON.stringify(j)}`);
+          return null;
+        }
+        return j.access_token as string;
+      } catch (e) { 
+        console.error(`[AUTH FETCH ERROR] Set: ${apiSet}, Error: ${String(e)}`);
+        return null; 
+      }
     };
 
     const isInactiveErr = (msg: string) => /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
@@ -166,9 +173,23 @@ Deno.serve(async (req) => {
     try {
       for (const root of accounts) {
         const { devToken } = getCreds((root as any).api_set ?? 1);
-        const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
+        const { clientId, clientSecret } = getCreds((root as any).api_set ?? 1);
+        
+        let accessToken: string | null = null;
+        let authErrorDetail: string | null = null;
+        try {
+          const r = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: root.refresh_token!, grant_type: "refresh_token" }),
+          });
+          const j = await r.json();
+          if (r.ok) accessToken = j.access_token;
+          else authErrorDetail = JSON.stringify(j);
+        } catch (e) { authErrorDetail = String(e); }
+
         if (!accessToken) {
-          summary.push({ root_account: root.customer_id, error: "Auth failed" });
+          summary.push({ root_account: root.customer_id, error: "Auth failed", detail: authErrorDetail, api_set: root.api_set });
           continue;
         }
 
@@ -217,8 +238,11 @@ Deno.serve(async (req) => {
             const camJson = await camRes.json();
             if (!camRes.ok) {
               const msg = camJson?.error?.message ?? "Error";
+              const rawError = JSON.stringify(camJson.error);
+              console.error(`[SYNC ERROR] Account: ${leaf.customer_id}, Login: ${leaf.login_customer_id}, Set: ${root.api_set}, Error: ${rawError}`);
+              
               if (isInactiveErr(msg)) await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
-              else syncErrors.push({ account_id: leaf.customer_id, error: msg });
+              else syncErrors.push({ account_id: leaf.customer_id, error: msg, raw: camJson.error, api_set: root.api_set, login_customer_id: leaf.login_customer_id });
               continue;
             }
 
