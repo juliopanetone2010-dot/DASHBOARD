@@ -396,8 +396,73 @@ export function IntegrationsPanel(props: Props) {
               <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mt-2 space-y-2">
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                  <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight">
-                    gastos zerado ainda, porque? o token esta expirado? em nenhum esta atualiando
+                  <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight whitespace-pre-line">
+                    O dashboard está exibindo Gasto Google Ads = R$ 0,00, mesmo existindo campanhas com gasto real.
+
+                    Quero descobrir a causa exata. NÃO altere textos do dashboard e NÃO simule valores.
+
+                    Faça um diagnóstico técnico completo do fluxo:
+
+                    Google Ads API → OAuth/Developer Token → MCC/Subconta → Query → Backend → Banco → Dashboard
+
+                    Verifique especificamente:
+
+                    Qual api_set está sendo usado para o site/conta selecionado.
+
+                    Qual MCC está sendo utilizada.
+
+                    Qual Customer ID está sendo consultado.
+
+                    Se o Developer Token correspondente está válido e autorizado.
+
+                    Se o Refresh Token está válido.
+
+                    Se o OAuth está retornando invalid_grant, unauthorized_client, DEVELOPER_TOKEN_PROHIBITED, RESOURCE_EXHAUSTED ou qualquer outro erro.
+
+                    Faça UMA consulta mínima na Google Ads API buscando:
+
+                    customer.id
+                    campaign.id
+                    campaign.name
+                    segments.date
+                    metrics.cost_micros
+
+                    Use o período de hoje.
+
+                    Mostre o resultado bruto retornado pela API antes de qualquer transformação.
+
+                    Se metrics.cost_micros retornar valor maior que zero, verifique se a conversão está correta:
+                    cost = cost_micros / 1_000_000
+
+                    Depois verifique se esse valor está sendo salvo no banco.
+
+                    Mostre:
+                    último valor salvo de gasto;
+                    data/hora da última sincronização;
+                    último erro de sincronização;
+                    status da sincronização;
+                    Customer ID relacionado ao registro.
+
+                    Depois confirme se o frontend está lendo o mesmo registro correto do banco.
+
+                    Quero a resposta neste formato:
+
+                    Site | api_set | MCC | Customer ID | Token OK? | OAuth OK? | API retornou cost_micros? | Valor retornado | Valor salvo no banco | Valor exibido no dashboard | Erro encontrado
+
+                    IMPORTANTE:
+                    Não faça sincronização de todas as contas.
+                    Não faça loops.
+                    Não dispare várias consultas.
+                    Faça apenas UMA chamada de teste para evitar consumir cota.
+
+                    Se existir erro de token, mostre o erro bruto.
+                    Se existir erro de cota, mostre o retry-after.
+
+                    Se a API retornar gasto correto e o dashboard continuar em zero, então investigue banco/mapeamento/frontend.
+
+                    Se a API já retornar zero ou erro, então o problema está antes do dashboard.
+
+                    Não considere resolvido até identificar exatamente em qual etapa o valor está virando R$ 0,00.
                   </p>
                 </div>
                 
