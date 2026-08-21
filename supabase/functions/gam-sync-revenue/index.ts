@@ -324,7 +324,25 @@ async function runSync(req: Request): Promise<Response> {
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA e URL_NAME.
+        let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        
+        if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
+          debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
+          const criteria = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
+          if (criteria.rows.length > 0) {
+             const critAttr = rowsToAttributionResult(criteria.rows, criteria.label);
+             attribution = critAttr;
+          }
+        }
+        
+        if (attribution.googleCampaignRows.length === 0 && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] UTM fallbacks falharam, tentando URL_NAME candidate...`);
+          const urlCand = await runUrlNameCandidate(networkCode, accessToken, ranges, debug);
+          if (urlCand.rows.length > 0) {
+            attribution = rowsToAttributionResult(urlCand.rows, urlCand.label);
+          }
+        }
         const utmRows = attribution.retentionRows;
         let googleCampaignRows = attribution.googleCampaignRows;
         let googlePlacementRows = attribution.googlePlacementRows;
@@ -739,6 +757,19 @@ function safeDecode(s: string): string {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
+function parseUrlParams(url: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    const search = url.split("?")[1];
+    if (!search) return out;
+    for (const part of search.split("&")) {
+      const [k, v] = part.split("=");
+      if (k && v) out[k.toLowerCase()] = safeDecode(v);
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
 // Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
 // ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
 function cleanPlacementLabel(s: string): string {
@@ -1027,6 +1058,26 @@ async function collectUtmAttribution(args: {
   };
 }
 
+function rowsToAttributionResult(rows: AttributedRow[], label: string): AttributionResult {
+  const sourceRows = rows.filter((r) => r.source && r.source !== "google" && r.source !== "unknown");
+  const campaignRows = rows.filter((r) => r.source === "google" && r.cid && !r.placement);
+  const placementRows = rows.filter((r) => r.source === "google" && r.placement);
+
+  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
+  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
+  const googlePlacementRows = placementRows.filter((r) => r.placement);
+  const retentionRows = sourceRows;
+
+  return {
+    retentionRows,
+    googleCampaignRows,
+    googlePlacementRows,
+    campaignSource: label,
+    placementSource: label,
+  };
+}
+
 async function runUtmPairCandidates(
   networkCode: string,
   accessToken: string,
@@ -1174,12 +1225,10 @@ async function collectUrlAttribution(args: {
 }): Promise<AttributedRow[]> {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
   const out: AttributedRow[] = [];
-  // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
-  // O caminho correto agora é garantir UTM padrão em todas as campanhas via
-  // google-ads-sync-campaigns (auto-aplica final_url_suffix). Mantemos o helper desligado.
-  return out;
-  // eslint-disable-next-line no-unreachable
+  // A dimensão URL_NAME pode causar erro 400 em algumas redes se não estiver habilitada.
+  // Tentamos capturá-la para fallback quando UTMs falham.
   try {
+  
     const reportRows = (await Promise.all(ranges.map((range) =>
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
     ))).flat();
