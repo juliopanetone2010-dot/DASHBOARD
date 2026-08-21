@@ -47,9 +47,14 @@ async function run() {
     body: JSON.stringify({ query })
   });
 
-  const resJson = await res.json();
+  const text = await res.text();
   console.log("Status:", res.status);
-  console.log("Response:", JSON.stringify(resJson, null, 2));
+  try {
+    const resJson = JSON.parse(text);
+    console.log("Response:", JSON.stringify(resJson, null, 2));
+  } catch (e) {
+    console.log("RAW HTML Response (indicates 404/wrong endpoint):", text.slice(0, 500));
+  }
 }
 
 run();
