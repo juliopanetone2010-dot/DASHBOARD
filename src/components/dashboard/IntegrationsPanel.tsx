@@ -180,7 +180,7 @@ export function IntegrationsPanel(props: Props) {
             <span>Set 2 (Jardim): <strong>NÃO FUNCIONANDO</strong> (Erro: The caller does not have permission)</span>
           </p>
           <div className="mt-2 pt-2 border-t border-border space-y-2 text-[10px]">
-            <p><strong>Set 1 — Detalhes:</strong> API v18 respondeu OK. Campanhas: 18. Gasto hoje: R$ 3.788,04 (micros > 0). Gravado no banco: SIM. Dashboard: SIM.</p>
+            <p><strong>Set 1 — Detalhes:</strong> API v18 respondeu OK. Campanhas: 18. Gasto hoje: R$ 3.788,04 (micros &gt; 0). Gravado no banco: SIM. Dashboard: SIM.</p>
             <p><strong>Set 2 — Detalhes:</strong> API v18 respondeu com erro bruto: "The caller does not have permission". O erro 'unauthorized_client' sumiu do Set 1, mas o Set 2 ainda precisa de reconexão ou revisão de permissões na MCC 719-750-3782.</p>
           </div>
         </div>
