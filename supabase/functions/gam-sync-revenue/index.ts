@@ -1314,14 +1314,14 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
-                   <v202405:year>${(range?.dateRange?.startDate || "").split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange?.startDate || "").split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange?.startDate || "").split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
+                   <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
+                   <v202405:day>${(range?.dateRange as any)?.fixed?.startDate?.day || (String(range?.dateRange?.startDate || "")).split("-")[2] || ""}</v202405:day>
                 </v202405:startDate>
                 <v202405:endDate>
-                   <v202405:year>${(range?.dateRange?.endDate || "").split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange?.endDate || "").split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange?.endDate || "").split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${(range?.dateRange as any)?.fixed?.endDate?.year || (String(range?.dateRange?.endDate || "")).split("-")[0] || ""}</v202405:year>
+                   <v202405:month>${(range?.dateRange as any)?.fixed?.endDate?.month || (String(range?.dateRange?.endDate || "")).split("-")[1] || ""}</v202405:month>
+                   <v202405:day>${(range?.dateRange as any)?.fixed?.endDate?.day || (String(range?.dateRange?.endDate || "")).split("-")[2] || ""}</v202405:day>
                 </v202405:endDate>
             </v202405:reportQuery>
          </v202405:reportJob>
