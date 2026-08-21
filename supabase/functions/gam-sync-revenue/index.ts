@@ -1905,7 +1905,8 @@ async function persistCampaignSourceRevenueFromUtm(
     const key = `${cid}|${date}|${source}`;
     
     const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
-    const status = isSoap ? "intraday" : "consolidated";
+    const isPredictive = r.raw.includes("PREDICTIVE");
+    const status = (isSoap || isPredictive) ? "intraday" : "consolidated";
 
     const cur = buckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
