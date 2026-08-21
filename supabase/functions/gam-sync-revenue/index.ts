@@ -1045,6 +1045,26 @@ async function collectUtmAttribution(args: {
   };
 }
 
+function rowsToAttributionResult(rows: AttributedRow[], label: string): AttributionResult {
+  const sourceRows = rows.filter((r) => r.source && r.source !== "google" && r.source !== "unknown");
+  const campaignRows = rows.filter((r) => r.source === "google" && r.cid && !r.placement);
+  const placementRows = rows.filter((r) => r.source === "google" && r.placement);
+
+  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
+  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
+  const googlePlacementRows = placementRows.filter((r) => r.placement);
+  const retentionRows = sourceRows;
+
+  return {
+    retentionRows,
+    googleCampaignRows,
+    googlePlacementRows,
+    campaignSource: label,
+    placementSource: label,
+  };
+}
+
 async function runUtmPairCandidates(
   networkCode: string,
   accessToken: string,
