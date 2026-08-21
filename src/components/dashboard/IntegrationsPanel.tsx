@@ -339,9 +339,9 @@ export function IntegrationsPanel(props: Props) {
             <form onSubmit={handleSaveDevToken} className="mt-2 space-y-2 border-t border-border/50 pt-2">
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})
+                  Configurar Credenciais (Conjunto {apiSet})
                 </Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <Input 
                     type="password"
                     value={manualDevToken}
@@ -349,8 +349,41 @@ export function IntegrationsPanel(props: Props) {
                     placeholder="Insira o Developer Token aqui..."
                     className="h-8 text-xs"
                   />
-                  <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
-                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
+                  <div className="flex gap-2">
+                    <Input 
+                      type="password"
+                      placeholder="Client ID (Opcional se global)"
+                      className="h-8 text-xs flex-1"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          supabase.functions.invoke("secrets-manager", {
+                            body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: val }
+                          });
+                        }
+                      }}
+                    />
+                    <Input 
+                      type="password"
+                      placeholder="Client Secret (Opcional)"
+                      className="h-8 text-xs flex-1"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          supabase.functions.invoke("secrets-manager", {
+                            body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: val }
+                          });
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button 
+                    onClick={handleSaveDevToken}
+                    size="sm" 
+                    className="h-8 w-full" 
+                    disabled={savingSecret}
+                  >
+                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar Conjunto"}
                   </Button>
                 </div>
               </div>
