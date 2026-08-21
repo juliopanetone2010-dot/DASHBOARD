@@ -744,7 +744,7 @@ const IndexInner = () => {
     ? realGamRevenueNetBrl / usdBrl
     : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
-  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
+  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 1;
   const totals = {
     spend: baseTotals.spend,
     revenue: totalRevenueUsd,
@@ -805,7 +805,7 @@ const IndexInner = () => {
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col">
+              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col bg-background/95 backdrop-blur-sm">
                 <SheetHeader className="px-4 py-4 border-b">
                   <SheetTitle className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
@@ -1011,7 +1011,7 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-4 md:py-5 space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+      <main className="w-full max-w-[3440px] mx-auto px-2 sm:px-4 lg:px-6 py-2 md:py-5 space-y-4 md:space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="hidden md:block -mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList className="w-max md:w-auto flex-nowrap">
@@ -1049,24 +1049,24 @@ const IndexInner = () => {
               const adsAt = adsFreshnessQuery.data ?? null;
               const gamInfo = gamFreshnessQuery.data;
               return (
-                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] sm:text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-primary" />
-                    <span className="text-muted-foreground">Google Ads atualizado:</span>
-                    <span className="font-mono font-medium">{fmtFresh(adsAt)}</span>
+                    <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                    <span className="text-muted-foreground">Google Ads:</span>
+                    <span className="font-mono font-bold">{fmtFresh(adsAt)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-success" />
-                    <span className="font-mono font-medium">
-                      {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
+                    <span className="h-2 w-2 rounded-full bg-success shrink-0" />
+                    <span className="font-mono font-bold">
+                      {gamFreshnessQuery.isLoading ? "GAM…" : (gamInfo?.label?.replace("Ad Manager salvo até:", "GAM:") ?? "GAM: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" />
-                    <span className="text-muted-foreground">USD → BRL:</span>
-                    <span className="font-mono font-medium">
-                      R$ {usdBrl.toFixed(4)}
+                  <div className="flex items-center gap-1.5 sm:ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                    <span className="text-muted-foreground">USD:</span>
+                    <span className="font-mono font-bold">
+                      R$ {usdBrl.toFixed(2)}
                     </span>
                     {fxSource && (
                       <span className="text-muted-foreground">({fxSource})</span>
@@ -1097,7 +1097,7 @@ const IndexInner = () => {
             })()}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita GAM líquida (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">GAM Líquido (−{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
