@@ -11,9 +11,9 @@ async function syncSet2() {
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
   const admin = createClient(supabaseUrl, serviceKey);
 
-  const clientId = env("GOOGLE_CLIENT_ID");
-  const clientSecret = env("GOOGLE_CLIENT_SECRET");
-  const devToken = env("GOOGLE_ADS_DEVELOPER_TOKEN_2") || env("GOOGLE_ADS_DEVELOPER_TOKEN");
+  const clientId = env(`GOOGLE_CLIENT_ID_${apiSet}`) || env("GOOGLE_CLIENT_ID");
+  const clientSecret = env(`GOOGLE_CLIENT_SECRET_${apiSet}`) || env("GOOGLE_CLIENT_SECRET");
+  const devToken = env(`GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`);
 
   // 1. Buscar contas do Set 2 que não são MCC (para puxar gastos diretos)
   const { data: accounts } = await admin.from("google_accounts")
