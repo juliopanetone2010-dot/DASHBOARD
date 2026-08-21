@@ -99,12 +99,12 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Busca todas as contas conectadas (MCCs e contas diretas)
+    // Busca todas as contas conectadas que estão habilitadas para sincronização
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
       .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
       .eq("user_id", userId)
-      .not("status", "in", `(${Array.from(INACTIVE).map(s => `'${s}'`).join(",")})`)
+      .eq("sync_enabled", true)
       .not("refresh_token", "is", null);
 
     if (accErr) return json({ error: accErr.message });
@@ -637,10 +637,12 @@ Deno.serve(async (req) => {
             : { root_account: root.customer_id, error: msg },
         );
       }
-
     }
+  } catch (e) {
+    throw e;
+  }
 
-    // Update sync_state with results
+
     if (bodySiteId) {
       const hasErrors = syncErrors.length > 0;
       await admin.from("sync_state").upsert({
