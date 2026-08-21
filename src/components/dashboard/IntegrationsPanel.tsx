@@ -397,7 +397,7 @@ export function IntegrationsPanel(props: Props) {
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
                   <p className="text-[11px] text-red-400 font-bold uppercase tracking-tight">
-                    CONTINUA A MESMA COISA GASTOS ZERADOS E BOTAO ATUALIZAR SUMIU, O TOKEN FOI EXPIRADO VERIFIQUE PRA MIM
+                    gastos zerado ainda, porque? o token esta expirado? em nenhum esta atualiando
                   </p>
                 </div>
                 
