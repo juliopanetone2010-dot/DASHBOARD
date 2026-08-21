@@ -1155,13 +1155,10 @@ async function runUtmPairCandidates(
       });
       debugUtmCandidate(networkCode, c.label, valueName, rows, debug);
       out.push({ label: c.label, rows });
-      out.push({ label: c.label, rows });
     } catch (e) {
       debug.push(`[${networkCode}/${c.label}] erro=${String(e).slice(0, 500)}`);
     }
   }
-  return out;
-}
   return out;
 }
 
