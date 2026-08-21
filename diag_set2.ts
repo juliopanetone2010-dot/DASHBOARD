@@ -53,7 +53,9 @@ async function runDiagnostic() {
 
   // 2. Tentar listar sub-contas
   console.log("Passo 2: Listando sub-contas (validando permissão da MCC)...");
-  const listRes = await fetch(`https://googleads.googleapis.com/v18/customers/${mccAccount.customer_id}/googleAds:search`, {
+  const url = `https://googleads.googleapis.com/v18/customers/${mccAccount.customer_id.replace(/-/g, "")}/googleAds:search`;
+  console.log(`URL: ${url}`);
+  const listRes = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
