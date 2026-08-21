@@ -1291,8 +1291,8 @@ async function runSoapReport(args: {
   const { networkCode, accessToken, range, dimensions, debug } = args;
   
   // SOAP API v202405 ReportService minimalista
-  const startDate = (range?.dateRange?.startDate || "2000-01-01").replace(/-/g, "");
-  const endDate = (range?.dateRange?.endDate || "2000-01-01").replace(/-/g, "");
+  const startDate = (String((range?.dateRange as any)?.fixed?.startDate ? `${(range.dateRange as any).fixed.startDate.year}-${String((range.dateRange as any).fixed.startDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.startDate.day).padStart(2, '0')}` : (range?.dateRange?.startDate || "2000-01-01"))).replace(/-/g, "");
+  const endDate = (String((range?.dateRange as any)?.fixed?.endDate ? `${(range.dateRange as any).fixed.endDate.year}-${String((range.dateRange as any).fixed.endDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.endDate.day).padStart(2, '0')}` : (range?.dateRange?.endDate || "2000-01-01"))).replace(/-/g, "");
   
   const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
