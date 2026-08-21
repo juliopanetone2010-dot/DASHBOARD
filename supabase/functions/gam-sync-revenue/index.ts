@@ -1178,7 +1178,6 @@ async function collectUrlAttribution(args: {
   // Tentamos capturá-la para fallback quando UTMs falham.
   try {
   // eslint-disable-next-line no-unreachable
-  try {
     const reportRows = (await Promise.all(ranges.map((range) =>
       runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
     ))).flat();
