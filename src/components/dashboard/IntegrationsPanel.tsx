@@ -183,6 +183,9 @@ export function IntegrationsPanel(props: Props) {
             <CheckCircle2 className="h-3 w-3 text-success" />
             <span>Set 2 (Jardim): <strong>Token Válido</strong> (719-750-3782)</span>
           </p>
+          <p className="flex items-center gap-2 italic text-[10px] mt-2 border-t border-border pt-1">
+            <span>Agora os gastos estao funcionando e as campanhas tambem das contas?</span>
+          </p>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
