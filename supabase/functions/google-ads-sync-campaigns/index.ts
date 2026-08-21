@@ -643,6 +643,7 @@ Deno.serve(async (req) => {
   }
 
 
+
     if (bodySiteId) {
       const hasErrors = syncErrors.length > 0;
       await admin.from("sync_state").upsert({
