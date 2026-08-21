@@ -797,7 +797,7 @@ const IndexInner = () => {
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Mobile hamburger */}
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
@@ -852,9 +852,19 @@ const IndexInner = () => {
                       </Badge>
                     )}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { handleRefresh(); setMenuOpen(false); }} disabled={syncing} className="w-full justify-start gap-2">
-                    <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                    {syncing ? "Sincronizando…" : "Atualizar"}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      handleRefresh();
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }} 
+                    disabled={syncing || allSites.processingCount > 0} 
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar Agora"}
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => { insertSampleData(); setMenuOpen(false); }} className="w-full justify-start gap-2">
                     <Plus className="h-4 w-4" /> Dados de teste
@@ -888,6 +898,20 @@ const IndexInner = () => {
                 )}
               </p>
             </div>
+            
+            {/* Mobile-only Update Button in Header */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="md:hidden h-10 w-10 shrink-0 ml-auto border-primary/20 text-primary hover:bg-primary/10"
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
+            >
+              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            </Button>
           </div>
           {/* Desktop actions */}
           <div className="hidden md:flex items-center gap-2 flex-wrap">
