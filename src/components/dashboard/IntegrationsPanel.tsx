@@ -165,125 +165,16 @@ export function IntegrationsPanel(props: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Pode prosseguir, mas com estas regras:
+      <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-3.5 w-3.5 text-success" />
+          <span className="font-semibold uppercase tracking-wider text-[10px]">Diagnóstico de Conexão</span>
+        </div>
+        <p className="whitespace-pre-wrap leading-relaxed">
+          {`Os gastos do jardim astral tb n esta funcionando, as cmapanhas n estao aparecendo tb, Falha na sincronização inicial
 
-1. NÃO use REST v1 para URL_NAME
-
-Você já confirmou que:
-
-REST v1 não suporta URL_NAME de forma confiável nessa combinação;
-
-isso já causou 400 INVALID_ARGUMENT;
-
-SOAP ReportService suporta URL_NAME.
-
-Então NÃO quero novas tentativas de URL_NAME na REST v1.
-
-Implemente diretamente o fluxo intraday via SOAP ReportService, de forma isolada e minimalista.
-
-2. Não altere o fluxo principal
-
-Mantenha:
-
-REST v1 / KEY_VALUES_NAME para consolidação/reconciliação noturna.
-
-Crie o SOAP apenas para:
-
-URL_NAME → extrair campaign_id → receita intraday
-
-Não migre o restante da integração para SOAP.
-
-3. Regra de extração
-
-Prioridade:
-
-utm_campaign=CAMPAIGN_ID
-
-Fallback:
-
-utm_placement=CAMPAIGN_ID_placement
-
-Extraia apenas Campaign IDs numéricos válidos.
-
-4. Não duplique receita
-
-Muito importante:
-
-Se a mesma campanha já tiver valor intraday salvo, faça UPDATE/UPSERT pelo conjunto:
-
-date + site_id + campaign_id + source
-
-Não acumule a mesma receita a cada sincronização.
-
-Quando o dado consolidado noturno chegar, ele deve substituir/reconciliar o intraday, e não somar novamente.
-
-5. Diferencie dados intraday e consolidados
-
-Adicione algum identificador equivalente a:
-
-attribution_status = intraday
-
-e depois:
-
-attribution_status = consolidated
-
-Assim podemos saber qual valor ainda é provisório e qual já foi reconciliado.
-
-6. Frequência
-
-Não rode isso a cada poucos minutos.
-
-Como a própria latência estimada é de 30–90 minutos, configure o sync intraday em uma frequência razoável para não desperdiçar chamadas.
-
-7. Validação obrigatória
-
-Depois da implementação, execute UMA consulta real de HOJE.
-
-Quero ver:
-
-Campanha
-Campaign ID
-URL_NAME retornada
-utm_campaign extraído
-Receita GAM intraday
-Gasto Google Ads
-Lucro
-ROI
-ROAS
-Registro salvo no banco
-Dashboard atualizado?
-
-Teste pelo menos 3 campanhas reais.
-
-8. Se SOAP retornar zero
-
-Não marque como corrigido.
-
-Mostre:
-
-quantidade de linhas retornadas;
-
-relatório executado;
-
-dimensão;
-
-métricas;
-
-período;
-
-erro bruto, se houver.
-
-IMPORTANTE
-
-Não altere textos do dashboard.
-
-Não use Fast Visual Edit.
-
-Não coloque este prompt na interface.
-
-A tarefa só está concluída quando a receita de HOJE aparecer individualmente nas campanhas antes da consolidação noturna.
+placement 24155048870 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} placement 24159798217 200: {"error":"Error: refresh failed: {"error":"unauthorized_client","error_description":"Unauthorized"}"} e ta dando esse erro`}
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
