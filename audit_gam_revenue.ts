@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
-const SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL")!;
-const SUPABASE_ANON_KEY = Deno.env.get("VITE_SUPABASE_ANON_KEY")!;
+const SUPABASE_URL = "https://pxlgkpuaaptbubsnvfkz.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4bGdrcHVhYXB0YnVic252Zmt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3Mzk0NjksImV4cCI6MjA5MzMxNTQ2OX0.tIykqWOZ9g0CChP60wcpq_q6c2jL9UkrMaTA02UTNww";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -44,20 +44,24 @@ async function runAudit() {
 
   // 2. Acionamento do Sincronizador Manual via Edge Function
   console.log("\n--- ACIONANDO SINCRONIZAÇÃO MANUAL (GAM-SYNC-REVENUE) ---");
-  const { data: syncData, error: syncFuncError } = await supabase.functions.invoke('gam-sync-revenue', {
-    body: {
-      date_preset: "CUSTOM",
-      start_date: "2026-08-21",
-      end_date: "2026-08-21",
-      force_consolidated: true,
-      debug_campaigns: campaignIds
-    }
-  });
+  try {
+    const { data: syncData, error: syncFuncError } = await supabase.functions.invoke('gam-sync-revenue', {
+      body: {
+        date_preset: "CUSTOM",
+        start_date: "2026-08-21",
+        end_date: "2026-08-21",
+        force_consolidated: true,
+        debug_campaigns: campaignIds
+      }
+    });
 
-  if (syncFuncError) {
-    console.error("Erro na Edge Function:", syncFuncError);
-  } else {
-    console.log("Resposta da Função:", JSON.stringify(syncData, null, 2));
+    if (syncFuncError) {
+      console.error("Erro na Edge Function:", syncFuncError);
+    } else {
+      console.log("Resposta da Função:", JSON.stringify(syncData, null, 2));
+    }
+  } catch (e) {
+    console.error("Erro ao invocar função:", e);
   }
   
   console.log("\n--- FIM DA AUDITORIA ---");
