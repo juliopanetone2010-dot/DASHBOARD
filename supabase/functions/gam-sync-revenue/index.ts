@@ -338,23 +338,24 @@ async function runSync(req: Request): Promise<Response> {
         }
         
         // Se não temos atribuição, ou se temos apenas dados consolidados de dias anteriores e hoje está vazio
-        const hasGoogleCampaignDataForToday = googleCampaignRows.some(r => r.date === today);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const hasGoogleCampaignDataForToday = attribution.googleCampaignRows.some(r => r.date === todayStr);
         
         if (!hasGoogleCampaignDataForToday && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Sem dados de hoje (today=${today}), tentando SOAP URL_NAME candidate...`);
+          debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds, debug);
           const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
           if (urlRows.length > 0) {
             const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
             // Mescla os dados do SOAP com os dados consolidados existentes
             // O SOAP só entra se não houver dado consolidado para aquela campanha/data/placement
-            googleCampaignRows.push(...soapAttribution.googleCampaignRows.filter(sr => 
-              !googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date)
+            attribution.googleCampaignRows.push(...soapAttribution.googleCampaignRows.filter(sr => 
+              !attribution.googleCampaignRows.some(gr => gr.cid === sr.cid && gr.date === sr.date)
             ));
-            googlePlacementRows.push(...soapAttribution.googlePlacementRows.filter(sp => 
-              !googlePlacementRows.some(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement)
+            attribution.googlePlacementRows.push(...soapAttribution.googlePlacementRows.filter(sp => 
+              !attribution.googlePlacementRows.some(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement)
             ));
-            utmRows.push(...soapAttribution.retentionRows);
+            attribution.retentionRows.push(...soapAttribution.retentionRows);
             debug.push(`[${networkCode}] SOAP Intraday adicionou ${soapAttribution.googleCampaignRows.length} campanhas.`);
           }
         }
@@ -362,7 +363,7 @@ async function runSync(req: Request): Promise<Response> {
         const googleCampaignRows = attribution.googleCampaignRows;
         const googlePlacementRows = attribution.googlePlacementRows;
 
-        const totals = googleCampaignRowsFinal.reduce(
+        const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
         );
