@@ -5,7 +5,7 @@ const env = (k: string) => Deno.env.get(k) ?? "";
 
 async function testFunctionLogic() {
   const apiSet = 2;
-  const rootCid = "7197503782";
+  const rootCid = "3189583435";
   const supabaseUrl = env("SUPABASE_URL");
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
   const admin = createClient(supabaseUrl, serviceKey);
