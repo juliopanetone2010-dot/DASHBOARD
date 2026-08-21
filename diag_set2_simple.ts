@@ -40,7 +40,7 @@ async function runDiagnostic() {
   const cid = mcc.customer_id.replace(/-/g, "");
   console.log(`Testando query na customer_id: ${cid}`);
   
-  const res = await fetch(`https://googleads.googleapis.com/v18/customers/${cid}/googleAds:searchStream`, {
+  const res = await fetch(`https://googleads.googleapis.com/v18/customers/${cid}/googleAds:search`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${accessToken}`,
