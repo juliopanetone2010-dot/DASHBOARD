@@ -108,7 +108,7 @@ export function IntegrationsPanel(props: Props) {
       if (oauthWindow) {
         oauthWindow.location.href = data.auth_url;
       } else {
-        window.top.location.href = data.auth_url;
+        if (window.top) window.top.location.href = data.auth_url;
       }
     } catch (e) {
       oauthWindow?.close();
