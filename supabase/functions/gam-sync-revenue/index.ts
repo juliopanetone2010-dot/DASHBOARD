@@ -324,7 +324,25 @@ async function runSync(req: Request): Promise<Response> {
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA e URL_NAME.
+        let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        
+        if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
+          debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
+          const criteria = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
+          if (criteria.rows.length > 0) {
+             const critAttr = rowsToAttributionResult(criteria.rows, criteria.label);
+             attribution = critAttr;
+          }
+        }
+        
+        if (attribution.googleCampaignRows.length === 0 && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] UTM fallbacks falharam, tentando URL_NAME candidate...`);
+          const urlCand = await runUrlNameCandidate(networkCode, accessToken, ranges, debug);
+          if (urlCand.rows.length > 0) {
+            attribution = rowsToAttributionResult(urlCand.rows, urlCand.label);
+          }
+        }
         const utmRows = attribution.retentionRows;
         let googleCampaignRows = attribution.googleCampaignRows;
         let googlePlacementRows = attribution.googlePlacementRows;
