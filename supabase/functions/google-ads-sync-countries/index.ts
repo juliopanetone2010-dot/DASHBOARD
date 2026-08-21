@@ -2,7 +2,7 @@
 // Receita NÃO é materializada aqui: CountriesTab/geo-expansion/geo-cleanup calculam pela engine oficial
 // usando daily_metrics.profit+spend × site_factor × share do país.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { COUNTRY_BY_ID } from "./countries.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 

@@ -3,7 +3,7 @@
 // filtra ESTRITAMENTE utm_source=push, normaliza URL e grava em push_retention_revenue.
 // Linhas agregadas (sem URL) vão pra unattributed_push_revenue.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { normalizePushUrl, isAggregateUrl, parseCustomCriteria } from "../_shared/normalize_url.ts";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";

@@ -1,7 +1,7 @@
 // Sincroniza métricas por criativo (ad_group_ad) das campanhas ENABLED do usuário.
 // Receita atribuída proporcional ao custo: revenue_ad = revenue_total_camp_dia * (cost_ad / cost_total_dia)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 type CampaignRow = { campaign_id: string | number | null; name: string | null; google_account_id: string | null };

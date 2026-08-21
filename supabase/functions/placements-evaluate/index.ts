@@ -8,7 +8,7 @@
 // - Quando mode = "apply", chama placements-cleanup para apenas os placements
 //   recém-marcados como 'blocked'.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 
 const DEFAULT_REV_SHARE_NET = 1 - DEFAULT_REV_SHARE_PCT / 100; // 0.935 fallback

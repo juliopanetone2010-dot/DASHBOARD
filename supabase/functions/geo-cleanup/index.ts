@@ -2,7 +2,7 @@
 // Reaproveita campaign_country_metrics + daily_metrics (mesma lógica da aba Países).
 // Modos: preview | apply | notify
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getRevSharePct } from "../_shared/revshare.ts";
 import { computeCountryPerformance } from "../_shared/country_performance.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
