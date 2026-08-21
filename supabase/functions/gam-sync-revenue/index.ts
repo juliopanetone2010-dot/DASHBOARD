@@ -333,6 +333,9 @@ async function runSync(req: Request): Promise<Response> {
           if (criteria.rows.length > 0) {
              const critAttr = rowsToAttributionResult(criteria.rows, criteria.label);
              attribution = critAttr;
+             // Atualiza variáveis locais para refletir a nova atribuição
+             googleCampaignRows = attribution.googleCampaignRows;
+             googlePlacementRows = attribution.googlePlacementRows;
           }
         }
         
