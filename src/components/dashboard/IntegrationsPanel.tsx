@@ -17,8 +17,8 @@ interface IntegrationsPanelProps {
   onRemoveGamAccount?: (id: string) => Promise<any>;
   onAddSite?: (input: any) => Promise<any>;
   onRemoveSite?: (id: string) => Promise<any>;
-  onAddLink?: (input: any) => Promise<any>;
-  onRemoveLink?: (id: string) => Promise<any>;
+  onAddLink?: (googleAccountId: string, siteId: string) => Promise<any>;
+  onRemoveLink?: (googleAccountId: string, siteId: string) => Promise<any>;
   onRefresh?: () => Promise<any>;
 }
 
