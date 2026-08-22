@@ -119,6 +119,8 @@ async function runUnifiedReport(
 
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
+  const auditLogs: string[] = [];
+
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     url.searchParams.set("pageSize", "1000");
@@ -135,16 +137,22 @@ async function runUnifiedReport(
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
       const urlText = String(dims[1]?.stringValue || "");
-      const cid = extractCampaignId(urlText);
+      
+      // Try URL attribution with slug fallback
+      let cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
-      // Handle both doubleValue (REST v1 Exchange Rev) and intValue (micros)
       const revenue = metrics[0]?.doubleValue !== undefined 
         ? Number(metrics[0].doubleValue) 
         : Number(metrics[0]?.intValue || 0) / 1_000_000;
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
+        // Log detailed attribution failure for diagnostic purposes
+        if (!cid && revenue > 0.01) {
+          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
+          auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
+        }
         allRows.push({
           date,
           campaignId: cid,
@@ -157,26 +165,61 @@ async function runUnifiedReport(
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
+  if (auditLogs.length > 0) {
+    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 10).join(" | ")}`);
+  }
+
   return allRows;
 }
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  const match = text.match(/\b(\d{10,12})\b/);
-  return match ? match[1] : null;
+  // Decode URL if it looks encoded
+  const decoded = text.includes('%') ? decodeURIComponent(text) : text;
+  
+  // Look for 8-12 digit IDs
+  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
+                decoded.match(/\b(\d{10,12})\b/) ||
+                decoded.match(/\b(\d{8,9})\b/);
+  
+  if (match) return match[1];
+
+  // Fallback: slug mapping
+  const slugMappings: Record<string, string> = {
+    "rec-aprenda-a-monitorar-conversas-no-whatsapp": "23207554976", // MONITORAR WHAPP
+    "rec-roblox-robux-skins-e-gift-cards": "23309079322",          // ROBLOX
+    "como-ganhar-robux": "23309079322",
+    "robux-gratis": "23309079322",
+    "rec-como-conseguir-robux": "23309079322",
+    "vagas-de-emprego": "22923001384"                             // EMPREGO
+  };
+
+  for (const [slug, id] of Object.entries(slugMappings)) {
+    if (decoded.includes(slug)) return id;
+  }
+
+  return null;
 }
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
-  const stats = { attributed: 0, total_revenue: 0 };
+  const stats = { attributed: 0, total_revenue: 0, unattributed_revenue: 0 };
   
   const groups = new Map<string, { revenue: number, impressions: number }>();
+  let dailyUnattributed = new Map<string, number>();
+
   for (const r of rows) {
-    if (!r.campaignId) continue;
-    const key = `${r.date}|${r.campaignId}`;
-    const cur = groups.get(key) || { revenue: 0, impressions: 0 };
-    cur.revenue += r.revenue;
-    cur.impressions += r.impressions;
-    groups.set(key, cur);
+    if (r.campaignId) {
+      const key = `${r.date}|${r.campaignId}`;
+      const cur = groups.get(key) || { revenue: 0, impressions: 0 };
+      cur.revenue += r.revenue;
+      cur.impressions += r.impressions;
+      groups.set(key, cur);
+      stats.total_revenue += r.revenue;
+    } else {
+      const currentRev = dailyUnattributed.get(r.date) || 0;
+      dailyUnattributed.set(r.date, currentRev + r.revenue);
+      stats.unattributed_revenue += r.revenue;
+    }
   }
 
   const upserts = [];
@@ -193,7 +236,20 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
       attribution_status: "consolidated"
     });
     stats.attributed++;
-    stats.total_revenue += data.revenue;
+  }
+
+  // Handle unattributed revenue via aggregate rows
+  for (const [date, revenue] of dailyUnattributed.entries()) {
+    upserts.push({
+      site_id: site.id,
+      user_id: site.user_id,
+      date,
+      campaign_id: "__aggregate__",
+      revenue_usd: revenue,
+      impressions: 0,
+      utm_source: "google",
+      attribution_status: "consolidated"
+    });
   }
 
   if (upserts.length > 0) {
