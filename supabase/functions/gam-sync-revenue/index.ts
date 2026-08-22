@@ -132,7 +132,7 @@ async function runUnifiedReport(
       const dateRaw = String(dims[0]?.stringValue || dims[0]?.intValue || "");
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
-      const urlText = String(dims[1]?.stringValue || "");
+      const urlText = String(dims[1]?.stringValue || ""); console.log(`[AUDIT] URL: ${urlText}`);
       
       const cid = extractCampaignId(urlText);
       
