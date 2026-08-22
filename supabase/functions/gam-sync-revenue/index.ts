@@ -73,17 +73,9 @@ async function runUnifiedReport(
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
-  // We add CUSTOM_TARGETING_VALUE_ID if utm_campaign key is found
-  const dimensions = ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_NAME"];
-  if (utmKeyId) {
-    // Custom dimensions in REST API are referenced by ID
-    // However, REST v1 Beta might not support this dimension easily.
-    // We will stick to URL and Channel for now as they were working previously.
-  }
-
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: dimensions,
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
@@ -144,10 +136,9 @@ async function runUnifiedReport(
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
       const urlText = String(dims[1]?.stringValue || "");
-      const channelText = String(dims[2]?.stringValue || "");
       
       // Strict extraction: 10-12 digits only
-      const cid = extractCampaignId(urlText) || extractCampaignId(channelText);
+      const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = metrics[0]?.doubleValue !== undefined 
@@ -175,7 +166,7 @@ function extractCampaignId(text: string): string | null {
   if (!text) return null;
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
-  // Look for 10-12 digit IDs only.
+  // Strict extraction: 10-12 digits only.
   const match = decoded.match(/(?:campaignid|utm_campaign)[=:](\d{10,12})\b/) || 
                 decoded.match(/\b(\d{10,12})\b/);
   
