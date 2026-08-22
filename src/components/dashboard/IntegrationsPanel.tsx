@@ -87,141 +87,65 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              A receita das campanhas apareceu, mas está TOTALMENTE BUGADA.
+              Temos um bug na integração entre Google Ads e Google Ad Manager: as receitas 
               {"\n\n"}
-              O print mostra que praticamente todas as campanhas estão com:
+              (revenue) do Ad Manager pararam de ser vinculadas às campanhas.
               {"\n\n"}
-              ROI = +274,84%
+              CONTEXTO:
               {"\n\n"}
-              e
+              - Até o dia 20/08 estava funcionando normalmente (receita aparecia por campanha e por placement)
               {"\n\n"}
-              ROAS = 3,75x
+              - A partir de então, o "Visão geral" continua puxando o gasto (Google Ads) normalmente
               {"\n\n"}
-              mesmo tendo gastos, impressões, cliques e desempenho completamente diferentes.
+              - Mas a receita do Ad Manager está zerada em TODAS as campanhas (Receita = $0.00), 
               {"\n\n"}
-              Isso prova que o sistema está aplicando o ROI/ROAS geral do site ou distribuindo a receita proporcionalmente entre as campanhas.
+              mesmo campanhas que antes tinham receita
               {"\n\n"}
-              EU NÃO QUERO ISSO.
+              - O card "Top placements (receita)" está mostrando "Sem dados de Ad Manager ainda"
               {"\n\n"}
-              REMOVA A ATRIBUIÇÃO PROPORCIONAL
+              - Ou seja: o problema não é no Google Ads (spend), é especificamente na leitura/
               {"\n\n"}
-              Não use mais:
+              vinculação de dados vindos do Google Ad Manager
               {"\n\n"}
-              proporção por gasto;
+              O QUE PRECISO QUE VOCÊ FAÇA:
               {"\n\n"}
-              proporção por impressões;
+              1. Não alterar nada que envolve a captura de dados do Google Ads (gasto), isso 
               {"\n\n"}
-              proporção por cliques;
+              continua funcionando e não pode quebrar
               {"\n\n"}
-              ROI geral do site;
+              2. Investigar a integração/sync com o Google Ad Manager: 
               {"\n\n"}
-              Predictive para preencher receita real histórica.
+              - Verificar se o token/credencial de acesso à API do Ad Manager expirou 
               {"\n\n"}
-              Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo Google Ad Manager para o seu próprio Campaign ID.
+              ou precisa de refresh
               {"\n\n"}
-              Nós já comprovamos que no GAM é possível consultar:
+              - Verificar se houve mudança na versão da API do Google Ad Manager 
               {"\n\n"}
-              Channel = utm_campaign=23207554976
+              (deprecation, breaking change)
               {"\n\n"}
-              e obter a receita real daquela campanha.
+              - Verificar o job/cron/rotina que faz o matching entre campanha (Google Ads) 
               {"\n\n"}
-              Portanto, para cada Channel:
+              e placement/receita (Ad Manager) — o vínculo entre os dois pode ter quebrado
               {"\n\n"}
-              utm_campaign=CAMPAIGN_ID
+              - Verificar se há erro nos logs da última sincronização com o Ad Manager 
               {"\n\n"}
-              faça:
+              (a partir de que data/horário os logs começam a falhar)
               {"\n\n"}
-              Campaign ID → Receita real GAM daquele Channel
+              3. Me trazer um diagnóstico do que encontrou antes de aplicar qualquer correção, 
               {"\n\n"}
-              e associe diretamente à campanha correspondente.
+              com a causa raiz identificada
               {"\n\n"}
-              EXEMPLO
+              4. Depois de identificado, corrigir mantendo compatibilidade com o restante 
               {"\n\n"}
-              Se o GAM retornar:
+              do dashboard que já está funcionando
               {"\n\n"}
-              utm_campaign=23207554976 → R$ 1.474,31
+              Suspeito que seja algo relacionado a autenticação/token do Ad Manager expirado, 
               {"\n\n"}
-              então SOMENTE a campanha:
+              ou alguma mudança na API deles, já que a régua de tempo bate exatamente com 
               {"\n\n"}
-              23207554976
+              quando parou (dia 20/08). Por favor confirme isso checando logs antes de mexer 
               {"\n\n"}
-              deve receber:
-              {"\n\n"}
-              Receita = R$ 1.474,31
-              {"\n\n"}
-              Depois:
-              {"\n\n"}
-              Lucro = Receita real - Gasto
-              {"\n\n"}
-              ROI = (Lucro / Gasto) × 100
-              {"\n\n"}
-              ROAS = Receita real / Gasto
-              {"\n\n"}
-              Não use nenhuma receita de outra campanha.
-              {"\n\n"}
-              CORRIJA OS DADOS DE ONTEM
-              {"\n\n"}
-              Os valores que foram inseridos ontem usando a atribuição proporcional estão incorretos.
-              {"\n\n"}
-              Reprocesse a data usando os dados REAIS por:
-              {"\n\n"}
-              AD_EXCHANGE_CHANNEL_NAME
-              {"\n\n"}
-              ou dimensão equivalente ao Channel do Interactive Report.
-              {"\n\n"}
-              Pegue todos os Channels que começam com:
-              {"\n\n"}
-              utm_campaign=
-              {"\n\n"}
-              Extraia o Campaign ID e grave a receita real correspondente.
-              {"\n\n"}
-              VALIDAÇÃO
-              {"\n\n"}
-              Escolha pelo menos 5 campanhas com gastos diferentes e me mostre:
-              {"\n\n"}
-              Campaign ID | Gasto | Channel GAM | Receita REAL GAM | Lucro | ROI | ROAS
-              {"\n\n"}
-              Os valores de ROI NÃO podem ser todos iguais, a menos que os dados reais matematicamente resultem nisso.
-              {"\n\n"}
-              VERIFIQUE O BANCO
-              {"\n\n"}
-              Certifique-se de que os registros proporcionais/estimados antigos não estão sendo tratados como receita consolidada.
-              {"\n\n"}
-              Se houver:
-              {"\n\n"}
-              attribution_status = estimated/intraday/predictive
-              {"\n\n"}
-              eles NÃO devem substituir:
-              {"\n\n"}
-              attribution_status = consolidated/real
-              {"\n\n"}
-              Para datas passadas já consolidadas pelo GAM, use SOMENTE receita real.
-              {"\n\n"}
-              IMPORTANTE
-              {"\n\n"}
-              O print atual está errado.
-              {"\n\n"}
-              Ver todas as campanhas com aproximadamente:
-              {"\n\n"}
-              ROI +274,84%
-              {"\n\n"}
-              ROAS 3,75x
-              {"\n\n"}
-              é evidência de que a lógica de atribuição está replicando o desempenho geral do site.
-              {"\n\n"}
-              Corrija a atribuição individual REAL.
-              {"\n\n"}
-              NÃO altere textos do dashboard.
-              {"\n\n"}
-              NÃO mexa no Google Ads v24.
-              {"\n\n"}
-              NÃO altere OAuth/MCC.
-              {"\n\n"}
-              NÃO crie outro fallback proporcional.
-              {"\n\n"}
-              Só considere concluído quando cada campanha apresentar seu próprio valor real de:
-              {"\n\n"}
-              Gasto | Receita | Lucro | ROI | ROAS FACA FUNCIONAR IGUAL FUNCIONOU NO DIA 20
+              em qualquer código.
             </p>
           </div>
         </div>

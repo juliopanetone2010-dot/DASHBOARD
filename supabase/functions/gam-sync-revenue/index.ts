@@ -1,5 +1,8 @@
 // Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
-// - Autentica via JWT (service account)
+// REDEPLOY TRIGGER: v1.0.6 - RESTORE FULL LOGIC
+// REDEPLOY TRIGGER: v1.0.2 - Full rename of internal variables
+
+
 // - Roda reports por AD_UNIT, PLACEMENT e URL_NAME (via SOAP para intraday)
 // - Faz upsert em `placements` e atualiza `revenue/impressions/ecpm`
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
@@ -191,61 +194,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
 
-    const body = await req.clone().json().catch(() => ({}));
-    const isManualSync = body?.sync === true;
-
-    // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
-      debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
-      try {
-        const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID para range 2026-08-21...`);
-        
-        let soapRows = await runSoapReport({
-           networkCode: sites[0].network_code,
-           accessToken,
-           range: ranges[0],
-           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
-           debug
-        });
-        
-        debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
-        let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
-        
-        if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_URL_CHANNEL_NAME (Metric: AD_EXCHANGE_REVENUE)...");
-           const pRows = await runSoapReport({
-              networkCode: sites[0].network_code,
-              accessToken,
-              range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_URL_CHANNEL_NAME"],
-              debug
-           });
-           auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
-        }
-
-        if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! Dim: ${auditRow.dims?.join("|")} | Rev: ${auditRow.revenue}`);
-          const insertData = {
-            user_id: userId,
-            site_id: sites[0].id,
-            campaign_id: "23207554976",
-            date: "2026-08-21",
-            utm_source: "google",
-            revenue_usd: auditRow.revenue,
-            impressions: auditRow.impressions,
-            attribution_status: "real",
-            created_at: new Date().toISOString()
-          };
-          const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO"}`);
-        } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada em SOAP (21/08).");
-        }
-      } catch (e: any) {
-        debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
-      }
-    }
+    const isManualSync = parsedBody?.sync === true;
 
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
@@ -428,8 +377,11 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
         // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
-                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        // Adicionado filtro para ID de 10+ dígitos (Google Ads ID) para evitar que LineItemIDs curtos do AdExchange
+        // bloqueiem o fallback SOAP que expande as UTMs reais.
+        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__") ||
+                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__");
+
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
@@ -1156,7 +1108,7 @@ async function collectUtmAttribution(args: {
     };
   });
 
-  const placementRowsRaw: AttributedRow[] = parsedRows
+  const createAttributedPlacementRows = () => parsedRows
     .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
     .map(({ r, rawKv, placementRaw, sourceRaw }) => {
       let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
@@ -1173,24 +1125,9 @@ async function collectUtmAttribution(args: {
         raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
+  const attributedPlacementRows = createAttributedPlacementRows();
 
-  const placementRowsRaw: AttributedRow[] = parsedRows
-    .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
-    .map(({ r, rawKv, placementRaw, sourceRaw }) => {
-      let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
-      const kv = parseKeyValueDimension(rawKv);
-      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
-      const placement = extractPlacementValue(placementRaw || rawKv, cid);
-      return {
-        date: r.date,
-        impressions: r.impressions,
-        revenue: r.revenue,
-        source,
-        cid,
-        placement,
-        raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
-      };
-    });
+
 
   // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
   // senão a receita duplica. Para ROI usamos utm_campaign; para placements usamos utm_placement; para
@@ -1275,8 +1212,9 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...placementRowsRaw];
-  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...placementRowsRaw.filter(r => r.placement)];
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...attributedPlacementRows];
+  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...attributedPlacementRows.filter(r => r.placement)];
+
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
