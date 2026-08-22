@@ -48,9 +48,9 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  return new Response(JSON.stringify({ hello: "world" }), { headers: { "Content-Type": "application/json" } });
+  // Debug deployment check
+  console.log("[gam-sync-revenue] Request received:", req.method, req.url);
 
-  let body: any = {};
   try {
     const text = await req.clone().text();
     body = JSON.parse(text);
