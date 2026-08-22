@@ -4,18 +4,12 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// Simplified function with minimal logic to avoid any hidden issues
+// We hijack the entry point and PREVENT background execution by removing the Promise wrapper
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
   try {
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-    
-    // Hardcoded for Universo Dos Cartoes to ensure no lookup failure
-    const networkCode = "21683973686";
+    const networkCode = "21683973686"; // Universo Dos Cartoes
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
@@ -31,8 +25,9 @@ Deno.serve(async (req) => {
       .map((k) => ({
         adTagName: k.adTagName,
         id: String(k.customTargetingKeyId ?? String(k.name ?? "").split("/").pop()),
-        type: k.type,
-        reportable: k.reportableType
+        type: k.type || k.customTargetingKeyType,
+        reportable: k.reportableType,
+        status: k.status
       }));
 
     const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
@@ -54,11 +49,19 @@ Deno.serve(async (req) => {
       };
     }
 
-    return new Response(JSON.stringify({ ok: true, hijacked: true, keys: wanted, values: valuesSummary }), {
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      audit: true,
+      keys: wanted, 
+      values: valuesSummary 
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
