@@ -2836,17 +2836,6 @@ async function persistSiteMetricsDaily(
     ecpm_native: number;
     updated_at: string;
   }>;
-  const existingByDate = new Map<string, any>();
-  if (false && opts?.preserveHigherExisting) {
-    const dateList = [...byDate.keys()];
-    const { data: existingRows } = dateList.length > 0 ? await admin
-      .from("site_metrics_daily")
-      .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency")
-      .eq("user_id", userId)
-      .eq("site_id", siteId)
-      .in("date", dateList) : { data: [] };
-    for (const r of existingRows ?? []) existingByDate.set(String(r.date), r);
-  }
 
   for (const [date, v] of byDate.entries()) {
     const next = v;
@@ -2866,7 +2855,7 @@ async function persistSiteMetricsDaily(
   for (let i = 0; i < payload.length; i += 500) {
     await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
   }
-  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
 }
 
 
