@@ -2222,7 +2222,7 @@ async function applyGoogleUtmRevenue(
       const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
       if (revenueUsd > 0) {
         matchedIds.add(cid);
-        if (auditCids.includes(cid)) {
+        if (auditCidsForAgg.includes(cid)) {
            debug.push(`[AUDIT_final_match] CID ${cid} terá receita na dash: $${revenueUsd.toFixed(4)}`);
         }
       }
