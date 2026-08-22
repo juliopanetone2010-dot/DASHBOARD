@@ -1103,7 +1103,6 @@ async function collectUtmAttribution(args: {
     };
   });
 
-  // Inlined placementRowsRaw logic to avoid potential conflicts
   const createAttributedPlacementRows = () => parsedRows
     .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
     .map(({ r, rawKv, placementRaw, sourceRaw }) => {
