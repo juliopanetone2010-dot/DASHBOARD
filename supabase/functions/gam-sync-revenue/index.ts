@@ -1,5 +1,6 @@
 // Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
-// REDEPLOY TRIGGER: v1.0.7 - Deep Audit Logic Enable
+// REDEPLOY TRIGGER: v1.0.8 - Final Audit Verification
+
 
 
 
