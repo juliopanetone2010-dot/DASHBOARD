@@ -1029,7 +1029,6 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
     const metricGroups = [
       { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
       { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"] },
