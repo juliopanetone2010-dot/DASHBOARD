@@ -173,7 +173,7 @@ export function IntegrationsPanel(props: Props) {
         <div className="space-y-4 mt-2">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20 space-y-1">
             <p className="text-[11px] leading-relaxed font-semibold text-destructive">
-              utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso? 
+              utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso?
             </p>
             <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
               <p>ads sync 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
