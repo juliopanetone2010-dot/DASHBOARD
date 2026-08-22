@@ -1104,7 +1104,7 @@ async function collectUtmAttribution(args: {
   });
 
   // Inlined placementRowsRaw logic to avoid potential conflicts
-  const getPlacementRowsRaw = () => parsedRows
+  const createAttributedPlacementRows = () => parsedRows
     .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
     .map(({ r, rawKv, placementRaw, sourceRaw }) => {
       let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
@@ -1121,7 +1121,7 @@ async function collectUtmAttribution(args: {
         raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
-  const placementRowsRawInlined = getPlacementRowsRaw();
+  const attributedPlacementRows = createAttributedPlacementRows();
 
 
 
@@ -1208,8 +1208,8 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...placementRowsRawInlined];
-  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...placementRowsRawInlined.filter(r => r.placement)];
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...attributedPlacementRows];
+  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...attributedPlacementRows.filter(r => r.placement)];
 
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
