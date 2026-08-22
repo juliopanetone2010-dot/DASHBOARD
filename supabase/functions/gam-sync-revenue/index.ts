@@ -325,7 +325,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
              });
              continue;
           }
-
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "site_metrics_only",
             rows_returned: metricRows.length,
             total_revenue_native: metricTotals.revenue,
             total_impressions: metricTotals.impressions,
