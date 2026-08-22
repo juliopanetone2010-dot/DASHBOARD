@@ -346,8 +346,8 @@ async function runSync(req: Request): Promise<Response> {
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
         // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
-                             attribution.googlePlacementRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
+                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
@@ -513,8 +513,10 @@ async function runSync(req: Request): Promise<Response> {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          const googleCampaignRowsSafe = googleCampaignRows || [];
+          const googlePlacementRowsSafe = googlePlacementRows || [];
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRowsSafe], debug, expandFixedDates(ranges), ingestionDivisor);
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRowsSafe, googlePlacementRowsSafe, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           if (hasBudget(25_000)) {
             await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
           } else {
@@ -1997,7 +1999,7 @@ async function applyGoogleUtmRevenue(
   // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
   // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
   const arr = [...placementBuckets.values()];
-  const hasData = arr.length > 0 || googleCampaignRows.length > 0;
+  const hasData = arr.length > 0 || (googleCampaignRows && googleCampaignRows.length > 0);
   
   if (!hasData) {
     debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM.`);
@@ -2127,8 +2129,9 @@ async function applyGoogleUtmRevenue(
 
 
     if (finalSourceRows.length > 0) {
-      for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
-        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < finalSourceRows.length; i += CHUNK_SIZE) {
+        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK_SIZE), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
       }
     }
     debug.push(`[gam_campaign_source_revenue/google] ${finalSourceRows.length} linha(s) processadas (consolidated/intraday sync)`);
@@ -2163,10 +2166,10 @@ async function applyGoogleUtmRevenue(
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
 
     // AUDITORIA DE QUERY
-    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
-    const hasAuditCid = cids.some(c => auditCids.includes(c));
+    const auditCidsForQuery = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const hasAuditCid = cids.some(c => auditCidsForQuery.includes(c));
     if (hasAuditCid) {
-      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCids.includes(c)).join(',')} em ${date}`);
+      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCidsForQuery.includes(c)).join(',')} em ${date}`);
     }
 
     const { data: allSourceRows } = await admin
@@ -2177,14 +2180,14 @@ async function applyGoogleUtmRevenue(
       .in("campaign_id", cids);
 
     const aggregatedByCid = new Map<string, number>();
-    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const auditCidsForAgg = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
     
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id).trim();
       const rev = Number(r.revenue_usd ?? 0);
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
       
-      if (auditCids.includes(cid)) {
+      if (auditCidsForAgg.includes(cid)) {
         debug.push(`[AUDIT_query_match] Encontrado em source_revenue: cid=${cid} rev=$${rev.toFixed(4)} source=${r.utm_source}`);
       }
     }
@@ -2219,7 +2222,7 @@ async function applyGoogleUtmRevenue(
       const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
       if (revenueUsd > 0) {
         matchedIds.add(cid);
-        if (auditCids.includes(cid)) {
+        if (auditCidsForAgg.includes(cid)) {
            debug.push(`[AUDIT_final_match] CID ${cid} terá receita na dash: $${revenueUsd.toFixed(4)}`);
         }
       }
