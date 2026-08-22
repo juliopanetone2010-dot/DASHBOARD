@@ -2384,7 +2384,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
   // ("SAVED"), que devolve os mesmos números vistos no painel do Ad Manager.
-  const reportBody = { reportDefinition, visibility: "SAVED" };
+  const reportBody = { reportDefinition }; // Removido visibility: "SAVED" que não é suportado na API REST v1 beta
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
