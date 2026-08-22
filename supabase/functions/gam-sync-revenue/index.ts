@@ -188,16 +188,24 @@ function extractCampaignId(text: string): string | null {
 }
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
-  const stats = { attributed: 0, total_revenue: 0 };
+  const stats = { attributed: 0, total_revenue: 0, unattributed_revenue: 0 };
   
   const groups = new Map<string, { revenue: number, impressions: number }>();
+  let dailyUnattributed = new Map<string, number>();
+
   for (const r of rows) {
-    if (!r.campaignId) continue;
-    const key = `${r.date}|${r.campaignId}`;
-    const cur = groups.get(key) || { revenue: 0, impressions: 0 };
-    cur.revenue += r.revenue;
-    cur.impressions += r.impressions;
-    groups.set(key, cur);
+    if (r.campaignId) {
+      const key = `${r.date}|${r.campaignId}`;
+      const cur = groups.get(key) || { revenue: 0, impressions: 0 };
+      cur.revenue += r.revenue;
+      cur.impressions += r.impressions;
+      groups.set(key, cur);
+      stats.total_revenue += r.revenue;
+    } else {
+      const currentRev = dailyUnattributed.get(r.date) || 0;
+      dailyUnattributed.set(r.date, currentRev + r.revenue);
+      stats.unattributed_revenue += r.revenue;
+    }
   }
 
   const upserts = [];
@@ -214,7 +222,20 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
       attribution_status: "consolidated"
     });
     stats.attributed++;
-    stats.total_revenue += data.revenue;
+  }
+
+  // Handle unattributed revenue via aggregate rows
+  for (const [date, revenue] of dailyUnattributed.entries()) {
+    upserts.push({
+      site_id: site.id,
+      user_id: site.user_id,
+      date,
+      campaign_id: "__aggregate__",
+      revenue_usd: revenue,
+      impressions: 0,
+      utm_source: "google",
+      attribution_status: "consolidated"
+    });
   }
 
   if (upserts.length > 0) {
