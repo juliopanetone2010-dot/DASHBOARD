@@ -165,6 +165,45 @@ async function runSync(req: Request): Promise<Response> {
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
+
+    // Auditoria manual solicitada pelo usuário para ID 23207554976
+    if (control?.sync === true || testMode) {
+      debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
+      try {
+        const ranges = buildGamRanges("YESTERDAY", null, null, false);
+        const reportRows = await runReport({
+          networkCode: sites[0].network_code,
+          accessToken,
+          range: ranges[0],
+          dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
+          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          debug
+        });
+        const auditRow = reportRows.find(r => r.dims[1].includes("23207554976"));
+        if (auditRow) {
+          debug.push(`[AUDIT_MANUAL_RESULT] Channel: ${auditRow.dims[1]} | ID: 23207554976 | Impr: ${auditRow.impressions} | Rev: ${auditRow.revenue}`);
+          // Tenta persistir manualmente
+          const insertData = {
+            user_id: userId,
+            site_id: sites[0].id,
+            campaign_id: "23207554976",
+            date: auditRow.date || ranges[0].dateRange.startDate,
+            utm_source: "google",
+            revenue_usd: auditRow.revenue,
+            impressions: auditRow.impressions,
+            attribution_status: "manual_audit",
+            created_at: new Date().toISOString()
+          };
+          const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT executado: ${!insErr ? "SIM" : "NÃO (" + insErr.message + ")"}`);
+        } else {
+          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada no report bruto do GAM (YESTERDAY).");
+        }
+      } catch (e) {
+        debug.push(`[AUDIT_MANUAL_ERROR] ${e.message}`);
+      }
+    }
+
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
     const usdToBrlRate = fxRates.usdBrl || 5.15; // Fallback seguro
@@ -1038,8 +1077,8 @@ async function collectUtmAttribution(args: {
       cid = extractCampaignId(rawKv);
     }
 
-    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
-    if (cid && auditCids.includes(cid)) {
+    const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    if (cid && auditCidsList.includes(cid)) {
       console.log(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
     }
 
@@ -1086,8 +1125,8 @@ async function collectUtmAttribution(args: {
       const source = "google";
 
       // AUDITORIA DE PARSER
-      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
-      if (cid && auditCids.includes(cid)) {
+      const auditCidsParser = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+      if (cid && auditCidsParser.includes(cid)) {
         console.log(`[AUDIT_parser] ID ${cid} extraído. rawKv=${rawKv} sourceRaw=${sourceRaw} campaignRaw=${campaignRaw}`);
       }
 
