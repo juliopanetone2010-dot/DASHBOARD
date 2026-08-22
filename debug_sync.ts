@@ -26,14 +26,18 @@ async function testSync() {
     return;
   }
 
-  // Filtrar o log de debug para encontrar os termos de auditoria
+  console.log("Full Debug Logs (first 50 lines):", JSON.stringify(data.debug?.slice(0, 50), null, 2));
+  
   const auditLogs = data.debug?.filter((l: string) => 
     l.includes("AUDIT") || 
     l.includes("MATCH_FOUND") ||
     l.includes("23207554976") || 
     l.includes("23309079322") ||
-    l.includes("RAW_DATA")
+    l.includes("RAW_DATA") ||
+    l.includes("debug") ||
+    l.includes("Starting")
   ) || [];
+
   
   console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
   
