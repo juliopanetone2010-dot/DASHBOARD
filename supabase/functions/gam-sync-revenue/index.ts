@@ -1036,43 +1036,64 @@ async function collectUtmAttribution(args: {
     for (const group of metricGroups) {
       try {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
-          const rows = await runReport({
-            networkCode, accessToken, range,
-            dimensions: group.dimensions ?? ["DATE", "KEY_VALUES_NAME"],
-            metrics: group.metrics,
-            debug,
-            deadlineAt,
-          });
-          // Se for a dimensão CHANNEL, mapeamos para KEY_VALUES_NAME format para reuso do parser
-          if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
-            return rows.map(r => ({
-              ...r,
-              dims: [r.dims[0], r.dims[1], "google", r.dims[1]] // DATE, rawKv, sourceRaw=google, campaignRaw=rawKv
-            }));
+          let dims = group.dimensions ?? ["DATE", "KEY_VALUES_NAME"];
+          
+          // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_NAME
+          try {
+            const rows = await runReport({
+              networkCode, accessToken, range,
+              dimensions: dims,
+              metrics: group.metrics,
+              debug,
+              deadlineAt,
+            });
+            if (rows.length > 0) {
+               if (dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
+                 return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
+               }
+               return rows;
+            }
+          } catch (e) {
+            debug.push(`[${networkCode}/${group.label}] Erro na tentativa 1 (${dims.join(",")}): ${String(e).slice(0, 100)}`);
           }
 
-          // Se KEY_VALUES_NAME retornar 0 rows para a data, tentamos CUSTOM_CRITERIA imediatamente
-          if (rows.length === 0) {
-            debug.push(`[${networkCode}/${label}/${group.label}] 0 rows com KEY_VALUES_NAME, tentando CUSTOM_CRITERIA fallback imediato para ${range.dateRange.startDate}...`);
+          // TENTATIVA 2: AD_EXCHANGE_CHANNEL_NAME (se a tentativa 1 não foi ela)
+          if (!dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
             try {
-              return await runReport({
+              const rows = await runReport({
                 networkCode, accessToken, range,
-                dimensions: ["DATE", "CUSTOM_CRITERIA"],
+                dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
                 metrics: group.metrics,
                 debug,
                 deadlineAt,
               });
-            } catch (err) {
-              debug.push(`[${networkCode}/${label}/${group.label}] fallback CUSTOM_CRITERIA falhou: ${String(err).slice(0, 100)}`);
-              return [];
+              if (rows.length > 0) {
+                return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
+              }
+            } catch (e) {
+              debug.push(`[${networkCode}/${group.label}] Erro na tentativa 2 (CHANNEL): ${String(e).slice(0, 100)}`);
             }
           }
-          return rows;
+
+          // TENTATIVA 3: CUSTOM_CRITERIA
+          try {
+            return await runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE", "CUSTOM_CRITERIA"],
+              metrics: group.metrics,
+              debug,
+              deadlineAt,
+            });
+          } catch (e) {
+            debug.push(`[${networkCode}/${group.label}] Erro na tentativa 3 (CUSTOM_CRITERIA): ${String(e).slice(0, 100)}`);
+          }
+          
+          return [];
         }))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
         reportRows.push(...groupRows);
       } catch (e) {
-        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 500)}`);
+        debug.push(`[${networkCode}/${label}/${group.label}] erro global grupo=${String(e).slice(0, 500)}`);
       }
     }
   } catch (e) {
