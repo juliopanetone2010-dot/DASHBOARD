@@ -1,117 +1,85 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
-import { getCreds } from "../_shared/google_api_set.ts";
+
+const GAM_BASE = "https://admanager.googleapis.com/v1";
+const SCOPE = "https://www.googleapis.com/auth/admanager";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
+  
   try {
-    const apiSet = 2;
-    const { clientId, clientSecret, devToken } = getCreds(apiSet);
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    
-    // Pegar a MCC do Jardim Astral
-    const { data: mccAccount } = await admin.from("google_accounts")
-      .select("*")
-      .eq("customer_id", "7197503782")
-      .eq("api_set", apiSet)
-      .maybeSingle();
+    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
+    const accessToken = await getAccessToken(sa);
 
-    if (!mccAccount) {
-      return new Response(JSON.stringify({ error: "MCC account not found in DB for Set 2" }), { headers: corsHeaders });
-    }
+    // 1) Audit utm_campaign key status
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
 
-    // 1. Obter Access Token
-    const authUrl = "https://oauth2.googleapis.com/token";
-    const authRes = await fetch(authUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: mccAccount.refresh_token!,
-        grant_type: "refresh_token"
-      }),
-    });
-    
-    const authJson = await authRes.json();
-    if (!authRes.ok) {
-      return new Response(JSON.stringify({ step: "auth", error: authJson, api_set: apiSet }), { headers: corsHeaders });
-    }
-    const accessToken = authJson.access_token;
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    let valuesSummary: any = null;
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
 
-    // 2. Tentar listar sub-contas (para validar MCC)
-    const listRes = await fetch(`https://googleads.googleapis.com/v24/customers/${mccAccount.customer_id}/googleAds:search`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": devToken,
-        "login-customer-id": mccAccount.customer_id,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query: "SELECT customer_client.id, customer_client.descriptive_name FROM customer_client WHERE customer_client.status = 'ENABLED'"
-      }),
-    });
-    
-    const listJson = await listRes.json();
-    if (!listRes.ok) {
-      return new Response(JSON.stringify({ 
-        step: "list_accounts", 
-        error: listJson.error, 
-        customer_id: mccAccount.customer_id, 
-        login_customer_id: mccAccount.customer_id,
-        api_set: apiSet 
-      }), { headers: corsHeaders });
-    }
-
-    // 3. Se funcionou, pegar uma conta filha ativa para buscar gastos
-    const children = listJson.results ?? [];
-    const results: any[] = [];
-    
-    for (const child of children) {
-      const childCid = child.customerClient.id;
-      if (childCid === mccAccount.customer_id) continue;
+    if (campKey) {
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
       
-      const query = `
-        SELECT 
-          campaign.id, 
-          campaign.name, 
-          metrics.cost_micros, 
-          segments.date 
-        FROM campaign 
-        WHERE segments.date DURING TODAY
-      `;
-      
-      const camRes = await fetch(`https://googleads.googleapis.com/v24/customers/${childCid}/googleAds:search`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "developer-token": devToken,
-          "login-customer-id": mccAccount.customer_id,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ query }),
-      });
-      
-      const camJson = await camRes.json();
-      results.push({ 
-        customer_id: childCid, 
-        ok: camRes.ok, 
-        data: camJson.results, 
-        error: camRes.ok ? null : camJson.error 
-      });
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
+
+      valuesSummary = {
+        key_id: campKey.customTargetingKeyId,
+        type: campKey.type,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_values: vals.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        found_names: lookFor.filter(c => names.includes(c)),
+        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
+        sample_names: names.slice(0, 30)
+      };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      mcc: mccAccount.customer_id, 
-      auth: "success", 
-      children_count: children.length,
-      details: results 
-    }), { headers: corsHeaders });
-
+      audit_source: "google-ads-diagnostic-set2-AUDIT-v2",
+      utm_campaign: valuesSummary,
+      keys: keys.map((k: any) => k.adTagName)
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
+
+async function getAccessToken(sa: any) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
+    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  })}`;
+  const pem = sa.private_key.replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
+  });
+  const j = await r.json();
+  return j.access_token;
+}

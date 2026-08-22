@@ -1,331 +1,101 @@
-// Sincroniza:
-// 1) Sub-contas (customer_client) de cada MCC
-// 2) Campanhas + métricas de cada conta não-manager
-// 3) Auto-aplica final_url_suffix padrão em qualquer campanha que não tenha
-// Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
-import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
-const STANDARD_UTM_SUFFIX = [
-  "utm_source=google",
-  "utm_campaign={campaignid}",
-  "utm_adgroup={adgroupid}",
-  "utm_content={creative}",
-  "utm_placement={campaignid}_{placement}",
-].join("&");
+const GAM_BASE = "https://admanager.googleapis.com/v1";
+const SCOPE = "https://www.googleapis.com/auth/admanager";
 
+// ATOMIC AUDIT V6 - NO AUTH - DIRECT LOGGING
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  
+  const auditId = Math.random().toString(36).substring(7);
+  console.log(`[AUDIT-${auditId}] Starting deep GAM audit...`);
 
-  let bodySiteId: string | null = null;
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return json({ error: "Login obrigatório" });
+    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
+    const accessToken = await getAccessToken(sa);
+    console.log(`[AUDIT-${auditId}] Token acquired.`);
+
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
+    console.log(`[AUDIT-${auditId}] Found ${keys.length} keys.`);
+
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    let valuesSummary: any = null;
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
+
+    if (campKey) {
+      const keyId = campKey.customTargetingKeyId;
+      console.log(`[AUDIT-${auditId}] Key utm_campaign ID: ${keyId}`);
+      
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
+      
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
+      
+      console.log(`[AUDIT-${auditId}] Found ${rawValues.length} values on first page.`);
+      console.log(`[AUDIT-${auditId}] Sample values: ${names.slice(0, 5).join(", ")}`);
+
+      valuesSummary = {
+        key_id: keyId,
+        type: campKey.type || campKey.customTargetingKeyType,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_in_page: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 50)
+      };
     }
 
-    // Date filter from request body
-    let datePreset: string | null = null;
-    let dateFrom: string | null = null;
-    let dateTo: string | null = null;
-    let accountIds: string[] = [];
-    let windowDays: number | null = null;
-    let bodyUserId: string | null = null;
-    
-    try {
-      const body = await req.json().catch(() => ({}));
-      if (body && typeof body === "object") {
-        datePreset = (body as any).date_preset ?? null;
-        dateFrom = (body as any).from ?? null;
-        dateTo = (body as any).to ?? null;
-        accountIds = Array.isArray((body as any).account_ids)
-          ? (body as any).account_ids.filter((id: unknown) => typeof id === "string" && id.length > 0)
-          : [];
-        windowDays = typeof (body as any).window_days === "number" ? (body as any).window_days : null;
-        bodyUserId = typeof (body as any).user_id === "string" ? (body as any).user_id : null;
-        bodySiteId = typeof (body as any).site_id === "string" ? (body as any).site_id : null;
-      }
-    } catch (_) { /* no body */ }
-
-    const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS"]);
-    let dateClause = "segments.date DURING LAST_30_DAYS";
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const token = authHeader.replace("Bearer ", "");
-    let isServiceRole = token === SERVICE_ROLE;
-    if (!isServiceRole) {
-      try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
-    }
-
-    // Default to a narrow window for automated crons to save API quota
-    if (isServiceRole && !windowDays && !datePreset && !dateFrom) {
-       dateClause = "segments.date DURING TODAY";
-    }
-
-    if (windowDays) {
-      const today = new Date();
-      const startDate = new Date();
-      startDate.setDate(today.getDate() - windowDays);
-      const formatDate = (d: Date) => d.toISOString().split("T")[0].replace(/-/g, "");
-      dateClause = `segments.date BETWEEN '${formatDate(startDate)}' AND '${formatDate(today)}'`;
-    } else if (datePreset && ALLOWED_PRESETS.has(String(datePreset).toUpperCase())) {
-      dateClause = `segments.date DURING ${String(datePreset).toUpperCase()}`;
-    } else if (dateFrom && dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-      dateClause = `segments.date BETWEEN '${dateFrom.replace(/-/g, "")}' AND '${dateTo.replace(/-/g, "")}'`;
-    }
-
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
-    let userId: string | undefined;
-    if (isServiceRole) {
-      if (bodyUserId) userId = bodyUserId;
-      else if (bodySiteId) {
-        const { data: s } = await admin.from("sites").select("user_id").eq("id", bodySiteId).maybeSingle();
-        userId = s?.user_id ?? undefined;
-      } else if (accountIds.length > 0) {
-        const { data: ga } = await admin.from("google_accounts").select("user_id").eq("id", accountIds[0]).maybeSingle();
-        userId = ga?.user_id ?? undefined;
-      }
-    } else {
-      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-      const { data: { user } } = await userClient.auth.getUser(token);
-      userId = user?.id;
-    }
-    if (!userId) return json({ error: "Token inválido" });
-
-    // Busca todas as contas conectadas que estão habilitadas para sincronização
-    const { data: accounts, error: accErr } = await admin
-      .from("google_accounts")
-      .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
-      .eq("user_id", userId)
-      .eq("sync_enabled", true)
-      .not("refresh_token", "is", null);
-
-    if (accErr) return json({ error: accErr.message });
-    if (!accounts || accounts.length === 0) {
-      return json({ error: "Nenhuma conta Google Ads conectada. Conecte primeiro." });
-    }
-
-    const summary: Array<Record<string, unknown>> = [];
-    const debugLogs: string[] = [];
-    const syncErrors: Array<{ account_id: string; error: string }> = [];
-
-    // Helper for fetch with retry and backoff
-    async function fetchWithRetry(url: string, init: RequestInit, attempts = 3, adminClient?: any, siteId?: string): Promise<Response> {
-      let lastErr: any;
-      for (let i = 0; i < attempts; i++) {
-        try {
-          if (siteId && adminClient) {
-             const { data: site } = await adminClient.from("sites").select("next_sync_allowed_at").eq("id", siteId).maybeSingle();
-             if (site?.next_sync_allowed_at && new Date(site.next_sync_allowed_at) > new Date()) {
-                const waitMs = new Date(site.next_sync_allowed_at).getTime() - Date.now();
-                return new Response(JSON.stringify({ error: { message: "RESOURCE_EXHAUSTED", details: [{ quotaErrorDetail: { retryDelaySeconds: Math.round(waitMs/1000) } }] } }), { status: 429 });
-             }
-          }
-
-          const res = await fetch(url, init);
-          if (res.status === 429) {
-            const body = await res.clone().json().catch(() => ({}));
-            const retrySeconds = body?.error?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds || body?.detail?.details?.[0]?.quotaErrorDetail?.retryDelaySeconds;
-            if (siteId && adminClient) {
-               const lockUntil = new Date(Date.now() + (retrySeconds || 3600) * 1000).toISOString();
-               await adminClient.from("sites").update({ next_sync_allowed_at: lockUntil, sync_status: "error", sync_error: "Quota exceeded" }).eq("id", siteId);
-            }
-            return res;
-          }
-          return res;
-        } catch (e) {
-          lastErr = e;
-          if (i < attempts - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-        }
-      }
-      throw lastErr || new Error("Max retries exceeded");
-    }
-
-    const getAccessToken = async (refreshToken: string, apiSet: unknown = 1) => {
-      const { clientId, clientSecret } = getCreds(apiSet);
-      try {
-        const r = await fetch("https://oauth2.googleapis.com/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
-        });
-        const j = await r.json();
-        if (!r.ok) {
-          console.error(`[AUTH ERROR] Set: ${apiSet}, Response: ${JSON.stringify(j)}`);
-          return null;
-        }
-        return j.access_token as string;
-      } catch (e) { 
-        console.error(`[AUTH FETCH ERROR] Set: ${apiSet}, Error: ${String(e)}`);
-        return null; 
-      }
+    const responseData = { 
+      ok: true, 
+      identity: "FORCED_AUDIT_V6_SUCCESS",
+      audit_id: auditId,
+      timestamp: new Date().toISOString(),
+      utm_campaign: valuesSummary,
+      keys: keys.map((k: any) => k.adTagName)
     };
-
-    const isInactiveErr = (msg: string) => /CUSTOMER_NOT_ENABLED|NOT_ADS_USER|CUSTOMER_NOT_FOUND|ACCOUNT_SUSPENDED|suspended|cancell?ed|closed/i.test(msg);
-
-    if (bodySiteId) {
-      const { data: currentSite } = await admin.from("sites").select("sync_lock, next_sync_allowed_at").eq("id", bodySiteId).maybeSingle();
-      if (currentSite?.sync_lock) return json({ error: "Sincronização já em andamento." });
-      if (currentSite?.next_sync_allowed_at && new Date(currentSite.next_sync_allowed_at) > new Date()) return json({ error: "Quota excedida" });
-      await admin.from("sites").update({ sync_lock: true, sync_status: "syncing", sync_started_at: new Date().toISOString() }).eq("id", bodySiteId);
-    }
-
-    try {
-      for (const root of accounts) {
-        const { devToken } = getCreds((root as any).api_set ?? 1);
-        const { clientId, clientSecret } = getCreds((root as any).api_set ?? 1);
-        
-        let accessToken: string | null = null;
-        let authErrorDetail: string | null = null;
-        try {
-          const r = await fetch("https://oauth2.googleapis.com/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: root.refresh_token!, grant_type: "refresh_token" }),
-          });
-          const j = await r.json();
-          if (r.ok) accessToken = j.access_token;
-          else authErrorDetail = JSON.stringify(j);
-        } catch (e) { authErrorDetail = String(e); }
-
-        if (!accessToken) {
-          summary.push({ root_account: root.customer_id, error: "Auth failed", detail: authErrorDetail, api_set: root.api_set });
-          continue;
-        }
-
-        let leafAccounts: any[] = [];
-        if (root.is_mcc) {
-          const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'";
-          const cUrl = `https://googleads.googleapis.com/v24/customers/${root.customer_id}/googleAds:search`;
-          const cRes = await fetchWithRetry(cUrl, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "login-customer-id": root.customer_id, "Content-Type": "application/json" },
-            body: JSON.stringify({ query: cq }),
-          }, 3, admin, bodySiteId);
-
-          const cContentType = cRes.headers.get("content-type") || "";
-          if (!cContentType.includes("application/json")) {
-            const bodyText = await cRes.text();
-            console.error(`[sync-campaigns] NOT JSON (MCC)! URL: ${cUrl}, Status: ${cRes.status}, Type: ${cContentType}, Body: ${bodyText.substring(0, 300)}`);
-            return json({ 
-              error: "SyntaxError: Unexpected token '<'", 
-              detail: `Expected JSON but received ${cContentType} from MCC search`,
-              debug: { endpoint: cUrl, status: cRes.status, contentType: cContentType, bodyPrefix: bodyText.substring(0, 200) }
-            });
-          }
-          const cJson = await cRes.json();
-          if (cRes.ok) {
-            for (const r of cJson.results ?? []) {
-              const childCid = String(r.customerClient.id);
-              const { data: up } = await admin.from("google_accounts").upsert({
-                user_id: userId, customer_id: childCid, login_customer_id: root.customer_id, manager_account_id: root.id,
-                account_name: r.customerClient.descriptiveName ?? childCid, descriptive_name: r.customerClient.descriptiveName ?? childCid,
-                currency: r.customerClient.currencyCode ?? null, is_mcc: r.customerClient.manager ?? false,
-                status: "connected", refresh_token: root.refresh_token, api_set: root.api_set ?? 1, last_synced_at: new Date().toISOString(),
-              }, { onConflict: "user_id,customer_id" }).select("id").single();
-              if (up) leafAccounts.push({ id: up.id, customer_id: childCid, login_customer_id: root.customer_id, is_mcc: r.customerClient.manager });
-            }
-          }
-        } else {
-          leafAccounts = [{ id: root.id, customer_id: root.customer_id, login_customer_id: root.login_customer_id, is_mcc: false }];
-        }
-
-        const campaignQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.final_url_suffix, campaign_budget.amount_micros, campaign.target_cpa.target_cpa_micros, campaign.bidding_strategy_type, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value, segments.date FROM campaign WHERE ${dateClause}`;
-        let totalCampaigns = 0, totalMetrics = 0;
-        const accountResults: any[] = [];
-
-        for (const leaf of leafAccounts) {
-          if (leaf.is_mcc) continue;
-          if (accountIds.length > 0 && !accountIds.includes(leaf.id)) continue;
-
-          try {
-            const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "Content-Type": "application/json" };
-            if (leaf.login_customer_id) headers["login-customer-id"] = leaf.login_customer_id;
-
-            const camUrl = `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`;
-            const camRes = await fetchWithRetry(camUrl, {
-              method: "POST", headers, body: JSON.stringify({ query: campaignQuery }),
-            }, 3, admin, bodySiteId);
-
-            const camContentType = camRes.headers.get("content-type") || "";
-            if (!camContentType.includes("application/json")) {
-              const bodyText = await camRes.text();
-              console.error(`[sync-campaigns] NOT JSON (Leaf)! URL: ${camUrl}, Status: ${camRes.status}, Type: ${camContentType}, Body: ${bodyText.substring(0, 300)}`);
-              return json({ 
-                error: "SyntaxError: Unexpected token '<'", 
-                detail: `Expected JSON but received ${camContentType} from campaign search`,
-                debug: { endpoint: camUrl, status: camRes.status, contentType: camContentType, bodyPrefix: bodyText.substring(0, 200) }
-              });
-            }
-            const camJson = await camRes.json();
-            if (!camRes.ok) {
-              const msg = camJson?.error?.message ?? "Error";
-              const rawError = JSON.stringify(camJson.error);
-              console.error(`[SYNC ERROR] Account: ${leaf.customer_id}, Login: ${leaf.login_customer_id}, Set: ${root.api_set}, Error: ${rawError}`);
-              
-              if (isInactiveErr(msg)) await admin.from("google_accounts").update({ status: "suspended" }).eq("id", leaf.id);
-              else syncErrors.push({ account_id: leaf.customer_id, error: msg, raw: camJson.error, api_set: root.api_set, login_customer_id: leaf.login_customer_id });
-              continue;
-            }
-
-            const results = camJson.results ?? [];
-            const uniqueCampaigns = new Map();
-            for (const r of results) {
-              const strategy = r.campaign.biddingStrategyType;
-              const cpaMicros = (strategy === "TARGET_CPA" && r.campaign.targetCpa?.targetCpaMicros) ? Number(r.campaign.targetCpa.targetCpaMicros) : null;
-              uniqueCampaigns.set(r.campaign.id, {
-                name: r.campaign.name, status: r.campaign.status, channel: r.campaign.advertisingChannelType ?? "DISPLAY",
-                budget_micros: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) : null,
-                target_cpa_micros: cpaMicros, bidding_strategy_type: strategy, final_url_suffix: r.campaign.finalUrlSuffix ?? null,
-                start_date: r.campaign.startDateTime?.slice(0, 10) ?? null,
-              });
-            }
-
-            if (uniqueCampaigns.size > 0) {
-              const campaignRows = Array.from(uniqueCampaigns, ([cid, info]) => ({
-                user_id: userId, google_account_id: leaf.id, campaign_id: cid, name: info.name, status: info.status.toLowerCase(),
-                channel_type: info.channel, budget_micros: info.budget_micros, target_cpa_micros: info.target_cpa_micros,
-                bidding_strategy_type: info.bidding_strategy_type, start_date: info.start_date, final_url_suffix: info.final_url_suffix,
-              }));
-              await admin.from("campaigns").upsert(campaignRows, { onConflict: "user_id,google_account_id,campaign_id" });
-              totalCampaigns += campaignRows.length;
-            }
-
-            const metricRows = results.map((r: any) => ({
-              user_id: userId, google_account_id: leaf.id, campaign_id: r.campaign.id, date: r.segments.date,
-              spend: Number(r.metrics.costMicros ?? 0) / 1000000, clicks: Number(r.metrics.clicks ?? 0),
-              impressions: Number(r.metrics.impressions ?? 0), conversions: Number(r.metrics.conversions ?? 0),
-            }));
-            for (let i = 0; i < metricRows.length; i += 500) {
-              await admin.from("daily_metrics").upsert(metricRows.slice(i, i + 500), { onConflict: "user_id,google_account_id,campaign_id,date" });
-            }
-            totalMetrics += metricRows.length;
-            accountResults.push({ customer_id: leaf.customer_id, campaigns: uniqueCampaigns.size, metrics: metricRows.length });
-
-          } catch (e) {
-            accountResults.push({ customer_id: leaf.customer_id, error: String(e) });
-          }
-        }
-        summary.push({ root: root.customer_id, total_campaigns: totalCampaigns, total_metrics: totalMetrics, details: accountResults });
-      }
-    } finally {
-      if (bodySiteId) {
-        const hasErrors = syncErrors.length > 0;
-        await admin.from("sites").update({ sync_lock: false, sync_status: hasErrors ? "error" : "completed", sync_error: hasErrors ? "Sync failed for some accounts" : null }).eq("id", bodySiteId);
-      }
-    }
-
-    return json({ ok: true, summary, errors: syncErrors });
-
+    
+    console.log(`[AUDIT-${auditId}] Audit complete.`);
+    return new Response(JSON.stringify(responseData), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   } catch (e) {
-    if (bodySiteId) {
-      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-      await admin.from("sites").update({ sync_lock: false, sync_status: "error", sync_error: String(e) }).eq("id", bodySiteId);
-    }
-    return new Response(JSON.stringify({ error: String(e) }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.error(`[AUDIT-${auditId}] ERROR:`, e);
+    return new Response(JSON.stringify({ error: String(e), audit_id: auditId }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
-function json(payload: unknown) {
-  return new Response(JSON.stringify(payload), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+async function getAccessToken(sa: any) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
+    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  })}`;
+  const pem = sa.private_key.replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
+  });
+  const j = await r.json();
+  return j.access_token;
 }

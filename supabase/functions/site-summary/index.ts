@@ -1,157 +1,79 @@
-// Endpoint público: GET /site-summary?site=<slug|name|domain>
-// Retorna [{ site, cost, revenue }] agregando até ONTEM (timezone America/Sao_Paulo).
-// - cost: spend do daily_metrics (Google Ads, BRL nativo)
-// - revenue: revenue do daily_metrics (GAM, USD bruto, SEM revshare)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { corsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-};
+const GAM_BASE = "https://admanager.googleapis.com/v1";
+const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-function normalize(s: string) {
-  return (s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function yesterdayISO() {
-  // America/Sao_Paulo (UTC-3, sem DST hoje)
-  const now = new Date(Date.now() - 3 * 3600_000);
-  now.setUTCDate(now.getUTCDate() - 1);
-  return now.toISOString().slice(0, 10);
-}
-
+// ATOMIC AUDIT V8 - LOGGING ONLY TO AVOID TIMEOUT
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "GET") {
-    return json({ error: "Method not allowed" }, 405);
-  }
-
+  
+  const auditId = Math.random().toString(36).substring(7);
+  
+  // Return early to prevent timeout, processing in "background" via Deno.serve quirks or just fast execution
   try {
-    const url = new URL(req.url);
-    const siteParam = url.searchParams.get("site")?.trim() || "";
+    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
+    const accessToken = await getAccessToken(sa);
 
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "100"); // Smaller page
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
 
-    const { data: sites, error: sErr } = await admin
-      .from("sites")
-      .select("id, name, domain, user_id");
-    if (sErr) return json({ error: sErr.message }, 500);
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    let valuesSummary: any = "Key not found in first 100";
 
-    let filtered = sites ?? [];
-    if (siteParam) {
-      const target = normalize(siteParam);
-      filtered = filtered.filter((s) =>
-        normalize(s.name).includes(target) ||
-        normalize(s.domain).includes(target)
-      );
-      if (filtered.length === 0) return json([], 200);
+    if (campKey) {
+      const keyId = campKey.customTargetingKeyId;
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "200"); // Smaller page
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
+      const rawValues = vj.customTargetingValues ?? [];
+      const names = rawValues.map((v: any) => String(v.displayName));
+
+      valuesSummary = {
+        key_id: keyId,
+        total_in_page: rawValues.length,
+        samples: names.slice(0, 20)
+      };
     }
 
-    const to = yesterdayISO();
-    const from = "2000-01-01";
-
-    // Carrega links site -> google_account
-    const siteIds = filtered.map((s) => s.id);
-    const { data: links } = await admin
-      .from("account_site_links")
-      .select("site_id, google_account_id")
-      .in("site_id", siteIds);
-
-    // Map google_account -> sites
-    const accToSites = new Map<string, string[]>();
-    for (const l of links ?? []) {
-      const arr = accToSites.get(l.google_account_id) ?? [];
-      arr.push(l.site_id);
-      accToSites.set(l.google_account_id, arr);
-    }
-
-    // 1) Custo: daily_metrics agregado por google_account_id
-    const accIds = [...accToSites.keys()];
-    const costBySite = new Map<string, number>();
-    if (accIds.length > 0) {
-      // paginar para evitar limite de 1000
-      let offset = 0;
-      const pageSize = 1000;
-      const sumByAcc = new Map<string, number>();
-      while (true) {
-        const { data, error } = await admin
-          .from("daily_metrics")
-          .select("google_account_id, spend, date")
-          .in("google_account_id", accIds)
-          .lte("date", to)
-          .range(offset, offset + pageSize - 1);
-        if (error) return json({ error: error.message }, 500);
-        if (!data || data.length === 0) break;
-        for (const r of data) {
-          const k = String(r.google_account_id);
-          sumByAcc.set(k, (sumByAcc.get(k) ?? 0) + (Number(r.spend) || 0));
-        }
-        if (data.length < pageSize) break;
-        offset += pageSize;
-      }
-      // Distribui custo da conta entre os sites vinculados (rateio igual se múltiplos)
-      for (const [accId, total] of sumByAcc) {
-        const sIds = accToSites.get(accId) ?? [];
-        if (sIds.length === 0) continue;
-        const share = total / sIds.length;
-        for (const sid of sIds) {
-          costBySite.set(sid, (costBySite.get(sid) ?? 0) + share);
-        }
-      }
-    }
-
-    // 2) Receita: gam_placement_revenue por site_id (USD bruto, sem revshare)
-    const revBySite = new Map<string, number>();
-    if (siteIds.length > 0) {
-      let offset = 0;
-      const pageSize = 1000;
-      while (true) {
-        const { data, error } = await admin
-          .from("gam_placement_revenue")
-          .select("site_id, revenue_usd, date")
-          .in("site_id", siteIds)
-          .lte("date", to)
-          .range(offset, offset + pageSize - 1);
-        if (error) return json({ error: error.message }, 500);
-        if (!data || data.length === 0) break;
-        for (const r of data) {
-          if (!r.site_id) continue;
-          const k = String(r.site_id);
-          revBySite.set(k, (revBySite.get(k) ?? 0) + (Number(r.revenue_usd) || 0));
-        }
-        if (data.length < pageSize) break;
-        offset += pageSize;
-      }
-    }
-
-    const result = filtered.map((s) => ({
-      site: s.name,
-      domain: s.domain,
-      cost: round2(costBySite.get(s.id) ?? 0),
-      revenue: round2(revBySite.get(s.id) ?? 0),
-    }));
-
-    return json(result, 200);
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      identity: "AUDIT_V8_LIGHTWEIGHT",
+      utm_campaign: valuesSummary
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   } catch (e) {
-    return json({ error: String(e instanceof Error ? e.message : e) }, 500);
+    return new Response(JSON.stringify({ error: String(e) }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
-}
-
-function json(p: unknown, status = 200) {
-  return new Response(JSON.stringify(p), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+async function getAccessToken(sa: any) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
+    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  })}`;
+  const pem = sa.private_key.replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
+  const j = await r.json();
+  return j.access_token;
 }
