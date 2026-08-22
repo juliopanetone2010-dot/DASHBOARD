@@ -203,7 +203,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           networkCode: sites[0].network_code,
           accessToken,
           range: ranges[0],
-          dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
+          dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
           debug
         });
