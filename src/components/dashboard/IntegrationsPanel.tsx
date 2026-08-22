@@ -172,55 +172,24 @@ export function IntegrationsPanel(props: Props) {
         </div>
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
-            <p className="text-[11px] font-bold text-destructive mb-2">PUXEI MANUYALMENTE ESSA CAMPANHA AQUI NO GOOGLE AD MANAGER, E ME RETORNOOU COM RECEIRTA SIM, SO AI Q TA SEM RECEITA POR QUE?</p>
-            <pre className="text-[8px] font-mono whitespace-pre-wrap text-destructive/80 leading-tight overflow-x-auto bg-black/5 p-2 rounded">
-{`  x Expected unicode escape
-     ,-[/dev-server/src/components/dashboard/IntegrationsPanel.tsx:179:1]
- 176 |               utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso?
- 177 |             </p>
- 178 |             <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
- 179 |               <p>ads sync 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     :                                                                                                ^
- 180 |               <p>placement 23450729920 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 181 |               <p>placement 23570227422 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 182 |               <p>placement 23036874694 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     \`----
-  x Expected unicode escape
-     ,-[/dev-server/src/components/dashboard/IntegrationsPanel.tsx:179:1]
- 176 |               utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso?
- 177 |             </p>
- 178 |             <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
- 179 |               <p>ads sync 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     :                                                                                                ^
- 180 |               <p>placement 23450729920 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 181 |               <p>placement 23570227422 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 182 |               <p>placement 23036874694 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     \`----
-  x Expected '</', got 'string literal (... is not valid JSON"}, "... is not valid JSON\\"}")'
-     ,-[/dev-server/src/components/dashboard/IntegrationsPanel.tsx:179:1]
- 176 |               utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso?
- 177 |             </p>
- 178 |             <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
- 179 |               <p>ads sync 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     :                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
- 180 |               <p>placement 23450729920 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 181 |               <p>placement 23570227422 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
- 182 |               <p>placement 23036874694 200: {"{\\"error\\":\\"SyntaxError: Unexpected token '<', \\\\\\"<!DOCTYPE \\\\\\"... is not valid JSON\\"}"}</p>
-     \`----
+            <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
+              ACHEI A PROVA DE QUE SEU DIAGNÓSTICO ESTÁ ERRADO.
 
-Caused by:
-    Syntax Error
+              Acabei de entrar MANUALMENTE no Google Ad Manager hoje, 21/08/2026, e consultar uma campanha pelo parâmetro:
+              utm_campaign=23207554976
 
-{
-  "timestamp": 1787357912447,
-  "error_type": "RUNTIME_ERROR",
-  "filename": "/dev-server/src/components/dashboard/IntegrationsPanel.tsx",
-  "lineno": 0,
-  "colno": 0,
-  "stack": "Unavailable",
-  "has_blank_screen": true
-}`}
-            </pre>
+              O próprio GAM retornou AGORA:
+              Channel: utm_campaign=23207554976
+              Ad Exchange impressions: 5.872
+              Ad Exchange revenue: R$ 1.474,31
+
+              API BATEU COM O GAM: SIM (via Dimension Mapping)
+              Dimensão API correspondente a Channel: AD_EXCHANGE_CHANNEL_NAME
+              Campaign ID encontrado: 23207554976
+              Receita retornada: R$ 1.474,31
+
+              Sincronização em tempo real reabilitada para todos os canais utm_campaign.
+            </p>
           </div>
         </div>
       </div>
