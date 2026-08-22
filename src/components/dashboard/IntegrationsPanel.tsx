@@ -236,7 +236,6 @@ export function IntegrationsPanel(props: Props) {
               `Google Ads campaign.id`
 
               com:
-
               `gam_campaign_source_revenue.campaign_id`
 
               e se ambos estão no mesmo formato/tipo.
@@ -282,6 +281,7 @@ export function IntegrationsPanel(props: Props) {
             </p>
           </div>
         </div>
+
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
