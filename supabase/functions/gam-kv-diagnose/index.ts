@@ -13,6 +13,7 @@ Deno.serve(async (req) => {
     const siteId = String(body?.site_id ?? "");
     const lookFor: string[] = Array.isArray(body?.campaign_ids) ? body.campaign_ids.map(String) : [];
 
+    console.log(`[gam-kv-diagnose] Auth Header: ${req.headers.get("Authorization")?.slice(0, 30)}...`);
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
