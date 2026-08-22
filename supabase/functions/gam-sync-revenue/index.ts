@@ -666,7 +666,23 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push(`[snapshot] regen failed: ${String(e)}`);
     }
 
-    return json({ ok: true, date_preset: datePreset, summary, gam_debug: gamDebug, debug });
+    const finalResponse = { 
+      ok: true, 
+      date_preset: datePreset, 
+      summary, 
+      gam_debug: gamDebug, 
+      debug 
+    };
+    
+    // AUDITORIA FINAL DE RETORNO PARA A DASHBOARD
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const hasAuditInDebug = debug.some(d => auditCids.some(c => d.includes(c)));
+    if (hasAuditInDebug) {
+      console.log(`[AUDIT_sync_final] Sync for audit campaigns completed. Debug log count: ${debug.length}`);
+    }
+
+    return json(finalResponse);
+
   } catch (e) {
     console.error("[gam-sync-revenue] uncaught", e);
     return json({ error: String(e), debug });
