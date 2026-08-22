@@ -1063,15 +1063,20 @@ async function collectUtmAttribution(args: {
     }));
   const campaignRows: AttributedRow[] = parsedRows
     .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
-    .map(({ r, rawKv, campaignRaw }) => ({
-      date: r.date,
-      impressions: r.impressions,
-      revenue: r.revenue,
-      source: "google",
-      cid: extractCampaignId(campaignRaw),
-      placement: null,
-      raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
-    }));
+    .map(({ r, rawKv, campaignRaw }) => {
+      let cid = extractCampaignId(campaignRaw);
+      if (!cid && rawKv && !rawKv.includes("=")) cid = extractCampaignId(rawKv);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid: cid,
+        placement: null,
+        raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
+
   const placementRows: AttributedRow[] = parsedRows
     .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
     .map(({ r, rawKv, placementRaw }) => {
