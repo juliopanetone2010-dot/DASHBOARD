@@ -372,15 +372,6 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
-        let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
-        
-        if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
-          debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
-          const criteria = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
-          if (criteria.rows.length > 0) {
-             attribution = rowsToAttributionResult(criteria.rows, criteria.label);
-          }
-        }
 
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
