@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// FORCED AUDIT - BYPASS ALL CACHES
+// DIRECT AUDIT - BYPASSES ANY ROUTING ISSUES
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -25,15 +25,13 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      // Direct REST search for one of the missing values
-      const targetId = "23207554976";
-      const searchUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
-      searchUrl.searchParams.set("pageSize", "1000");
-      // Note: Filter might be picky about syntax in v1 Beta
-      const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const sj = await sr.json();
+      // Fetch values with large page size
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
       
-      const rawValues = sj.customTargetingValues ?? [];
+      const rawValues = vj.customTargetingValues ?? [];
       const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
       const names = rawValues.map((v: any) => String(v.displayName));
 
@@ -42,20 +40,19 @@ Deno.serve(async (req) => {
         type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
-        page_size: rawValues.length,
+        total_in_page: rawValues.length,
         found_ids: lookFor.filter(c => vals.includes(c)),
         missing_ids: lookFor.filter(c => !vals.includes(c)),
-        total_slots_used_estimation: "N/A - requires separate service",
-        sample_of_30: names.slice(0, 30)
+        samples: names.slice(0, 50)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      audit_source: "google-ads-audit-status-V3-FORCE",
-      network: networkCode,
+      identity: "FORCED_AUDIT_RESPONSE_GOOGLE_ADS_AUDIT_STATUS",
+      timestamp: new Date().toISOString(),
       utm_campaign: valuesSummary,
-      all_keys: keys.map((k: any) => k.adTagName)
+      keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
