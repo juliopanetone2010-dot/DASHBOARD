@@ -377,8 +377,11 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
         // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
-                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        // Adicionado filtro para ID de 10+ dígitos (Google Ads ID) para evitar que LineItemIDs curtos do AdExchange
+        // bloqueiem o fallback SOAP que expande as UTMs reais.
+        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__") ||
+                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__");
+
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
