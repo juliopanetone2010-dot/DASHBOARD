@@ -234,6 +234,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
             }
           }
         }
+        
+        let siteDailyMetrics: Array<{ date: string; impr: number; meas: number; view: number; rev: number }> = [];
+
 
         const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
 
@@ -258,7 +261,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
               ],
             },
           ];
-          const metricMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
+          const metricMap = new Map<string, { impr: number; meas: number; viewable: number; rev: number }>();
           let siteMetricsVariantFailures = 0;
           for (const variant of siteMetricsVariants) {
             try {
@@ -268,25 +271,30 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} rows=${raw.length}`);
               for (const r of raw as any[]) {
                 const key = r.date ?? "_";
-                const cur = metricMap.get(key) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+                const cur = metricMap.get(key) ?? { impr: 0, meas: 0, viewable: 0, rev: 0 };
                 cur.impr += Number(r.impressions ?? 0);
                 cur.meas += Number(r._raw_measurable ?? 0);
-                cur.view += Number(r._raw_viewable ?? 0);
+                cur.viewable += Number(r._raw_viewable ?? 0);
                 cur.rev += Number(r.revenue ?? 0);
                 metricMap.set(key, cur);
               }
+
             } catch (e) {
               siteMetricsVariantFailures++;
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
             }
           }
+          siteDailyMetrics = Array.from(metricMap.entries()).map(([date, v]) => ({ date: date === "_" ? todayStr : date, impr: v.impr, meas: v.meas, view: v.viewable, rev: v.rev }));
+
+
           const metricRows = [...metricMap.entries()].map(([d, v]) => ({
             date: d === "_" ? null : d,
             impressions: v.impr,
             measurable: v.meas,
-            viewable: v.view,
+            viewable: v.viewable,
             revenue: v.rev,
           }));
+
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
             // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
             // Nessa situação nunca reduzimos uma receita já salva e maior.
@@ -373,19 +381,66 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
              attribution = rowsToAttributionResult(criteria.rows, criteria.label);
           }
         }
+
+        const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
+        // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
+        let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        
+        if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
+          debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
+          const criteria = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
+          if (criteria.rows.length > 0) {
+             attribution = rowsToAttributionResult(criteria.rows, criteria.label);
+          }
+        }
         
         const todayStr = new Date().toISOString().slice(0, 10);
-        // attribution já foi populado pelo collectUtmAttribution (via REST v1)
-        // Somente ignora se já tivermos dados segmentados por CAMPANHA real (ID de 10+ dígitos)
-        // Isso garante que LineItemIDs curtos (8-9 dígitos) NÃO bloqueiem o fallback SOAP que busca UTMs reais.
-        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__") ||
-                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__");
+        
+        if (hasBudget(10_000)) {
+          debug.push(`[${networkCode}] Forçando SOAP URL_NAME candidate (hoje=${todayStr})...`);
+          
+          const soapRanges = ranges.map(r => {
+            console.log(`[SOAP_FIXED] mapping range: ${JSON.stringify(r)}`);
 
+            const today = new Date();
+            const start = new Date(today);
+            const end = new Date(today);
+            
+            const rd = (r as any).dateRange;
+            // Deno/Client range objects can vary in shape
+            const relative = rd?.relative || (typeof rd === 'string' ? rd : "");
+            
+            if (relative === "TODAY") {
+              // start/end already set to today
+            } else if (relative === "YESTERDAY") {
+              start.setUTCDate(today.getUTCDate() - 1);
+              end.setUTCDate(today.getUTCDate() - 1);
+            } else if (relative === "LAST_7_DAYS") {
+              start.setUTCDate(today.getUTCDate() - 7);
+            } else if (relative === "LAST_30_DAYS") {
+              start.setUTCDate(today.getUTCDate() - 30);
+            } else if (rd?.startDate) {
+              const s = new Date(rd.startDate);
+              const e = new Date(rd.endDate || rd.startDate);
+              start.setUTCFullYear(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+              end.setUTCFullYear(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+            } else if (rd?.fixed?.startDate) {
+              return r; // SOAP format
+            }
 
-        if (!hasTodayData && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
+            return {
+              dateRange: {
+                fixed: {
+                  startDate: { year: start.getUTCFullYear(), month: start.getUTCMonth() + 1, day: start.getUTCDate() },
+                  endDate: { year: end.getUTCFullYear(), month: end.getUTCMonth() + 1, day: end.getUTCDate() }
+                }
+              },
+              debugLabel: r.debugLabel || "SOAP_FIXED"
+            } as GamRange;
+          });
+
           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds, debug);
-          const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+          const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges: soapRanges, finalUrlMap, debug, deadlineAt });
           debug.push(`[${networkCode}] SOAP URL_NAME retornou ${urlRows.length} linhas brutas.`);
           
           if (urlRows.length > 0) {
@@ -412,6 +467,41 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
             }
             attribution.retentionRows.push(...soapAttribution.retentionRows);
             debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
+          }
+        }
+        
+        // AGORA O PULO DO GATO: Predictive Intraday Fallback
+        // Se após KEY_VALUES_NAME, CUSTOM_CRITERIA e SOAP, ainda tivermos campanhas sem receita (ou nenhuma campanha),
+        // mas o site tem receita total no AD_EXCHANGE, distribuímos essa receita proporcionalmente baseada em impressões.
+        const totalSiteRevenue = siteDailyMetrics.reduce((sum, m) => sum + m.rev, 0);
+        const totalSiteImpressions = siteDailyMetrics.reduce((sum, m) => sum + m.impr, 0);
+        const totalAttributedRevenue = attribution.googleCampaignRows.reduce((sum, r) => sum + r.revenue, 0);
+
+        if (totalSiteRevenue > 0.01 && totalAttributedRevenue < (totalSiteRevenue * 0.95) && hasBudget(10_000)) {
+          debug.push(`[${networkCode}] Receita atribuída (${totalAttributedRevenue.toFixed(2)}) < 95% da receita total (${totalSiteRevenue.toFixed(2)}). Tentando PREDICTIVE fallback...`);
+          const predictive = await collectPredictiveIntradayAttribution({
+            networkCode,
+            accessToken,
+            ranges,
+            totalSiteRevenue,
+            totalSiteImpressions,
+            debug,
+            deadlineAt
+          });
+          
+          if (predictive.googleCampaignRows.length > 0) {
+            // Mescla os dados do Predictive proporcional
+            for (const sr of predictive.googleCampaignRows) {
+               const idx = attribution.googleCampaignRows.findIndex(gr => gr.cid === sr.cid && gr.date === sr.date);
+               if (idx === -1) {
+                 attribution.googleCampaignRows.push(sr);
+               } else if (attribution.googleCampaignRows[idx].revenue < 0.0001 && sr.revenue > 0) {
+                 attribution.googleCampaignRows[idx] = sr;
+               }
+            }
+            debug.push(`[${networkCode}] Predictive fallback concluído.`);
+          }
+        }
           }
         }
         
@@ -1100,7 +1190,7 @@ async function collectUtmAttribution(args: {
 
     const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
     if (cid && auditCidsList.includes(cid)) {
-      debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
+      debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
     }
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
@@ -1168,7 +1258,7 @@ async function collectUtmAttribution(args: {
       // AUDITORIA DE PARSER
       const auditCidsParser = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
       if (cid && auditCidsParser.includes(cid)) {
-        console.log(`[AUDIT_parser] ID ${cid} extraído. rawKv=${rawKv} sourceRaw=${sourceRaw} campaignRaw=${campaignRaw}`);
+        console.log(`[AUDIT_parser] ID ${cid} extraído. rawKv=${rawKv.slice(0, 100)} sourceRaw=${sourceRaw} campaignRaw=${campaignRaw}`);
       }
 
       return {
@@ -1382,21 +1472,70 @@ async function collectUrlAttribution(args: {
   // REST v1 causa 400 INVALID_ARGUMENT com URL_NAME + métricas combinadas.
   try {
     const reportRows = (await Promise.all(ranges.map(async (range) => {
-      if (!range?.dateRange?.startDate) {
-        debug.push(`[${networkCode}/SOAP] range invalido: ${JSON.stringify(range)}`);
+      // Normalização agressiva do range para SOAP (Garante objetos de data mesmo para TODAY/YESTERDAY)
+      let soapRange = range;
+      const r = range as any;
+      console.log(`[collectUrlAttribution/SOAP] Incoming range: ${JSON.stringify(r)}`);
+      
+      const rd = r.dateRange;
+      if (rd?.fixed?.startDate) {
+        soapRange = r;
+      } else {
+        const today = new Date();
+        const start = new Date(today);
+        const end = new Date(today);
+        
+        // Deno pode passar dateRange cru ou dentro de dateRange.dateRange
+        const deepRd = rd?.dateRange || rd;
+        const relative = deepRd?.relative || deepRd?.dateRangeType || (typeof rd === 'string' ? rd : "");
+        const startDateStr = deepRd?.startDate || "";
+        
+        console.log(`[collectUrlAttribution/SOAP] Normalizing relative=${relative} start=${startDateStr}`);
+
+        if (relative === "YESTERDAY") {
+          start.setUTCDate(today.getUTCDate() - 1);
+          end.setUTCDate(today.getUTCDate() - 1);
+        } else if (relative === "LAST_7_DAYS") {
+          start.setUTCDate(today.getUTCDate() - 7);
+        } else if (relative === "LAST_30_DAYS") {
+          start.setUTCDate(today.getUTCDate() - 30);
+        } else if (startDateStr) {
+          const s = new Date(startDateStr);
+          const e = new Date(deepRd.endDate || startDateStr);
+          start.setUTCFullYear(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+          end.setUTCFullYear(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+        }
+        
+        soapRange = {
+          dateRange: { 
+             fixed: {
+               startDate: { year: start.getUTCFullYear(), month: start.getUTCMonth() + 1, day: start.getUTCDate() },
+               endDate: { year: end.getUTCFullYear(), month: end.getUTCMonth() + 1, day: end.getUTCDate() }
+             }
+          } as any,
+          debugLabel: range.debugLabel || "SOAP_FIXED"
+        } as GamRange;
+      }
+      console.log(`[collectUrlAttribution/SOAP] Final soapRange: ${JSON.stringify(soapRange)}`);
+      
+      const targetFixed = (soapRange.dateRange as any)?.fixed;
+      if (!targetFixed?.startDate) {
+        debug.push(`[${networkCode}/SOAP] range invalido: ${JSON.stringify(soapRange)}`);
+        console.error(`[${networkCode}/SOAP] range invalido:`, JSON.stringify(soapRange));
         return [];
       }
       try {
-        console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${range.dateRange.startDate}`);
-        const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
-        console.log(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
-        debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
+        console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${soapRange.debugLabel}`);
+        const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
+        console.log(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
+        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
         return results;
       } catch (soapErr) {
-        console.error(`[collectUrlAttribution] SOAP individual range failed for net=${networkCode} range=${range.dateRange.startDate}`, soapErr);
-        debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} falhou individualmente: ${String(soapErr).slice(0, 100)}`);
+        console.error(`[collectUrlAttribution] SOAP individual range failed for net=${networkCode} range=${soapRange.debugLabel}`, soapErr);
+        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} falhou individualmente: ${String(soapErr).slice(0, 100)}`);
         return [];
       }
+    }))).flat();
     }))).flat();
     
     const label = "URL_NAME (SOAP Intraday)";
@@ -1421,9 +1560,29 @@ async function runSoapReport(args: {
   const { networkCode, accessToken, range, dimensions, debug } = args;
   
   // SOAP API v202405 ReportService minimalista
-  const startDate = (String((range?.dateRange as any)?.fixed?.startDate ? `${(range.dateRange as any).fixed.startDate.year}-${String((range.dateRange as any).fixed.startDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.startDate.day).padStart(2, '0')}` : (range?.dateRange?.startDate || "2000-01-01"))).replace(/-/g, "");
-  const endDate = (String((range?.dateRange as any)?.fixed?.endDate ? `${(range.dateRange as any).fixed.endDate.year}-${String((range.dateRange as any).fixed.endDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.endDate.day).padStart(2, '0')}` : (range?.dateRange?.endDate || "2000-01-01"))).replace(/-/g, "");
-  
+  const getD = (d: any) => {
+    if (typeof d === 'string') return d.replace(/-/g, "");
+    if (d?.year) return `${d.year}${String(d.month).padStart(2, '0')}${String(d.day).padStart(2, '0')}`;
+    return "20000101";
+  };
+  const startDate = getD((range?.dateRange as any)?.fixed?.startDate || range?.dateRange?.startDate);
+  const endDate = getD((range?.dateRange as any)?.fixed?.endDate || range?.dateRange?.endDate);
+
+  const soapRange = {
+    dateRange: {
+      startDate: { 
+        year: parseInt(startDate.substring(0, 4)), 
+        month: parseInt(startDate.substring(4, 6)), 
+        day: parseInt(startDate.substring(6, 8)) 
+      },
+      endDate: { 
+        year: parseInt(endDate.substring(0, 4)), 
+        month: parseInt(endDate.substring(4, 6)), 
+        day: parseInt(endDate.substring(6, 8)) 
+      }
+    }
+  };
+
   const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
    <soapenv:Header>
@@ -1438,24 +1597,24 @@ async function runSoapReport(args: {
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
                 <v202405:dimensions>${dimensions.filter(d => d !== 'DATE').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
                 <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
                 <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:columns>
                 <v202405:adUnitView>FLAT</v202405:adUnitView>
                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
-                   <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange as any)?.fixed?.startDate?.day || (String(range?.dateRange?.startDate || "")).split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
+                   <v202405:month>${soapRange.dateRange.startDate.month}</v202405:month>
+                   <v202405:day>${soapRange.dateRange.startDate.day}</v202405:day>
                 </v202405:startDate>
                 <v202405:endDate>
-                   <v202405:year>${(range?.dateRange as any)?.fixed?.endDate?.year || (String(range?.dateRange?.endDate || "")).split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange as any)?.fixed?.endDate?.month || (String(range?.dateRange?.endDate || "")).split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange as any)?.fixed?.endDate?.day || (String(range?.dateRange?.endDate || "")).split("-")[2] || ""}</v202405:day>
+                   <v202405:year>${soapRange.dateRange.endDate.year}</v202405:year>
+                   <v202405:month>${soapRange.dateRange.endDate.month}</v202405:month>
+                   <v202405:day>${soapRange.dateRange.endDate.day}</v202405:day>
                 </v202405:endDate>
             </v202405:reportQuery>
          </v202405:reportJob>
@@ -1565,8 +1724,57 @@ async function runSoapReport(args: {
 }
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
+  console.log(`[parseSoapCsv] csv_length=${csv.length}`);
   const lines = csv.split("\n").filter(l => l.trim().length > 0);
-  if (lines.length <= 1) return [];
+  if (lines.length <= 1) {
+    console.log(`[parseSoapCsv] No data rows found (lines=${lines.length})`);
+    return [];
+  }
+  
+  // Encontrar o cabeçalho e pular metadados se houver
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes("Dimension.DATE") || lines[i].toLowerCase().includes("date")) {
+      headerIndex = i;
+      break;
+    }
+  }
+  
+  if (headerIndex === -1) {
+    console.log(`[parseSoapCsv] Header not found, using first line as header.`);
+    headerIndex = 0;
+  }
+  
+  const headers = lines[headerIndex].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
+  console.log(`[parseSoapCsv] Detected headers: ${headers.join(", ")}`);
+
+  const rows: ReportRow[] = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
+    if (vals.length < headers.length) continue;
+    
+    const row: any = {};
+    headers.forEach((h, idx) => {
+      // Map Dimensions
+      if (h.includes("Dimension.DATE")) row.date = vals[idx];
+      else if (h.includes("Dimension.URL_NAME")) row.urlName = vals[idx];
+      else if (h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME")) row.channelName = vals[idx];
+      
+      // Map Columns
+      else if (h.includes("Column.AD_EXCHANGE_REVENUE")) row.revenue = parseFloat(vals[idx]) / 1000000;
+      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_REVENUE")) {
+          const rev = parseFloat(vals[idx]) / 1000000;
+          if (!row.revenue || rev > row.revenue) row.revenue = rev;
+      }
+      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_IMPRESSIONS")) row.impressions = parseInt(vals[idx]);
+    });
+    
+    if (row.date) rows.push(row);
+  }
+  
+  console.log(`[parseSoapCsv] Returning ${rows.length} rows`);
+  return rows;
+}
   
   // O dump do GAM pode ter aspas
   console.log(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 500)}`);
@@ -1602,6 +1810,10 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     dimensions.forEach((dim, idx) => {
       row.dims.push(cols[idx] || "");
     });
+    // Extra dimension AD_EXCHANGE_URL_CHANNEL_NAME if it was added in runSoapReport
+    if (cols.length > dimensions.length && !row.dims[dimensions.length]) {
+       row.dims.push(cols[dimensions.length] || "");
+    }
     
     // Procura colunas de métricas. O ReportService expõe nomes como "AD_SERVER_IMPRESSIONS" 
     const findMetric = (name: string) => {
@@ -1644,18 +1856,20 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlMap?: Map<string, string>): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
+    // O fallback SOAP agora traz AD_EXCHANGE_URL_CHANNEL_NAME na dimensão 2 (index 2)
+    const rawChannel = r.dims[2] || "";
+    
     const params = parseUrlParams(rawUrl);
     const sourceRaw = params.utm_source ?? "";
     const campaignRaw = params.utm_campaign ?? "";
     const placementRaw = params.utm_placement ?? "";
     
-    // Tenta extrair ID da URL se UTM falhar
+    // Tenta extrair ID da URL ou do Channel se UTM falhar
     let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     
     if (!cid) {
-      // Se não houver cid no UTM, tentamos extrair da URL crua 
-      // antes de tentar o map de final URLs (que pode ser ruidoso)
-      cid = extractCampaignId(rawUrl);
+      // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
+      cid = extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
     }
     
     if (!cid && finalUrlMap) {
@@ -1669,8 +1883,17 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       }
     }
     
-
-    const source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : (cid ? "google" : "unknown"); 
+    // Se ainda não temos source, tentamos extrair do Channel Name
+    let source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : null;
+    if (!source && rawChannel) {
+      const chParams = parseUrlParams("?" + rawChannel.replace(/;/g, "&")); // Simula query string
+      source = chParams.utm_source ? safeDecode(chParams.utm_source).toLowerCase().trim() : null;
+      if (!source && (rawChannel.toLowerCase().includes("push") || rawChannel.toLowerCase().includes("google"))) {
+         source = rawChannel.toLowerCase().includes("push") ? "push" : "google";
+      }
+    }
+    
+    if (!source) source = cid ? "google" : "unknown";
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
 
@@ -1681,7 +1904,7 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       source,
       cid,
       placement,
-      raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|dim=URL_NAME|raw=${rawUrl}`,
+      raw: `${label}|utm_source_raw=${sourceRaw || "null"}|utm_campaign_raw=${campaignRaw || "null"}|utm_placement_raw=${placementRaw || "null"}|ch=${rawChannel.slice(0, 100)}|dim=URL_NAME|raw=${rawUrl}`,
     };
   }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
 }
