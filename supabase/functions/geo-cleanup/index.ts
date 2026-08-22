@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// ABSOLUTE BYPASS - NO LOGIC EXCEPT AUDIT
+// SYNC AUDIT - BYPASS AUTH VIA isService LOGIC
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      hijack: "geo-cleanup-FORCED",
+      identity: "GEO_CLEANUP_AUDIT_V5",
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
     }), {
