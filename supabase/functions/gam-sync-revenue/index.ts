@@ -199,14 +199,14 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_UNIT_NAME (HIERARCHY) para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_DFP_CHANNEL_ID para range 2026-08-21...`);
         
-        // Algumas redes usam a hierarquia completa de Ad Units para identificar canais
+        // Algumas redes usam DFP_CHANNEL ou variantes para Ad Exchange
         let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "AD_UNIT_NAME"],
+           dimensions: ["DATE", "AD_EXCHANGE_DFP_CHANNEL_ID"],
            debug
         });
         
@@ -214,12 +214,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Fallback para SOAP AD_UNIT_ID...");
+           debug.push("[AUDIT_MANUAL] Fallback para SOAP AD_EXCHANGE_URL_ID...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "AD_UNIT_ID"],
+              dimensions: ["DATE", "AD_EXCHANGE_URL_ID"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
