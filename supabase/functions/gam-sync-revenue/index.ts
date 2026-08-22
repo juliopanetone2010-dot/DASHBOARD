@@ -965,17 +965,26 @@ async function collectUtmAttribution(args: {
     // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
     const metricGroups = [
       { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"] },
     ];
     for (const group of metricGroups) {
       try {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
           const rows = await runReport({
             networkCode, accessToken, range,
-            dimensions: ["DATE", "KEY_VALUES_NAME"],
+            dimensions: group.dimensions ?? ["DATE", "KEY_VALUES_NAME"],
             metrics: group.metrics,
             debug,
             deadlineAt,
           });
+          // Se for a dimensão CHANNEL, mapeamos para KEY_VALUES_NAME format para reuso do parser
+          if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
+            return rows.map(r => ({
+              ...r,
+              dims: [r.dims[0], r.dims[1]] // r.dims[1] é o Channel Name
+            }));
+          }
+
           // Se KEY_VALUES_NAME retornar 0 rows para a data, tentamos CUSTOM_CRITERIA imediatamente
           if (rows.length === 0) {
             debug.push(`[${networkCode}/${label}/${group.label}] 0 rows com KEY_VALUES_NAME, tentando CUSTOM_CRITERIA fallback imediato para ${range.dateRange.startDate}...`);
