@@ -313,13 +313,19 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
             revenue: a.revenue + r.revenue,
             impressions: a.impressions + r.impressions,
           }), { revenue: 0, impressions: 0 });
-          summary.push({
-            network_code: networkCode,
-            sites: networkSites.map((s) => s.name),
-            mode: "site_metrics_only",
-            currency: siteCurrency,
-            date_range: ranges.map((r) => r.debugLabel),
-            site_id: requestedSiteId ?? null,
+          if (siteMetricsOnly) {
+             summary.push({
+               network_code: networkCode,
+               sites: networkSites.map((s) => s.name),
+               mode: "site_metrics_only",
+               currency: siteCurrency,
+               date_range: ranges.map((r) => r.debugLabel),
+               site_id: requestedSiteId ?? null,
+               total_revenue: metricTotals.revenue,
+             });
+             continue;
+          }
+
             rows_returned: metricRows.length,
             total_revenue_native: metricTotals.revenue,
             total_impressions: metricTotals.impressions,
