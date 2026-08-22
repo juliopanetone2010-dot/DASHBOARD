@@ -1575,17 +1575,8 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
                 <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
 
-                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
-                <v202405:startDate>
-                   <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
-                   <v202405:month>${soapRange.dateRange.startDate.month}</v202405:month>
-                   <v202405:day>${soapRange.dateRange.startDate.day}</v202405:day>
-                </v202405:startDate>
-                <v202405:endDate>
-                   <v202405:year>${soapRange.dateRange.endDate.year}</v202405:year>
-                   <v202405:month>${soapRange.dateRange.endDate.month}</v202405:month>
-                   <v202405:day>${soapRange.dateRange.endDate.day}</v202405:day>
-                </v202405:endDate>
+                <v202405:dateRangeType>TODAY</v202405:dateRangeType>
+
             </v202405:reportQuery>
          </v202405:reportJob>
       </v202405:runReportJob>
