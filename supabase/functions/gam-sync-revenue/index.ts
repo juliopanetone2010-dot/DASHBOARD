@@ -1568,12 +1568,11 @@ async function runSoapReport(args: {
          <v202405:reportJob>
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
-                <v202405:columns>AD_EXCHANGE_AD_REQUESTS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
                 <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
+
 
                 <v202405:dateRangeType>TODAY</v202405:dateRangeType>
 
