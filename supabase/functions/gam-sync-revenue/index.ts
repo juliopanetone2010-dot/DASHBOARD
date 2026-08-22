@@ -96,7 +96,9 @@ async function runSync(req: Request, skipAuth = false): Promise<Response> {
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
     try {
-      const body = await req.json().catch(() => ({}));
+      const bodyText = await req.clone().text();
+      console.log(`[DEBUG_BODY] ${bodyText}`);
+      const body = JSON.parse(bodyText);
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
       dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : (typeof (body as any)?.date_from === "string" ? (body as any).date_from : null);
