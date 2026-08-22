@@ -88,7 +88,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              VEJA: eu sincronizei, porém os gastos continuam ZERADOS, voce pode conferir o que eu precis ofazer para voltar?
+              EU NAO QUERO Q VC MUDE TEXTO NO PAINEL QUERO Q CONSERTE OS ERROS
             </p>
           </div>
           <div className="bg-success/10 p-3 rounded border border-success/20">
