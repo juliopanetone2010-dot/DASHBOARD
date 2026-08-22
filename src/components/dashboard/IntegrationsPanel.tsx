@@ -87,7 +87,57 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              EU N TO PEDINDO PRA VC ALTERAR TEXTO, QUERO Q VEJA O POR QUE AS CAMPANHAS ESTAO SEM RECEITAS
+Ainda NÃO está funcionando.
+
+Pare de alterar texto, pare de criar fallback por slug e pare de aceitar IDs internos de 8 dígitos como se fossem Campaign IDs do Google Ads.
+
+Quero uma única coisa:
+
+faça as campanhas dentro do Universo dos Cartões puxarem a receita REAL do GAM e mostrar essa receita na linha correta da campanha.
+
+Teste obrigatoriamente:
+
+23207554976
+
+23309079322
+
+22923001384
+
+Para cada uma, me mostre:
+
+Campaign ID
+
+Gasto
+
+Receita REAL encontrada no GAM
+
+Receita salva no banco
+
+Receita exibida no dashboard
+
+Se alguma continuar em R$ 0,00, NÃO diga que foi corrigido.
+
+Continue investigando até encontrar exatamente onde a receita some.
+
+Não use:
+
+ rateio proporcional;
+
+ predictive;
+
+ slug de página;
+
+ ID curto do GAM;
+
+ ROI geral;
+
+ estimativa.
+
+Quero somente:
+
+utm_campaign real → Campaign ID real → receita real → dashboard
+
+E NÃO alterere mais nenhum texto da interface.
             </p>
           </div>
         </div>
