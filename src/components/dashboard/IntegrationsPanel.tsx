@@ -87,65 +87,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Temos um bug na integração entre Google Ads e Google Ad Manager: as receitas 
-              {"\n\n"}
-              (revenue) do Ad Manager pararam de ser vinculadas às campanhas.
-              {"\n\n"}
-              CONTEXTO:
-              {"\n\n"}
-              - Até o dia 20/08 estava funcionando normalmente (receita aparecia por campanha e por placement)
-              {"\n\n"}
-              - A partir de então, o "Visão geral" continua puxando o gasto (Google Ads) normalmente
-              {"\n\n"}
-              - Mas a receita do Ad Manager está zerada em TODAS as campanhas (Receita = $0.00), 
-              {"\n\n"}
-              mesmo campanhas que antes tinham receita
-              {"\n\n"}
-              - O card "Top placements (receita)" está mostrando "Sem dados de Ad Manager ainda"
-              {"\n\n"}
-              - Ou seja: o problema não é no Google Ads (spend), é especificamente na leitura/
-              {"\n\n"}
-              vinculação de dados vindos do Google Ad Manager
-              {"\n\n"}
-              O QUE PRECISO QUE VOCÊ FAÇA:
-              {"\n\n"}
-              1. Não alterar nada que envolve a captura de dados do Google Ads (gasto), isso 
-              {"\n\n"}
-              continua funcionando e não pode quebrar
-              {"\n\n"}
-              2. Investigar a integração/sync com o Google Ad Manager: 
-              {"\n\n"}
-              - Verificar se o token/credencial de acesso à API do Ad Manager expirou 
-              {"\n\n"}
-              ou precisa de refresh
-              {"\n\n"}
-              - Verificar se houve mudança na versão da API do Google Ad Manager 
-              {"\n\n"}
-              (deprecation, breaking change)
-              {"\n\n"}
-              - Verificar o job/cron/rotina que faz o matching entre campanha (Google Ads) 
-              {"\n\n"}
-              e placement/receita (Ad Manager) — o vínculo entre os dois pode ter quebrado
-              {"\n\n"}
-              - Verificar se há erro nos logs da última sincronização com o Ad Manager 
-              {"\n\n"}
-              (a partir de que data/horário os logs começam a falhar)
-              {"\n\n"}
-              3. Me trazer um diagnóstico do que encontrou antes de aplicar qualquer correção, 
-              {"\n\n"}
-              com a causa raiz identificada
-              {"\n\n"}
-              4. Depois de identificado, corrigir mantendo compatibilidade com o restante 
-              {"\n\n"}
-              do dashboard que já está funcionando
-              {"\n\n"}
-              Suspeito que seja algo relacionado a autenticação/token do Ad Manager expirado, 
-              {"\n\n"}
-              ou alguma mudança na API deles, já que a régua de tempo bate exatamente com 
-              {"\n\n"}
-              quando parou (dia 20/08). Por favor confirme isso checando logs antes de mexer 
-              {"\n\n"}
-              em qualquer código.
+              AS CAMPANHAS NAO ESTAO FUNCIOANNDO SO TA PUXANDO OS GASTROS GERAL
             </p>
           </div>
         </div>
