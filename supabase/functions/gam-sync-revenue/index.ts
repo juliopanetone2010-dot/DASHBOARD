@@ -195,17 +195,17 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const isManualSync = body?.sync === true;
 
     // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (isManualSync || testMode || requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
+    if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_SITE_NAME para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID + Metric AD_EXCHANGE_REVENUE...`);
         
         let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "AD_EXCHANGE_SITE_NAME"],
+           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
            debug
         });
         
@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Fallback para SOAP AD_EXCHANGE_REQUEST_SOURCES...");
+           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_URL_CHANNELS...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_REQUEST_SOURCES"],
+              dimensions: ["DATE", "AD_EXCHANGE_URL_CHANNELS"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
@@ -1497,7 +1497,9 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
+                <v202405:columns>AD_EXCHANGE_URL_CHANNELS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_AD_SLOT_NAME</v202405:columns>
+                <v202405:columns>AD_EXCHANGE_CHANNEL_NAME</v202405:columns>
                 <v202405:adUnitView>FLAT</v202405:adUnitView>
                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
