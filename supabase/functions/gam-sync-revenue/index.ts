@@ -1,6 +1,6 @@
 // Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
-// REDEPLOY TRIGGER: v1.0.6 - RESTORE FULL LOGIC
-// REDEPLOY TRIGGER: v1.0.2 - Full rename of internal variables
+// REDEPLOY TRIGGER: v1.0.7 - Deep Audit Logic Enable
+
 
 
 // - Roda reports por AD_UNIT, PLACEMENT e URL_NAME (via SOAP para intraday)
