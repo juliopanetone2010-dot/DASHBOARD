@@ -196,7 +196,7 @@ Deno.serve(async (req) => {
         let leafAccounts: any[] = [];
         if (root.is_mcc) {
           const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'";
-          const cUrl = `https://googleads.googleapis.com/v25/customers/${root.customer_id}/googleAds:search`;
+          const cUrl = `https://googleads.googleapis.com/v19/customers/${root.customer_id}/googleAds:search`;
           const cRes = await fetchWithRetry(cUrl, {
             method: "POST",
             headers: { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "login-customer-id": root.customer_id, "Content-Type": "application/json" },
@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
             const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "Content-Type": "application/json" };
             if (leaf.login_customer_id) headers["login-customer-id"] = leaf.login_customer_id;
 
-            const camUrl = `https://googleads.googleapis.com/v25/customers/${leaf.customer_id}/googleAds:search`;
+            const camUrl = `https://googleads.googleapis.com/v19/customers/${leaf.customer_id}/googleAds:search`;
             const camRes = await fetchWithRetry(camUrl, {
               method: "POST", headers, body: JSON.stringify({ query: campaignQuery }),
             }, 3, admin, bodySiteId);

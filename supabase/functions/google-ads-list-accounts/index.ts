@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
         `;
 
         const searchRes = await fetch(
-          `https://googleads.googleapis.com/v25/customers/${mgr.customer_id}/googleAds:search`,
+          `https://googleads.googleapis.com/v19/customers/${mgr.customer_id}/googleAds:search`,
           {
             method: "POST",
             headers: {
