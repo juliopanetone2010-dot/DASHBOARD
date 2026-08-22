@@ -146,8 +146,10 @@ async function runUnifiedReport(
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
+        // Log detailed attribution failure for diagnostic purposes
         if (!cid && revenue > 0.01) {
-          auditLogs.push(`[audit] No CID found for URL: ${urlText.slice(0, 100)}... | Rev: ${revenue}`);
+          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
+          auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
         }
         allRows.push({
           date,
@@ -170,9 +172,12 @@ async function runUnifiedReport(
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
+  // Decode URL if it looks encoded
+  const decoded = text.includes('%') ? decodeURIComponent(text) : text;
+  
   // Look for 10-12 digit IDs, often preceded by 'campaignid=', 'utm_campaign=', or just in the path
-  const match = text.match(/(?:campaignid|utm_campaign|placement|cid)[=:](\d{10,12})\b/) || 
-                text.match(/\b(\d{10,12})\b/);
+  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{10,12})\b/) || 
+                decoded.match(/\b(\d{10,12})\b/);
   return match ? match[1] : null;
 }
 
