@@ -172,8 +172,7 @@ export function IntegrationsPanel(props: Props) {
         </div>
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
-            <p className="text-[11px] font-bold text-destructive mb-2">For the code present, I get the error below.</p>
-            <p className="text-[10px] text-destructive/90 mb-2">Please think step-by-step in order to resolve it.</p>
+            <p className="text-[11px] font-bold text-destructive mb-2">PUXEI MANUYALMENTE ESSA CAMPANHA AQUI NO GOOGLE AD MANAGER, E ME RETORNOOU COM RECEIRTA SIM, SO AI Q TA SEM RECEITA POR QUE?</p>
             <pre className="text-[8px] font-mono whitespace-pre-wrap text-destructive/80 leading-tight overflow-x-auto bg-black/5 p-2 rounded">
 {`  x Expected unicode escape
      ,-[/dev-server/src/components/dashboard/IntegrationsPanel.tsx:179:1]
