@@ -199,13 +199,13 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_PLACEMENT_NAME para range 2026-08-21...`);
         
         let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
+           dimensions: ["DATE", "AD_EXCHANGE_PLACEMENT_NAME"],
            debug
         });
         
@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando PLACEMENT_ID (Metric: AD_EXCHANGE_REVENUE)...");
+           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_AD_UNIT_NAME...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "PLACEMENT_ID"],
+              dimensions: ["DATE", "AD_EXCHANGE_AD_UNIT_NAME"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
