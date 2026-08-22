@@ -88,7 +88,131 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              EU NAO QUERO Q VC MUDE TEXTO NO PAINEL QUERO Q CONSERTE OS ERROS
+              A v24 já está respondendo 200/JSON, mas os gastos AINDA NÃO estão sendo atualizados no dashboard.
+
+Portanto, não quero mais diagnóstico de versão da API. Isso já foi resolvido.
+
+Quero rastrear exatamente onde o gasto está sumindo.
+
+Use UMA campanha/conta real que teve gasto hoje e faça o fluxo completo:
+
+Google Ads API v24 → metrics.cost_micros → conversão → persistência → SELECT banco → dashboard
+
+Para o Customer ID 6209877933, faça uma consulta manual de HOJE e mostre:
+
+campaign.id
+
+campaign.name
+
+segments.date
+
+metrics.cost_micros
+
+valor convertido = cost_micros / 1_000_000
+
+Depois me mostre:
+
+1. A API realmente retorna cost_micros > 0?
+
+Se SIM, informe o valor bruto e convertido.
+
+2. Esse valor está sendo salvo no banco?
+
+Mostre a tabela, linha e campos:
+
+campaign_id
+
+customer_id
+
+date
+
+cost_micros
+
+cost
+
+updated_at
+
+Faça um SELECT depois do UPSERT para provar que o valor foi persistido.
+
+3. A query do dashboard lê exatamente esse registro?
+
+Compare:
+
+campaign_id
+
+customer_id
+
+site_id
+
+date
+
+timezone
+
+api_set
+
+sync_enabled
+
+Quero saber se algum filtro está fazendo o dashboard ignorar o registro recém-salvo.
+
+4. Verifique se a migração v18 → v24 alterou o formato da resposta.
+
+Confirme se o parser atual está lendo corretamente:
+
+results[].metrics.costMicros
+
+ou o campo equivalente retornado pela REST v24.
+
+Verifique se o código antigo esperava outro formato, como:
+
+metrics.cost_micros
+
+e por isso está transformando o gasto em undefined, null ou 0.
+
+5. Verifique os dois Sets separadamente.
+
+Set 1 — Universo
+
+API retorna gasto > 0?
+
+Banco salva?
+
+Dashboard lê?
+
+Set 2 — Jardim Astral
+
+API retorna gasto > 0?
+
+Banco salva?
+
+Dashboard lê?
+
+Não diga apenas “sincronização restaurada”.
+
+Quero números reais.
+
+No final responda:
+
+Set 1 API cost_micros:
+
+Set 1 valor salvo no banco:
+
+Set 1 valor exibido no dashboard:
+
+Set 2 API cost_micros:
+
+Set 2 valor salvo no banco:
+
+Set 2 valor exibido no dashboard:
+
+Etapa exata onde o valor some:
+
+Não altere Google Ad Manager.
+
+Não altere textos do painel.
+
+Não troque novamente a versão da API.
+
+Só corrija o ponto exato onde metrics.cost_micros deixa de chegar ao dashboard.
             </p>
           </div>
           <div className="bg-success/10 p-3 rounded border border-success/20">
