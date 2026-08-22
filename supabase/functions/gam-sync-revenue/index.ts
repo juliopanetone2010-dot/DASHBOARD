@@ -201,13 +201,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
         debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com CUSTOM_DIMENSION para range 2026-08-21...`);
         
-        // No SOAP do GAM, KEY_VALUES_NAME via REST v1 pode falhar, mas o ReportService permite CUSTOM_DIMENSION
-        // O usuário quer ver "Channel" no painel. O ID 23207554976 costuma ser utm_campaign.
-        const soapRows = await runSoapReport({
+        // No SOAP do GAM, ReportService permite CUSTOM_DIMENSION
+        let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "CUSTOM_DIMENSION"], // Tentar capturar Custom Dimensions
+           dimensions: ["DATE", "CUSTOM_DIMENSION"],
            debug
         });
         
@@ -215,17 +214,15 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Fallback para SOAP URL_NAME...");
-           const urlSoapRows = await runSoapReport({
+           debug.push("[AUDIT_MANUAL] Fallback para SOAP PLACEMENT_ID...");
+           const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "URL_NAME"],
+              dimensions: ["DATE", "PLACEMENT_ID"],
               debug
            });
-           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds.length ? requestedAccountIds : [], debug);
-           const attributed = rowsFromUrlReportRows(urlSoapRows, "AUDIT_SOAP_URL", finalUrlMap);
-           auditRow = attributed.find(r => r.campaign_id === "23207554976") as any;
+           auditRow = pRows.find(r => r.dims.some(d => d.includes("23207554976")));
         }
 
         if (auditRow) {
