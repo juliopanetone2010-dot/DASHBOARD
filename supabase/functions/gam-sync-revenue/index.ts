@@ -2151,12 +2151,20 @@ async function applyGoogleUtmRevenue(
     // usá-la como primário subnotifica receita de pushes e outras fontes.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
 
+    // AUDITORIA DE QUERY
+    const auditCids = ['23207554976', '23309079322', '23021142139'];
+    const hasAuditCid = cids.some(c => auditCids.includes(c));
+    if (hasAuditCid) {
+      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCids.includes(c)).join(',')} em ${date}`);
+    }
+
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
-      .select("campaign_id, revenue_usd")
+      .select("campaign_id, revenue_usd, utm_source")
       .eq("user_id", userId)
       .eq("date", date)
       .in("campaign_id", cids);
+
     const aggregatedByCid = new Map<string, number>();
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id);
