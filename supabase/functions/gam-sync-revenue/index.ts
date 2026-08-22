@@ -1120,23 +1120,6 @@ async function collectUtmAttribution(args: {
       };
     });
 
-  const placementRowsRaw: AttributedRow[] = parsedRows
-    .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
-    .map(({ r, rawKv, placementRaw, sourceRaw }) => {
-      let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
-      const kv = parseKeyValueDimension(rawKv);
-      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
-      const placement = extractPlacementValue(placementRaw || rawKv, cid);
-      return {
-        date: r.date,
-        impressions: r.impressions,
-        revenue: r.revenue,
-        source,
-        cid,
-        placement,
-        raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
-      };
-    });
 
   // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
   // senão a receita duplica. Para ROI usamos utm_campaign; para placements usamos utm_placement; para
