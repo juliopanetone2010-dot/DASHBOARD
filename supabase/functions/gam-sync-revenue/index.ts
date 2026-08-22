@@ -69,6 +69,8 @@ async function runUnifiedReport(
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
+  // We strictly use DATE and URL. 
+  // AD_EXCHANGE_URL_CHANNEL_NAME is removed because it causes 400 errors in REST v1 for this network.
   const reportDefinition: any = {
     reportType: "HISTORICAL",
     dimensions: ["DATE", "URL"],
@@ -133,6 +135,7 @@ async function runUnifiedReport(
       
       const urlText = String(dims[1]?.stringValue || "");
       
+      // Strict extraction: 10-12 digits only
       const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
@@ -162,6 +165,7 @@ function extractCampaignId(text: string): string | null {
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
   // Strict extraction: 10-12 digits only.
+  // Match utm_campaign=... or campaignid=... or just the ID itself
   const match = decoded.match(/(?:campaignid|utm_campaign)[=:](\d{10,12})\b/) || 
                 decoded.match(/\b(\d{10,12})\b/);
   
@@ -228,16 +232,6 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   }
 
   return stats;
-}
-
-async function findCustomTargetingKeyId(networkCode: string, accessToken: string, name: string): Promise<string | null> {
-  const r = await fetch(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys?pageSize=500`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!r.ok) return null;
-  const data = await r.json();
-  const key = (data.customTargetingKeys || []).find((k: any) => k.adTagName.toLowerCase() === name.toLowerCase());
-  return key ? key.name.split("/").pop() : null;
 }
 
 async function getAccessToken(sa: any) {
