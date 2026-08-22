@@ -28,7 +28,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // 1. Get Site & Network Info
     const { data: site, error: siteErr } = await supabase
       .from("sites")
       .select("*")
@@ -42,15 +41,14 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    // 2. Identify utm_campaign Key ID
+    // Dynamic key identification
     const utmKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_campaign");
     console.log(`[gam-sync] Site: ${site.name} | Network: ${networkCode} | utm_campaign Key: ${utmKeyId}`);
 
-    // 3. Run Report
-    const rows = await runConsolidatedReport(networkCode, accessToken, from, to, utmKeyId);
+    // Unified report using URL as the fallback attribution dimension
+    const rows = await runUnifiedReport(networkCode, accessToken, from, to, utmKeyId);
     console.log(`[gam-sync] Report complete. Rows: ${rows.length}`);
 
-    // 4. Attribution & Storage
     const stats = await attributeAndStore(supabase, site, rows);
 
     return json({
@@ -67,7 +65,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runConsolidatedReport(
+async function runUnifiedReport(
   networkCode: string, 
   accessToken: string, 
   from: string, 
@@ -79,7 +77,7 @@ async function runConsolidatedReport(
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "AD_EXCHANGE_URL_CHANNEL_NAME"],
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
@@ -88,11 +86,6 @@ async function runConsolidatedReport(
       }
     }
   };
-
-  if (utmKeyId) {
-    reportDefinition.dimensions.push("CUSTOM_DIMENSION");
-    reportDefinition.customDimensionKeyIds = [Number(utmKeyId)];
-  }
 
   // Create
   const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
@@ -122,7 +115,7 @@ async function runConsolidatedReport(
     const opStatus = await opRes.json();
     if (opStatus.done) {
       if (opStatus.error) throw new Error(`Report job error: ${JSON.stringify(opStatus.error)}`);
-      resultName = opStatus.response?.reportResult?.name || opStatus.response?.name;
+      resultName = opStatus.response?.reportResult;
       break;
     }
   }
@@ -144,14 +137,11 @@ async function runConsolidatedReport(
     
     for (const r of (rowsJson.rows || [])) {
       const dims = r.dimensionValues || [];
-      const dateRaw = dims[0]?.stringValue || dims[0]?.intValue || "";
-      const date = /^\d{8}$/.test(dateRaw) ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
+      const dateRaw = String(dims[0]?.stringValue || dims[0]?.intValue || "");
+      const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
-      const channelName = String(dims[1]?.stringValue || "");
-      const customDim = dims[2]?.stringValue || "";
-      
-      // Extraction logic: find 10+ digit numeric ID
-      const cid = extractCampaignId(channelName) || extractCampaignId(customDim);
+      const urlText = String(dims[1]?.stringValue || "");
+      const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = Number(metrics[0]?.intValue || 0) / 1_000_000;
@@ -163,7 +153,7 @@ async function runConsolidatedReport(
           campaignId: cid,
           revenue,
           impressions,
-          source: cid ? "attributed" : "unattributed"
+          source: cid ? "url_attributed" : "unattributed"
         });
       }
     }
@@ -175,16 +165,19 @@ async function runConsolidatedReport(
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
+  // Match 10-12 digit IDs in URL parameters or path
   const match = text.match(/\b(\d{10,12})\b/);
   return match ? match[1] : null;
 }
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
-  const stats = { attributed: 0, unattributed: 0, revenue: 0 };
+  const stats = { attributed: 0, total_revenue: 0 };
   
+  // Group by date and campaign
   const groups = new Map<string, { revenue: number, impressions: number }>();
   for (const r of rows) {
-    const key = `${r.date}|${r.campaignId || "__aggregate__"}`;
+    if (!r.campaignId) continue; // We only store attributed rows in this table for now
+    const key = `${r.date}|${r.campaignId}`;
     const cur = groups.get(key) || { revenue: 0, impressions: 0 };
     cur.revenue += r.revenue;
     cur.impressions += r.impressions;
@@ -194,8 +187,6 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const upserts = [];
   for (const [key, data] of groups.entries()) {
     const [date, cid] = key.split("|");
-    const isAttributed = cid !== "__aggregate__";
-    
     upserts.push({
       site_id: site.id,
       user_id: site.user_id,
@@ -206,10 +197,8 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
       utm_source: "google",
       attribution_status: "consolidated"
     });
-
-    if (isAttributed) stats.attributed++;
-    else stats.unattributed++;
-    stats.revenue += data.revenue;
+    stats.attributed++;
+    stats.total_revenue += data.revenue;
   }
 
   if (upserts.length > 0) {
@@ -227,6 +216,7 @@ async function findCustomTargetingKeyId(networkCode: string, accessToken: string
   const r = await fetch(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys?pageSize=500`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
+  if (!r.ok) return null;
   const data = await r.json();
   const key = (data.customTargetingKeys || []).find((k: any) => k.adTagName.toLowerCase() === name.toLowerCase());
   return key ? key.name.split("/").pop() : null;
