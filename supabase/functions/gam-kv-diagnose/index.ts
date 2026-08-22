@@ -18,10 +18,13 @@ Deno.serve(async (req) => {
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
     const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
 
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    
     let userId = "";
     if (isServiceKey) {
-      // Use standard admin user or the first one found
-      userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
+      // Find the user_id that owns the requested site if service key is used
+      const { data: sOwner } = await admin.from("sites").select("user_id").eq("id", siteId).maybeSingle();
+      userId = sOwner?.user_id || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
     } else {
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
       const { data: { user } } = await userClient.auth.getUser(token);
@@ -29,9 +32,8 @@ Deno.serve(async (req) => {
       userId = user.id;
     }
 
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", siteId).eq("user_id", userId).maybeSingle();
-    if (!site?.network_code) return json({ error: "Site sem network_code" });
+    if (!site?.network_code) return json({ error: "Site sem network_code", siteId, userId });
 
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
