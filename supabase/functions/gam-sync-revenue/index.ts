@@ -151,7 +151,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       userId = user?.id;
     }
     
-    if (!userId) {
+    if (!userId && !skipAuth) {
       return json({ 
         error: "Token inválido", 
         debug: { 
@@ -164,6 +164,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         } 
       });
     }
+
+    if (!userId) userId = requestedUserId ?? undefined;
 
 
 
