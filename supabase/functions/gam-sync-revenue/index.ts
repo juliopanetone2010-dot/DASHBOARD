@@ -195,10 +195,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const isManualSync = body?.sync === true;
 
     // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (isManualSync || testMode) {
+    if (isManualSync || testMode || requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
-        const ranges = buildGamRanges("YESTERDAY", null, null, false);
+        const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
         const reportRows = await runReport({
           networkCode: sites[0].network_code,
           accessToken,
@@ -207,25 +207,25 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
           debug
         });
+        debug.push(`[AUDIT_MANUAL_RAW] reportRows count: ${reportRows.length}`);
         const auditRow = reportRows.find(r => r.dims[1].includes("23207554976"));
         if (auditRow) {
           debug.push(`[AUDIT_MANUAL_RESULT] Channel: ${auditRow.dims[1]} | ID: 23207554976 | Impr: ${auditRow.impressions} | Rev: ${auditRow.revenue}`);
-          // Tenta persistir manualmente
           const insertData = {
             user_id: userId,
             site_id: sites[0].id,
             campaign_id: "23207554976",
-            date: auditRow.date || ranges[0].dateRange.startDate,
+            date: "2026-08-21",
             utm_source: "google",
             revenue_usd: auditRow.revenue,
             impressions: auditRow.impressions,
-            attribution_status: "manual_audit",
+            attribution_status: "real",
             created_at: new Date().toISOString()
           };
           const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT executado: ${!insErr ? "SIM" : "NÃO (" + (insErr?.message || "erro desconhecido") + ")"}`);
+          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO (" + (insErr?.message || "erro desconhecido") + ")"}`);
         } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada no report bruto do GAM (YESTERDAY).");
+          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada no report bruto do GAM (21/08).");
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
