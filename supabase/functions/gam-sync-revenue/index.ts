@@ -1570,8 +1570,9 @@ async function runSoapReport(args: {
                 <v202405:dimensions>DATE</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_DFP_AD_UNIT_ID</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_DFP_AD_UNIT_NAME</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_ID</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_CHANNEL_ID</v202405:dimensions>
+
 
 
 
