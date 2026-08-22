@@ -2082,6 +2082,13 @@ async function applyGoogleUtmRevenue(
     for (const b of sourceByCampaign.values()) {
       const key = `${b.campaign_id}|${b.date}`;
       const prev = existingSMap.get(key);
+      
+      // LOG DE AUDITORIA CRÍTICO PARA O USUÁRIO
+      if (b.campaign_id === '23207554976') {
+        console.log(`[AUDIT_ persist] Campaign 23207554976 found! rev=${b.revenue_usd} status=${b.attribution_status} site=${b.site_id}`);
+        debug.push(`[AUDIT_persist] Campanha 23207554976 processada: R$ ${(b.revenue_usd * fx.usdBrl).toFixed(2)} (${b.attribution_status})`);
+      }
+
       if (prev) {
         // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
         if (prev.attribution_status === 'consolidated' && b.attribution_status === 'intraday') {
@@ -2094,6 +2101,7 @@ async function applyGoogleUtmRevenue(
       }
       finalSourceRows.push(b);
     }
+
 
     if (finalSourceRows.length > 0) {
       for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
