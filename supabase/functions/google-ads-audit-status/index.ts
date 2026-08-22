@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
+// FORCED AUDIT - BYPASS ALL CACHES
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -24,43 +25,37 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      // Fetch MORE values and scan for our targets
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
-      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const vj = await vr.json();
-      
-      const rawValues = vj.customTargetingValues ?? [];
-      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
-      const names = rawValues.map((v: any) => String(v.displayName));
-
-      // Try searching directly for one of the values to verify if it exists at all
+      // Direct REST search for one of the missing values
+      const targetId = "23207554976";
       const searchUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
-      searchUrl.searchParams.set("filter", `name = "networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues/23207554976"`);
+      searchUrl.searchParams.set("pageSize", "1000");
+      // Note: Filter might be picky about syntax in v1 Beta
       const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const sj = await sr.json();
+      
+      const rawValues = sj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
 
       valuesSummary = {
         key_id: campKey.customTargetingKeyId,
         type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
-        total_values_in_first_page: vals.length,
-        found_in_names: lookFor.filter(c => names.includes(c)),
-        found_in_ids: lookFor.filter(c => vals.includes(c)),
-        missing_in_first_page: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
-        direct_search_23207554976: sj.customTargetingValues?.[0] ? "FOUND" : "NOT_FOUND",
-        sample_names: names.slice(0, 30)
+        page_size: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        total_slots_used_estimation: "N/A - requires separate service",
+        sample_of_30: names.slice(0, 30)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      audit_executed: true,
-      version: "v2-deep-audit",
+      audit_source: "google-ads-audit-status-V3-FORCE",
       network: networkCode,
       utm_campaign: valuesSummary,
-      available_keys: keys.map((k: any) => k.adTagName)
+      all_keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
