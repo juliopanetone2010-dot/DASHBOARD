@@ -1568,10 +1568,10 @@ async function runSoapReport(args: {
          <v202405:reportJob>
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>URL_ID</v202405:dimensions>
-                <v202405:dimensions>URL_NAME</v202405:dimensions>
+                <v202405:dimensions>CUSTOM_TARGETING_VALUE_ID</v202405:dimensions>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
+
 
                 <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
 
