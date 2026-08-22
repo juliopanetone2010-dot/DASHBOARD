@@ -75,7 +75,7 @@ async function runUnifiedReport(
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_NAME"],
+    dimensions: ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_ID"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
