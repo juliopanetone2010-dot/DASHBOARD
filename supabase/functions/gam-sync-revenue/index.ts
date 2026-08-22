@@ -473,8 +473,6 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         // Predictive Intraday Fallback REMOVIDO por solicitação do usuário.
         // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
         debug.push(`[${networkCode}] Predictive fallback desativado.`);
-          }
-        }
         
 
         const utmRows = attribution.retentionRows;
