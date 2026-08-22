@@ -221,12 +221,45 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   }
 
   if (upserts.length > 0) {
-    const { error } = await supabase
+    const { error: upsertErr } = await supabase
       .from("gam_campaign_source_revenue")
       .upsert(upserts, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
       
-    if (error) throw new Error(`Upsert failed: ${error.message}`);
+    if (upsertErr) throw new Error(`Upsert failed: ${upsertErr.message}`);
+
+    // Update daily_metrics for Google Ads campaigns
+    const googleUpserts = upserts
+      .filter(u => u.utm_source === "google" && u.campaign_id !== "__aggregate__")
+      .map(u => ({
+        user_id: u.user_id,
+        date: u.date,
+        campaign_id: u.campaign_id,
+        revenue: u.revenue_usd
+      }));
+
+    if (googleUpserts.length > 0) {
+      console.log(`[gam-sync] Updating daily_metrics for ${googleUpserts.length} campaigns`);
+      const { error: metricErr } = await supabase
+        .from("daily_metrics")
+        .upsert(googleUpserts, { onConflict: "user_id,campaign_id,date" });
+      
+      if (metricErr) console.error(`[gam-sync] Error updating daily_metrics: ${metricErr.message}`);
+    }
   }
+
+  // Record sync status in sync_state
+  const { error: stateErr } = await supabase
+    .from("sync_state")
+    .upsert({
+      source: "gam-sync-revenue",
+      user_id: site.user_id,
+      site_id: site.id,
+      last_status: "success",
+      last_finished_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,site_id,source" });
+
+  if (stateErr) console.error(`[gam-sync] Error updating sync_state: ${stateErr.message}`);
 
   return stats;
 }
