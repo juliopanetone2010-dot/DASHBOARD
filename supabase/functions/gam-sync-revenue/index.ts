@@ -1079,7 +1079,7 @@ async function collectUtmAttribution(args: {
       const source = "google";
 
       // AUDITORIA DE PARSER
-      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694'];
+      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
       if (cid && auditCids.includes(cid)) {
         console.log(`[AUDIT_parser] ID ${cid} extraído. rawKv=${rawKv} sourceRaw=${sourceRaw} campaignRaw=${campaignRaw}`);
       }
