@@ -48,29 +48,31 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const control = await req.clone().json().catch(() => ({}));
+  let body: any = {};
+  try {
+    const text = await req.clone().text();
+    body = JSON.parse(text);
+  } catch (_) { /* */ }
+
   // Auditoria forçada: Se vier sync=true, rodamos síncrono.
-  // Bypass temporário de auth apenas para chamadas locais da sandbox via sync=true
-  if (control?.sync === true) {
-    return await runSync(req, true);
+  if (body?.sync === true) {
+    return await runSync(req, true, body);
   }
 
-
-  // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
-  const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
-  // @ts-ignore EdgeRuntime is available in Supabase edge runtime
+  // Roda o trabalho pesado em background
+  const work = runSync(req, false, body).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  // @ts-ignore
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     // @ts-ignore
     EdgeRuntime.waitUntil(work);
   }
-  // Retorna 200 (não 202) porque supabase-js trata qualquer não-200 como erro.
-  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background. Atualize a página em ~2 min." }), {
+  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background." }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
 
-async function runSync(req: Request, skipAuth = false): Promise<Response> {
+async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promise<Response> {
   const debug: string[] = [];
   try {
     const authHeader = req.headers.get("Authorization");
@@ -96,9 +98,7 @@ async function runSync(req: Request, skipAuth = false): Promise<Response> {
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
     try {
-      const bodyText = await req.clone().text();
-      console.log(`[DEBUG_BODY] ${bodyText}`);
-      const body = JSON.parse(bodyText);
+      const body = parsedBody || await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
       dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : (typeof (body as any)?.date_from === "string" ? (body as any).date_from : null);
