@@ -195,8 +195,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code, gam_currency, gam_currency_override")
+      .select("id, name, domain, network_code, gam_currency, gam_currency_override, user_id")
       .eq("user_id", userId);
+    debug.push(`[debug] userId=${userId} requestedSiteId=${requestedSiteId}`);
+
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
     const { data: sites, error: sErr } = await sitesQuery;
     if (sErr) return json({ error: sErr.message });
