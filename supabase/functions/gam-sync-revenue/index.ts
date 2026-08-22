@@ -2129,8 +2129,9 @@ async function applyGoogleUtmRevenue(
 
 
     if (finalSourceRows.length > 0) {
-      for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
-        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < finalSourceRows.length; i += CHUNK_SIZE) {
+        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK_SIZE), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
       }
     }
     debug.push(`[gam_campaign_source_revenue/google] ${finalSourceRows.length} linha(s) processadas (consolidated/intraday sync)`);
@@ -2165,10 +2166,10 @@ async function applyGoogleUtmRevenue(
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
 
     // AUDITORIA DE QUERY
-    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
-    const hasAuditCid = cids.some(c => auditCids.includes(c));
+    const auditCidsForQuery = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const hasAuditCid = cids.some(c => auditCidsForQuery.includes(c));
     if (hasAuditCid) {
-      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCids.includes(c)).join(',')} em ${date}`);
+      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCidsForQuery.includes(c)).join(',')} em ${date}`);
     }
 
     const { data: allSourceRows } = await admin
@@ -2179,14 +2180,14 @@ async function applyGoogleUtmRevenue(
       .in("campaign_id", cids);
 
     const aggregatedByCid = new Map<string, number>();
-    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const auditCidsForAgg = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
     
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id).trim();
       const rev = Number(r.revenue_usd ?? 0);
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
       
-      if (auditCids.includes(cid)) {
+      if (auditCidsForAgg.includes(cid)) {
         debug.push(`[AUDIT_query_match] Encontrado em source_revenue: cid=${cid} rev=$${rev.toFixed(4)} source=${r.utm_source}`);
       }
     }
