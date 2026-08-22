@@ -1,9 +1,7 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-
 async function main() {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const siteId = "7185031b-788f-4134-b040-0255c4d6f461"; // Universo Dos Cartoes
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const siteId = "7185031b-788f-4134-b040-0255c4d6f461";
 
   try {
     const res = await fetch(supabaseUrl + "/functions/v1/gam-kv-diagnose", {
