@@ -1501,7 +1501,6 @@ async function collectUrlAttribution(args: {
         return [];
       }
     }))).flat();
-    }))).flat();
     
     const label = "URL_NAME (SOAP Intraday)";
     const rows = rowsFromUrlReportRows(reportRows, label, finalUrlMap);
