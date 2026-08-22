@@ -151,7 +151,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
       debug.push(`[auth] authenticated via ${skipAuth ? "skipAuth" : "service_role"}. target_user=${userId}`);
     } else {
+      debug.push(`[auth] skipAuth=${skipAuth} isServiceKey=${isServiceKey}`);
       if (!token) {
+
         return json({ error: "Token ausente", debug });
       }
       debug.push(`[auth] attempting getUser with token len ${token.length}`);
