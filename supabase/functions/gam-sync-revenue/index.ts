@@ -2845,11 +2845,8 @@ async function persistSiteMetricsDaily(
         .maybeSingle();
       let nextImpr = v.impr;
       let nextRev = v.rev;
-      if (opts?.preserveHigherExisting && exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
-        nextRev = Number(exists.revenue_native ?? 0);
-        nextImpr = Math.max(Number(exists.impressions ?? 0), v.impr);
-        debug.push(`[site_metrics_daily] fallback preserved higher existing site=${siteId} date=${date} existing=${nextRev} incoming=${v.rev}`);
-      }
+      // Preservação de valores maiores desativada por solicitação do usuário.
+      // Mantemos o que o GAM reportou nesta sincronização.
       const ecpm = nextImpr > 0 ? (nextRev / nextImpr) * 1000 : 0;
       if (exists) {
         await admin.from("site_metrics_daily")
