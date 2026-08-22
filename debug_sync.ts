@@ -5,11 +5,11 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testSync() {
-  console.log("Starting deep audit sync with dimension fixes...");
+  console.log("Starting debug sync (Real consolidated data check)...");
   
   const payload = {
     sync: true,
-    date_preset: "TODAY",
+    date_preset: "LAST_7_DAYS", // Expandir para garantir que pegamos dados consolidados
     test: true,
     include_full_reports: true,
     revenue_only: false,
@@ -29,15 +29,13 @@ async function testSync() {
   // Filtrar o log de debug para encontrar os termos de auditoria
   const auditLogs = data.debug?.filter((l: string) => 
     l.includes("AUDIT") || 
-    l.includes("SOAP_RAW") || 
-    l.includes("23207554976") || 
-    l.includes("SHORT_ID") ||
     l.includes("MATCH_FOUND") ||
-    l.includes("POLL") ||
-    l.includes("Triggering runSoapReport")
+    l.includes("23207554976") || 
+    l.includes("23309079322") ||
+    l.includes("KEY_VALUES_NAME")
   ) || [];
   
-  console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
+  console.log("Audit Logs Found (Last 7 Days):", JSON.stringify(auditLogs, null, 2));
 }
 
 testSync();
