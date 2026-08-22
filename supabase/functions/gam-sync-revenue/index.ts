@@ -513,8 +513,10 @@ async function runSync(req: Request): Promise<Response> {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          const googleCampaignRowsSafe = googleCampaignRows || [];
+          const googlePlacementRowsSafe = googlePlacementRows || [];
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRowsSafe], debug, expandFixedDates(ranges), ingestionDivisor);
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRowsSafe, googlePlacementRowsSafe, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           if (hasBudget(25_000)) {
             await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
           } else {
