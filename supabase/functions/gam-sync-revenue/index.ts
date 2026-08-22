@@ -195,52 +195,47 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const isManualSync = body?.sync === true;
 
     // Auditoria manual solicitada pelo usuário para ID 23207554976
+    // Auditoria manual solicitada pelo usuário para ID 23207554976
     if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
-        const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID para range 2026-08-21...`);
+        const testDate = "2026-08-20"; // Testando data que funcionou
+        const ranges = buildGamRanges("CUSTOM", testDate, testDate, false);
+        debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${testDate}...`);
         
-        let soapRows = await runSoapReport({
+        const rows = await runReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
+           dimensions: ["KEY_VALUES_NAME"],
            debug
         });
         
-        debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
-        let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
-        
-        if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_URL_CHANNEL_NAME (Metric: AD_EXCHANGE_REVENUE)...");
-           const pRows = await runSoapReport({
-              networkCode: sites[0].network_code,
-              accessToken,
-              range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_URL_CHANNEL_NAME"],
-              debug
-           });
-           auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
+        debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${testDate}: ${rows.length}`);
+        const auditRow = rows.find(r => r.dims.some(d => d.includes("23207554976")));
+        if (auditRow) {
+          debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${testDate}! Rev: ${auditRow.revenue}`);
+        } else {
+          debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDate}.`);
         }
 
-        if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! Dim: ${auditRow.dims?.join("|")} | Rev: ${auditRow.revenue}`);
-          const insertData = {
-            user_id: userId,
-            site_id: sites[0].id,
-            campaign_id: "23207554976",
-            date: "2026-08-21",
-            utm_source: "google",
-            revenue_usd: auditRow.revenue,
-            impressions: auditRow.impressions,
-            attribution_status: "real",
-            created_at: new Date().toISOString()
-          };
-          const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO"}`);
+        // Agora testa 21/08
+        const testDate2 = "2026-08-21";
+        const ranges2 = buildGamRanges("CUSTOM", testDate2, testDate2, false);
+        debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${testDate2}...`);
+        const rows2 = await runReport({
+           networkCode: sites[0].network_code,
+           accessToken,
+           range: ranges2[0],
+           dimensions: ["KEY_VALUES_NAME"],
+           debug
+        });
+        debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${testDate2}: ${rows2.length}`);
+        const auditRow2 = rows2.find(r => r.dims.some(d => d.includes("23207554976")));
+        if (auditRow2) {
+           debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${testDate2}! Rev: ${auditRow2.revenue}`);
         } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada em SOAP (21/08).");
+           debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDate2}.`);
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
