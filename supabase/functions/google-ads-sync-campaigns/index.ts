@@ -196,12 +196,23 @@ Deno.serve(async (req) => {
         let leafAccounts: any[] = [];
         if (root.is_mcc) {
           const cq = "SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'";
-          const cRes = await fetchWithRetry(`https://googleads.googleapis.com/v18/customers/${root.customer_id}/googleAds:search`, {
+          const cUrl = `https://googleads.googleapis.com/v18/customers/${root.customer_id}/googleAds:search`;
+          const cRes = await fetchWithRetry(cUrl, {
             method: "POST",
             headers: { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "login-customer-id": root.customer_id, "Content-Type": "application/json" },
             body: JSON.stringify({ query: cq }),
           }, 3, admin, bodySiteId);
 
+          const cContentType = cRes.headers.get("content-type") || "";
+          if (!cContentType.includes("application/json")) {
+            const bodyText = await cRes.text();
+            console.error(`[sync-campaigns] NOT JSON (MCC)! URL: ${cUrl}, Status: ${cRes.status}, Type: ${cContentType}, Body: ${bodyText.substring(0, 300)}`);
+            return json({ 
+              error: "SyntaxError: Unexpected token '<'", 
+              detail: `Expected JSON but received ${cContentType} from MCC search`,
+              debug: { endpoint: cUrl, status: cRes.status, contentType: cContentType, bodyPrefix: bodyText.substring(0, 200) }
+            });
+          }
           const cJson = await cRes.json();
           if (cRes.ok) {
             for (const r of cJson.results ?? []) {
@@ -231,10 +242,21 @@ Deno.serve(async (req) => {
             const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, "developer-token": devToken, "Content-Type": "application/json" };
             if (leaf.login_customer_id) headers["login-customer-id"] = leaf.login_customer_id;
 
-            const camRes = await fetchWithRetry(`https://googleads.googleapis.com/v18/customers/${leaf.customer_id}/googleAds:search`, {
+            const camUrl = `https://googleads.googleapis.com/v18/customers/${leaf.customer_id}/googleAds:search`;
+            const camRes = await fetchWithRetry(camUrl, {
               method: "POST", headers, body: JSON.stringify({ query: campaignQuery }),
             }, 3, admin, bodySiteId);
 
+            const camContentType = camRes.headers.get("content-type") || "";
+            if (!camContentType.includes("application/json")) {
+              const bodyText = await camRes.text();
+              console.error(`[sync-campaigns] NOT JSON (Leaf)! URL: ${camUrl}, Status: ${camRes.status}, Type: ${camContentType}, Body: ${bodyText.substring(0, 300)}`);
+              return json({ 
+                error: "SyntaxError: Unexpected token '<'", 
+                detail: `Expected JSON but received ${camContentType} from campaign search`,
+                debug: { endpoint: camUrl, status: camRes.status, contentType: camContentType, bodyPrefix: bodyText.substring(0, 200) }
+              });
+            }
             const camJson = await camRes.json();
             if (!camRes.ok) {
               const msg = camJson?.error?.message ?? "Error";
