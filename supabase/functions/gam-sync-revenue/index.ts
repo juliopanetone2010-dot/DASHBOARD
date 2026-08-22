@@ -16,7 +16,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { site_id, from, to } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { site_id, from, to } = body;
+    
     if (!site_id || !from || !to) {
       return json({ error: "site_id, from, and to are required" }, 400);
     }
@@ -173,7 +175,6 @@ async function runConsolidatedReport(
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  // Look for 10-12 digit sequences
   const match = text.match(/\b(\d{10,12})\b/);
   return match ? match[1] : null;
 }
@@ -181,10 +182,9 @@ function extractCampaignId(text: string): string | null {
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const stats = { attributed: 0, unattributed: 0, revenue: 0 };
   
-  // Aggregate by date and campaignId
   const groups = new Map<string, { revenue: number, impressions: number }>();
   for (const r of rows) {
-    const key = `${r.date}|${r.campaignId || "unattributed"}`;
+    const key = `${r.date}|${r.campaignId || "__aggregate__"}`;
     const cur = groups.get(key) || { revenue: 0, impressions: 0 };
     cur.revenue += r.revenue;
     cur.impressions += r.impressions;
@@ -194,17 +194,17 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const upserts = [];
   for (const [key, data] of groups.entries()) {
     const [date, cid] = key.split("|");
-    const isAttributed = cid !== "unattributed";
+    const isAttributed = cid !== "__aggregate__";
     
     upserts.push({
       site_id: site.id,
       user_id: site.user_id,
       date,
-      campaign_id: isAttributed ? cid : null,
+      campaign_id: cid,
       revenue_usd: data.revenue,
       impressions: data.impressions,
-      utm_source: "google", // GAM consolidated data is usually search/display/exchange
-      source: "gam-sync-revenue-v2"
+      utm_source: "google",
+      attribution_status: "consolidated"
     });
 
     if (isAttributed) stats.attributed++;
@@ -213,8 +213,6 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   }
 
   if (upserts.length > 0) {
-    // We use a custom table or existing gam_campaign_revenue logic
-    // For this project, we target gam_campaign_revenue
     const { error } = await supabase
       .from("gam_campaign_source_revenue")
       .upsert(upserts, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
