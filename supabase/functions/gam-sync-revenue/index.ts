@@ -1699,13 +1699,14 @@ async function runSoapReport(args: {
          const matchingLine = rawLines.find(l => l.includes(cid));
          debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
        } else {
-         const matches = rawLines.filter(l => l.includes('31699642')).slice(0, 5);
+         const matches = rawLines.filter(l => l.includes(',')).slice(0, 30);
          debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV. Total lines=${rawLines.length}. Matches short ID: ${JSON.stringify(matches)}`);
        }
     });
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 
