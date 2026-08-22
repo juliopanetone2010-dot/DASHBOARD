@@ -1497,7 +1497,7 @@ async function collectUrlAttribution(args: {
       }
       try {
         console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${soapRange.debugLabel}`);
-        const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
+        const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME", "AD_EXCHANGE_URL_CHANNEL_NAME", "AD_EXCHANGE_CHANNEL_NAME"], debug, deadlineAt });
         console.log(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
         debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
         return results;
@@ -1566,9 +1566,11 @@ async function runSoapReport(args: {
          <v202405:reportJob>
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
+                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE' && d !== 'AD_EXCHANGE_URL_CHANNEL_NAME' && d !== 'AD_EXCHANGE_CHANNEL_NAME').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+
+
 
                 <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>

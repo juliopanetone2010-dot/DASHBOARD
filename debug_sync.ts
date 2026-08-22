@@ -5,7 +5,7 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testSync() {
-  console.log("Starting deep audit sync with dual-channel dimensions...");
+  console.log("Starting deep audit sync with dimension fixes...");
   
   const payload = {
     sync: true,
@@ -32,7 +32,9 @@ async function testSync() {
     l.includes("SOAP_RAW") || 
     l.includes("23207554976") || 
     l.includes("SHORT_ID") ||
-    l.includes("MATCH_FOUND")
+    l.includes("MATCH_FOUND") ||
+    l.includes("POLL") ||
+    l.includes("Triggering runSoapReport")
   ) || [];
   
   console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
