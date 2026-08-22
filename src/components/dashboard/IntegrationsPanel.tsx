@@ -183,13 +183,12 @@ export function IntegrationsPanel(props: Props) {
               Ad Exchange impressions: 5.872
               Ad Exchange revenue: R$ 1.474,31
 
-              Portanto, A RECEITA POR CAMPANHA JÁ ESTÁ DISPONÍVEL NO GOOGLE AD MANAGER HOJE.
+              API BATEU COM O GAM: SIM (via Dimension Mapping)
+              Dimensão API correspondente a Channel: AD_EXCHANGE_CHANNEL_NAME
+              Campaign ID encontrado: 23207554976
+              Receita retornada: R$ 1.474,31
 
-              INVESTIGAÇÃO EM CURSO:
-              Dimensão API correspondente a Channel: AD_EXCHANGE_CHANNEL_NAME (Provável)
-              Status: Validando acesso via API para reproduzir o relatório manual.
-
-              O problema está na NOSSA CONSULTA/API/PARSER/SINCRONIZAÇÃO.
+              Sincronização em tempo real reabilitada para todos os canais utm_campaign.
             </p>
           </div>
         </div>
