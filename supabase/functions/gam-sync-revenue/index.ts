@@ -1760,9 +1760,6 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     row.dims[1] = urlIdx !== -1 ? cols[urlIdx] : "";
     row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
     row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
-
-       row.dims[channelIdx] = cols[channelIdx] || "";
-    }
     
     const findMetric = (name: string) => {
       let idx = headers.findIndex(h => h.trim() === name);
@@ -1788,8 +1785,6 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
        }
     }
     
-    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
-    row.date = dateIdx !== -1 ? cols[dateIdx] : (row.dims[0] || "");
     
     if (row.date) rows.push(row);
   }
