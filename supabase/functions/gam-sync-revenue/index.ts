@@ -2383,6 +2383,8 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
   const reportName: string = createJson.name;
 
+  // Corrigindo loop de polling para ler latestReportRun do objeto Report retornado
+  let opName = "";
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -2390,7 +2392,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   });
   const runJson = await parseJsonResponse(runRes, "run report", tag);
   if (!runRes.ok) throw new Error(`[${tag}] run failed: ${JSON.stringify(runJson)}`);
-  const opName: string = runJson.name;
+  opName = runJson.name;
 
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
