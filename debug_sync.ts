@@ -55,11 +55,16 @@ async function testSync() {
   
   console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
   
+  console.log("Full data keys:", Object.keys(data));
+  if (data.debug) {
+    console.log("Debug log sample:", data.debug.slice(0, 10));
+  }
   if (data.summary) {
     data.summary.forEach((s: any) => {
-      console.log(`Summary: ${s.network_code} mode=${s.mode} rows=${s.rows_returned} rev=${s.total_revenue_native}`);
+      console.log(`Summary: ${s.network_code} mode=${s.mode} rev=${s.total_revenue}`);
     });
   }
+
 }
 
 testSync();
