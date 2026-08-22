@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_PRICING_RULE_ID (Metric: AD_EXCHANGE_REVENUE)...");
+           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_PRODUCT_NAME (Metric: AD_EXCHANGE_REVENUE)...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_PRICING_RULE_ID"],
+              dimensions: ["DATE", "AD_EXCHANGE_PRODUCT_NAME"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
@@ -1499,7 +1499,7 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
                 <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
                 <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_PRICING_RULE_ID</v202405:columns>
+                <v202405:columns>AD_EXCHANGE_PRODUCT_NAME</v202405:columns>
                 <v202405:adUnitView>FLAT</v202405:adUnitView>
                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
