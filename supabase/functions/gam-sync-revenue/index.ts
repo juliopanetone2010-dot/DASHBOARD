@@ -1068,15 +1068,18 @@ async function collectUtmAttribution(args: {
     })
     .map(({ r, rawKv, campaignRaw }) => {
       let cid = extractCampaignId(campaignRaw);
-      if (!cid && rawKv && !rawKv.includes("=")) {
+      if (!cid && rawKv) {
+        // Se rawKv não tem =, tentamos extrair o ID diretamente.
+        // Se tiver =, o extractCampaignId já lida com utm_campaign=...
         cid = extractCampaignId(rawKv);
       }
       
       // LOG DE PARSER PARA CAMPANHAS ESPECÍFICAS (AUDITORIA)
-      const auditCids = ['23207554976', '23309079322', '23021142139'];
+      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694'];
       if (cid && auditCids.includes(cid)) {
         console.log(`[AUDIT_parser] ID ${cid} extraído de rawKv=${rawKv} ou campaignRaw=${campaignRaw}`);
       }
+
 
       return {
         date: r.date,
@@ -2167,9 +2170,15 @@ async function applyGoogleUtmRevenue(
 
     const aggregatedByCid = new Map<string, number>();
     for (const r of (allSourceRows ?? []) as any[]) {
-      const cid = String(r.campaign_id);
-      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+      const cid = String(r.campaign_id).trim();
+      const rev = Number(r.revenue_usd ?? 0);
+      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
+      
+      if (auditCids.includes(cid)) {
+        debug.push(`[AUDIT_query_match] Encontrado em source_revenue: cid=${cid} rev=$${rev.toFixed(4)} source=${r.utm_source}`);
+      }
     }
+
 
     // Fallback: se uma campanha não aparecer em source_revenue, tenta placement_revenue.
     const missingCids = cids.filter((c) => !aggregatedByCid.has(c));
@@ -2198,7 +2207,13 @@ async function applyGoogleUtmRevenue(
     for (const m of metrics as any[]) {
       const cid = String(m.campaign_id);
       const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
-      if (revenueUsd > 0) matchedIds.add(cid);
+      if (revenueUsd > 0) {
+        matchedIds.add(cid);
+        if (auditCids.includes(cid)) {
+           debug.push(`[AUDIT_final_match] CID ${cid} terá receita na dash: $${revenueUsd.toFixed(4)}`);
+        }
+      }
+
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);

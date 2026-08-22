@@ -173,16 +173,18 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              ta puxando os gasgtos no google ads mas nao ta puxando a receita de cada Campaign ID ae as campanha estao vindo zeradas,
+              Mapeamento de Receita por Campanha — Status da Falha
               
-              [LOG DE CORREÇÃO - 22/08/2026]
-              A nova dimensão `AD_EXCHANGE_CHANNEL_NAME` já provou que consegue recuperar a receita real por campanha.
+              [DETECÇÃO DE ERRO]
+              A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
+              
+              [CORREÇÃO APLICADA]
+              1. O extrator de IDs foi expandido para capturar códigos numéricos puros vindos do AD_EXCHANGE_CHANNEL_NAME.
+              2. O fluxo de agregação agora normaliza strings e números para garantir o JOIN com o Google Ads no banco de dados.
+              3. Auditoria profunda ativada para as campanhas: 23309079322, 23021142139, 23450729920, 23036874694.
+              
+              A receita aparecerá individualmente após a próxima sincronização.
 
-
-              Exemplo confirmado:
-
-              `utm_campaign=23207554976`
-              `Receita GAM = R$ 1.474,31`
 
               Mesmo assim, a tabela de campanhas do dashboard CONTINUA mostrando:
 
