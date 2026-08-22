@@ -41,10 +41,7 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const utmKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_campaign");
-    console.log(`[gam-sync] Site: ${site.name} | Network: ${networkCode} | utm_campaign Key: ${utmKeyId}`);
-
-    const rows = await runUnifiedReport(networkCode, accessToken, from, to, utmKeyId);
+    const rows = await runUnifiedReport(networkCode, accessToken, from, to);
     console.log(`[gam-sync] Report complete. Rows: ${rows.length}`);
 
     const stats = await attributeAndStore(supabase, site, rows);
@@ -67,13 +64,11 @@ async function runUnifiedReport(
   networkCode: string, 
   accessToken: string, 
   from: string, 
-  to: string,
-  utmKeyId: string | null
+  to: string
 ): Promise<ReportRow[]> {
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
-  // Using only standard dimensions that are guaranteed to work in REST v1
   const reportDefinition: any = {
     reportType: "HISTORICAL",
     dimensions: ["DATE", "URL"],
@@ -138,7 +133,6 @@ async function runUnifiedReport(
       
       const urlText = String(dims[1]?.stringValue || "");
       
-      // Strict extraction: 10-12 digits only
       const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
