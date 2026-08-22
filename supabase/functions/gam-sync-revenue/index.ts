@@ -147,18 +147,18 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
       debug.push(`[auth] authenticated via ${skipAuth ? "skipAuth" : "service_role"}. target_user=${userId}`);
     } else {
-      const { data: { user } } = await userClient.auth.getUser(token);
+      debug.push(`[auth] attempting getUser with token len ${token.length}`);
+      const { data: { user }, error: authErr } = await userClient.auth.getUser(token);
+      if (authErr) debug.push(`[auth] getUser error: ${authErr.message}`);
       if (!user) {
          return json({ 
             error: "Token inválido", 
-            debug: { 
-              skipAuth, 
-              requestedUserId, 
-              authHeader: authHeader?.slice(0, 15), 
-              bodySync: parsedBody?.sync,
-              tokenLen: token.length,
-              srkLen: serviceRoleKey.length
-            } 
+            debug: [
+              ...debug,
+              `skipAuth: ${skipAuth}`,
+              `requestedUserId: ${requestedUserId}`,
+              `tokenLen: ${token.length}`
+            ]
           });
       }
       userId = user.id;
