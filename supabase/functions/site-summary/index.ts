@@ -4,50 +4,47 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// ATOMIC AUDIT V7 - BYPASS ALL ROUTING/AUTH
+// ATOMIC AUDIT V8 - LOGGING ONLY TO AVOID TIMEOUT
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
+  const auditId = Math.random().toString(36).substring(7);
+  
+  // Return early to prevent timeout, processing in "background" via Deno.serve quirks or just fast execution
   try {
     const networkCode = "21683973686"; // Universo Dos Cartoes
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
     const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    keysUrl.searchParams.set("pageSize", "500");
+    keysUrl.searchParams.set("pageSize", "100"); // Smaller page
     const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
     const kj = await kr.json();
     const keys = kj.customTargetingKeys ?? [];
 
     const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
-    let valuesSummary: any = null;
-    const lookFor = ["23207554976", "23309079322", "22923001384"];
+    let valuesSummary: any = "Key not found in first 100";
 
     if (campKey) {
       const keyId = campKey.customTargetingKeyId;
       const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
+      vUrl.searchParams.set("pageSize", "200"); // Smaller page
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
-      
       const rawValues = vj.customTargetingValues ?? [];
-      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
       const names = rawValues.map((v: any) => String(v.displayName));
 
       valuesSummary = {
         key_id: keyId,
         total_in_page: rawValues.length,
-        found_ids: lookFor.filter(c => vals.includes(c)),
-        missing_ids: lookFor.filter(c => !vals.includes(c)),
-        samples: names.slice(0, 50)
+        samples: names.slice(0, 20)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      identity: "AUDIT_V7_FINAL",
-      utm_campaign: valuesSummary,
-      keys: keys.map((k: any) => k.adTagName)
+      identity: "AUDIT_V8_LIGHTWEIGHT",
+      utm_campaign: valuesSummary
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
