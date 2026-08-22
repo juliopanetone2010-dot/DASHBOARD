@@ -87,6 +87,11 @@ export const IntegrationsPanel = ({
         </div>
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
+            <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
+              VEJA: eu sincronizei, porém os gastos continuam ZERADOS, voce pode conferir o que eu precis ofazer para voltar?
+            </p>
+          </div>
+          <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-success mb-2 whitespace-pre-wrap">
               MIGRAÇÃO CONCLUÍDA — AUDITORIA DE ADS SYNC (v24)
               {"\n\n"}
@@ -108,6 +113,7 @@ export const IntegrationsPanel = ({
               {"\n\n"}
               O problema de "SyntaxError: Unexpected token '&lt;'" foi resolvido eliminando a chamada ao endpoint descontinuado v18.
             </p>
+          </div>
           </div>
         </div>
       </div>
