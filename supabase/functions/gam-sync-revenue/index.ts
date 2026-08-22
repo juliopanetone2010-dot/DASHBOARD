@@ -566,12 +566,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
         const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
         
-        // SEGURANÇA: Fallback preditivo desativado. 
-        const hasRealSegmentedData = true; 
+        // Fallback preditivo desativado permanentemente. 
 
-        if (false) {
-           // Bloco mantido desativado
-        }
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
