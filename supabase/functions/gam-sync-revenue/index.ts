@@ -2278,7 +2278,8 @@ async function applyGoogleUtmRevenue(
     const matchedIds = new Set<string>();
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
     let attributedRev = 0;
-    for (const v of directMap.values()) attributedRev += (v as any).revenue;
+    // Removido o loop que gerava atribuição proporcional/residual
+    // for (const v of directMap.values()) attributedRev += (v as any).revenue;
 
     const updates: any[] = [];
     const matchDebug: string[] = [];
