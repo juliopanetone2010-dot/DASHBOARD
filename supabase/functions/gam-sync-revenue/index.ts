@@ -1015,8 +1015,11 @@ async function collectUtmAttribution(args: {
   }
 
   const parsedRows = reportRows.map((r) => {
-    const rawKv = r.dims[1] || ""; // KEY_VALUES_NAME é o 2º dim (após DATE)
+    const rawKv = r.dims[1] || "";
+    // O Channel Name do Ad Exchange já vem no formato "utm_campaign=123" ou "utm_source=push"
+    // O parser parseKeyValueDimension lida com ambos os formatos (key=value ou key=value;key2=value2)
     const kv = parseKeyValueDimension(rawKv);
+
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
