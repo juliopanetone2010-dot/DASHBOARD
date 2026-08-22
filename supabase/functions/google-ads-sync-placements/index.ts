@@ -100,10 +100,27 @@ Deno.serve(async (req) => {
     let pageToken: string | undefined;
     let page = 0;
     do {
-      const res = await fetch(
-        `https://googleads.googleapis.com/v18/customers/${account.customer_id}/googleAds:search`,
-        { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
-      );
+      const url = `https://googleads.googleapis.com/v18/customers/${account.customer_id}/googleAds:search`;
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ query, pageToken }) });
+      
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const bodyText = await res.text();
+        console.error(`[sync-placements] NOT JSON! URL: ${url}, Status: ${res.status}, Type: ${contentType}, Body: ${bodyText.substring(0, 500)}`);
+        return json({ 
+          error: "SyntaxError: Unexpected token '<'", 
+          detail: `Expected JSON but received ${contentType}`,
+          debug: {
+            endpoint: url,
+            status: res.status,
+            contentType,
+            bodyPrefix: bodyText.substring(0, 300),
+            finalUrl: res.url,
+            redirected: res.redirected
+          }
+        });
+      }
+
       const data = await res.json();
       if (!res.ok) {
         console.error("[sync-placements] GAQL error", JSON.stringify(data));
