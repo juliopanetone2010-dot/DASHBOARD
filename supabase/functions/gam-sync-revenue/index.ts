@@ -121,15 +121,13 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
       const includeFullReports = Boolean((body as any)?.include_full_reports);
-      revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
-      skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
-      // Viewability/eCPM diário (site_metrics_daily) é leve (só dimensão DATE) e crítico para o dashboard.
-      // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
-      skipViewability = Boolean((body as any)?.skip_viewability);
-      skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
-      totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
-      siteMetricsOnly = Boolean(body?.site_metrics_only === true || body?.metrics_only === true);
-      debug.push(`[debug] siteMetricsOnly forced to: ${siteMetricsOnly}`);
+      revenueOnly = (body?.include_full_reports !== true) || (body?.revenue_only === true) || String(body?.mode ?? "").toLowerCase() === "revenue";
+      skipLegacyReports = revenueOnly || (body?.skip_legacy_reports === true);
+      skipViewability = (body?.skip_viewability === true);
+      skipSnapshotRegen = (body?.skip_snapshot_regen === true);
+      totalRequestsOnly = (body?.total_requests_only === true || body?.match_rate_only === true);
+      siteMetricsOnly = (body?.site_metrics_only === true || body?.metrics_only === true);
+
 
 
     } catch (_) { /* */ }
