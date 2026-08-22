@@ -1102,7 +1102,8 @@ async function collectUtmAttribution(args: {
     };
   });
 
-  const placementRowsRaw: AttributedRow[] = parsedRows
+  // Inlined placementRowsRaw logic to avoid potential conflicts
+  const getPlacementRowsRaw = () => parsedRows
     .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
     .map(({ r, rawKv, placementRaw, sourceRaw }) => {
       let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
@@ -1119,6 +1120,8 @@ async function collectUtmAttribution(args: {
         raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
+  const placementRowsRawInlined = getPlacementRowsRaw();
+
 
 
   // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
