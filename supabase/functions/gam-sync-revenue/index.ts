@@ -75,9 +75,8 @@ async function runUnifiedReport(
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL", "CUSTOM_DIMENSION"],
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
-    customDimensionKeyIds: utmKeyId ? [utmKeyId] : [],
     dateRange: {
       fixed: {
         startDate: { year: fy, month: fm, day: fd },
@@ -138,11 +137,9 @@ async function runUnifiedReport(
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
       const urlText = String(dims[1]?.stringValue || "");
-      const customDim = String(dims[2]?.stringValue || "");
       
-      // Try Custom Dimension first, then URL fallback
-      let cid = extractCampaignId(customDim);
-      if (!cid) cid = extractCampaignId(urlText);
+      // Try URL attribution with slug fallback
+      let cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = metrics[0]?.doubleValue !== undefined 
@@ -153,7 +150,7 @@ async function runUnifiedReport(
       if (revenue > 0 || impressions > 0) {
         // Log detailed attribution failure for diagnostic purposes
         if (!cid && revenue > 0.01) {
-          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} or CD: ${customDim} | Rev: ${revenue}`);
+          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
           auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
         }
         allRows.push({
