@@ -270,7 +270,7 @@ async function duplicateCampaign(
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-  const apiBase = `https://googleads.googleapis.com/v17/customers/${acc.customer_id}`;
+  const apiBase = `https://googleads.googleapis.com/v18/customers/${acc.customer_id}`;
   const sourceCampaignResource = `customers/${acc.customer_id}/campaigns/${item.campaign_id}`;
 
   // 1) Lê config completa da campanha origem

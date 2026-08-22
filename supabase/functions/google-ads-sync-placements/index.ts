@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
     let pageToken: string | undefined;
     let page = 0;
     do {
-      const url = `https://googleads.googleapis.com/v17/customers/${account.customer_id}/googleAds:search`;
+      const url = `https://googleads.googleapis.com/v18/customers/${account.customer_id}/googleAds:search`;
       const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ query, pageToken }) });
       
       const contentType = res.headers.get("content-type") || "";
