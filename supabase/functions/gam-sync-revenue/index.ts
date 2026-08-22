@@ -551,30 +551,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
         const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
         
-        const hasRealSegmentedData = googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        // SEGURANÇA: Fallback preditivo desativado por solicitação do usuário.
+        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
+        const hasRealSegmentedData = false; 
 
-        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
-          try {
-            const predictive = await collectPredictiveIntradayAttribution({
-              networkCode, 
-              accessToken, 
-              ranges, 
-              totalSiteRevenue, 
-              totalSiteImpressions, 
-              debug, 
-              deadlineAt 
-            });
-            
-            if (predictive.googleCampaignRows.length > 0) {
-              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
-              // Adiciona as estimadas ao set de hoje para persistência
-              googleCampaignRows.push(...predictive.googleCampaignRows);
-              googlePlacementRows.push(...predictive.googlePlacementRows);
-            }
-          } catch (predErr) {
-            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
-          }
+        if (false) {
+          // Bloco desativado
         }
 
         if (!testMode) {
