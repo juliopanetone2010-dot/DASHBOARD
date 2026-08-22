@@ -1111,7 +1111,7 @@ async function collectUtmAttribution(args: {
           
           return [];
         }))).flat();
-        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
+        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)} samples=${JSON.stringify(groupRows.slice(0, 5).map(r => r.dims))}`);
         reportRows.push(...groupRows);
       } catch (e) {
         debug.push(`[${networkCode}/${label}/${group.label}] erro global grupo=${String(e).slice(0, 500)}`);
@@ -1498,7 +1498,8 @@ async function collectUrlAttribution(args: {
         console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${soapRange.debugLabel}`);
         const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME", "AD_EXCHANGE_URL_CHANNEL_NAME", "AD_EXCHANGE_CHANNEL_NAME"], debug, deadlineAt });
         console.log(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
-        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
+        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length} samples=${JSON.stringify(results.slice(0, 5).map(r => r.dims))}`);
+
         return results;
       } catch (soapErr) {
         console.error(`[collectUrlAttribution] SOAP individual range failed for net=${networkCode} range=${soapRange.debugLabel}`, soapErr);
