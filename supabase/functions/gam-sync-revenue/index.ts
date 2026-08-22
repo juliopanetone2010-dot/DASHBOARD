@@ -1166,9 +1166,8 @@ async function collectUtmAttribution(args: {
         cid = extractCampaignId(rawKv);
       }
       
-      // Se vier do Ad Exchange Channel e o source for vazio/desconhecido, forçamos 'google'
-      // Ad Exchange revenue is always mapped to google source for ROI tracking.
-      const source = "google";
+      const kv = parseKeyValueDimension(rawKv);
+      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
 
       // AUDITORIA DE PARSER
       const auditCidsParser = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
