@@ -1824,14 +1824,23 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
       cid = extractCampaignId(rawUrlChannel) ?? extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
       
-      // LOG DE AUDITORIA: Se falhou encontrar CID mas temos dados no canal, vamos ver o que é
+      // LOG DE AUDITORIA: Tracing CIDs e Channels
+      const auditTargets = ['23207554976', '23309079322', '22923001384'];
+      const rawText = `${rawUrl} ${rawUrlChannel} ${rawChannel}`.toLowerCase();
+      const isTargetAudit = auditTargets.some(id => rawText.includes(id));
+      
+      if (isTargetAudit) {
+        debug.push(`[AUDIT_TARGET_DETECTED] found raw match for audit CID. rawUrlChannel="${rawUrlChannel}" rawChannel="${rawChannel}" rawUrl="${rawUrl}" rev=${r.revenue}`);
+      }
+      
       if (!cid && (rawUrlChannel || rawChannel || rawUrl)) {
         const auditIds = ['31699642', '31631691', '32210520', '32331737', '31696443'];
-        const isTarget = auditIds.some(id => (rawUrlChannel && rawUrlChannel.includes(id)) || (rawChannel && rawChannel.includes(id)) || rawUrl.includes(id));
-        if (isTarget) {
+        const isTargetShort = auditIds.some(id => rawText.includes(id));
+        if (isTargetShort) {
           debug.push(`[AUDIT_SHORT_ID_DETECTED] rawUrlChannel=${rawUrlChannel} rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
         }
       }
+
     }
 
 
