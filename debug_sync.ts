@@ -17,6 +17,8 @@ async function testSync() {
     include_full_reports: true,
     revenue_only: false,
     site_metrics_only: false,
+    include_full_reports: true,
+
     user_id: "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"
   };
 
