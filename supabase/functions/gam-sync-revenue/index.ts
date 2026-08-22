@@ -240,25 +240,16 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
         const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
 
-        if (siteMetricsOnly) { // Puxa os totais do site apenas se solicitado explicitamente
+        if (siteMetricsOnly) {
+          debug.push(`[${networkCode}] siteMetricsOnly is true. Running site metrics daily reports.`);
           const siteMetricsVariants: Array<{ label: string; metrics: string[] }> = [
             {
               label: "AD_SERVER",
-              metrics: [
-                "AD_SERVER_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "AD_SERVER_REVENUE",
-              ],
+              metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS", "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS", "AD_SERVER_REVENUE"],
             },
             {
               label: "AD_EXCHANGE",
-              metrics: [
-                "AD_EXCHANGE_IMPRESSIONS",
-                "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "AD_EXCHANGE_REVENUE",
-              ],
+              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS", "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
             },
           ];
           const metricMap = new Map<string, { impr: number; meas: number; viewable: number; rev: number }>();
@@ -278,15 +269,14 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
                 cur.rev += Number(r.revenue ?? 0);
                 metricMap.set(key, cur);
               }
-
             } catch (e) {
               siteMetricsVariantFailures++;
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
             }
           }
+          const todayStr = new Date().toISOString().slice(0, 10);
           siteDailyMetrics = Array.from(metricMap.entries()).map(([date, v]) => ({ date: date === "_" ? todayStr : date, impr: v.impr, meas: v.meas, view: v.viewable, rev: v.rev }));
-
-
+          
           const metricRows = [...metricMap.entries()].map(([d, v]) => ({
             date: d === "_" ? null : d,
             impressions: v.impr,
@@ -296,38 +286,33 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           }));
 
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
-            // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
-            // Nessa situação nunca reduzimos uma receita já salva e maior.
             preserveHigherExisting: siteMetricsVariantFailures > 0,
           });
+          
           if (!skipSnapshotRegen) {
-            await regenerateSnapshotsForRanges({
-              ranges,
-              authHeader,
-              siteId: requestedSiteId ?? networkSites[0]?.id ?? null,
-              debug,
-              wait: true,
-            });
+            await regenerateSnapshotsForRanges({ ranges, authHeader, siteId: requestedSiteId ?? networkSites[0]?.id ?? null, debug, wait: true });
           }
+          
           const metricTotals = metricRows.reduce((a, r) => ({
             revenue: a.revenue + r.revenue,
             impressions: a.impressions + r.impressions,
           }), { revenue: 0, impressions: 0 });
-          if (siteMetricsOnly) {
-             summary.push({
-               network_code: networkCode,
-               sites: networkSites.map((s) => s.name),
-               mode: "site_metrics_only",
-               currency: siteCurrency,
-               date_range: ranges.map((r) => r.debugLabel),
-               site_id: requestedSiteId ?? null,
-               total_revenue: metricTotals.revenue,
-             });
-             continue;
-          }
+          
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "site_metrics_only",
+            currency: siteCurrency,
+            date_range: ranges.map((r) => r.debugLabel),
+            site_id: requestedSiteId ?? null,
+            total_revenue: metricTotals.revenue,
+            total_impressions: metricTotals.impressions,
+          });
+          continue;
+        }
+        
+        debug.push(`[${networkCode}] Running attribution sync (siteMetricsOnly is false).`);
 
-
-        // PRIORIDADE: roda persistCampaignTotalRequests primeiro, pois é o que
         // alimenta a coluna "Taxa de Correspondência" e era frequentemente cortado
         // pelo IDLE_TIMEOUT de 150s quando vinha depois do trabalho pesado abaixo.
         if (!testMode && hasBudget(25_000)) {
