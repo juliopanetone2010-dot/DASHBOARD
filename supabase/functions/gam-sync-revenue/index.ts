@@ -1207,8 +1207,9 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...placementRowsRaw];
-  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...placementRowsRaw.filter(r => r.placement)];
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...placementRowsRawInlined];
+  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...placementRowsRawInlined.filter(r => r.placement)];
+
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
