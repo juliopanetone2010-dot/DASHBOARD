@@ -54,7 +54,6 @@ Deno.serve(async (req) => {
     body = JSON.parse(text);
   } catch (_) { /* */ }
 
-  // Auditoria forçada: Se vier sync=true, rodamos síncrono.
   if (body?.sync === true) {
     const res = await runSync(req, true, body);
     return res;
