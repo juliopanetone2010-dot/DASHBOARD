@@ -2207,7 +2207,13 @@ async function applyGoogleUtmRevenue(
     for (const m of metrics as any[]) {
       const cid = String(m.campaign_id);
       const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
-      if (revenueUsd > 0) matchedIds.add(cid);
+      if (revenueUsd > 0) {
+        matchedIds.add(cid);
+        if (auditCids.includes(cid)) {
+           debug.push(`[AUDIT_final_match] CID ${cid} terá receita na dash: $${revenueUsd.toFixed(4)}`);
+        }
+      }
+
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
