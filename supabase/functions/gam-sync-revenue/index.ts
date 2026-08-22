@@ -181,7 +181,7 @@ function extractCampaignId(text: string): string | null {
   // Look for 8-12 digit IDs
   const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
                 decoded.match(/\b(\d{10,12})\b/) ||
-                decoded.match(/\b(\d{8,9})\b/);
+                decoded.match(/\b(\d{8,11})\b/);
   
   if (match) return match[1];
 
