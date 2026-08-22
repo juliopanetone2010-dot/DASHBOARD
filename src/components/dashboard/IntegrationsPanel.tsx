@@ -173,7 +173,7 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              voce precisa pegar o id de cada campanha do google ads, e solicitar po admanager a receita daquele id e retornar com a receita para cada id corretamaneten, porque a receita geral ja esta puxando correto, so nao esta puxando a parte de id
+              fiz a sicronizacao e continua sem mostrar a receita de cada id
               
               [LOG DE DIAGNÓSTICO - AUDITORIA 22/08]
               * Campanha 23207554976: Parser corrigido para capturar ID numérico direto do Ad Exchange Channel Mapping.
