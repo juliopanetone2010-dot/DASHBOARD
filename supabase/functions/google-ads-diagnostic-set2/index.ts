@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     const accessToken = authJson.access_token;
 
     // 2. Tentar listar sub-contas (para validar MCC)
-    const listRes = await fetch(`https://googleads.googleapis.com/v19/customers/${mccAccount.customer_id}/googleAds:search`, {
+    const listRes = await fetch(`https://googleads.googleapis.com/v17/customers/${mccAccount.customer_id}/googleAds:search`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
         WHERE segments.date DURING TODAY
       `;
       
-      const camRes = await fetch(`https://googleads.googleapis.com/v19/customers/${childCid}/googleAds:search`, {
+      const camRes = await fetch(`https://googleads.googleapis.com/v17/customers/${childCid}/googleAds:search`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

@@ -643,7 +643,7 @@ async function loadGAdsContext(admin: any, accountId: string): Promise<{ custome
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-  return { customerId: acc.customer_id, apiBase: `https://googleads.googleapis.com/v19/customers/${acc.customer_id}`, headers };
+  return { customerId: acc.customer_id, apiBase: `https://googleads.googleapis.com/v17/customers/${acc.customer_id}`, headers };
 }
 
 async function resolveCampaignSiteId(admin: any, userId: string, campaignId: string): Promise<string | null> {

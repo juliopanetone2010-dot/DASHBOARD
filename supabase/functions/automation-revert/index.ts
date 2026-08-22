@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         };
         if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-        const apiBase = `https://googleads.googleapis.com/v19/customers/${acc.customer_id}`;
+        const apiBase = `https://googleads.googleapis.com/v17/customers/${acc.customer_id}`;
 
         if (act.action_type === "adjust_budget") {
           const budgetId = p.budget_id;
