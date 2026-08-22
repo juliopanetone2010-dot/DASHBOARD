@@ -1700,17 +1700,24 @@ async function runSoapReport(args: {
   // Download e parse CSV
   const csvRes = await fetch(resultUrl);
   const csvText = await csvRes.text();
-  console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
-  console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
+  
   if (csvText.length > 0) {
     const rawLines = csvText.split('\n');
-    const first10 = rawLines.slice(0, 10);
-    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} first_10_lines=${JSON.stringify(first10)}`);
-
+    const first50 = rawLines.slice(0, 50);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} head=${JSON.stringify(first50)}`);
+    
+    // Scan for target CIDs in all raw content
+    const targetCids = ['23207554976', '23309079322', '22923001384'];
+    targetCids.forEach(cid => {
+       if (csvText.includes(cid)) {
+         const matchingLine = rawLines.find(l => l.includes(cid));
+         debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
+       }
+    });
   }
   return parseSoapCsv(csvText, dimensions, debug);
-
 }
+
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
   console.log(`[parseSoapCsv] csv_length=${csv.length}`);
