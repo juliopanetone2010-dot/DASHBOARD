@@ -5,11 +5,11 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testSync() {
-  console.log("Starting debug sync (Real consolidated data check)...");
+  console.log("Starting debug sync (Consolidated 7-day deep audit)...");
   
   const payload = {
     sync: true,
-    date_preset: "LAST_7_DAYS", // Expandir para garantir que pegamos dados consolidados
+    date_preset: "LAST_7_DAYS",
     test: true,
     include_full_reports: true,
     revenue_only: false,
@@ -32,10 +32,16 @@ async function testSync() {
     l.includes("MATCH_FOUND") ||
     l.includes("23207554976") || 
     l.includes("23309079322") ||
-    l.includes("KEY_VALUES_NAME")
+    l.includes("RAW_DATA")
   ) || [];
   
-  console.log("Audit Logs Found (Last 7 Days):", JSON.stringify(auditLogs, null, 2));
+  console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
+  
+  if (data.summary) {
+    data.summary.forEach((s: any) => {
+      console.log(`Summary: ${s.network_code} mode=${s.mode} rows=${s.rows_returned} rev=${s.total_revenue_native}`);
+    });
+  }
 }
 
 testSync();

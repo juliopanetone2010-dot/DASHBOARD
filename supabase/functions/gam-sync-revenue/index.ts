@@ -1164,8 +1164,9 @@ async function collectUtmAttribution(args: {
 
     const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394', '22922896278', '22923001384'];
     if (cid && auditCidsList.includes(cid)) {
-      debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
+      debug.push(`[AUDIT_raw_parser] label=${label} ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
     }
+
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
