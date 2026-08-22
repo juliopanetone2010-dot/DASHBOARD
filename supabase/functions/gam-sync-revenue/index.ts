@@ -1028,7 +1028,13 @@ async function collectUtmAttribution(args: {
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    // Se rawKv não tem formatação de UTM (apenas o número ID), o parser retorna objeto vazio.
+    // Garantimos que se kv estiver vazio e rawKv for um ID válido, usamos ele como cid.
+    let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    if (!cid && rawKv && !rawKv.includes("=")) {
+      cid = extractCampaignId(rawKv);
+    }
+
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
