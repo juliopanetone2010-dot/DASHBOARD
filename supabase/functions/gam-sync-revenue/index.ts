@@ -168,7 +168,7 @@ async function runUnifiedReport(
   } while (pageToken);
 
   if (auditLogs.length > 0) {
-    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 5).join(" | ")}`);
+    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 10).join(" | ")}`);
   }
 
   return allRows;
@@ -179,9 +179,11 @@ function extractCampaignId(text: string): string | null {
   // Decode URL if it looks encoded
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
-  // Look for 10-12 digit IDs, often preceded by 'campaignid=', 'utm_campaign=', or just in the path
-  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{10,12})\b/) || 
-                decoded.match(/\b(\d{10,12})\b/);
+  // Look for 8-12 digit IDs
+  // We include 8-9 digits as a fallback for internal GAM IDs if no 10-12 digit Ads CID is present
+  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
+                decoded.match(/\b(\d{10,12})\b/) ||
+                decoded.match(/\b(\d{8,9})\b/);
   return match ? match[1] : null;
 }
 
