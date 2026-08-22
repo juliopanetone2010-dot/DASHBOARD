@@ -2848,14 +2848,8 @@ async function persistSiteMetricsDaily(
     for (const r of existingRows ?? []) existingByDate.set(String(r.date), r);
   }
 
-  let preservedHigher = 0;
   for (const [date, v] of byDate.entries()) {
-    const existing = existingByDate.get(date);
-    let next = v;
-    const existingRevenue = Number(existing?.revenue_native ?? 0);
-    const nextRevenue = Number(v.rev ?? 0);
-    // Preservação desativada por solicitação do usuário.
-    next = v;
+    const next = v;
     payload.push({
       user_id: userId,
       site_id: siteId,
