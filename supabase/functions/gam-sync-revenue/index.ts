@@ -1568,6 +1568,8 @@ async function runSoapReport(args: {
                 <v202405:dimensions>DATE</v202405:dimensions>
                 <v202405:dimensions>${dimensions.filter(d => d !== 'DATE').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+
                 <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
@@ -1794,10 +1796,13 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlMap?: Map<string, string>): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
-    // O fallback SOAP agora traz AD_EXCHANGE_URL_CHANNEL_NAME na dimensão 2 (index 2)
-    const rawChannel = r.dims[2] || "";
+    // O fallback SOAP agora traz AD_EXCHANGE_URL_CHANNEL_NAME e AD_EXCHANGE_CHANNEL_NAME
+    // dims: [date, URL_NAME (se houver), AD_EXCHANGE_URL_CHANNEL_NAME, AD_EXCHANGE_CHANNEL_NAME]
+    const rawUrlChannel = r.dims[2] || "";
+    const rawChannel = r.dims[3] || "";
     
     const params = parseUrlParams(rawUrl);
+
     const sourceRaw = params.utm_source ?? "";
     const campaignRaw = params.utm_campaign ?? "";
     const placementRaw = params.utm_placement ?? "";
@@ -1807,17 +1812,18 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
     
     if (!cid) {
       // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
-      cid = extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
+      cid = extractCampaignId(rawUrlChannel) ?? extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
       
       // LOG DE AUDITORIA: Se falhou encontrar CID mas temos dados no canal, vamos ver o que é
-      if (!cid && (rawChannel || rawUrl)) {
+      if (!cid && (rawUrlChannel || rawChannel || rawUrl)) {
         const auditIds = ['31699642', '31631691', '32210520', '32331737', '31696443'];
-        const isTarget = auditIds.some(id => rawChannel.includes(id) || rawUrl.includes(id));
+        const isTarget = auditIds.some(id => (rawUrlChannel && rawUrlChannel.includes(id)) || (rawChannel && rawChannel.includes(id)) || rawUrl.includes(id));
         if (isTarget) {
-          debug.push(`[AUDIT_SHORT_ID_DETECTED] rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
+          debug.push(`[AUDIT_SHORT_ID_DETECTED] rawUrlChannel=${rawUrlChannel} rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
         }
       }
     }
+
 
     
     if (!cid && finalUrlMap) {
@@ -1831,15 +1837,17 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       }
     }
     
-    // Se ainda não temos source, tentamos extrair do Channel Name
+    // Se ainda não temos source, tentamos extrair dos Channels
     let source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : null;
-    if (!source && rawChannel) {
-      const chParams = parseUrlParams("?" + rawChannel.replace(/;/g, "&")); // Simula query string
+    if (!source && (rawUrlChannel || rawChannel)) {
+      const combined = (rawUrlChannel || "") + ";" + (rawChannel || "");
+      const chParams = parseUrlParams("?" + combined.replace(/;/g, "&")); // Simula query string
       source = chParams.utm_source ? safeDecode(chParams.utm_source).toLowerCase().trim() : null;
-      if (!source && (rawChannel.toLowerCase().includes("push") || rawChannel.toLowerCase().includes("google"))) {
-         source = rawChannel.toLowerCase().includes("push") ? "push" : "google";
+      if (!source && (combined.toLowerCase().includes("push") || combined.toLowerCase().includes("google"))) {
+         source = combined.toLowerCase().includes("push") ? "push" : "google";
       }
     }
+
     
     if (!source) source = cid ? "google" : "unknown";
 

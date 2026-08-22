@@ -5,7 +5,7 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testSync() {
-  console.log("Starting deep audit sync...");
+  console.log("Starting deep audit sync with dual-channel dimensions...");
   
   const payload = {
     sync: true,
