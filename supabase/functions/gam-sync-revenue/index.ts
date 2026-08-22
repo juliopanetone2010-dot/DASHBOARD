@@ -398,19 +398,14 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           debug.push(`[${networkCode}] Forçando SOAP URL_NAME candidate (hoje=${todayStr})...`);
           
           const soapRanges = ranges.map(r => {
-            console.log(`[SOAP_FIXED] mapping range: ${JSON.stringify(r)}`);
-
             const today = new Date();
             const start = new Date(today);
             const end = new Date(today);
             
             const rd = (r as any).dateRange;
-            // Deno/Client range objects can vary in shape
             const relative = rd?.relative || (typeof rd === 'string' ? rd : "");
             
-            if (relative === "TODAY") {
-              // start/end already set to today
-            } else if (relative === "YESTERDAY") {
+            if (relative === "YESTERDAY") {
               start.setUTCDate(today.getUTCDate() - 1);
               end.setUTCDate(today.getUTCDate() - 1);
             } else if (relative === "LAST_7_DAYS") {
@@ -423,7 +418,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
               start.setUTCFullYear(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
               end.setUTCFullYear(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
             } else if (rd?.fixed?.startDate) {
-              return r; // SOAP format
+              return r;
             }
 
             return {
