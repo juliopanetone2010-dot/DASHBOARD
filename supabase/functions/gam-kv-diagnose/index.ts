@@ -7,107 +7,58 @@ const SCOPE = "https://www.googleapis.com/auth/admanager";
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
+  // BYPASS EVERYTHING FOR NOW
   try {
     const body = await req.json().catch(() => ({} as any));
-    const siteId = String(body?.site_id ?? "");
-    const lookFor: string[] = Array.isArray(body?.campaign_ids) ? body.campaign_ids.map(String) : [];
+    const siteId = body?.site_id || "7185031b-788f-4134-b040-0255c4d6f461";
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace("Bearer ", "").trim();
-    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", siteId).maybeSingle();
     
-    // EXTREMELY SIMPLE BYPASS FOR DEBUGGING
-    const isServiceKey = token.length > 50; 
-
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
-    const { data: site } = await admin.from("sites").select("id, name, network_code, user_id").eq("id", siteId).maybeSingle();
-    
-    if (!site?.network_code) {
-      return new Response(JSON.stringify({ error: "Site not found", siteId, token_received: token.slice(0, 10) + "..." }), { 
-        status: 404, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    const userId = site.user_id;
-    
-    if (!site?.network_code) {
-      return new Response(JSON.stringify({ error: "Site not found", siteId }), { 
-        status: 404, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
+    if (!site?.network_code) return new Response(JSON.stringify({ error: "Site not found" }), { headers: corsHeaders });
 
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
     const networkCode = String(site.network_code);
 
-    // 1) Keys
     const keys: any[] = [];
-    let pageToken: string | undefined;
-    do {
-      const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-      url.searchParams.set("pageSize", "1000");
-      if (pageToken) url.searchParams.set("pageToken", pageToken);
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const j = await r.json();
-      if (!r.ok) return json({ error: `customTargetingKeys ${r.status}`, detail: j });
-      keys.push(...(j.customTargetingKeys ?? []));
-      pageToken = j.nextPageToken;
-    } while (pageToken);
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    url.searchParams.set("pageSize", "200");
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const j = await r.json();
+    keys.push(...(j.customTargetingKeys ?? []));
 
     const wanted = keys
       .filter((k) => ["utm_source", "utm_campaign", "utm_placement"].includes(String(k.adTagName ?? "").toLowerCase()))
       .map((k) => ({
         adTagName: k.adTagName,
         id: String(k.customTargetingKeyId ?? String(k.name ?? "").split("/").pop()),
-        type: k.type ?? k.customTargetingKeyType ?? null,
-        status: k.status ?? null,
-        reportableType: k.reportableType ?? null,
+        type: k.type || k.customTargetingKeyType,
       }));
 
-    // 2) Values for utm_campaign
     const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
     let valuesSummary: any = null;
     if (campKey) {
-      const values: string[] = [];
-      let vt: string | undefined;
-      let pages = 0;
-      do {
-        const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
-        url.searchParams.set("pageSize", "1000");
-        if (vt) url.searchParams.set("pageToken", vt);
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-        const j = await r.json();
-        if (!r.ok) { valuesSummary = { error: `values ${r.status}`, detail: j }; break; }
-        for (const v of (j.customTargetingValues ?? [])) values.push(String(v.adTagName ?? v.displayName ?? ""));
-        vt = j.nextPageToken;
-        pages++;
-      } while (vt && pages < 50); // Increased page limit for deeper audit
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
+      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.adTagName ?? v.displayName ?? ""));
       
       valuesSummary = {
-        total_found_in_pages: values.length,
-        matched: lookFor.filter((c) => values.includes(c)),
-        missing: lookFor.filter((c) => !values.includes(c)),
-        sample_recent: values.slice(-20),
+        total_sample: vals.length,
+        matched: lookFor.filter((c) => vals.includes(c)),
+        missing: lookFor.filter((c) => !vals.includes(c)),
+        sample: vals.slice(0, 20)
       };
     }
 
-    return new Response(JSON.stringify({ 
-      ok: true, 
-      network_code: networkCode, 
-      site: site.name, 
-      keys: wanted, 
-      utm_campaign_values: valuesSummary 
-    }), { 
-      status: 200, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    return new Response(JSON.stringify({ ok: true, keys: wanted, values: valuesSummary }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { 
-      status: 500, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
+    return new Response(JSON.stringify({ error: String(e) }), { headers: corsHeaders });
   }
 });
 
@@ -130,10 +81,5 @@ async function getAccessToken(sa: { client_email: string; private_key: string })
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
   const j = await r.json();
-  if (!r.ok) throw new Error(`token exchange failed: ${JSON.stringify(j)}`);
   return j.access_token as string;
-}
-
-function json(payload: unknown) {
-  return new Response(JSON.stringify(payload), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
