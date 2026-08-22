@@ -1705,12 +1705,14 @@ async function runSoapReport(args: {
          const matchingLine = rawLines.find(l => l.includes(cid));
          debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
        } else {
-         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV text`);
+         const foundPartial = rawLines.filter(l => l.includes('utm_campaign') || l.includes('31699642')).slice(0, 5);
+         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV. Samples with data: ${JSON.stringify(foundPartial)}`);
        }
     });
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 
