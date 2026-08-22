@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
+// DIRECT AUDIT - BYPASSES ANY ROUTING ISSUES
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -24,28 +25,32 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
+      // Fetch values with large page size
       const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
-      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.name.split("/").pop()));
-      const names = (vj.customTargetingValues ?? []).map((v: any) => String(v.displayName));
+      
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
 
       valuesSummary = {
         key_id: campKey.customTargetingKeyId,
-        type: campKey.type,
+        type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
-        total_values: vals.length,
-        found_in_names: lookFor.filter(c => names.includes(c)),
-        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
-        sample_names: names.slice(0, 10)
+        total_in_page: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 20)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      network: networkCode,
+      identity: "FORCED_AUDIT_RESPONSE",
+      timestamp: new Date().toISOString(),
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
     }), {
