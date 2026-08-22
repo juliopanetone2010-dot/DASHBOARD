@@ -129,6 +129,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
       totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
       siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
+      debug.push(`[debug] siteMetricsOnly parsed as: ${siteMetricsOnly} from body=${JSON.stringify(body).slice(0, 100)}`);
+
     } catch (_) { /* */ }
 
     debug.push(`[debug] Starting runSync...`);
