@@ -981,7 +981,7 @@ async function collectUtmAttribution(args: {
           if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
             return rows.map(r => ({
               ...r,
-              dims: [r.dims[0], r.dims[1]] // r.dims[1] é o Channel Name
+              dims: [r.dims[0], r.dims[1], "google", r.dims[1]] // DATE, rawKv, sourceRaw=google, campaignRaw=rawKv
             }));
           }
 
@@ -1062,33 +1062,34 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
     }));
   const campaignRows: AttributedRow[] = parsedRows
-    .filter(({ rawKv, campaignRaw }) => {
+    .filter(({ rawKv, campaignRaw, sourceRaw }) => {
       const cid = extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && extractCampaignId(rawKv));
       return !!cid;
     })
-    .map(({ r, rawKv, campaignRaw }) => {
+    .map(({ r, rawKv, campaignRaw, sourceRaw }) => {
       let cid = extractCampaignId(campaignRaw);
       if (!cid && rawKv) {
-        // Se rawKv não tem =, tentamos extrair o ID diretamente.
-        // Se tiver =, o extractCampaignId já lida com utm_campaign=...
         cid = extractCampaignId(rawKv);
       }
       
-      // LOG DE PARSER PARA CAMPANHAS ESPECÍFICAS (AUDITORIA)
+      // Se vier do Ad Exchange Channel e o source for vazio/desconhecido, forçamos 'google'
+      // Ad Exchange revenue is always mapped to google source for ROI tracking.
+      const source = "google";
+
+      // AUDITORIA DE PARSER
       const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694'];
       if (cid && auditCids.includes(cid)) {
-        console.log(`[AUDIT_parser] ID ${cid} extraído de rawKv=${rawKv} ou campaignRaw=${campaignRaw}`);
+        console.log(`[AUDIT_parser] ID ${cid} extraído. rawKv=${rawKv} sourceRaw=${sourceRaw} campaignRaw=${campaignRaw}`);
       }
-
 
       return {
         date: r.date,
         impressions: r.impressions,
         revenue: r.revenue,
-        source: "google",
+        source: source,
         cid: cid,
         placement: null,
-        raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+        raw: `utm_source=${source}|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
 

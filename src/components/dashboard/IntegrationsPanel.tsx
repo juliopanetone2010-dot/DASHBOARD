@@ -173,7 +173,12 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Vou subir esse mesmo projeto no claude, como devo mandar o prompt pra ele? vc tem algum arquivo q eu possa subir la?
+              me faca o diagnostico do p-orque ainda nao esta mostrando a receita seprada por cada campanha porque so ta puxando a receita geral do gam
+              
+              [LOG DE DIAGNÓSTICO - AUDITORIA 22/08]
+              * Campanha 23207554976: Parser corrigido para capturar ID numérico direto do Ad Exchange Channel Mapping.
+              * Atribuição: Forçada para 'google' em todas as entradas de Channel para garantir o JOIN com o banco.
+              * Status: Aguardando próxima sincronização para validar refletividade no dashboard.
               
               [DETECÇÃO DE ERRO]
               A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
