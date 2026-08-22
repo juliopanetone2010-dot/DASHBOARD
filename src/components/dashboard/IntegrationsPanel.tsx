@@ -87,25 +87,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-Agora está funcionando de verdade?
-
-Quero uma resposta objetiva:
-
-1. As campanhas do Universo dos Cartões estão puxando receita REAL automaticamente agora?
-
-2. Os valores vêm diretamente do utm_campaign do GAM, sem estimativa, rateio, slug ou ID interno?
-
-3. Nas próximas sincronizações automáticas, as novas receitas vão continuar entrando normalmente?
-
-4. Se eu atualizar o dashboard agora, vou ver gasto + receita + lucro + ROI individual correto de cada campanha?
-
-5. Preciso fazer mais alguma coisa ou já está 100% operacional?
-
-Responda no final apenas:
-
-CAMPANHAS FUNCIONANDO NORMALMENTE: SIM ou NÃO
-
-Não altere código nem textos agora, apenas confirme o estado real do sistema.
+as campanhas ainda estao zeradas aqui no universo dos cartoers, pode verificar?
             </p>
           </div>
         </div>
