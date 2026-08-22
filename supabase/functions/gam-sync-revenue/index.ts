@@ -2382,7 +2382,13 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     dateRange: range.dateRange,
   };
   if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
-  if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
+  if (dimensionKeyIds?.length) {
+    if (dimensionKeyIdsField === "customDimensionKeyIds") {
+       reportDefinition.customDimensionKeyIds = dimensionKeyIds;
+    } else {
+       reportDefinition.adExchangeCustomDimensionKeyIds = dimensionKeyIds;
+    }
+  }
 
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
