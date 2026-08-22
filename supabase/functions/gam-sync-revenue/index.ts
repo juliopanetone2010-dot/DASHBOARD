@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando CUSTOM_DIMENSION (Metric: AD_EXCHANGE_REVENUE)...");
+           debug.push("[AUDIT_MANUAL] Tentando PLACEMENT_ID (Metric: AD_EXCHANGE_REVENUE)...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "CUSTOM_DIMENSION"],
+              dimensions: ["DATE", "PLACEMENT_ID"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
@@ -1499,6 +1499,8 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS</v202405:columns>
+                <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
+                <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
                 <v202405:adUnitView>FLAT</v202405:adUnitView>
                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
