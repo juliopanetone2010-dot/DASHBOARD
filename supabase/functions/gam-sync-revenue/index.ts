@@ -1694,8 +1694,10 @@ async function runSoapReport(args: {
   console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
   console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
   if (csvText.length > 0) {
-    const rawRows = csvText.split('\n').slice(0, 10);
-    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} first_10_lines=${JSON.stringify(rawRows)}`);
+    const rawLines = csvText.split('\n');
+    const first10 = rawLines.slice(0, 10);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} first_10_lines=${JSON.stringify(first10)}`);
+
   }
   return parseSoapCsv(csvText, dimensions, debug);
 
@@ -1706,7 +1708,9 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
   const lines = csv.split("\n").filter(l => l.trim().length > 0);
   if (lines.length <= 1) {
     console.log(`[parseSoapCsv] No data rows found (lines=${lines.length})`);
+    debug.push(`[parseSoapCsv] No data rows found (lines=${lines.length})`);
     return [];
+
   }
   
   // O dump do GAM pode ter aspas
