@@ -1693,19 +1693,19 @@ async function runSoapReport(args: {
     
     // Scan for target CIDs in all raw content
     const targetCids = ['23207554976', '23309079322', '22923001384'];
-    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 300).replace(/\n/g, ' ')}`);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 1000).replace(/\n/g, ' ')}`);
     targetCids.forEach(cid => {
        if (csvText.includes(cid)) {
          const matchingLine = rawLines.find(l => l.includes(cid));
          debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
        } else {
-         const nonZero = rawLines.filter(l => l.includes(',')).slice(0, 20);
-         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV. Total lines=${rawLines.length}. Header: ${rawLines[0]}. Samples: ${JSON.stringify(nonZero)}`);
+         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV text`);
        }
     });
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 
