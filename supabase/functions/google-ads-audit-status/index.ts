@@ -1,107 +1,86 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
-import { getCreds } from "../_shared/google_api_set.ts";
+
+const GAM_BASE = "https://admanager.googleapis.com/v1";
+const SCOPE = "https://www.googleapis.com/auth/admanager";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
+  
   try {
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
+    const accessToken = await getAccessToken(sa);
 
-    // 1. Buscar todos os MCCs conectados com refresh token
-    const { data: managers, error: mErr } = await admin
-      .from("google_accounts")
-      .select("id, customer_id, refresh_token, api_set")
-      .eq("is_mcc", true)
-      .not("refresh_token", "is", null);
+    // 1) Audit utm_campaign key
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
 
-    if (mErr) throw mErr;
-    if (!managers || managers.length === 0) return json({ message: "Nenhum MCC encontrado" });
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    let valuesSummary: any = null;
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
 
-    const auditResults = [];
-
-    for (const mgr of managers) {
-      const creds = getCreds(mgr.api_set ?? 1);
+    if (campKey) {
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
       
-      // Obter access token
-      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: creds.clientId,
-          client_secret: creds.clientSecret,
-          refresh_token: mgr.refresh_token,
-          grant_type: "refresh_token",
-        }),
-      });
-      const tokenJson = await tokenRes.json();
-      if (!tokenRes.ok) continue;
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
 
-      // Listar todos os filhos (incluindo status)
-      const query = `
-        SELECT
-          customer_client.id,
-          customer_client.descriptive_name,
-          customer_client.status,
-          customer_client.manager
-        FROM customer_client
-      `;
-
-      const searchRes = await fetch(
-        `https://googleads.googleapis.com/v24/customers/${mgr.customer_id}/googleAds:search`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${tokenJson.access_token}`,
-            "developer-token": creds.devToken,
-            "login-customer-id": mgr.customer_id,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ query }),
-        },
-      );
-      
-      const searchJson = await searchRes.json();
-      if (!searchRes.ok) continue;
-
-      const clients = searchJson.results || [];
-      for (const c of clients) {
-        const cc = c.customerClient;
-        const status = cc.status; // ENABLED, SUSPENDED, CANCELED, CLOSED, UNKNOWN
-        const cid = String(cc.id);
-        const isSuspended = ['SUSPENDED', 'CANCELED', 'CLOSED'].includes(status);
-
-        // Atualizar no banco
-        await admin
-          .from("google_accounts")
-          .update({ 
-            status: status.toLowerCase(),
-            sync_enabled: !isSuspended 
-          })
-          .eq("customer_id", cid);
-
-        auditResults.push({
-          api_set: mgr.api_set,
-          customer_id: cid,
-          name: cc.descriptiveName,
-          status: status,
-          sync_enabled: !isSuspended
-        });
-      }
+      valuesSummary = {
+        key_id: campKey.customTargetingKeyId,
+        type: campKey.type || campKey.customTargetingKeyType,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_values: vals.length,
+        found_in_names: lookFor.filter(c => names.includes(c)),
+        found_in_ids: lookFor.filter(c => vals.includes(c)),
+        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
+        sample_names: names.slice(0, 10)
+      };
     }
 
-    return json({ audit: auditResults });
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      audit_executed: true,
+      network: networkCode,
+      utm_campaign: valuesSummary,
+      available_keys: keys.map((k: any) => k.adTagName)
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   } catch (e) {
-    return json({ error: String(e) }, 500);
+    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
-function json(payload: any, status = 200) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+async function getAccessToken(sa: any) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
+    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  })}`;
+  const pem = sa.private_key.replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
+  const j = await r.json();
+  return j.access_token;
 }
