@@ -42,13 +42,13 @@ Deno.serve(async (req) => {
         found_ids: lookFor.filter(c => vals.includes(c)),
         found_names: lookFor.filter(c => names.includes(c)),
         missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
-        sample_names: names.slice(0, 10)
+        sample_names: names.slice(0, 30)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      audit_source: "google-ads-diagnostic-set2",
+      audit_source: "google-ads-diagnostic-set2-AUDIT-v2",
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
     }), {
