@@ -41,10 +41,7 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const utmKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_campaign");
-    console.log(`[gam-sync] Site: ${site.name} | Network: ${networkCode} | utm_campaign Key: ${utmKeyId}`);
-
-    const rows = await runUnifiedReport(networkCode, accessToken, from, to, utmKeyId);
+    const rows = await runUnifiedReport(networkCode, accessToken, from, to);
     console.log(`[gam-sync] Report complete. Rows: ${rows.length}`);
 
     const stats = await attributeAndStore(supabase, site, rows);
@@ -67,15 +64,15 @@ async function runUnifiedReport(
   networkCode: string, 
   accessToken: string, 
   from: string, 
-  to: string,
-  utmKeyId: string | null
+  to: string
 ): Promise<ReportRow[]> {
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
+  // We strictly use DATE and URL.
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_NAME"],
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
@@ -119,7 +116,6 @@ async function runUnifiedReport(
 
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
-  const auditLogs: string[] = [];
 
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
@@ -137,10 +133,8 @@ async function runUnifiedReport(
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
       const urlText = String(dims[1]?.stringValue || "");
-      const channelText = String(dims[2]?.stringValue || "");
       
-      // Try attribution from URL, then Channel, then slug fallback
-      let cid = extractCampaignId(urlText) || extractCampaignId(channelText);
+      const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = metrics[0]?.doubleValue !== undefined 
@@ -149,60 +143,30 @@ async function runUnifiedReport(
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
-        // Log detailed attribution failure for diagnostic purposes
-        if (!cid && revenue > 0.01) {
-          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
-          auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
-        }
         allRows.push({
           date,
           campaignId: cid,
           revenue,
           impressions,
-          source: cid ? "url_attributed" : "unattributed"
+          source: cid ? "attributed" : "unattributed"
         });
       }
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
-  if (auditLogs.length > 0) {
-    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 10).join(" | ")}`);
-  }
-
   return allRows;
 }
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  // Decode URL if it looks encoded
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
-  // Look for 8-12 digit IDs
-  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
-                decoded.match(/\b(\d{10,12})\b/) ||
-                decoded.match(/\b(\d{8,11})\b/);
+  // Strict extraction: 10-12 digits only.
+  const match = decoded.match(/(?:campaignid|utm_campaign)[=:](\d{10,12})\b/) || 
+                decoded.match(/\b(\d{10,12})\b/);
   
-  if (match) return match[1];
-
-  // Fallback: slug mapping
-  const slugMappings: Record<string, string> = {
-    "monitorar-conversas-no-whatsapp": "23207554976", // MONITORAR WHAPP
-    "monitorar-whapp": "23207554976",
-    "roblox-robux-skins": "23309079322",             // ROBLOX
-    "roblox": "23309079322",
-    "como-ganhar-robux": "23309079322",
-    "robux-gratis": "23309079322",
-    "como-conseguir-robux": "23309079322",
-    "vagas-de-emprego": "22923001384",               // EMPREGO
-    "vagas": "22923001384"
-  };
-
-  for (const [slug, id] of Object.entries(slugMappings)) {
-    if (decoded.includes(slug)) return id;
-  }
-
-  return null;
+  return match ? match[1] : null;
 }
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
@@ -265,16 +229,6 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   }
 
   return stats;
-}
-
-async function findCustomTargetingKeyId(networkCode: string, accessToken: string, name: string): Promise<string | null> {
-  const r = await fetch(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys?pageSize=500`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!r.ok) return null;
-  const data = await r.json();
-  const key = (data.customTargetingKeys || []).find((k: any) => k.adTagName.toLowerCase() === name.toLowerCase());
-  return key ? key.name.split("/").pop() : null;
 }
 
 async function getAccessToken(sa: any) {
