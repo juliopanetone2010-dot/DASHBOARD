@@ -73,6 +73,7 @@ async function runUnifiedReport(
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
+  // Using only standard dimensions that are guaranteed to work in REST v1
   const reportDefinition: any = {
     reportType: "HISTORICAL",
     dimensions: ["DATE", "URL"],
