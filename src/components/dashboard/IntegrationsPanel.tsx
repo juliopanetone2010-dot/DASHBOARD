@@ -88,7 +88,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              tenta puxar a receita das campanhas manualmente pra ver se ta funcionando, outra coita na parte de segmento  ja pode atualizar a receita  A RECEITA geral ta funcionando mas as campanhas nao, e corrija esse codigo ai esse erro
+              Vou dormir, e amanha quero ver todas as campanhas tendo receitas, e ja atualize a de hoje, e a de manha tb !
             </p>
           </div>
         </div>
