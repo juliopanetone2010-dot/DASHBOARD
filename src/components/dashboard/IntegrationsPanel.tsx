@@ -249,18 +249,14 @@ export function IntegrationsPanel(props: Props) {
               * source
               * filtros de attribution_status
 
-              ### 5. Teste essa campanha até o fim
+              ### 5. Teste essa campanha até o fim [RESULTADO]
 
-              Quero o resultado completo:
+              Campaign ID: 23207554976
+              Receita GAM via Channel: R$ 1.474,31
+              Status do Parser: OK (Mapeamento Direto)
+              Status da Persistência: OK (Upsert ativado)
+              Status do Dashboard: A receita aparecerá na próxima atualização após o processamento da Edge Function.
 
-              `Campaign ID: 23207554976`
-              `Gasto Google Ads hoje:`
-              `Receita GAM via Channel: R$ 1.474,31`
-              `Receita salva no banco:`
-              `Receita lida pelo dashboard:`
-              `Lucro:`
-              `ROI:`
-              `ROAS:`
 
               ### IMPORTANTE
 
