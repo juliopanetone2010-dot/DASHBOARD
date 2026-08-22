@@ -134,18 +134,21 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.replace("Bearer ", "").trim();
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
     let userId: string | undefined;
 
-    if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
+    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+    
+    if (isServiceKey) {
       userId = requestedUserId ?? undefined;
+      debug.push(`[auth] authenticated via service_role. target_user=${userId}`);
     } else {
       const { data: { user } } = await userClient.auth.getUser(token);
       userId = user?.id;
     }
     
-    if (!userId) return json({ error: "Token inválido" });
+    if (!userId) return json({ error: "Token inválido", debug_info: { isServiceKey, tokenLength: token.length, srkLength: serviceRoleKey.length } });
 
 
 
