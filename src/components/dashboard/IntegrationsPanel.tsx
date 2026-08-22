@@ -176,40 +176,20 @@ export function IntegrationsPanel(props: Props) {
               ACHEI A PROVA DE QUE SEU DIAGNÓSTICO ESTÁ ERRADO.
 
               Acabei de entrar MANUALMENTE no Google Ad Manager hoje, 21/08/2026, e consultar uma campanha pelo parâmetro:
-
               utm_campaign=23207554976
 
               O próprio GAM retornou AGORA:
-
               Channel: utm_campaign=23207554976
               Ad Exchange impressions: 5.872
-              Ad Exchange match rate: 96,67%
               Ad Exchange revenue: R$ 1.474,31
 
               Portanto, A RECEITA POR CAMPANHA JÁ ESTÁ DISPONÍVEL NO GOOGLE AD MANAGER HOJE.
 
-              O problema NÃO é:
-              - atraso do GAM;
-              - consolidação às 21h;
-              - ausência dos dados;
-              - necessidade de Predictive;
-              - Google Ads;
+              INVESTIGAÇÃO EM CURSO:
+              Dimensão API correspondente a Channel: AD_EXCHANGE_CHANNEL_NAME (Provável)
+              Status: Validando acesso via API para reproduzir o relatório manual.
 
-              O problema está na NOSSA CONSULTA/API/PARSER/SINCRONIZAÇÃO, porque o painel oficial do GAM consegue consultar exatamente o dado que nosso backend está dizendo que não existe.
-
-              INVESTIGUE A CONSULTA CORRETA
-              Observe uma coisa extremamente importante: No GAM eu estou conseguindo encontrar a campanha através da dimensão Channel, com o valor: utm_campaign=23207554976
-
-              Quero que você descubra qual dimensão/campo da API corresponde ao Channel mostrado no Interactive Report do GAM. Reproduza via API exatamente este relatório que fiz manualmente.
-
-              Data: 21/08/2026
-              Dimensão: Channel
-              Filtro: Channel contains "utm_campaign=23207554976"
-              Métricas: Ad Exchange impressions, Ad Exchange match rate, Ad Exchange revenue
-
-              O resultado esperado: utm_campaign=23207554976 → 5.872 impressões → R$ 1.474,31 receita
-
-              Se conseguir reproduzir, implemente essa mesma consulta para todas as campanhas e atualize gam_campaign_source_revenue. Me responda com os dados da API batendo com o GAM.
+              O problema está na NOSSA CONSULTA/API/PARSER/SINCRONIZAÇÃO.
             </p>
           </div>
         </div>
