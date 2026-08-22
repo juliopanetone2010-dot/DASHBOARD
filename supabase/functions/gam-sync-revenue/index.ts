@@ -1,5 +1,6 @@
 // Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
-// - Autentica via JWT (service account)
+// REDEPLOY TRIGGER: v1.0.1 - Fix duplicate declaration error
+
 // - Roda reports por AD_UNIT, PLACEMENT e URL_NAME (via SOAP para intraday)
 // - Faz upsert em `placements` e atualiza `revenue/impressions/ecpm`
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
