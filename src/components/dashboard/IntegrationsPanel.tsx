@@ -114,7 +114,6 @@ export const IntegrationsPanel = ({
               O problema de "SyntaxError: Unexpected token '&lt;'" foi resolvido eliminando a chamada ao endpoint descontinuado v18.
             </p>
           </div>
-          </div>
         </div>
       </div>
 
