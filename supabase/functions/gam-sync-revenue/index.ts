@@ -1124,7 +1124,7 @@ async function collectUtmAttribution(args: {
 
   // LOG DE AUDITORIA CRÍTICO: Inspeciona TODAS as linhas brutas antes do parser
   if (reportRows.length > 0) {
-    const rawAudit = reportRows.slice(0, 30).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
+    const rawAudit = reportRows.slice(0, 50).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
     debug.push(`[AUDIT_RAW_DATA] label=${label} total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
     
     // Procura especificamente pelos IDs de auditoria nos dados crus
@@ -1137,20 +1137,15 @@ async function collectUtmAttribution(args: {
     }
   }
 
-
-
-
   const parsedRows = reportRows.map((r) => {
     const rawKv = r.dims[1] || "";
-    // O Channel Name do Ad Exchange já vem no formato "utm_campaign=123" ou "utm_source=push"
-    // O parser parseKeyValueDimension lida com ambos os formatos (key=value ou key=value;key2=value2)
     const kv = parseKeyValueDimension(rawKv);
-
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
     return { r, rawKv, sourceRaw, campaignRaw, placementRaw };
   });
+
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
