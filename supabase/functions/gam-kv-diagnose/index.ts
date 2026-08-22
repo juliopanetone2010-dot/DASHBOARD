@@ -1,5 +1,3 @@
-// Diagnóstico das custom targeting keys do GAM (utm_source / utm_campaign / utm_placement).
-// Mostra o tipo da chave (PREDEFINED x FREEFORM) e se valores de campanha existem.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -8,6 +6,7 @@ const SCOPE = "https://www.googleapis.com/auth/admanager";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  
   try {
     const body = await req.json().catch(() => ({} as any));
     const siteId = String(body?.site_id ?? "");
@@ -16,26 +15,30 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
-    
+    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+
+    if (!isServiceKey) {
+      return new Response(JSON.stringify({ error: "Unauthorized - Service Role Only for Audit" }), { 
+        status: 401, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
+
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
     const { data: site } = await admin.from("sites").select("id, name, network_code, user_id").eq("id", siteId).maybeSingle();
     
-    if (!site?.network_code) return json({ error: "Site sem network_code ou não encontrado", siteId });
-    
-    const userId = site.user_id;
-    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
-    
-    if (!isServiceKey) {
-      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-      const { data: { user } } = await userClient.auth.getUser(token);
-      if (!user || user.id !== userId) return json({ error: "Não autorizado", userId: user?.id, ownerId: userId });
+    if (!site?.network_code) {
+      return new Response(JSON.stringify({ error: "Site not found", siteId }), { 
+        status: 404, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
     }
 
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
     const networkCode = String(site.network_code);
 
-    // 1) chaves
+    // 1) Keys
     const keys: any[] = [];
     let pageToken: string | undefined;
     do {
@@ -57,10 +60,9 @@ Deno.serve(async (req) => {
         type: k.type ?? k.customTargetingKeyType ?? null,
         status: k.status ?? null,
         reportableType: k.reportableType ?? null,
-        raw: k,
       }));
 
-    // 2) valores da chave utm_campaign
+    // 2) Values for utm_campaign
     const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
     let valuesSummary: any = null;
     if (campKey) {
@@ -77,20 +79,31 @@ Deno.serve(async (req) => {
         for (const v of (j.customTargetingValues ?? [])) values.push(String(v.adTagName ?? v.displayName ?? ""));
         vt = j.nextPageToken;
         pages++;
-      } while (vt && pages < 30);
-      if (!valuesSummary) {
-        valuesSummary = {
-          total: values.length,
-          found: lookFor.filter((c) => values.includes(c)),
-          missing: lookFor.filter((c) => !values.includes(c)),
-          sample_recent: values.slice(-15),
-        };
-      }
+      } while (vt && pages < 50); // Increased page limit for deeper audit
+      
+      valuesSummary = {
+        total_found_in_pages: values.length,
+        matched: lookFor.filter((c) => values.includes(c)),
+        missing: lookFor.filter((c) => !values.includes(c)),
+        sample_recent: values.slice(-20),
+      };
     }
 
-    return json({ ok: true, network_code: networkCode, site: site.name, keys: wanted, utm_campaign_values: valuesSummary });
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      network_code: networkCode, 
+      site: site.name, 
+      keys: wanted, 
+      utm_campaign_values: valuesSummary 
+    }), { 
+      status: 200, 
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   } catch (e) {
-    return json({ error: String(e).slice(0, 800) });
+    return new Response(JSON.stringify({ error: String(e) }), { 
+      status: 500, 
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
