@@ -1031,7 +1031,7 @@ async function collectUtmAttribution(args: {
   try {
     const metricGroups = [
       { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"] }, // Mudança para ID
+      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"] },
     ];
     for (const group of metricGroups) {
       try {
@@ -2384,7 +2384,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
   // ("SAVED"), que devolve os mesmos números vistos no painel do Ad Manager.
-  const reportBody = { report: { reportDefinition } }; 
+  const reportBody = { report: { reportDefinition, visibility: "SAVED" } }; 
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
