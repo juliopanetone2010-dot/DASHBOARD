@@ -199,13 +199,13 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com CUSTOM_CRITERIA para range 2026-08-21...`);
         
         let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
+           dimensions: ["DATE", "CUSTOM_CRITERIA"],
            debug
         });
         
@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Fallback para SOAP AD_EXCHANGE_CHANNEL_NAME...");
+           debug.push("[AUDIT_MANUAL] Fallback para SOAP KEY_VALUES_NAME...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
+              dimensions: ["DATE", "KEY_VALUES_NAME"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.includes("23207554976")));
@@ -1497,7 +1497,8 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
-               <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
+                <v202405:adUnitView>FLAT</v202405:adUnitView>
+                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
                    <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
                    <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
