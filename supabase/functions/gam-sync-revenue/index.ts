@@ -1567,31 +1567,24 @@ async function runSoapReport(args: {
       <v202405:runReportJob>
          <v202405:reportJob>
             <v202405:reportQuery>
-                <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE' && d !== 'AD_EXCHANGE_URL_CHANNEL_NAME' && d !== 'AD_EXCHANGE_CHANNEL_NAME').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+                 <v202405:dimensions>DATE</v202405:dimensions>
+                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
+                 <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
+                 <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
+                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
+                 <v202405:startDate>
+                    <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
+                    <v202405:month>${soapRange.dateRange.startDate.month}</v202405:month>
+                    <v202405:day>${soapRange.dateRange.startDate.day}</v202405:day>
+                 </v202405:startDate>
+                 <v202405:endDate>
+                    <v202405:year>${soapRange.dateRange.endDate.year}</v202405:year>
+                    <v202405:month>${soapRange.dateRange.endDate.month}</v202405:month>
+                    <v202405:day>${soapRange.dateRange.endDate.day}</v202405:day>
+                 </v202405:endDate>
 
 
-
-                <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
-                <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
-                <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
-                <v202405:adUnitView>FLAT</v202405:adUnitView>
-                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
-                <v202405:startDate>
-                   <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
-                   <v202405:month>${soapRange.dateRange.startDate.month}</v202405:month>
-                   <v202405:day>${soapRange.dateRange.startDate.day}</v202405:day>
-                </v202405:startDate>
-                <v202405:endDate>
-                   <v202405:year>${soapRange.dateRange.endDate.year}</v202405:year>
-                   <v202405:month>${soapRange.dateRange.endDate.month}</v202405:month>
-                   <v202405:day>${soapRange.dateRange.endDate.day}</v202405:day>
-                </v202405:endDate>
             </v202405:reportQuery>
          </v202405:reportJob>
       </v202405:runReportJob>
@@ -1697,17 +1690,27 @@ async function runSoapReport(args: {
   // Download e parse CSV
   const csvRes = await fetch(resultUrl);
   const csvText = await csvRes.text();
-  console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
-  console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
+  
   if (csvText.length > 0) {
     const rawLines = csvText.split('\n');
-    const first10 = rawLines.slice(0, 10);
-    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} first_10_lines=${JSON.stringify(first10)}`);
-
+    const first50 = rawLines.slice(0, 50);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} head=${JSON.stringify(first50)}`);
+    
+    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 300).replace(/\n/g, ' ')}`);
   }
   return parseSoapCsv(csvText, dimensions, debug);
-
 }
+
+
+
+
+
+
+
+
+
+
+
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
   console.log(`[parseSoapCsv] csv_length=${csv.length}`);
@@ -1763,15 +1766,27 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     
     // Map Dimensions dynamically based on headers to avoid index mismatches
     const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
-    const urlIdx = headers.findIndex(h => h.includes("Dimension.URL_NAME"));
     const urlChannelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
     const channelNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_NAME"));
+    const urlChannelIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_ID"));
+    const channelIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_ID"));
     
     row.date = dateIdx !== -1 ? cols[dateIdx] : "";
     row.dims[0] = row.date;
-    row.dims[1] = urlIdx !== -1 ? cols[urlIdx] : "";
+    row.dims[1] = ""; 
     row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
     row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
+    row.dims[4] = urlChannelIdIdx !== -1 ? cols[urlChannelIdIdx] : "";
+    row.dims[5] = channelIdIdx !== -1 ? cols[channelIdIdx] : "";
+    
+    // Log every single row name/channel during debug to see what's actually there
+    const rowText = cols.join(" | ");
+    if (rowText.includes("23207554976") || rowText.includes("utm_campaign")) {
+      debug.push(`[SOAP_RAW_MATCH] Found target in columns: ${rowText}`);
+    }
+
+
+
     
     const findMetric = (name: string) => {
       let idx = headers.findIndex(h => h.trim() === name);
@@ -1824,14 +1839,23 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
       cid = extractCampaignId(rawUrlChannel) ?? extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
       
-      // LOG DE AUDITORIA: Se falhou encontrar CID mas temos dados no canal, vamos ver o que é
+      // LOG DE AUDITORIA: Tracing CIDs e Channels
+      const auditTargets = ['23207554976', '23309079322', '22923001384'];
+      const rawText = `${rawUrl} ${rawUrlChannel} ${rawChannel}`.toLowerCase();
+      const isTargetAudit = auditTargets.some(id => rawText.includes(id));
+      
+      if (isTargetAudit) {
+        debug.push(`[AUDIT_TARGET_DETECTED] found raw match for audit CID. rawUrlChannel="${rawUrlChannel}" rawChannel="${rawChannel}" rawUrl="${rawUrl}" rev=${r.revenue}`);
+      }
+      
       if (!cid && (rawUrlChannel || rawChannel || rawUrl)) {
         const auditIds = ['31699642', '31631691', '32210520', '32331737', '31696443'];
-        const isTarget = auditIds.some(id => (rawUrlChannel && rawUrlChannel.includes(id)) || (rawChannel && rawChannel.includes(id)) || rawUrl.includes(id));
-        if (isTarget) {
+        const isTargetShort = auditIds.some(id => rawText.includes(id));
+        if (isTargetShort) {
           debug.push(`[AUDIT_SHORT_ID_DETECTED] rawUrlChannel=${rawUrlChannel} rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
         }
       }
+
     }
 
 
