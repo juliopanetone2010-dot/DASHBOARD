@@ -197,42 +197,36 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
-        const testDate = "2026-08-20";
-        const ranges = buildGamRanges("CUSTOM", testDate, testDate, false);
-        debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${testDate}...`);
-        
-        const rows = await runReport({
-           networkCode: sites[0].network_code,
-           accessToken,
-           range: ranges[0],
-           dimensions: ["KEY_VALUES_NAME"],
-           debug
-        });
-        
-        debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${testDate}: ${rows.length}`);
-        const auditRow = rows.find(r => r.dims && r.dims.some(d => d.includes("23207554976")));
-        if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${testDate}! Rev: ${auditRow.revenue}`);
-        } else {
-          debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDate}.`);
-        }
+        const testDates = ["2026-08-20", "2026-08-21"];
+        for (const tDate of testDates) {
+          const ranges = buildGamRanges("CUSTOM", tDate, tDate, false);
+          debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${tDate}...`);
+          
+          const rows = await runReport({
+             networkCode: sites[0].network_code,
+             accessToken,
+             range: ranges[0],
+             dimensions: ["KEY_VALUES_NAME"],
+             debug
+          });
+          
+          debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${tDate}: ${rows.length}`);
+          
+          const utmRows = rows.filter(r => {
+            const raw = r.dims && r.dims[0] ? r.dims[0] : "";
+            return raw.includes("utm_");
+          });
+          debug.push(`[AUDIT_MANUAL_UTM] Linhas com UTM para ${tDate}: ${utmRows.length}`);
 
-        const testDate2 = "2026-08-21";
-        const ranges2 = buildGamRanges("CUSTOM", testDate2, testDate2, false);
-        debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${testDate2}...`);
-        const rows2 = await runReport({
-           networkCode: sites[0].network_code,
-           accessToken,
-           range: ranges2[0],
-           dimensions: ["KEY_VALUES_NAME"],
-           debug
-        });
-        debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${testDate2}: ${rows2.length}`);
-        const auditRow2 = rows2.find(r => r.dims && r.dims.some(d => d.includes("23207554976")));
-        if (auditRow2) {
-           debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${testDate2}! Rev: ${auditRow2.revenue}`);
-        } else {
-           debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDate2}.`);
+          const auditRow = rows.find(r => r.dims && r.dims.some(d => d.includes("23207554976")));
+          if (auditRow) {
+            debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${tDate}! Rev: ${auditRow.revenue} Dims: ${JSON.stringify(auditRow.dims)}`);
+          } else {
+            debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDates}.`);
+            if (utmRows.length > 0) {
+               debug.push(`[AUDIT_MANUAL_SAMPLE] Sample UTM raw: ${utmRows[0].dims?.[0]}`);
+            }
+          }
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
