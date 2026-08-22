@@ -93,7 +93,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-verifique porque nao esta trazendo a receita das campanhas e me da o motivo, a causa, faca uma analise completa no codigo, banco de dados, em tudo para verificar o motivo desse erro e do motivo do pporque a tela de interacaop ta com esse erro, sempre que manda o comando no chat aparece la o comando
+PQ AS CAMPANHAS ESTAO SEM RECEITAS???????????????????????????
             </p>
           </div>
         </div>
