@@ -62,7 +62,7 @@ async function diagnostic(apiSet: number, targetMcc: string, targetCustomerId: s
     }
 
     try {
-        const listResp = await fetch(`https://googleads.googleapis.com/v17/customers/${targetMcc.replace(/-/g, '')}/googleAds:search`, {
+        const listResp = await fetch(`https://googleads.googleapis.com/v24/customers/${targetMcc.replace(/-/g, '')}/googleAds:search`, {
             method: 'POST',
             headers: listHeaders,
             body: JSON.stringify({ query })
@@ -93,7 +93,7 @@ async function diagnostic(apiSet: number, targetMcc: string, targetCustomerId: s
     
     console.log(`Consultando Customer ID: ${targetCustomerId.replace(/-/g, '')}`)
     try {
-        const metricsResp = await fetch(`https://googleads.googleapis.com/v17/customers/${targetCustomerId.replace(/-/g, '')}/googleAds:search`, {
+        const metricsResp = await fetch(`https://googleads.googleapis.com/v24/customers/${targetCustomerId.replace(/-/g, '')}/googleAds:search`, {
             method: 'POST',
             headers: listHeaders,
             body: JSON.stringify({ query: metricsQuery })

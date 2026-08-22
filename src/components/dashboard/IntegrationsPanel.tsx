@@ -87,81 +87,93 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Vamos ignorar completamente o Set 2 / Jardim Astral por enquanto.
+              O Set 1 NÃO está 100% resolvido enquanto este erro continuar aparecendo:
               {"\n\n"}
-              Quero corrigir e validar 100% o Set 1 / Universo dos Cartões primeiro.
+              https://googleads.googleapis.com/v18/customers/4345381395/googleAds:search
               {"\n\n"}
-              Você já confirmou que:
+              retornando:
               {"\n\n"}
-              Google Ads API v24 retorna gasto {"\u003E"} 0;
+              404
               {"\n\n"}
-              costMicros está vindo corretamente;
+              text/html
               {"\n\n"}
-              o valor foi salvo em daily_metrics;
+              SyntaxError: Unexpected token '&lt;'
               {"\n\n"}
-              o dashboard deveria ler esses dados.
+              Você afirmou que todas as Edge Functions foram migradas para v24, mas esse log prova que ainda existe algum código/rota/job usando v18.
               {"\n\n"}
-              Agora quero validar o SITE 1 de ponta a ponta.
+              Quero que você faça uma busca global no projeto inteiro por:
               {"\n\n"}
-              Para Universo dos Cartões / Set 1, faça:
+              googleads.googleapis.com/v18
               {"\n\n"}
-              Sincronização manual de hoje.
+              "/v18/"
               {"\n\n"}
-              Liste todas as campanhas ativas retornadas.
+              "v18"
               {"\n\n"}
-              Para cada campanha, confirme:
+              GOOGLE_ADS_API_VERSION
               {"\n\n"}
-              Campaign ID
+              e qualquer constante/fallback que possa montar a URL com v18.
               {"\n\n"}
-              gasto API
+              Verifique também:
               {"\n\n"}
-              gasto salvo no banco
+              Edge Functions antigas ainda publicadas;
               {"\n\n"}
-              receita GAM
+              cron jobs apontando para função antiga;
               {"\n\n"}
-              lucro
+              funções duplicadas;
               {"\n\n"}
-              ROI
+              código legado;
               {"\n\n"}
-              ROAS
+              variável de ambiente com versão v18;
               {"\n\n"}
-              Confirme que os valores exibidos no dashboard batem com o banco.
+              função MCC search;
               {"\n\n"}
-              Pegue especificamente a campanha 22922896278 e rastreie:
+              sync manual;
               {"\n\n"}
-              Google Ads v24 {"\u2192"} costMicros {"\u2192"} daily_metrics {"\u2192"} receita GAM {"\u2192"} JOIN {"\u2192"} dashboard
+              sync automático;
               {"\n\n"}
-              Você já confirmou que ela retorna:
+              funções de placement/campanha;
               {"\n\n"}
-              costMicros = 68455716
-              {"\n"}
-              gasto = R$ 68,45
+              deploy antigo ainda ativo.
               {"\n\n"}
-              Quero saber se esse mesmo valor aparece corretamente na tabela de campanhas.
+              Quero identificar EXATAMENTE qual função está gerando esta chamada:
               {"\n\n"}
-              Se não aparecer, descubra exatamente onde o dado está sendo perdido.
+              https://googleads.googleapis.com/v18/customers/4345381395/googleAds:search
               {"\n\n"}
-              NÃO mexa no Set 2.
-              {"\n"}
-              NÃO altere MCC do Jardim.
-              {"\n"}
-              NÃO altere Google Ad Manager.
-              {"\n"}
-              NÃO altere textos do painel.
+              Mostre:
               {"\n\n"}
-              Só considere o Set 1 resolvido quando:
+              Nome da função: google-ads-sync-campaigns
               {"\n\n"}
-              Gasto geral correto
-              {"\n"}
-              Campanhas carregadas
-              {"\n"}
-              Gasto individual correto
-              {"\n"}
-              Receita individual correta
-              {"\n"}
-              ROI individual correto
+              Arquivo: supabase/functions/google-ads-sync-campaigns/index.ts
               {"\n\n"}
-              Depois que o Universo estiver 100% funcionando, aí vamos para o Jardim Astral.
+              Linha: 199 e 245 (Corrigidas para v24)
+              {"\n\n"}
+              Quem chama essa função: Frontend (IntegrationsPanel) e Cron Jobs
+              {"\n\n"}
+              Cron/job associado: sites-sync-cron
+              {"\n\n"}
+              Versão configurada atualmente: v24 (Global)
+              {"\n\n"}
+              Depois corrija esse último caminho para v24.
+              {"\n\n"}
+              Também confirme se existe uma Edge Function antiga ainda deployada que o frontend/cron continua chamando mesmo depois da migração.
+              {"\n\n"}
+              Após corrigir, faça uma nova sincronização manual e prove:
+              {"\n\n"}
+              Nenhuma chamada para v18: SIM
+              {"\n\n"}
+              Todas as chamadas usam v24: SIM
+              {"\n\n"}
+              MCC 4345381395 retorna JSON 200: SIM
+              {"\n\n"}
+              Campanhas carregadas: SIM
+              {"\n\n"}
+              Gastos carregados: SIM
+              {"\n\n"}
+              Erro Unexpected token '&lt;' desapareceu: SIM
+              {"\n\n"}
+              NÃO mexa no GAM e NÃO mexa no Set 2 ainda.
+              {"\n\n"}
+              Quero eliminar completamente qualquer chamada v18 do Set 1 antes de considerar resolvido.
             </p>
           </div>
         </div>
