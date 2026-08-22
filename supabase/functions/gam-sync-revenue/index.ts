@@ -1646,7 +1646,9 @@ async function runSoapReport(args: {
       body: pollBody
     });
     const statusXml = await pollRes.text();
+    debug.push(`[SOAP_POLL] i=${i} status_xml=${statusXml.slice(0, 300)}`);
     if (statusXml.includes("COMPLETED")) {
+
       // Get Download URL
       const downloadBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
