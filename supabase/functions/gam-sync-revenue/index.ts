@@ -1939,12 +1939,12 @@ async function persistCampaignSourceRevenueFromUtm(
   for (let i = 0; i < finalRows.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(finalRows.slice(i, i + CHUNK));
   }
-  const sources = arr.reduce((acc: Record<string, number>, b) => {
+  const sources = finalRows.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
-  const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
-  const byCampaign = arr.filter((b) => b.campaign_id !== "__aggregate__").length;
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
+  const aggregated = finalRows.filter((b) => b.campaign_id === "__aggregate__").length;
+  const byCampaign = finalRows.filter((b) => b.campaign_id !== "__aggregate__").length;
+  debug.push(`[gam_campaign_source_revenue] ${finalRows.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
