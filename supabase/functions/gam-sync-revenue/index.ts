@@ -2158,7 +2158,7 @@ async function applyGoogleUtmRevenue(
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
 
     // AUDITORIA DE QUERY
-    const auditCids = ['23207554976', '23309079322', '23021142139'];
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
     const hasAuditCid = cids.some(c => auditCids.includes(c));
     if (hasAuditCid) {
       debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCids.includes(c)).join(',')} em ${date}`);
