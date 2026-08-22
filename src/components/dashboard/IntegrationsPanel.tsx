@@ -87,57 +87,25 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-Ainda NÃO está funcionando.
+Agora está funcionando de verdade?
 
-Pare de alterar texto, pare de criar fallback por slug e pare de aceitar IDs internos de 8 dígitos como se fossem Campaign IDs do Google Ads.
+Quero uma resposta objetiva:
 
-Quero uma única coisa:
+1. As campanhas do Universo dos Cartões estão puxando receita REAL automaticamente agora?
 
-faça as campanhas dentro do Universo dos Cartões puxarem a receita REAL do GAM e mostrar essa receita na linha correta da campanha.
+2. Os valores vêm diretamente do utm_campaign do GAM, sem estimativa, rateio, slug ou ID interno?
 
-Teste obrigatoriamente:
+3. Nas próximas sincronizações automáticas, as novas receitas vão continuar entrando normalmente?
 
-23207554976
+4. Se eu atualizar o dashboard agora, vou ver gasto + receita + lucro + ROI individual correto de cada campanha?
 
-23309079322
+5. Preciso fazer mais alguma coisa ou já está 100% operacional?
 
-22923001384
+Responda no final apenas:
 
-Para cada uma, me mostre:
+CAMPANHAS FUNCIONANDO NORMALMENTE: SIM ou NÃO
 
-Campaign ID
-
-Gasto
-
-Receita REAL encontrada no GAM
-
-Receita salva no banco
-
-Receita exibida no dashboard
-
-Se alguma continuar em R$ 0,00, NÃO diga que foi corrigido.
-
-Continue investigando até encontrar exatamente onde a receita some.
-
-Não use:
-
- rateio proporcional;
-
- predictive;
-
- slug de página;
-
- ID curto do GAM;
-
- ROI geral;
-
- estimativa.
-
-Quero somente:
-
-utm_campaign real → Campaign ID real → receita real → dashboard
-
-E NÃO alterere mais nenhum texto da interface.
+Não altere código nem textos agora, apenas confirme o estado real do sistema.
             </p>
           </div>
         </div>
