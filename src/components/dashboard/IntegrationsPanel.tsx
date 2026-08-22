@@ -173,7 +173,7 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              voce nao corrigiu nada, nai esta puxando a receita de cada campanha
+              se eu restaurar a versao de onmtem,  as campaanhas irao funcionar normalmente, pois ontem esta funcionando normal
               
               [DETECÇÃO DE ERRO]
               A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
