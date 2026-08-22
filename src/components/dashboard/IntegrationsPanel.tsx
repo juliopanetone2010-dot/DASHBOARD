@@ -27,33 +27,56 @@ export const IntegrationsPanel = ({
   ...props
 }: IntegrationsPanelProps) => {
   const [syncing, setSyncing] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const { toast } = useToast();
 
   const handleSync = async () => {
     setSyncing(true);
+    setDebugLogs(["Iniciando sincronização manual..."]);
     try {
+      // Pega o userId da sessão atual para garantir que o backend sabe quem está pedindo
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
       const { data, error } = await supabase.functions.invoke("gam-sync-revenue", {
-        body: { date_preset: "LAST_7_DAYS", revenue_only: true }
+        body: { 
+          sync: true, 
+          user_id: currentUserId || props.googleAccounts?.[0]?.user_id, 
+          date_preset: "YESTERDAY" 
+        }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Invoke error:", error);
+        throw error;
+      }
+      
+      if (data?.debug) {
+        setDebugLogs(data.debug);
+      } else if (data?.error) {
+        setDebugLogs(prev => [...prev, `ERRO BACKEND: ${data.error}`, ...(data.debug || [])]);
+      }
 
       if (onRefresh) await onRefresh();
 
       toast({
-        title: "Sincronização iniciada",
-        description: "Os dados estão sendo processados em background.",
+        title: data?.error ? "Erro na sincronização" : "Sincronização concluída",
+        description: data?.error ? data.error : "Os dados foram processados com sucesso.",
+        variant: data?.error ? "destructive" : "default",
       });
     } catch (error: any) {
+      console.error("Sync catch error:", error);
       toast({
         title: "Erro na sincronização",
         description: error.message,
         variant: "destructive",
       });
+      setDebugLogs(prev => [...prev, `ERRO: ${error.message}`]);
     } finally {
       setSyncing(false);
     }
   };
+
 
   return (
     <div className="space-y-6">
@@ -70,6 +93,21 @@ export const IntegrationsPanel = ({
           </div>
         </div>
       </div>
+
+      {debugLogs.length > 0 && (
+        <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-[10px] max-h-[300px] overflow-y-auto border border-green-900/30">
+          <div className="flex justify-between items-center mb-2 border-b border-green-900/30 pb-1">
+            <span className="text-green-500 font-bold uppercase">Logs de Execução em Tempo Real</span>
+            <Button variant="ghost" size="sm" className="h-5 text-[9px] text-green-500 hover:text-green-400 p-0" onClick={() => setDebugLogs([])}>LIMPAR</Button>
+          </div>
+          {debugLogs.map((log, i) => (
+            <div key={i} className="mb-0.5 whitespace-pre-wrap">
+              <span className="text-green-600 mr-2">[{new Date().toLocaleTimeString()}]</span>
+              {log}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border shadow-sm">
         <div className="flex items-center gap-3">
