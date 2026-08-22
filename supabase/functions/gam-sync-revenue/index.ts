@@ -1787,10 +1787,11 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     row.dims[5] = channelIdIdx !== -1 ? cols[channelIdIdx] : "";
     
     // Log every single row name/channel during debug to see what's actually there
-    const rowContent = `URL_CHAN="${row.dims[2]}" CHAN="${row.dims[3]}"`;
-    if (row.revenue > 0) {
-      debug.push(`[SOAP_ROW_REV] ${rowContent} rev=${row.revenue}`);
+    const rowText = cols.join(" | ");
+    if (rowText.includes("23207554976") || rowText.includes("utm_campaign")) {
+      debug.push(`[SOAP_RAW_MATCH] Found target in columns: ${rowText}`);
     }
+
 
 
     
