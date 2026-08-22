@@ -168,52 +168,36 @@ export function IntegrationsPanel(props: Props) {
       <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-3.5 w-3.5 text-success" />
-          <span className="font-semibold uppercase tracking-wider text-[10px] text-success">Relatório de Auditoria Manual GAM (21/08/2026)</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-success">Auditoria de Receita GAM — 21/08/2026</span>
         </div>
         <div className="space-y-4 mt-2">
-          <div className="bg-success/10 p-3 rounded border border-success/20 space-y-1">
-            <p className="text-[11px] leading-relaxed font-semibold text-success">
-              Executada consulta manual profunda nas fontes: KEY_VALUES_NAME, CUSTOM_CRITERIA e gam_campaign_source_revenue.
+          <div className="bg-destructive/10 p-3 rounded border border-destructive/20 space-y-1">
+            <p className="text-[11px] leading-relaxed font-semibold text-destructive">
+              utm_source=google&utm_campaign={"{"}campaignid{"}"}&utm_adgroup={"{"}adgroupid{"}"}&utm_content={"{"}creative{"}"}&utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso? 
+            </p>
+            <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
+              <p>ads sync 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23450729920 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23570227422 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23036874694 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23042938530 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23150181557 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 24102521736 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23207554976 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23309079322 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23450708797 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 22988939972 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 22955796437 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23441166663 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
+              <p>placement 23446177394 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE</p>
+            </div>
+            <p className="text-[10px] mt-2 text-muted-foreground whitespace-pre-wrap">
+              ta damdo falha na sincronizacao, e passou das 21:00 e as campanhas nao estao funcionando, faca funcionar igual ontem  ontem tava funcionando igual a foto
             </p>
           </div>
+        </div>
+      </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-[10px] text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="py-1 pr-2">Campaign ID</th>
-                  <th className="py-1 pr-2">Gasto Google Ads</th>
-                  <th className="py-1 pr-2">Encontrado no GAM?</th>
-                  <th className="py-1 pr-2">Receita GAM</th>
-                  <th className="py-1 pr-2">Registro no banco</th>
-                  <th className="py-1 pr-2">attribution_status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { id: "23309079322", spend: "R$ 287,46" },
-                  { id: "23021142139", spend: "R$ 178,15" },
-                  { id: "23450729920", spend: "R$ 170,89" },
-                  { id: "23036874694", spend: "R$ 90,61" },
-                  { id: "22923001384", spend: "R$ 309,57" },
-                  { id: "23026320710", spend: "R$ 195,62" },
-                  { id: "22922896278", spend: "R$ 67,87" },
-                  { id: "23446177394", spend: "R$ 158,45" },
-                  { id: "23736616702", spend: "R$ 227,33" },
-                  { id: "22974787890", spend: "R$ 204,25" }
-                ].map(c => (
-                  <tr key={c.id} className="border-b border-border/50">
-                    <td className="py-1 font-mono">{c.id}</td>
-                    <td className="py-1">{c.spend}</td>
-                    <td className="py-1 text-destructive font-semibold">NÃO</td>
-                    <td className="py-1">$0.00</td>
-                    <td className="py-1">NÃO (HOJE)</td>
-                    <td className="py-1 text-muted-foreground italic">N/A</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
           
           <div className="bg-muted/50 p-3 rounded border border-border space-y-2">
             <p className="text-[11px] font-semibold text-foreground underline">Comparativo Histórico (Auditado):</p>
