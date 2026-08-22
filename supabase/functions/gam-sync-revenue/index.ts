@@ -149,7 +149,10 @@ async function runSync(req: Request, skipAuth = false): Promise<Response> {
       userId = user?.id;
     }
     
-    if (!userId) return json({ error: "Token inválido" });
+    if (!userId) {
+      console.log(`[AUTH_FAILURE] token=${token.slice(0, 10)}... srk=${serviceRoleKey.slice(0, 10)}... skipAuth=${skipAuth} requestedUserId=${requestedUserId}`);
+      return json({ error: "Token inválido" });
+    }
 
 
 
