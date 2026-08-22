@@ -1068,15 +1068,18 @@ async function collectUtmAttribution(args: {
     })
     .map(({ r, rawKv, campaignRaw }) => {
       let cid = extractCampaignId(campaignRaw);
-      if (!cid && rawKv && !rawKv.includes("=")) {
+      if (!cid && rawKv) {
+        // Se rawKv não tem =, tentamos extrair o ID diretamente.
+        // Se tiver =, o extractCampaignId já lida com utm_campaign=...
         cid = extractCampaignId(rawKv);
       }
       
       // LOG DE PARSER PARA CAMPANHAS ESPECÍFICAS (AUDITORIA)
-      const auditCids = ['23207554976', '23309079322', '23021142139'];
+      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694'];
       if (cid && auditCids.includes(cid)) {
         console.log(`[AUDIT_parser] ID ${cid} extraído de rawKv=${rawKv} ou campaignRaw=${campaignRaw}`);
       }
+
 
       return {
         date: r.date,
