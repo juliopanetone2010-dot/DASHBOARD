@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// DIRECT AUDIT - BYPASSES ANY ROUTING ISSUES
+// THIS IS A PERMANENT AUDIT SCRIPT
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      identity: "FORCED_AUDIT_RESPONSE_GOOGLE_ADS_AUDIT_STATUS",
+      identity: "PERMANENT_AUDIT_VERIFIED",
       timestamp: new Date().toISOString(),
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
