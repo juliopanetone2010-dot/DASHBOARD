@@ -4,18 +4,31 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// Simplified function with minimal logic to avoid any hidden issues
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
+  const authHeader = req.headers.get("Authorization");
+  const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const token = (authHeader || "").replace("Bearer ", "").trim();
+  let isServiceRole = token === SERVICE_ROLE;
+  
+  if (!isServiceRole) {
+    try { 
+      const p = JSON.parse(atob(token.split(".")[1] ?? "")); 
+      if (p?.role === "service_role") isServiceRole = true; 
+    } catch { /* */ }
+  }
+
+  if (!isServiceRole) {
+    return new Response(JSON.stringify({ error: "Token inválido" }), { 
+      status: 200, // Return 200 to keep debug flow simple
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
+  }
+
   try {
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-    
-    // Hardcoded for Universo Dos Cartoes to ensure no lookup failure
-    const networkCode = "21683973686";
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
+    const networkCode = "21683973686"; // Universo Dos Cartoes
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
