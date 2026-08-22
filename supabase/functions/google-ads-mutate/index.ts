@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     };
     if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
 
-    const apiBase = `https://googleads.googleapis.com/v18/customers/${acc.customer_id}`;
+    const apiBase = `https://googleads.googleapis.com/v25/customers/${acc.customer_id}`;
 
     // Log da ação
     const logAction = async (status: string, payload: unknown, error?: string) => {
