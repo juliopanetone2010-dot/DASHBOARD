@@ -1038,7 +1038,7 @@ async function collectUtmAttribution(args: {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
           let dims = group.dimensions ?? ["DATE", "KEY_VALUES_NAME"];
           
-          // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_NAME
+          // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_ID
           try {
             const rows = await runReport({
               networkCode, accessToken, range,
@@ -1048,7 +1048,7 @@ async function collectUtmAttribution(args: {
               deadlineAt,
             });
             if (rows.length > 0) {
-               if (dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
+               if (dims.includes("AD_EXCHANGE_CHANNEL_ID") || dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
                  return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
                }
                return rows;
@@ -1058,7 +1058,7 @@ async function collectUtmAttribution(args: {
           }
 
           // TENTATIVA 2: AD_EXCHANGE_CHANNEL_NAME (se a tentativa 1 não foi ela)
-          if (!dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
+          if (!dims.includes("AD_EXCHANGE_CHANNEL_NAME") && !dims.includes("AD_EXCHANGE_CHANNEL_ID")) {
             try {
               const rows = await runReport({
                 networkCode, accessToken, range,
@@ -1071,7 +1071,7 @@ async function collectUtmAttribution(args: {
                 return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
               }
             } catch (e) {
-              debug.push(`[${networkCode}/${group.label}] Erro na tentativa 2 (CHANNEL): ${String(e).slice(0, 100)}`);
+              debug.push(`[${networkCode}/${group.label}] Erro na tentativa 2 (CHANNEL_NAME): ${String(e).slice(0, 100)}`);
             }
           }
 
