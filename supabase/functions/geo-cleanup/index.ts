@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// SYNC AUDIT - BYPASS AUTH VIA isService LOGIC
+// ATOMIC AUDIT V10 - NO WRAPPERS - NO IMPORTS BESIDES SHARED
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -13,7 +13,6 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    // 1) Audit utm_campaign key status
     const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
     keysUrl.searchParams.set("pageSize", "500");
     const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -25,7 +24,8 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      const keyId = campKey.customTargetingKeyId;
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
@@ -33,30 +33,29 @@ Deno.serve(async (req) => {
       const rawValues = vj.customTargetingValues ?? [];
       const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
       const names = rawValues.map((v: any) => String(v.displayName));
-
+      
       valuesSummary = {
-        key_id: campKey.customTargetingKeyId,
+        key_id: keyId,
         type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
-        total_values: vals.length,
+        total_in_page: rawValues.length,
         found_ids: lookFor.filter(c => vals.includes(c)),
-        found_names: lookFor.filter(c => names.includes(c)),
-        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
-        sample_names: names.slice(0, 30)
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 50)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      identity: "GEO_CLEANUP_AUDIT_V5",
+      identity: "AUDIT_V10_PROD",
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+    return new Response(JSON.stringify({ error: String(e) }), { 
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
