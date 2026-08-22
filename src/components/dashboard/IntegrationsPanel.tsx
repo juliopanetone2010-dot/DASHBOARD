@@ -34,25 +34,38 @@ export const IntegrationsPanel = ({
     setSyncing(true);
     setDebugLogs(["Iniciando sincronização manual..."]);
     try {
+      // Pega o userId da sessão atual para garantir que o backend sabe quem está pedindo
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
       const { data, error } = await supabase.functions.invoke("gam-sync-revenue", {
-        body: { sync: true, user_id: props.googleAccounts?.[0]?.user_id, date_preset: "YESTERDAY" }
+        body: { 
+          sync: true, 
+          user_id: currentUserId || props.googleAccounts?.[0]?.user_id, 
+          date_preset: "YESTERDAY" 
+        }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Invoke error:", error);
+        throw error;
+      }
       
       if (data?.debug) {
         setDebugLogs(data.debug);
+      } else if (data?.error) {
+        setDebugLogs(prev => [...prev, `ERRO BACKEND: ${data.error}`, ...(data.debug || [])]);
       }
 
       if (onRefresh) await onRefresh();
 
       toast({
-        title: "Sincronização concluída",
-        description: data?.debug?.some((d: string) => d.includes("AUDIT_MANUAL_RESULT")) 
-          ? "Auditoria da campanha 23207554976 realizada." 
-          : "Os dados foram processados com sucesso.",
+        title: data?.error ? "Erro na sincronização" : "Sincronização concluída",
+        description: data?.error ? data.error : "Os dados foram processados com sucesso.",
+        variant: data?.error ? "destructive" : "default",
       });
     } catch (error: any) {
+      console.error("Sync catch error:", error);
       toast({
         title: "Erro na sincronização",
         description: error.message,
@@ -63,6 +76,7 @@ export const IntegrationsPanel = ({
       setSyncing(false);
     }
   };
+
 
   return (
     <div className="space-y-6">
