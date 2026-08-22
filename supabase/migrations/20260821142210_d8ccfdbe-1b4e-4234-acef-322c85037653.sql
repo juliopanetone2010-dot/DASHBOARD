@@ -1,1 +1,0 @@
-ALTER TABLE public.google_accounts ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN DEFAULT true;

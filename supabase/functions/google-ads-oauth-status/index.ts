@@ -1,4 +1,4 @@
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { listApiSets, tryGetCreds } from "../_shared/google_api_set.ts";
 
 Deno.serve((req) => {

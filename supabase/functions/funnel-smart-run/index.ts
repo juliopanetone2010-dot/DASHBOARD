@@ -11,7 +11,7 @@
 //   failed-learning    -> pausada após learning com ROI < -15%
 //   paused             -> proteção (ROI<-30% por 3d, delivery<20%, etc)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const NET_FACTOR = 0.935;
 

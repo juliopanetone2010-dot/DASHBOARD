@@ -1,15 +1,13 @@
-// Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
+// Sincroniza receita do Google Ad Manager (REST API v1 beta)
 // - Autentica via JWT (service account)
-// - Roda reports por AD_UNIT, PLACEMENT e URL_NAME (via SOAP para intraday)
+// - Roda 2 reports: por AD_UNIT_NAME e por PLACEMENT_NAME
 // - Faz upsert em `placements` e atualiza `revenue/impressions/ecpm`
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 const ALLOWED_PRESETS = new Set(["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_30_DAYS"]);
-
-const SOAP_BASE = "https://www.google.com/apis/ads/publisher/v202405/ReportService";
 
 // Semáforo global: serializa TODAS as chamadas HTTP ao GAM dentro desta invocação
 // para evitar estourar a quota (429). Pequeno jitter entre chamadas reduz bursts.
@@ -49,11 +47,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const control = await req.clone().json().catch(() => ({}));
-  // Auditoria forçada: Se vier sync=true, rodamos síncrono ignorando auth se necessário
-  if (control?.sync === true) {
+  if (control?.wait === true || control?.sync === true) {
     return await runSync(req);
   }
-
 
   // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
   const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
@@ -74,7 +70,6 @@ async function runSync(req: Request): Promise<Response> {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
-
 
 
     let datePreset = "LAST_7_DAYS";
@@ -135,23 +130,20 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
     const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
-
-    if (token && serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
+    if (token && serviceRoleKey && token === serviceRoleKey) {
+      // Chamada interna (cron/snapshot): usa user_id passado no body
       userId = requestedUserId ?? undefined;
     } else {
-      const { data: { user } } = await userClient.auth.getUser(token);
-      userId = user?.id;
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
     }
-    
     if (!userId) return json({ error: "Token inválido" });
-
-
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      serviceRoleKey,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
     let sitesQuery = admin
@@ -167,9 +159,6 @@ async function runSync(req: Request): Promise<Response> {
     debug.push("got access token");
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
-    const usdToBrlRate = fxRates.usdBrl || 5.15; // Fallback seguro
-
-    debug.push(`[currency] Rate used for dashboard calculation: USD 1.00 = BRL ${usdToBrlRate.toFixed(4)}`);
 
     // Agrupa sites por network_code
     const byNetwork = new Map<string, typeof sites>();
@@ -332,61 +321,43 @@ async function runSync(req: Request): Promise<Response> {
         // Não precisamos mais descobrir IDs de custom targeting keys.
         // CUSTOM_CRITERIA traz a string crua das key-values, então parseamos diretamente.
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
-        let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
-        
-        if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
-          debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
-          const criteria = await runCustomCriteriaCandidate(networkCode, accessToken, ranges, debug);
-          if (criteria.rows.length > 0) {
-             attribution = rowsToAttributionResult(criteria.rows, criteria.label);
-          }
-        }
-        
-        const todayStr = new Date().toISOString().slice(0, 10);
-        // attribution já foi populado pelo collectUtmAttribution (via REST v1)
-        // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
-                             attribution.googlePlacementRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
-
-        if (!hasTodayData && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
-          const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds, debug);
-          const urlRows = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
-          debug.push(`[${networkCode}] SOAP URL_NAME retornou ${urlRows.length} linhas brutas.`);
-          
-          if (urlRows.length > 0) {
-            const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
-            debug.push(`[${networkCode}] SOAP Intraday parsed: campaigns=${soapAttribution.googleCampaignRows.length}, placements=${soapAttribution.googlePlacementRows.length}`);
-            
-            // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
-            for (const sr of soapAttribution.googleCampaignRows) {
-              const idx = attribution.googleCampaignRows.findIndex(gr => gr.cid === sr.cid && gr.date === sr.date);
-              if (idx === -1) {
-                attribution.googleCampaignRows.push(sr);
-              } else if (attribution.googleCampaignRows[idx].revenue < 0.0001 && sr.revenue > 0) {
-                // Sobrescreve se o consolidado for 0 mas o intraday tiver valor
-                attribution.googleCampaignRows[idx] = sr;
-              }
-            }
-            for (const sp of soapAttribution.googlePlacementRows) {
-              const idx = attribution.googlePlacementRows.findIndex(gp => gp.cid === sp.cid && gp.date === sp.date && gp.placement === sp.placement);
-              if (idx === -1) {
-                attribution.googlePlacementRows.push(sp);
-              } else if (attribution.googlePlacementRows[idx].revenue < 0.0001 && sp.revenue > 0) {
-                attribution.googlePlacementRows[idx] = sp;
-              }
-            }
-            attribution.retentionRows.push(...soapAttribution.retentionRows);
-            debug.push(`[${networkCode}] SOAP Intraday merge concluído.`);
-          }
-        }
-        
-
+        const attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         const utmRows = attribution.retentionRows;
-        const googleCampaignRows = attribution.googleCampaignRows;
-        const googlePlacementRows = attribution.googlePlacementRows;
+        let googleCampaignRows = attribution.googleCampaignRows;
+        let googlePlacementRows = attribution.googlePlacementRows;
 
+        // Fallback URL-based: para campanhas SEM utm_placement/utm_campaign configurado,
+        // tentamos casar a URL da página (URL_NAME) com campaign_final_urls. Isso recupera
+        // a receita real do GAM (ex.: .../cursos-senai-brasil → cid 23867649336).
+        // Só usamos o fallback para (date, cid) que NÃO já tem atribuição via UTM, para
+        // evitar dupla contagem.
+        try {
+          const siteIdForNet = networkSites[0]?.id;
+          const { data: linkRows } = siteIdForNet ? await admin
+            .from("account_site_links").select("google_account_id")
+            .eq("user_id", userId).eq("site_id", siteIdForNet) : { data: [] };
+          const accountIds = ((linkRows ?? []) as any[]).map((l) => l.google_account_id).filter(Boolean);
+          console.log(`[URL_FALLBACK] site=${siteIdForNet} accounts=${accountIds.length}`);
+          const finalUrlMap = await buildFinalUrlMap(admin, userId, accountIds, debug);
+          console.log(`[URL_FALLBACK] finalUrlMap.size=${finalUrlMap.size}`);
+          if (finalUrlMap.size > 0) {
+            const urlFallback = await collectUrlAttribution({ networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt });
+            console.log(`[URL_FALLBACK] urlFallback.rows=${urlFallback.length} totalRev=${urlFallback.reduce((s, r) => s + r.revenue, 0).toFixed(4)}`);
+            const utmCovered = new Set(
+              googleCampaignRows.filter((r) => r.cid && r.revenue > 0).map((r) => `${r.date}|${r.cid}`),
+            );
+            const fallbackUse = urlFallback.filter((r) => r.cid && !utmCovered.has(`${r.date}|${r.cid}`));
+            console.log(`[URL_FALLBACK] fallbackUse.rows=${fallbackUse.length} (após excluir cids cobertos por UTM=${utmCovered.size})`);
+            if (fallbackUse.length > 0) {
+              googleCampaignRows = [...googleCampaignRows, ...fallbackUse];
+              googlePlacementRows = [...googlePlacementRows, ...fallbackUse];
+              debug.push(`[${networkCode}/URL_FALLBACK] adicionadas ${fallbackUse.length} linhas (cids ausentes do UTM atribuídos via final_url)`);
+            }
+          }
+        } catch (e) {
+          console.error(`[URL_FALLBACK] erro`, e);
+          debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
+        }
         const totals = googleCampaignRows.reduce(
           (acc, r) => ({ revenue: acc.revenue + r.revenue, impressions: acc.impressions + r.impressions }),
           { revenue: 0, impressions: 0 },
@@ -415,7 +386,7 @@ async function runSync(req: Request): Promise<Response> {
         // Quando o GAM do site reporta em BRL nativo, normalizamos para "USD-equivalente"
         // dividindo por FX antes de gravar — assim todo o app downstream (que multiplica por FX
         // para exibir em BRL) continua correto, sem dupla conversão.
-        const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1;
+        const ingestionDivisor = siteCurrency === "BRL" ? (fxRates.usdBrl || 1) : 1;
 
         // Viewability + eCPM por site/dia (report dedicado, separado de revenue para evitar rejeição do GAM)
         let viewabilityRows: Array<{ date: string | null; impressions: number; measurable: number; viewable: number; revenue: number }> = [];
@@ -475,40 +446,6 @@ async function runSync(req: Request): Promise<Response> {
           impressions: v.impr, measurable: v.meas, viewable: v.view, revenue: v.rev,
         }));
 
-
-        // NOVO: Fallback Preditivo Intraday (Senior Solution)
-        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
-        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
-        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
-        const siteTodayRows = viewabilityRows.filter(r => r.date === todayStr);
-        const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
-        const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
-        
-        const hasRealSegmentedData = googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
-
-        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
-          try {
-            const predictive = await collectPredictiveIntradayAttribution({
-              networkCode, 
-              accessToken, 
-              ranges, 
-              totalSiteRevenue, 
-              totalSiteImpressions, 
-              debug, 
-              deadlineAt 
-            });
-            
-            if (predictive.googleCampaignRows.length > 0) {
-              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
-              // Adiciona as estimadas ao set de hoje para persistência
-              googleCampaignRows.push(...predictive.googleCampaignRows);
-              googlePlacementRows.push(...predictive.googlePlacementRows);
-            }
-          } catch (predErr) {
-            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
-          }
-        }
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
@@ -799,20 +736,6 @@ function safeDecode(s: string): string {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
-function parseUrlParams(url: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  try {
-    const search = url.split("?")[1];
-    if (!search) return out;
-    for (const part of search.split("&")) {
-      const [k, v] = part.split("=");
-      if (k && v) out[k.toLowerCase()] = safeDecode(v);
-    }
-  } catch { /* ignore */ }
-  return out;
-}
-
-
 // Remove sufixos numéricos entre parênteses adicionados pelo parser/UI do Ads,
 // ex.: "rec-guia-foo (1589883010)" → "rec-guia-foo".
 function cleanPlacementLabel(s: string): string {
@@ -918,6 +841,19 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
   return [...campaignAgg.values()];
 }
 
+function parseUrlParams(raw: string | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  const value = safeDecode(String(raw ?? ""));
+  const query = value.includes("?") ? value.split("?").slice(1).join("?") : value;
+  for (const part of query.split(/[&#]/)) {
+    const [k, ...rest] = part.split("=");
+    if (!k || rest.length === 0) continue;
+    const key = safeDecode(k).trim().toLowerCase();
+    if (key.startsWith("utm_")) out[key] = safeDecode(rest.join("=")).trim();
+  }
+  return out;
+}
+
 // Lista custom targeting keys e descobre IDs de utm_source/utm_campaign/utm_placement.
 async function fetchUtmKeyIds(
   networkCode: string,
@@ -962,47 +898,27 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
     const metricGroups = [
-      { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"] },
+      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      // AD_SERVER inclui receita de push/retenção (linhas onde utm_source=push aparece como
+      // line item do Ad Server). Mantemos no fastMode também — sem isso a sync horária do
+      // cron só captura AD_EXCHANGE e o push some do dashboard após alguns dias.
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      ...(fastMode ? [] : [
+        { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      ]),
     ];
     for (const group of metricGroups) {
       try {
-        const groupRows = (await Promise.all(ranges.map(async (range) => {
-          const rows = await runReport({
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({
             networkCode, accessToken, range,
-            dimensions: group.dimensions ?? ["DATE", "KEY_VALUES_NAME"],
+            dimensions: ["DATE", "KEY_VALUES_NAME"],
             metrics: group.metrics,
             debug,
             deadlineAt,
-          });
-          // Se for a dimensão CHANNEL, mapeamos para KEY_VALUES_NAME format para reuso do parser
-          if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
-            return rows.map(r => ({
-              ...r,
-              dims: [r.dims[0], r.dims[1]] // r.dims[1] é o Channel Name
-            }));
-          }
-
-          // Se KEY_VALUES_NAME retornar 0 rows para a data, tentamos CUSTOM_CRITERIA imediatamente
-          if (rows.length === 0) {
-            debug.push(`[${networkCode}/${label}/${group.label}] 0 rows com KEY_VALUES_NAME, tentando CUSTOM_CRITERIA fallback imediato para ${range.dateRange.startDate}...`);
-            try {
-              return await runReport({
-                networkCode, accessToken, range,
-                dimensions: ["DATE", "CUSTOM_CRITERIA"],
-                metrics: group.metrics,
-                debug,
-                deadlineAt,
-              });
-            } catch (err) {
-              debug.push(`[${networkCode}/${label}/${group.label}] fallback CUSTOM_CRITERIA falhou: ${String(err).slice(0, 100)}`);
-              return [];
-            }
-          }
-          return rows;
-        }))).flat();
+          })
+        ))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
         reportRows.push(...groupRows);
       } catch (e) {
@@ -1015,11 +931,8 @@ async function collectUtmAttribution(args: {
   }
 
   const parsedRows = reportRows.map((r) => {
-    const rawKv = r.dims[1] || "";
-    // O Channel Name do Ad Exchange já vem no formato "utm_campaign=123" ou "utm_source=push"
-    // O parser parseKeyValueDimension lida com ambos os formatos (key=value ou key=value;key2=value2)
+    const rawKv = r.dims[1] || ""; // KEY_VALUES_NAME é o 2º dim (após DATE)
     const kv = parseKeyValueDimension(rawKv);
-
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
@@ -1028,13 +941,7 @@ async function collectUtmAttribution(args: {
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-    // Se rawKv não tem formatação de UTM (apenas o número ID), o parser retorna objeto vazio.
-    // Garantimos que se kv estiver vazio e rawKv for um ID válido, usamos ele como cid.
-    let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
-    if (!cid && rawKv && !rawKv.includes("=")) {
-      cid = extractCampaignId(rawKv);
-    }
-
+    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
@@ -1062,37 +969,16 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
     }));
   const campaignRows: AttributedRow[] = parsedRows
-    .filter(({ rawKv, campaignRaw }) => {
-      const cid = extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && extractCampaignId(rawKv));
-      return !!cid;
-    })
-    .map(({ r, rawKv, campaignRaw }) => {
-      let cid = extractCampaignId(campaignRaw);
-      if (!cid && rawKv) {
-        // Se rawKv não tem =, tentamos extrair o ID diretamente.
-        // Se tiver =, o extractCampaignId já lida com utm_campaign=...
-        cid = extractCampaignId(rawKv);
-      }
-      
-      // LOG DE PARSER PARA CAMPANHAS ESPECÍFICAS (AUDITORIA)
-      const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694'];
-      if (cid && auditCids.includes(cid)) {
-        console.log(`[AUDIT_parser] ID ${cid} extraído de rawKv=${rawKv} ou campaignRaw=${campaignRaw}`);
-      }
-
-
-      return {
-        date: r.date,
-        impressions: r.impressions,
-        revenue: r.revenue,
-        source: "google",
-        cid: cid,
-        placement: null,
-        raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
-      };
-    });
-
-
+    .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
+    .map(({ r, rawKv, campaignRaw }) => ({
+      date: r.date,
+      impressions: r.impressions,
+      revenue: r.revenue,
+      source: "google",
+      cid: extractCampaignId(campaignRaw),
+      placement: null,
+      raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+    }));
   const placementRows: AttributedRow[] = parsedRows
     .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
     .map(({ r, rawKv, placementRaw }) => {
@@ -1134,26 +1020,6 @@ async function collectUtmAttribution(args: {
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
-
-  return {
-    retentionRows,
-    googleCampaignRows,
-    googlePlacementRows,
-    campaignSource: label,
-    placementSource: label,
-  };
-}
-
-function rowsToAttributionResult(rows: AttributedRow[], label: string): AttributionResult {
-  const sourceRows = rows.filter((r) => r.source && r.source !== "google" && r.source !== "unknown");
-  const campaignRows = rows.filter((r) => r.source === "google" && r.cid && !r.placement);
-  const placementRows = rows.filter((r) => r.source === "google" && r.placement);
-
-  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
-  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
-  const googlePlacementRows = placementRows.filter((r) => r.placement);
-  const retentionRows = sourceRows;
 
   return {
     retentionRows,
@@ -1243,8 +1109,31 @@ async function runCustomCriteriaCandidate(
   }
 }
 
+async function runUrlNameCandidate(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+): Promise<{ label: string; rows: AttributedRow[] }> {
+  const label = "URL_NAME (URL com parâmetros UTM)";
+  try {
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug })
+    ))).flat();
+    const rows = rowsFromUrlReportRows(reportRows, label);
+    debugUtmCandidate(networkCode, label, "utm_campaign+utm_placement", rows, debug);
+    return { label, rows };
+  } catch (e) {
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    return { label, rows: [] };
+  }
+}
+
+
 // =========================================================================
-// URL-based fallback: Removido URL_NAME (Erro 400 em v1 REST GAM)
+// URL-based fallback: quando uma campanha não tem utm_placement configurado,
+// usamos a URL da página (dimensão URL_NAME do GAM) e casamos com
+// campaign_final_urls para atribuir a receita real ao campaign_id correto.
 // =========================================================================
 function normalizeUrlForMatch(raw: string): string {
   if (!raw) return "";
@@ -1275,6 +1164,7 @@ async function buildFinalUrlMap(
   for (const row of (data ?? []) as any[]) {
     const key = normalizeUrlForMatch(String(row.final_url ?? ""));
     if (!key) continue;
+    // primeira ocorrência ganha (final_url canonical → cid)
     if (!map.has(key)) map.set(key, String(row.campaign_id));
   }
   debug.push(`[URL_FALLBACK/map] urls_indexadas=${map.size} (accounts=${accountIds.length})`);
@@ -1286,299 +1176,54 @@ async function collectUrlAttribution(args: {
   finalUrlMap: Map<string, string>; debug: string[]; deadlineAt?: number;
 }): Promise<AttributedRow[]> {
   const { networkCode, accessToken, ranges, finalUrlMap, debug, deadlineAt } = args;
-  
-  // REGRA: Usar SOAP ReportService para extrair URL_NAME intraday.
-  // REST v1 causa 400 INVALID_ARGUMENT com URL_NAME + métricas combinadas.
+  const out: AttributedRow[] = [];
+  // NOTA: a dimensão "URL_NAME" não é aceita pelo GAM REST v1 (retorna 400 INVALID_ARGUMENT).
+  // O caminho correto agora é garantir UTM padrão em todas as campanhas via
+  // google-ads-sync-campaigns (auto-aplica final_url_suffix). Mantemos o helper desligado.
+  return out;
+  // eslint-disable-next-line no-unreachable
   try {
-    const reportRows = (await Promise.all(ranges.map(async (range) => {
-      if (!range?.dateRange?.startDate) {
-        debug.push(`[${networkCode}/SOAP] range invalido: ${JSON.stringify(range)}`);
-        return [];
-      }
-      try {
-        console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${range.dateRange.startDate}`);
-        const results = await runSoapReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
-        console.log(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
-        debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} rows=${results.length}`);
-        return results;
-      } catch (soapErr) {
-        console.error(`[collectUrlAttribution] SOAP individual range failed for net=${networkCode} range=${range.dateRange.startDate}`, soapErr);
-        debug.push(`[${networkCode}/SOAP] range=${range.dateRange.startDate} falhou individualmente: ${String(soapErr).slice(0, 100)}`);
-        return [];
-      }
-    }))).flat();
-    
-    const label = "URL_NAME (SOAP Intraday)";
-    const rows = rowsFromUrlReportRows(reportRows, label, finalUrlMap);
-    debugUtmCandidate(networkCode, label, "url_parsing", rows, debug);
-    return rows;
-  } catch (e) {
-    console.error(`[collectUrlAttribution] net=${networkCode} soap failed`, e);
-    debug.push(`[${networkCode}/URL_SOAP] erro=${String(e).slice(0, 300)}`);
-    return [];
-  }
-}
-
-async function runSoapReport(args: {
-  networkCode: string;
-  accessToken: string;
-  range: GamRange;
-  dimensions: string[];
-  debug: string[];
-  deadlineAt?: number;
-}): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, debug } = args;
-  
-  // SOAP API v202405 ReportService minimalista
-  const startDate = (String((range?.dateRange as any)?.fixed?.startDate ? `${(range.dateRange as any).fixed.startDate.year}-${String((range.dateRange as any).fixed.startDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.startDate.day).padStart(2, '0')}` : (range?.dateRange?.startDate || "2000-01-01"))).replace(/-/g, "");
-  const endDate = (String((range?.dateRange as any)?.fixed?.endDate ? `${(range.dateRange as any).fixed.endDate.year}-${String((range.dateRange as any).fixed.endDate.month).padStart(2, '0')}-${String((range.dateRange as any).fixed.endDate.day).padStart(2, '0')}` : (range?.dateRange?.endDate || "2000-01-01"))).replace(/-/g, "");
-  
-  const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
-   <soapenv:Header>
-      <v202405:RequestHeader>
-         <v202405:networkCode>${networkCode}</v202405:networkCode>
-         <v202405:applicationName>AdGeniusTracker</v202405:applicationName>
-      </v202405:RequestHeader>
-   </soapenv:Header>
-   <soapenv:Body>
-      <v202405:runReportJob>
-         <v202405:reportJob>
-            <v202405:reportQuery>
-                <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
-                <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
-               <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
-                <v202405:startDate>
-                   <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange as any)?.fixed?.startDate?.day || (String(range?.dateRange?.startDate || "")).split("-")[2] || ""}</v202405:day>
-                </v202405:startDate>
-                <v202405:endDate>
-                   <v202405:year>${(range?.dateRange as any)?.fixed?.endDate?.year || (String(range?.dateRange?.endDate || "")).split("-")[0] || ""}</v202405:year>
-                   <v202405:month>${(range?.dateRange as any)?.fixed?.endDate?.month || (String(range?.dateRange?.endDate || "")).split("-")[1] || ""}</v202405:month>
-                   <v202405:day>${(range?.dateRange as any)?.fixed?.endDate?.day || (String(range?.dateRange?.endDate || "")).split("-")[2] || ""}</v202405:day>
-                </v202405:endDate>
-            </v202405:reportQuery>
-         </v202405:reportJob>
-      </v202405:runReportJob>
-   </soapenv:Body>
-</soapenv:Envelope>`;
-
-  const res = await gamFetch(SOAP_BASE, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${accessToken}`,
-      "Content-Type": "text/xml;charset=UTF-8",
-      "SOAPAction": "runReportJob"
-    },
-    body: soapBody
-  });
-
-  const xml = await res.text();
-  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 1000)}`);
-  if (!res.ok) throw new Error(`SOAP runReportJob failed: ${xml.slice(0, 500)}`);
-
-  const jobIdMatch = xml.match(/<id>(\d+)<\/id>/);
-  if (!jobIdMatch) {
-    console.error(`[SOAP_INIT] Failed to find JobID. XML: ${xml}`);
-    throw new Error("SOAP response missing jobId");
-  }
-  const jobId = jobIdMatch[1];
-  
-  // Poll Job
-  let resultUrl = "";
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    const pollBody = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
-   <soapenv:Header>
-      <v202405:RequestHeader>
-         <v202405:networkCode>${networkCode}</v202405:networkCode>
-         <v202405:applicationName>AdGeniusTracker</v202405:applicationName>
-      </v202405:RequestHeader>
-   </soapenv:Header>
-   <soapenv:Body>
-      <v202405:getReportJobStatus>
-         <v202405:reportJobId>${jobId}</v202405:reportJobId>
-      </v202405:getReportJobStatus>
-   </soapenv:Body>
-</soapenv:Envelope>`;
-
-    const pollRes = await gamFetch(SOAP_BASE, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-        "Content-Type": "text/xml;charset=UTF-8",
-        "SOAPAction": "getReportJobStatus"
-      },
-      body: pollBody
-    });
-    const statusXml = await pollRes.text();
-    if (statusXml.includes("COMPLETED")) {
-      // Get Download URL
-      const downloadBody = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
-   <soapenv:Header>
-      <v202405:RequestHeader>
-         <v202405:networkCode>${networkCode}</v202405:networkCode>
-         <v202405:applicationName>AdGeniusTracker</v202405:applicationName>
-      </v202405:RequestHeader>
-   </soapenv:Header>
-   <soapenv:Body>
-      <v202405:getReportDownloadUrlWithOptions>
-         <v202405:reportJobId>${jobId}</v202405:reportJobId>
-         <v202405:reportDownloadOptions>
-            <v202405:exportFormat>CSV_DUMP</v202405:exportFormat>
-            <v202405:useGzipCompression>false</v202405:useGzipCompression>
-         </v202405:reportDownloadOptions>
-      </v202405:getReportDownloadUrlWithOptions>
-   </soapenv:Body>
-</soapenv:Envelope>`;
-      const dlRes = await gamFetch(SOAP_BASE, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "text/xml;charset=UTF-8",
-          "SOAPAction": "getReportDownloadUrlWithOptions"
-        },
-        body: downloadBody
+    const reportRows = (await Promise.all(ranges.map((range) =>
+      runReport({ networkCode, accessToken, range, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt })
+    ))).flat();
+    let matched = 0;
+    const sampleUrls: string[] = [];
+    for (const r of reportRows) {
+      const rawUrl = r.dims[1] || r.dims[0] || "";
+      if (sampleUrls.length < 5 && rawUrl) sampleUrls.push(rawUrl);
+      const key = normalizeUrlForMatch(rawUrl);
+      const cid = finalUrlMap.get(key);
+      if (!cid) continue;
+      matched++;
+      out.push({
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid,
+        placement: key,
+        raw: `URL_NAME_FALLBACK|url=${rawUrl}|cid=${cid}`,
       });
-      const dlXml = await dlRes.text();
-      const urlMatch = dlXml.match(/<rval>(.*)<\/rval>/);
-      if (urlMatch) {
-        resultUrl = urlMatch[1];
-        break;
-      }
-    } else if (statusXml.includes("FAILED")) {
-      throw new Error("SOAP Report Job Failed");
     }
+    console.log(`[URL_FALLBACK/collect] net=${networkCode} url_rows=${reportRows.length} matched=${matched} sample=${JSON.stringify(sampleUrls)} mapSample=${JSON.stringify([...finalUrlMap.keys()].slice(0, 5))}`);
+    debug.push(`[${networkCode}/URL_FALLBACK] url_rows=${reportRows.length}; matched=${matched}; sample_urls=${JSON.stringify(sampleUrls)}`);
+  } catch (e) {
+    console.error(`[URL_FALLBACK/collect] erro net=${networkCode}`, e);
+    debug.push(`[${networkCode}/URL_FALLBACK] erro=${String(e).slice(0, 500)}`);
   }
-
-  if (!resultUrl) throw new Error("SOAP Report Timeout/Failed to get URL");
-
-  // Download e parse CSV
-  const csvRes = await fetch(resultUrl);
-  const csvText = await csvRes.text();
-  console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
-  console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
-  console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
-  return parseSoapCsv(csvText, dimensions, debug);
+  return out;
 }
 
-function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
-  const lines = csv.split("\n").filter(l => l.trim().length > 0);
-  if (lines.length <= 1) return [];
-  
-  // O dump do GAM pode ter aspas
-  console.log(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 500)}`);
-  debug.push(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 200)}`);
-  const parseLine = (line: string) => {
-    const parts = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') inQuotes = !inQuotes;
-      else if (line[i] === ',' && !inQuotes) {
-        parts.push(current);
-        current = "";
-      } else {
-        current += line[i];
-      }
-    }
-    parts.push(current);
-    return parts;
-  };
-
-  if (!lines[0]) {
-    debug.push(`[parseSoapCsv] CSV sem headers`);
-    return [];
-  }
-  const headers = parseLine(lines[0]);
-  const rows: ReportRow[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseLine(lines[i]);
-    const row: any = { dims: [], impressions: 0, revenue: 0 };
-    
-    dimensions.forEach((dim, idx) => {
-      row.dims.push(cols[idx] || "");
-    });
-    
-    // Procura colunas de métricas. O ReportService expõe nomes como "AD_SERVER_IMPRESSIONS" 
-    const findMetric = (name: string) => {
-      // Prioridade exata para o header
-      let idx = headers.findIndex(h => h.trim() === name);
-      // Fallback para include caso o header venha com networkCode ou sufixos
-      if (idx === -1) idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-      // Fallback agressivo: mapear AD_SERVER_REVENUE e AD_SERVER_CPM_AND_CPC_REVENUE que às vezes trocam
-      if (idx === -1 && name.includes("REVENUE")) {
-         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && h.toUpperCase().includes("SERVER"));
-      }
-      return idx !== -1 ? Number(cols[idx] || 0) : 0;
-    };
-    
-    const adServerImpr = findMetric("AD_SERVER_IMPRESSIONS") || 0;
-    const adExchangeImpr = findMetric("AD_EXCHANGE_IMPRESSIONS") || 0;
-    const adServerRev = (findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0) / 1_000_000;
-    const adExchangeRev = (findMetric("AD_EXCHANGE_REVENUE") || 0) / 1_000_000;
-    
-    // Se a receita for zero mas houver impressões, o header pode ser diferente (ex: "Column.AdServerRevenue")
-    // O CSV DUMP do GAM às vezes usa nomes amigáveis em vez dos nomes da API.
-    row.impressions = adServerImpr + adExchangeImpr;
-    row.revenue = adServerRev + adExchangeRev;
-
-    if (row.revenue === 0 && row.impressions > 0) {
-       // Tentativa desesperada de achar QUALQUER coluna de receita
-       const anyRevIdx = headers.findIndex(h => h.toLowerCase().includes("revenue"));
-       if (anyRevIdx !== -1) {
-          row.revenue = Number(cols[anyRevIdx] || 0) / 1_000_000;
-       }
-    }
-    
-    row.date = row.dims[0];
-    
-    rows.push(row);
-  }
-  return rows;
-}
-
-function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlMap?: Map<string, string>): AttributedRow[] {
+function rowsFromUrlReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
     const params = parseUrlParams(rawUrl);
     const sourceRaw = params.utm_source ?? "";
     const campaignRaw = params.utm_campaign ?? "";
     const placementRaw = params.utm_placement ?? "";
-    
-    // Tenta extrair ID da URL se UTM falhar
-    let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
-    
-    if (!cid) {
-      // Se não houver cid no UTM, tentamos extrair da URL crua 
-      // antes de tentar o map de final URLs (que pode ser ruidoso)
-      cid = extractCampaignId(rawUrl);
-    }
-    
-    if (!cid && finalUrlMap) {
-      // Busca reversa no mapa de URLs finais se disponível
-      for (const [campaignId, url] of finalUrlMap.entries()) {
-
-        if (rawUrl.includes(campaignId) || (url && rawUrl.includes(url))) {
-          cid = campaignId;
-          break;
-        }
-      }
-    }
-    
-
-    const source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : (cid ? "google" : "unknown"); 
-
+    const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
+    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
-
     return {
       date: r.date,
       impressions: r.impressions,
@@ -1651,30 +1296,50 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
   if (!siteId) return;
-  
-  // Otimização: Agrupar AD_REQUESTS e AD_EXCHANGE_MATCH_RATE em um único relatório se possível,
-  // ou pelo menos reduzir as chamadas paralelas excessivas.
   let reportRows: ReportRow[] = [];
   let matchRateRows: ReportRow[] = [];
   let siteMatchRateRows: ReportRow[] = [];
-  
   try {
-    // Tentamos buscar ambos no mesmo request (DATE + KEY_VALUES_NAME)
-    const combined = (await Promise.all(ranges.map((range) =>
+    reportRows = (await Promise.all(ranges.map((range) =>
       runReport({
         networkCode, accessToken, range,
         dimensions: ["DATE", "KEY_VALUES_NAME"],
-        metrics: ["AD_REQUESTS", "AD_EXCHANGE_MATCH_RATE"],
+        metrics: ["AD_REQUESTS"],
         expandedCompatibility: true,
         debug, deadlineAt,
       })
     ))).flat();
-    reportRows = combined;
-    matchRateRows = combined;
-    console.log(`[${networkCode}/total_requests_optimized] rows=${combined.length}`);
+    console.log(`[${networkCode}/total_requests] reportRows=${reportRows.length}`);
   } catch (e) {
-    debug.push(`[${networkCode}/total_requests_optimized] combined report failed, falling back: ${String(e).slice(0, 200)}`);
-    // ... rest of fallback logic remains similar but less aggressive ...
+    debug.push(`[${networkCode}/total_requests] AD_REQUESTS incompatível; tentando AD_EXCHANGE_MATCH_RATE: ${String(e).slice(0, 220)}`);
+  }
+  try {
+    matchRateRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "KEY_VALUES_NAME"],
+        metrics: ["AD_EXCHANGE_MATCH_RATE"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/match_rate] reportRows=${matchRateRows.length}`);
+  } catch (rateErr) {
+    debug.push(`[${networkCode}/match_rate] erro=${String(rateErr).slice(0, 220)}`);
+  }
+  try {
+    siteMatchRateRows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE"],
+        metrics: ["AD_EXCHANGE_MATCH_RATE"],
+        expandedCompatibility: true,
+        debug, deadlineAt,
+      })
+    ))).flat();
+    console.log(`[${networkCode}/match_rate_site] reportRows=${siteMatchRateRows.length}`);
+  } catch (siteRateErr) {
+    debug.push(`[${networkCode}/match_rate_site] erro=${String(siteRateErr).slice(0, 220)}`);
   }
 
   // Agrega por (cid, date) usando a regra oficial:
@@ -1847,89 +1512,46 @@ async function persistCampaignSourceRevenueFromUtm(
 ) {
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
     const cid = r.cid ?? "__aggregate__";
     const key = `${cid}|${date}|${source}`;
-    
-    const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP");
-    const isPredictive = r.raw.includes("PREDICTIVE");
-    const status = (isSoap || isPredictive) ? "intraday" : "consolidated";
-
     const cur = buckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
-      attribution_status: status
     };
-    
-    // Se houver qualquer linha consolidada para este balde, o balde todo vira consolidado
-    if (!isSoap && !isPredictive) cur.attribution_status = "consolidated";
-
     cur.revenue_usd += r.revenue / ingestionDivisor;
     cur.impressions += r.impressions;
     buckets.set(key, cur);
   }
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
-
-  // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
-  const { data: existing } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,attribution_status,revenue_usd")
+  const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-
-  const existingMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string | null; revenue_usd: number }>();
-  for (const r of (existing ?? []) as any[]) {
-    existingMap.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { 
-      total_requests: Number(r.total_requests ?? 0), 
-      match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
-      attribution_status: r.attribution_status || 'consolidated', // Default to consolidated if null
-      revenue_usd: Number(r.revenue_usd || 0)
-    });
+  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
+  for (const r of (existingRequests ?? []) as any[]) {
+    const req = Number(r.total_requests ?? 0);
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
-
-  const finalRows = [];
   for (const b of buckets.values()) {
-    const key = `${b.campaign_id}|${b.date}|${b.utm_source}`;
-    const prev = existingMap.get(key);
-
-    if (prev) {
-      // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
-      if (prev.attribution_status === "consolidated" && b.attribution_status === "intraday") {
-        debug.push(`[gam_campaign_source_revenue] Ignorando intraday para ${key} pois já existe dado consolidado.`);
-        continue;
-      }
-      
-      // Preserva total_requests se já existirem
-      if (prev.total_requests > 0) {
-        b.total_requests = prev.total_requests;
-        b.match_rate_pct = prev.match_rate_pct;
-      }
+    const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
+    if (req && req.total_requests > 0) {
+      b.total_requests = req.total_requests;
+      b.match_rate_pct = req.match_rate_pct;
     }
-    finalRows.push(b);
   }
-
-  if (finalRows.length === 0) {
-    debug.push(`[gam_campaign_source_revenue] SKIP: nenhum dado novo ou mais confiável para inserir.`);
+  const arr = [...buckets.values()];
+  if (arr.length === 0) {
+    debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;
   }
-
-  // Upsert individual ou em batch com tratamento de conflito seria melhor, 
-  // mas como a tabela tem delete/insert no código original, vamos manter a estrutura 
-  // mas filtrando o delete apenas para as chaves que estamos realmente atualizando.
-  for (const row of finalRows) {
-     await admin.from("gam_campaign_source_revenue")
-      .delete()
-      .eq("user_id", userId)
-      .eq("site_id", siteId)
-      .eq("campaign_id", row.campaign_id)
-      .eq("date", row.date)
-      .eq("utm_source", row.utm_source);
-  }
-
+  await admin.from("gam_campaign_source_revenue")
+    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const CHUNK = 500;
-  for (let i = 0; i < finalRows.length; i += CHUNK) {
-    await admin.from("gam_campaign_source_revenue").insert(finalRows.slice(i, i + CHUNK));
+  for (let i = 0; i < arr.length; i += CHUNK) {
+    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
   }
   const sources = arr.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
@@ -1954,7 +1576,7 @@ async function applyGoogleUtmRevenue(
   if (!siteId) return;
   const today = new Date().toISOString().slice(0, 10);
 
-  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string; attribution_status?: string }>();
+  const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
   const directByDateCid = new Map<string, Map<string, { revenue: number; impressions: number }>>();
   const googleTotalByDate = new Map<string, { revenue: number; impressions: number }>();
   for (const r of googleCampaignRows) {
@@ -1979,7 +1601,6 @@ async function applyGoogleUtmRevenue(
     const pb = placementBuckets.get(key) ?? {
       user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
       date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
-      attribution_status: (r.raw.includes("SOAP") || r.raw.includes("URL_NAME")) ? "intraday" : "consolidated"
     };
     pb.revenue_usd += r.revenue / ingestionDivisor;
     pb.impressions += r.impressions;
@@ -1989,148 +1610,52 @@ async function applyGoogleUtmRevenue(
   // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
   // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
   const arr = [...placementBuckets.values()];
-  const hasData = arr.length > 0 || googleCampaignRows.length > 0;
-  
-  if (!hasData) {
-    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM.`);
+  if (arr.length === 0) {
+    debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (provável rate-limit/quota). Mantendo snapshot anterior.`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
-    
-    // Busca dados existentes para evitar sobrescrever 'consolidated' por 'intraday'
-    const { data: existingPlacements } = await admin.from("gam_placement_revenue")
-      .select("campaign_id, placement, date, attribution_status")
-      .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
-    
-    const existingPMap = new Map<string, string>();
-    for (const r of (existingPlacements ?? []) as any[]) {
-      existingPMap.set(`${r.campaign_id}|${r.placement}|${r.date}`, r.attribution_status || 'consolidated');
+    await admin.from("gam_placement_revenue")
+      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    const CHUNK = 500;
+    for (let i = 0; i < arr.length; i += CHUNK) {
+      await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
     }
+    debug.push(`[gam_placement_revenue] ${arr.length} linha(s) (site_currency=${siteCurrency}, divisor=${ingestionDivisor})`);
 
-    const finalPlacements = arr.filter(p => {
-      const key = `${p.campaign_id}|${p.placement}|${p.date}`;
-      const prevStatus = existingPMap.get(key);
-      if (prevStatus === 'consolidated' && p.attribution_status === 'intraday') {
-        return false;
-      }
-      return true;
-    });
-
-    if (finalPlacements.length > 0) {
-      for (const row of finalPlacements) {
-        await admin.from("gam_placement_revenue")
-          .delete()
-          .eq("user_id", userId)
-          .eq("site_id", siteId)
-          .eq("campaign_id", row.campaign_id)
-          .eq("placement", row.placement)
-          .eq("date", row.date);
-      }
-      const CHUNK = 500;
-      for (let i = 0; i < finalPlacements.length; i += CHUNK) {
-        await admin.from("gam_placement_revenue").insert(finalPlacements.slice(i, i + CHUNK));
-      }
-    }
-    debug.push(`[gam_placement_revenue] ${finalPlacements.length} linha(s) processadas.`);
-
-    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; attribution_status?: string }>();
-    
-    // 1. Inicializa com dados das campanhas (pode vir de SOAP/URL_NAME sem placement)
-    for (const r of googleCampaignRows) {
-      if (!r.cid) continue;
-      const date = r.date ?? today;
-      const source = (r.source || "google").toLowerCase();
-      const key = `${r.cid}|${date}`;
-      
-      const isSoap = r.raw.includes("SOAP") || r.raw.includes("URL_NAME") || (r as any).label?.includes("SOAP") || r.raw.includes("PREDICTIVE");
-      const status = isSoap ? "intraday" : "consolidated";
-
-      const cur = sourceByCampaign.get(key) ?? { 
-        user_id: userId, site_id: siteId, campaign_id: r.cid, date, 
-        utm_source: source, revenue_usd: 0, impressions: 0, 
-        attribution_status: status 
-      };
-      
-      // Se tivermos qualquer linha consolidada para essa campanha/data, o status final do bucket é consolidado
-      if (!isSoap) cur.attribution_status = "consolidated";
-      
-      cur.revenue_usd += Number(r.revenue / ingestionDivisor || 0);
-      cur.impressions += Number(r.impressions || 0);
+    const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
+    for (const p of arr) {
+      const key = `${p.campaign_id}|${p.date}`;
+      const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
+      cur.revenue_usd += Number(p.revenue_usd || 0);
+      cur.impressions += Number(p.impressions || 0);
       sourceByCampaign.set(key, cur);
     }
-
-    // 2. Complementa/Sobrescreve com dados por placement se houver (mais detalhado)
-    // Nota: Se já adicionamos via googleCampaignRows, evitamos duplicar se a fonte for a mesma.
-    // Mas geralmente o sync roda OU um OU outro para o mesmo range de data.
-    if (arr.length > 0) {
-      for (const p of arr) {
-        const key = `${p.campaign_id}|${p.date}`;
-        let cur = sourceByCampaign.get(key);
-        if (!cur) {
-          cur = { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0, attribution_status: p.attribution_status };
-          sourceByCampaign.set(key, cur);
-        } else {
-          // Se já existe e a linha de placement é 'consolidated', garante o status
-          if (p.attribution_status === "consolidated") cur.attribution_status = "consolidated";
-          // Se a receita do placement for significativamente diferente do que já temos (ex: SOAP vs REST),
-          // confiamos no placement (REST) como fonte da verdade se for consolidado.
-          // Aqui, apenas somamos se não vier da mesma fonte, mas para simplificar:
-          // as googlePlacementRows no loop 1800 já são filtradas.
-        }
-      }
-    }
-
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
-    const { data: existingSource } = cids.length ? await admin.from("gam_campaign_source_revenue")
-      .select("campaign_id,date,total_requests,match_rate_pct,attribution_status")
+    const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
+      .select("campaign_id,date,total_requests,match_rate_pct")
       .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
-    
-    const existingSMap = new Map<string, { total_requests: number; match_rate_pct: number | null; attribution_status: string }>();
-    for (const r of (existingSource ?? []) as any[]) {
-      existingSMap.set(`${r.campaign_id}|${r.date}`, {
-        total_requests: Number(r.total_requests || 0),
-        match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
-        attribution_status: r.attribution_status || 'consolidated'
-      });
-    }
-
-    const finalSourceRows = [];
-    for (const b of sourceByCampaign.values()) {
-      const key = `${b.campaign_id}|${b.date}`;
-      const prev = existingSMap.get(key);
-      
-      // LOG DE AUDITORIA CRÍTICO PARA O USUÁRIO
-      if (b.campaign_id === '23207554976') {
-        console.log(`[AUDIT_ persist] Campaign 23207554976 found! rev=${b.revenue_usd} status=${b.attribution_status} site=${b.site_id}`);
-        debug.push(`[AUDIT_persist] Campanha 23207554976 processada: R$ ${(b.revenue_usd * fx.usdBrl).toFixed(2)} (${b.attribution_status})`);
-      }
-
-      if (prev) {
-        // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
-        if (prev.attribution_status === 'consolidated' && b.attribution_status === 'intraday') {
-          continue;
-        }
-        if (prev.total_requests > 0) {
-          b.total_requests = prev.total_requests;
-          b.match_rate_pct = prev.match_rate_pct;
+    for (const r of (existingSourceRequests ?? []) as any[]) {
+      const req = Number(r.total_requests ?? 0);
+      if (req > 0) {
+        const key = `${r.campaign_id}|${r.date}`;
+        const cur = sourceByCampaign.get(key);
+        if (cur) {
+          cur.total_requests = req;
+          cur.match_rate_pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
         }
       }
-      finalSourceRows.push(b);
     }
-
-
-    if (finalSourceRows.length > 0) {
-      for (let i = 0; i < finalSourceRows.length; i += CHUNK) {
-        await admin.from("gam_campaign_source_revenue").upsert(finalSourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-      }
+    const sourceRows = [...sourceByCampaign.values()];
+    for (let i = 0; i < sourceRows.length; i += CHUNK) {
+      await admin.from("gam_campaign_source_revenue").upsert(sourceRows.slice(i, i + CHUNK), { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
     }
-    debug.push(`[gam_campaign_source_revenue/google] ${finalSourceRows.length} linha(s) processadas (consolidated/intraday sync)`);
+    debug.push(`[gam_campaign_source_revenue/google] ${sourceRows.length} linha(s) alinhadas por placement`);
   }
 
   const { data: links } = await admin
     .from("account_site_links")
     .select("google_account_id")
-    // Removemos filtro por user_id aqui pois o site já pertence ao usuário
-    // e o link pode ter sido criado com um user_id divergente em sessões anteriores.
+    .eq("user_id", userId)
     .eq("site_id", siteId);
   const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
@@ -2154,31 +1679,17 @@ async function applyGoogleUtmRevenue(
     // usá-la como primário subnotifica receita de pushes e outras fontes.
     const cids = [...new Set((metrics as any[]).map((m) => String(m.campaign_id)))];
 
-    // AUDITORIA DE QUERY
-    const auditCids = ['23207554976', '23309079322', '23021142139'];
-    const hasAuditCid = cids.some(c => auditCids.includes(c));
-    if (hasAuditCid) {
-      debug.push(`[AUDIT_query] Buscando receita para CIDs: ${cids.filter(c => auditCids.includes(c)).join(',')} em ${date}`);
-    }
-
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
-      .select("campaign_id, revenue_usd, utm_source")
+      .select("campaign_id, revenue_usd")
       .eq("user_id", userId)
       .eq("date", date)
       .in("campaign_id", cids);
-
     const aggregatedByCid = new Map<string, number>();
     for (const r of (allSourceRows ?? []) as any[]) {
-      const cid = String(r.campaign_id).trim();
-      const rev = Number(r.revenue_usd ?? 0);
-      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
-      
-      if (auditCids.includes(cid)) {
-        debug.push(`[AUDIT_query_match] Encontrado em source_revenue: cid=${cid} rev=$${rev.toFixed(4)} source=${r.utm_source}`);
-      }
+      const cid = String(r.campaign_id);
+      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
     }
-
 
     // Fallback: se uma campanha não aparecer em source_revenue, tenta placement_revenue.
     const missingCids = cids.filter((c) => !aggregatedByCid.has(c));
@@ -2207,23 +1718,12 @@ async function applyGoogleUtmRevenue(
     for (const m of metrics as any[]) {
       const cid = String(m.campaign_id);
       const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
-      if (revenueUsd > 0) {
-        matchedIds.add(cid);
-        if (auditCids.includes(cid)) {
-           debug.push(`[AUDIT_final_match] CID ${cid} terá receita na dash: $${revenueUsd.toFixed(4)}`);
-        }
-      }
-
+      if (revenueUsd > 0) matchedIds.add(cid);
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
       const impressions = Number(m.impressions ?? 0);
       const profit = revenueBrl - spendBrl;
-      
-      // Se receita é zero e há gasto, o ROI deve ser -100%, não -6.5% (RevShare).
-      // O revshare só deve incidir sobre a receita bruta.
-      const roi = spendBrl > 0 
-        ? (revenueUsd > 0 ? (profit / spendBrl) * 100 : -100)
-        : 0;
+      const roi = spendBrl > 0 ? (profit / spendBrl) * 100 : 0;
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
       const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
@@ -2636,96 +2136,4 @@ async function persistSiteMetricsDaily(
     await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
   }
   debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
-}
-
-
-async function collectPredictiveIntradayAttribution(args: {
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  totalSiteRevenue: number;
-  totalSiteImpressions: number;
-  debug: string[];
-  deadlineAt?: number;
-}): Promise<AttributionResult> {
-  const { networkCode, accessToken, ranges, totalSiteRevenue, totalSiteImpressions, debug, deadlineAt } = args;
-  
-  // REGRA SENIOR: Puxar apenas impressões (sem receita) para evitar Erro 400 e latência.
-  // Google libera dimensões de targeting com métricas de inventário (impressões) instantaneamente.
-  const metrics = ["AD_SERVER_IMPRESSIONS", "AD_EXCHANGE_IMPRESSIONS"];
-  const label = "PREDICTIVE_INTRADAY";
-
-  try {
-    const reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({ 
-        networkCode, 
-        accessToken, 
-        range, 
-        dimensions: ["DATE", "KEY_VALUES_NAME"], 
-        metrics, 
-        debug, 
-        deadlineAt 
-      })
-    ))).flat();
-
-    if (reportRows.length === 0) {
-      debug.push(`[${label}] 0 rows encontrados para impressões intraday.`);
-      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-    }
-
-    // Agregamos as impressões por campanha
-    const campaignImpressions = new Map<string, { impr: number; date: string; rawKv: string }>();
-    let totalAttributedImpressions = 0;
-
-    for (const r of reportRows) {
-      const rawKv = r.dims[1] || "";
-      const kv = parseKeyValueDimension(rawKv);
-      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
-      if (!cid || !r.date) continue;
-
-      const key = `${cid}|${r.date}`;
-      const cur = campaignImpressions.get(key) ?? { impr: 0, date: r.date, rawKv };
-      cur.impr += r.impressions;
-      totalAttributedImpressions += r.impressions;
-      campaignImpressions.set(key, cur);
-    }
-
-    if (totalAttributedImpressions === 0) {
-      debug.push(`[${label}] Impressões atribuídas = 0.`);
-      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-    }
-
-    // Distribuímos a receita proporcionalmente
-    const googleCampaignRows: AttributedRow[] = [];
-    for (const [key, data] of campaignImpressions.entries()) {
-      const [cid] = key.split("|");
-      const share = data.impr / totalAttributedImpressions; // Use total atribuído para a proporção interna
-      const siteShare = data.impr / totalSiteImpressions; // Use total do site para a receita real
-      const estimatedRev = totalSiteRevenue * siteShare;
-      
-      googleCampaignRows.push({
-        date: data.date,
-        impressions: data.impr,
-        revenue: estimatedRev,
-        source: "google",
-        cid: cid,
-        placement: null,
-        raw: `PREDICTIVE|utm_source=google|raw=${data.rawKv.slice(0, 150)}|share=${(siteShare * 100).toFixed(2)}%`
-      });
-    }
-
-    debug.push(`[${label}] Sucesso: ${googleCampaignRows.length} campanhas estimadas via share de impressões.`);
-    
-    return {
-      retentionRows: [],
-      googleCampaignRows,
-      googlePlacementRows: [],
-      campaignSource: label,
-      placementSource: label
-    };
-
-  } catch (e) {
-    debug.push(`[${label}] Erro na coleta: ${String(e)}`);
-    return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-  }
 }

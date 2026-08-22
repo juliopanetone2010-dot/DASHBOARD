@@ -1,7 +1,7 @@
 // Retorna a última hora com impressões no GAM para uma data específica.
 // Usa report HISTORICAL com dimensions=[DATE, HOUR] e metric AD_SERVER_IMPRESSIONS.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";

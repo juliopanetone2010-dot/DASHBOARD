@@ -1,7 +1,7 @@
 // Aplica final_url_suffix com UTM padrão em TODAS as campanhas (ou filtradas) do usuário.
 // Padrão: utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { devTokenFor, getCreds, normalizeApiSet } from "../_shared/google_api_set.ts";
 
 const SUFFIX = [
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
           partialFailure: true,
         };
         const r = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/campaigns:mutate`,
+          `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/campaigns:mutate`,
           { method: "POST", headers, body: JSON.stringify(mutateBody) },
         );
         const j = await r.json();

@@ -12,7 +12,7 @@
 // Defaults: hours=6, dry_run=false. Sempre escopado ao usuário autenticado.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 Deno.serve(async (req) => {
@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         };
         if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-        const apiBase = `https://googleads.googleapis.com/v18/customers/${acc.customer_id}`;
+        const apiBase = `https://googleads.googleapis.com/v24/customers/${acc.customer_id}`;
 
         if (act.action_type === "adjust_budget") {
           const budgetId = p.budget_id;

@@ -5,7 +5,7 @@
 //   3) Frankfurter (BCE, diário)
 //   4) open.er-api (fallback global, 1x/dia)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const PAIRS: Array<{ from: string; to: string }> = [
   { from: "USD", to: "BRL" },

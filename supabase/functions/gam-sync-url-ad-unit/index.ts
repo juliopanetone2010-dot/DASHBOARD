@@ -1,7 +1,7 @@
 // Sincroniza métricas do GAM cruzando URL_NAME x AD_UNIT_NAME.
 // Popula a tabela `gam_url_ad_unit_daily` para o cálculo de "Melhor Match por Bloco".
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";

@@ -41,11 +41,11 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="text-[10px] sm:text-xs">Segmento</TableHead>
-              <TableHead className="text-right text-[10px] sm:text-xs">Gasto</TableHead>
-              <TableHead className="text-right text-[10px] sm:text-xs">Receita</TableHead>
-              <TableHead className="text-right text-[10px] sm:text-xs">Lucro</TableHead>
-              <TableHead className="text-right text-[10px] sm:text-xs">ROI</TableHead>
+              <TableHead>Segmento</TableHead>
+              <TableHead className="text-right">Gasto</TableHead>
+              <TableHead className="text-right">Receita</TableHead>
+              <TableHead className="text-right">Lucro</TableHead>
+              <TableHead className="text-right">ROI</TableHead>
               {withImpressions && <TableHead className="text-right">Impressões</TableHead>}
               {withImpressions && <TableHead className="text-right">eCPM</TableHead>}
             </TableRow>
@@ -55,10 +55,10 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
               const positive = r.profit >= 0;
               return (
                 <TableRow key={r.key}>
-                  <TableCell className="font-medium text-[10px] sm:text-sm">{r.label}</TableCell>
-                  <TableCell className="text-right tabular-nums text-[10px] sm:text-sm">{fmtCurrency(r.spend)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-[10px] sm:text-sm">{fmtUSD(r.revenue)}</TableCell>
-                  <TableCell className={cn("text-right font-semibold tabular-nums text-[10px] sm:text-sm", positive ? "text-success" : "text-danger")}>
+                  <TableCell className="font-medium">{r.label}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtCurrency(r.spend)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtUSD(r.revenue)}</TableCell>
+                  <TableCell className={cn("text-right font-semibold tabular-nums", positive ? "text-success" : "text-danger")}>
                     {fmtCurrency(r.profit)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -70,12 +70,12 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
                     </span>
                   </TableCell>
                   {withImpressions && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground text-[10px] sm:text-xs">
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
                       {fmtNumber(r.impressions ?? 0)}
                     </TableCell>
                   )}
                   {withImpressions && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground text-[10px] sm:text-xs">
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
                       {(r.ecpm ?? 0).toFixed(2)}
                     </TableCell>
                   )}

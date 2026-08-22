@@ -1663,7 +1663,6 @@ export type Database = {
       }
       gam_campaign_source_revenue: {
         Row: {
-          attribution_status: string | null
           campaign_id: string
           created_at: string
           date: string
@@ -1677,7 +1676,6 @@ export type Database = {
           utm_source: string
         }
         Insert: {
-          attribution_status?: string | null
           campaign_id: string
           created_at?: string
           date: string
@@ -1691,7 +1689,6 @@ export type Database = {
           utm_source: string
         }
         Update: {
-          attribution_status?: string | null
           campaign_id?: string
           created_at?: string
           date?: string
@@ -1708,7 +1705,6 @@ export type Database = {
       }
       gam_placement_revenue: {
         Row: {
-          attribution_status: string | null
           campaign_id: string
           created_at: string
           date: string
@@ -1723,7 +1719,6 @@ export type Database = {
           utm_source: string | null
         }
         Insert: {
-          attribution_status?: string | null
           campaign_id: string
           created_at?: string
           date: string
@@ -1738,7 +1733,6 @@ export type Database = {
           utm_source?: string | null
         }
         Update: {
-          attribution_status?: string | null
           campaign_id?: string
           created_at?: string
           date?: string
@@ -1916,7 +1910,6 @@ export type Database = {
           manager_account_id: string | null
           refresh_token: string | null
           status: string
-          sync_enabled: boolean | null
           user_id: string
         }
         Insert: {
@@ -1933,7 +1926,6 @@ export type Database = {
           manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
-          sync_enabled?: boolean | null
           user_id: string
         }
         Update: {
@@ -1950,7 +1942,6 @@ export type Database = {
           manager_account_id?: string | null
           refresh_token?: string | null
           status?: string
-          sync_enabled?: boolean | null
           user_id?: string
         }
         Relationships: []
@@ -3280,10 +3271,8 @@ export type Database = {
           last_full_sync_at: string | null
           name: string
           network_code: string
-          next_sync_allowed_at: string | null
           status: string
           sync_error: string | null
-          sync_lock: boolean | null
           sync_started_at: string | null
           sync_status: string
           updated_at: string
@@ -3300,10 +3289,8 @@ export type Database = {
           last_full_sync_at?: string | null
           name: string
           network_code: string
-          next_sync_allowed_at?: string | null
           status?: string
           sync_error?: string | null
-          sync_lock?: boolean | null
           sync_started_at?: string | null
           sync_status?: string
           updated_at?: string
@@ -3320,10 +3307,8 @@ export type Database = {
           last_full_sync_at?: string | null
           name?: string
           network_code?: string
-          next_sync_allowed_at?: string | null
           status?: string
           sync_error?: string | null
-          sync_lock?: boolean | null
           sync_started_at?: string | null
           sync_status?: string
           updated_at?: string
@@ -3367,14 +3352,12 @@ export type Database = {
       sync_state: {
         Row: {
           created_at: string
-          failed_accounts: string[] | null
           google_account_id: string | null
           id: string
           last_error: string | null
           last_finished_at: string | null
           last_started_at: string | null
           last_status: string
-          metadata: Json | null
           rows_synced: number | null
           site_id: string | null
           source: string
@@ -3383,14 +3366,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          failed_accounts?: string[] | null
           google_account_id?: string | null
           id?: string
           last_error?: string | null
           last_finished_at?: string | null
           last_started_at?: string | null
           last_status?: string
-          metadata?: Json | null
           rows_synced?: number | null
           site_id?: string | null
           source: string
@@ -3399,14 +3380,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          failed_accounts?: string[] | null
           google_account_id?: string | null
           id?: string
           last_error?: string | null
           last_finished_at?: string | null
           last_started_at?: string | null
           last_status?: string
-          metadata?: Json | null
           rows_synced?: number | null
           site_id?: string | null
           source?: string

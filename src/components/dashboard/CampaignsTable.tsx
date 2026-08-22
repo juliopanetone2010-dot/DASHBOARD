@@ -100,10 +100,9 @@ interface Props {
   onRefresh?: () => Promise<void> | void;
   dateRange?: { from: string; to: string };
   siteId?: string;
-  isIntraday?: boolean;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -135,7 +134,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "spend", label: "Gasto", width: 100 },
     { key: "revenue", label: "Receita", width: 110 },
     { key: "profit", label: "Lucro", width: 110 },
-    { key: "roi", label: "ROI", width: 110 },
+    { key: "roi", label: "ROI", width: 90 },
     { key: "trend", label: "Tendência", width: 100 },
     { key: "roas", label: "ROAS", width: 80 },
     { key: "ecpm", label: "eCPM", width: 100 },
@@ -180,9 +179,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     age: { label: "Idade", sortKey: "age", align: "right" },
     lastAction: { label: "Última ação", align: "left" },
     spend: { label: "Gasto", sortKey: "spend", align: "right" },
-    revenue: { label: isIntraday ? "Receita ESTIMADA" : "Receita", sortKey: "revenue", align: "right" },
-    profit: { label: isIntraday ? "Lucro ESTIMADO" : "Lucro", sortKey: "profit", align: "right" },
-    roi: { label: isIntraday ? "ROI ESTIMADO" : "ROI", sortKey: "roi", align: "right" },
+    revenue: { label: "Receita", sortKey: "revenue", align: "right" },
+    profit: { label: "Lucro", sortKey: "profit", align: "right" },
+    roi: { label: "ROI", sortKey: "roi", align: "right" },
     trend: { label: "Tendência", sortKey: "trend", align: "right" },
     roas: { label: "ROAS", sortKey: "roas", align: "right" },
     ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
@@ -1535,7 +1534,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               <TableRow>
                 <TableHead>Campaign ID</TableHead>
                 <TableHead>Nome</TableHead>
-                <TableHead className="text-right">ROI (ESTIMADO)</TableHead>
+                <TableHead className="text-right">ROI</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>

@@ -10,7 +10,7 @@
 // Se qualquer check falhar, pula o site (sem atualizar last_run_at) — ele tenta
 // de novo no próximo cron, depois que o sync recuperar.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

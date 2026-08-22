@@ -1,7 +1,7 @@
 // Desfaz negativações de placements aplicadas em campanhas (Google Ads).
 // Body: { items: [{ campaign_id, google_account_id, placement }] }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 interface Item {
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
         // Busca os campaign_criteria negativos da campanha
         const query = `SELECT campaign_criterion.resource_name, campaign_criterion.placement.url, campaign_criterion.mobile_application.app_id, campaign_criterion.type, campaign_criterion.negative FROM campaign_criterion WHERE campaign.id = ${g.campaign_id} AND campaign_criterion.negative = TRUE AND campaign_criterion.type IN ('PLACEMENT','MOBILE_APPLICATION')`;
         const sr = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/googleAds:search`,
+          `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query }) },
         );
         const sj = await sr.json();
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
           out.push({ campaign_id: g.campaign_id, removed: 0, note: "no_negative_found" });
         } else {
           const mr = await fetch(
-            `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
+            `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
             { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
           );
           const mj = await mr.json();

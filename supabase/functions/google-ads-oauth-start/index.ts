@@ -1,22 +1,13 @@
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 import { devTokenFor, listApiSets, normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
-Deno.serve(async (req) => {
+Deno.serve((req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  let body: any = {};
-  if (req.method === "POST") {
-    try {
-      body = await req.json();
-    } catch (e) {
-      console.error("Error parsing body:", e);
-    }
-  }
-
   const url = new URL(req.url);
-  const redirectUri = body.redirect_uri || req.headers.get("x-redirect-uri") || url.searchParams.get("redirect_uri") || "";
-  const apiSet = normalizeApiSet(body.api_set || req.headers.get("x-api-set") || url.searchParams.get("api_set") || 1);
-  const state = body.state || url.searchParams.get("state") || JSON.stringify({ id: crypto.randomUUID(), api_set: apiSet });
+  const redirectUri = url.searchParams.get("redirect_uri") ?? "";
+  const state = url.searchParams.get("state") ?? crypto.randomUUID();
+  const apiSet = normalizeApiSet(url.searchParams.get("api_set") ?? 1);
 
   const devToken = devTokenFor(apiSet);
   const creds = tryGetCreds(apiSet);

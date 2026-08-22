@@ -5,7 +5,7 @@
 // para que as outras engines IGNorem campanhas durante a janela de observação.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
 
 type Json = Record<string, unknown>;
 

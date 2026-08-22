@@ -130,37 +130,35 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
   };
 
   return (
-    <div className="rounded-xl border border-border bg-card p-2 sm:p-3 shadow-elegant space-y-2 sm:space-y-3">
-      <div className="flex flex-wrap items-center gap-1">
-        <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground pr-1">
-          <Zap className="h-3 w-3" /> Período
+    <div className="rounded-xl border border-border bg-card p-3 shadow-elegant space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-1">
+          <Zap className="h-3.5 w-3.5" /> Período
         </div>
-        <div className="flex flex-wrap gap-1">
-          {DATE_PRESETS.map((p) => (
-            <Button
-              key={p.key}
-              type="button"
-              size="sm"
-              variant={activePreset === p.key ? "default" : "outline"}
-              onClick={() => applyPreset(p.key)}
-              className="h-7 px-2 text-[10px] sm:text-xs"
-            >
-              {p.label}
-            </Button>
-          ))}
-        </div>
+        {DATE_PRESETS.map((p) => (
+          <Button
+            key={p.key}
+            type="button"
+            size="sm"
+            variant={activePreset === p.key ? "default" : "outline"}
+            onClick={() => applyPreset(p.key)}
+            className="h-8"
+          >
+            {p.label}
+          </Button>
+        ))}
       </div>
 
-      <div className="flex flex-wrap items-end gap-2 pt-1 border-t border-border/50">
-        <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground pb-1.5 pr-1">
-          <Filter className="h-3 w-3" /> Filtros
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground pb-1.5 pr-1">
+          <Filter className="h-3.5 w-3.5" /> Filtros
         </div>
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Conta Ads</label>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" className="h-8 w-[160px] sm:w-[210px] justify-between gap-2 px-2 text-xs font-normal">
+              <Button type="button" variant="outline" className="h-9 w-[210px] justify-between gap-2 px-3 font-normal">
                 <span className="truncate">{accountLabel}</span>
                 <ChevronDown className="h-3.5 w-3.5 opacity-70" />
               </Button>
@@ -197,7 +195,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Site</label>
           <Select value={filters.siteId} onValueChange={handleSiteChange}>
-            <SelectTrigger className="h-8 w-[140px] sm:w-[180px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os sites</SelectItem>
               {sites.map((s) => (
@@ -210,7 +208,7 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Campanha</label>
           <Select value={filters.campaignId} onValueChange={(v) => set("campaignId", v)}>
-            <SelectTrigger className="h-8 w-[160px] sm:w-[200px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-9 w-[200px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as campanhas</SelectItem>
               {campaigns.map((c) => (
@@ -224,23 +222,23 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
 
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">De</label>
-            <Input
-              type="date" className="h-8 w-[120px] sm:w-[150px] text-xs"
+          <Input
+            type="date" className="h-9 w-[150px]"
             value={filters.fromDate}
             onChange={(e) => set("fromDate", e.target.value)}
           />
         </div>
         <div className="space-y-1">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Até</label>
-            <Input
-              type="date" className="h-8 w-[120px] sm:w-[150px] text-xs"
+          <Input
+            type="date" className="h-9 w-[150px]"
             value={filters.toDate}
             onChange={(e) => set("toDate", e.target.value)}
           />
         </div>
 
         {isDirty && (
-          <Button variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)} className="h-8 gap-1 text-xs">
+          <Button variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)} className="h-9 gap-1">
             <X className="h-3.5 w-3.5" /> Limpar
           </Button>
         )}

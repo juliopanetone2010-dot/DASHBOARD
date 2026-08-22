@@ -37,7 +37,7 @@ export function MetricCard({ label, value, icon: Icon, variant = "default", hint
         <div className="sm:order-1 space-y-1 sm:space-y-1.5 min-w-0 flex-1">
           <p
             className={cn(
-              "text-[10px] sm:text-[11px] font-bold uppercase tracking-tighter sm:tracking-wider leading-none",
+              "text-[10px] sm:text-xs font-medium uppercase tracking-wider",
               isColored ? "opacity-90" : "text-muted-foreground",
             )}
           >
