@@ -193,6 +193,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
+    debug.push(`[debug] found ${sites?.length || 0} sites. first_network=${sites?.[0]?.network_code}`);
+
 
     const isManualSync = parsedBody?.sync === true;
 
