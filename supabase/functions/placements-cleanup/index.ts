@@ -889,7 +889,7 @@ async function fetchLiveAdsPlacements(
       let pageToken: string | undefined;
       do {
         const res = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`,
+          `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
         );
         const data = await res.json();
@@ -1108,7 +1108,7 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         };
       });
       const r = await fetch(
-        `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
+        `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
         { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
       );
       const j = await r.json();
