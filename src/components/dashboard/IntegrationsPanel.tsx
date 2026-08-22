@@ -88,7 +88,96 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Acordei e os problemas continuam so que pior o site universo dos cartoes, nao esta puxando os gastos do google ads, é algum problema de token? se for a gente configura tudo denovo, é melhor confere ai
+              ACHEI A CAUSA DO ADS SYNC.
+
+Os logs mostram que o backend está chamando:
+
+https://googleads.googleapis.com/v18/...
+
+e recebendo:
+
+HTTP 404
+Content-Type: text/html
+&lt;!DOCTYPE html&gt;
+
+Por isso ocorre:
+
+SyntaxError: Unexpected token '&lt;'
+
+A Google Ads API v18 está sunset/descontinuada e não pode mais ser utilizada.
+
+Portanto, a alteração recente que trocou as funções de v24 para v18 está errada e quebrou a sincronização.
+
+Quero que você faça uma auditoria em TODO o projeto e localize todas as chamadas para:
+
+googleads.googleapis.com/v18
+
+e qualquer constante equivalente:
+
+GOOGLE_ADS_API_VERSION = v18
+
+Não altere ainda sem revisar compatibilidade.
+
+Depois migre todas as funções do Google Ads para uma versão atualmente suportada, preferencialmente v24 ou v25, utilizando a mesma versão de forma consistente em:
+
+ busca das MCCs;
+
+ listagem de subcontas;
+
+ campanhas;
+
+GoogleAdsService.Search;
+
+SearchStream;
+
+ métricas;
+
+ gastos;
+
+ funções Edge;
+
+ sync manual;
+
+ cron;
+
+ Set 1;
+
+ Set 2.
+
+Após atualizar, faça um teste mínimo:
+
+Customer ID 6209877933
+
+buscando:
+
+campaign.id
+campaign.name
+metrics.cost_micros
+
+Quero confirmar que a resposta agora é:
+
+HTTP 200
+Content-Type: application/json
+
+e não HTML/404.
+
+Depois teste também a MCC:
+
+4345381395
+
+e o Set 2 separadamente.
+
+No final me mostre:
+
+Versão antiga encontrada:
+Versão nova aplicada:
+Endpoint testado:
+HTTP status:
+Content-Type:
+Campanhas retornadas:
+Gasto retornado:
+
+Não mexa no Google Ad Manager. Esse erro é exclusivamente da Google Ads API v18.
             </p>
           </div>
         </div>
