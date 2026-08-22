@@ -17,26 +17,19 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "").trim();
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
     
-    // Check for service role bypass first
-    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
-
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
+    const { data: site } = await admin.from("sites").select("id, name, network_code, user_id").eq("id", siteId).maybeSingle();
     
-    let userId = "";
-    if (isServiceKey) {
-      console.log(`[gam-kv-diagnose] Service key identified. SiteId: ${siteId}`);
-      const { data: sOwner } = await admin.from("sites").select("user_id").eq("id", siteId).maybeSingle();
-      userId = sOwner?.user_id || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
-    } else {
-      console.log(`[gam-kv-diagnose] Standard user auth. Token length: ${token.length}`);
+    if (!site?.network_code) return json({ error: "Site sem network_code ou não encontrado", siteId });
+    
+    const userId = site.user_id;
+    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+    
+    if (!isServiceKey) {
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
       const { data: { user } } = await userClient.auth.getUser(token);
-      if (!user) return json({ error: "Token inválido", token_len: token.length });
-      userId = user.id;
+      if (!user || user.id !== userId) return json({ error: "Não autorizado", userId: user?.id, ownerId: userId });
     }
-
-    const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", siteId).eq("user_id", userId).maybeSingle();
-    if (!site?.network_code) return json({ error: "Site sem network_code", siteId, userId });
 
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
