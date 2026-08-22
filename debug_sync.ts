@@ -23,8 +23,13 @@ async function testSync() {
 
   if (error) {
     console.error("Invoke error:", error);
+    try {
+      const text = await error.context.text();
+      console.log("Error context text:", text);
+    } catch(e) {}
     return;
   }
+
 
   console.log("Full Debug Logs (first 50 lines):", JSON.stringify(data.debug?.slice(0, 50), null, 2));
   
