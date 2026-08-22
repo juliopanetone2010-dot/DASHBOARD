@@ -2170,9 +2170,15 @@ async function applyGoogleUtmRevenue(
 
     const aggregatedByCid = new Map<string, number>();
     for (const r of (allSourceRows ?? []) as any[]) {
-      const cid = String(r.campaign_id);
-      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+      const cid = String(r.campaign_id).trim();
+      const rev = Number(r.revenue_usd ?? 0);
+      aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + rev);
+      
+      if (auditCids.includes(cid)) {
+        debug.push(`[AUDIT_query_match] Encontrado em source_revenue: cid=${cid} rev=$${rev.toFixed(4)} source=${r.utm_source}`);
+      }
     }
+
 
     // Fallback: se uma campanha não aparecer em source_revenue, tenta placement_revenue.
     const missingCids = cids.filter((c) => !aggregatedByCid.has(c));
