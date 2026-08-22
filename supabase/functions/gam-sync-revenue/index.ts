@@ -1064,7 +1064,7 @@ async function collectUtmAttribution(args: {
     }));
   const campaignRows: AttributedRow[] = parsedRows
     .filter(({ rawKv, campaignRaw, sourceRaw }) => {
-      // Filtra linhas que possuem um ID de campanha válido
+      // Filtra linhas que possuem um ID de campanha válido (removido !rawKv.includes("=") para maior abrangência)
       const cid = extractCampaignId(campaignRaw) || (rawKv && extractCampaignId(rawKv));
       return !!cid;
     })
