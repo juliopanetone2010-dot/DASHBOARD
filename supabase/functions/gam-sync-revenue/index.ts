@@ -139,34 +139,29 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     );
     const token = authHeader?.replace("Bearer ", "").trim() || "";
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
-    let userId: string | undefined;
+    let userId = "";
 
     const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
     
     if (skipAuth || isServiceKey) {
-      userId = requestedUserId ?? undefined;
+      userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
       debug.push(`[auth] authenticated via ${skipAuth ? "skipAuth" : "service_role"}. target_user=${userId}`);
     } else {
       const { data: { user } } = await userClient.auth.getUser(token);
-      userId = user?.id;
-    }
-    
-    if (!userId && !skipAuth) {
-      return json({ 
-        error: "Token inválido", 
-        debug: { 
-          skipAuth, 
-          requestedUserId, 
-          authHeader: authHeader?.slice(0, 15), 
-          bodySync: parsedBody?.sync,
-          tokenLen: token.length,
-          srkLen: serviceRoleKey.length
-        } 
-      });
-    }
-
-    if (!userId) {
-        userId = requestedUserId ?? "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
+      if (!user) {
+         return json({ 
+            error: "Token inválido", 
+            debug: { 
+              skipAuth, 
+              requestedUserId, 
+              authHeader: authHeader?.slice(0, 15), 
+              bodySync: parsedBody?.sync,
+              tokenLen: token.length,
+              srkLen: serviceRoleKey.length
+            } 
+          });
+      }
+      userId = user.id;
     }
 
 
