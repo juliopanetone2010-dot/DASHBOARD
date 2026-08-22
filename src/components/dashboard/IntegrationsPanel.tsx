@@ -93,7 +93,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-RESPONDA MINHA PERGUNTA AS RECEITAS ESTAO SEM NUMEROS
+RESTAURA TODAS AS CONFIGURACOES PRO DIA 20 DE AGOSTO, E PUXE AUTOMATICAMENTE AS CAMPANHAS E A RECEITA!
             </p>
           </div>
         </div>
