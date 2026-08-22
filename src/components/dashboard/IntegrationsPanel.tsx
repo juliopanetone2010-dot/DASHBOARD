@@ -164,7 +164,6 @@ export function IntegrationsPanel(props: Props) {
   };
 
   return (
-  return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
         <div className="flex items-center gap-2">
