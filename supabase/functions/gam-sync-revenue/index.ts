@@ -166,8 +166,11 @@ async function runSync(req: Request): Promise<Response> {
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
 
+    const body = await req.clone().json().catch(() => ({}));
+    const isManualSync = body?.sync === true;
+
     // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (control?.sync === true || testMode) {
+    if (isManualSync || testMode) {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("YESTERDAY", null, null, false);
@@ -195,12 +198,12 @@ async function runSync(req: Request): Promise<Response> {
             created_at: new Date().toISOString()
           };
           const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT executado: ${!insErr ? "SIM" : "NÃO (" + insErr.message + ")"}`);
+          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT executado: ${!insErr ? "SIM" : "NÃO (" + (insErr?.message || "erro desconhecido") + ")"}`);
         } else {
           debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada no report bruto do GAM (YESTERDAY).");
         }
-      } catch (e) {
-        debug.push(`[AUDIT_MANUAL_ERROR] ${e.message}`);
+      } catch (e: any) {
+        debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
       }
     }
 
