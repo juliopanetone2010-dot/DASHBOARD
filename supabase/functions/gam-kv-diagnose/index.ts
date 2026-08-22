@@ -15,10 +15,19 @@ Deno.serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
-    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: claims } = await userClient.auth.getClaims(token);
-    const userId = claims?.claims?.sub;
-    if (!userId) return json({ error: "Token inválido" });
+    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+
+    let userId = "";
+    if (isServiceKey) {
+      // Use standard admin user or the first one found
+      userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
+    } else {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: { user } } = await userClient.auth.getUser(token);
+      if (!user) return json({ error: "Token inválido" });
+      userId = user.id;
+    }
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", siteId).eq("user_id", userId).maybeSingle();
