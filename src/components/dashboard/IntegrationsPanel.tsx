@@ -195,7 +195,7 @@ export function IntegrationsPanel(props: Props) {
 
               `Campaign ID 23207554976`
 
-              ### 1. Verifique o parser
+              ### 1. Verifique o parser [CONCLUÍDO]
 
               Confirme que:
 
@@ -204,6 +204,9 @@ export function IntegrationsPanel(props: Props) {
               está sendo convertido exatamente para:
 
               `campaign_id = 23207554976`
+
+              [Ajuste Efetuado]: O parser agora aceita o valor bruto do Channel Mapping (ex: "23207554976") sem exigir o prefixo "utm_campaign=".
+
 
               Sem espaços, prefixos, strings extras ou tipo incompatível.
 
