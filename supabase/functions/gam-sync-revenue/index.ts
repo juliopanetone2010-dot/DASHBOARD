@@ -2940,3 +2940,101 @@ async function persistSiteMetricsDaily(
 
 
 // Predictive Intraday Fallback REMOVIDO por solicitação do usuário.
+
+async function runGamAudit(siteId: string, sa: any, debug: string[]) {
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: site } = await admin.from("sites").select("*").eq("id", siteId).single();
+  if (!site) return { error: "Site not found" };
+  const networkCode = site.network_code;
+  const accessToken = await getGamAccessToken(sa);
+
+  const auditData: any = { networkCode, keys: [] };
+
+  // 1. Audit utm_campaign key via CustomTargetingService
+  const keysSoap = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
+   <soapenv:Header>
+      <v202405:RequestHeader>
+         <v202405:networkCode>${networkCode}</v202405:networkCode>
+         <v202405:applicationName>AdGeniusTracker</v202405:applicationName>
+      </v202405:RequestHeader>
+   </soapenv:Header>
+   <soapenv:Body>
+      <v202405:getCustomTargetingKeysByStatement>
+         <v202405:filterStatement>
+            <v202405:query>WHERE name = 'utm_campaign'</v202405:query>
+         </v202405:filterStatement>
+      </v202405:getCustomTargetingKeysByStatement>
+   </soapenv:Body>
+</soapenv:Envelope>`;
+
+  const keysRes = await gamFetch("https://www.google.com/apis/ads/publisher/v202405/CustomTargetingService", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "text/xml", "SOAPAction": "getCustomTargetingKeysByStatement" },
+    body: keysSoap
+  });
+  const keysXml = await keysRes.text();
+  debug.push(`[audit] keys_xml=${keysXml.slice(0, 500)}`);
+
+  const keyIdMatch = keysXml.match(/<id>(\d+)<\/id>/);
+  if (keyIdMatch) {
+    const keyId = keyIdMatch[1];
+    auditData.utm_campaign_key = {
+      id: keyId,
+      name: 'utm_campaign',
+      type: keysXml.includes("FREEFORM") ? "FREEFORM" : "PREDEFINED",
+      status: keysXml.includes("ACTIVE") ? "ACTIVE" : "INACTIVE",
+      reportable: keysXml.includes("<reportableType>REPORTABLE") ? "YES" : "NO",
+      customDimension: keysXml.includes("CUSTOM_DIMENSION") ? "YES" : "NO"
+    };
+
+    // Count values
+    const valsSoap = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
+   <soapenv:Header><v202405:RequestHeader><v202405:networkCode>${networkCode}</v202405:networkCode><v202405:applicationName>AdGeniusTracker</v202405:applicationName></v202405:RequestHeader></soapenv:Header>
+   <soapenv:Body>
+      <v202405:getCustomTargetingValuesByStatement>
+         <v202405:filterStatement>
+            <v202405:query>WHERE customTargetingKeyId = ${keyId} LIMIT 1</v202405:query>
+         </v202405:filterStatement>
+      </v202405:getCustomTargetingValuesByStatement>
+   </soapenv:Body>
+</soapenv:Envelope>`;
+    const valsRes = await gamFetch("https://www.google.com/apis/ads/publisher/v202405/CustomTargetingService", {
+       method: "POST",
+       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "text/xml", "SOAPAction": "getCustomTargetingValuesByStatement" },
+       body: valsSoap
+    });
+    const valsXml = await valsRes.text();
+    const totalMatch = valsXml.match(/<totalResultSetSize>(\d+)<\/totalResultSetSize>/);
+    auditData.utm_campaign_key.totalValues = totalMatch ? totalMatch[1] : "unknown";
+  }
+
+  // 2. Check for the specific Campaign ID 23207554976 as a value
+  if (auditData.utm_campaign_key) {
+    const checkValSoap = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
+   <soapenv:Header><v202405:RequestHeader><v202405:networkCode>${networkCode}</v202405:networkCode><v202405:applicationName>AdGeniusTracker</v202405:applicationName></v202405:RequestHeader></soapenv:Header>
+   <soapenv:Body>
+      <v202405:getCustomTargetingValuesByStatement>
+         <v202405:filterStatement>
+            <v202405:query>WHERE customTargetingKeyId = ${auditData.utm_campaign_key.id} AND name = '23207554976'</v202405:query>
+         </v202405:filterStatement>
+      </v202405:getCustomTargetingValuesByStatement>
+   </soapenv:Body>
+</soapenv:Envelope>`;
+    const checkValRes = await gamFetch("https://www.google.com/apis/ads/publisher/v202405/CustomTargetingService", {
+       method: "POST",
+       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "text/xml", "SOAPAction": "getCustomTargetingValuesByStatement" },
+       body: checkValSoap
+    });
+    const checkValXml = await checkValRes.text();
+    auditData.specific_cid_23207554976 = {
+       exists: checkValXml.includes("23207554976"),
+       status: checkValXml.includes("ACTIVE") ? "ACTIVE" : "MISSING/INACTIVE",
+       reportable: checkValXml.includes("<reportableType>REPORTABLE") ? "YES" : "NO"
+    };
+  }
+
+  return auditData;
+}
