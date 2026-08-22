@@ -567,20 +567,16 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         }));
 
 
-        // NOVO: Fallback Preditivo Intraday (Senior Solution)
-        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
-        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
-        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
+        // Fallback Preditivo Intraday REMOVIDO por solicitação do usuário.
         const siteTodayRows = viewabilityRows.filter(r => r.date === todayStr);
         const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
         const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
         
-        // SEGURANÇA: Fallback preditivo desativado por solicitação do usuário.
-        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
-        const hasRealSegmentedData = false; 
+        // SEGURANÇA: Fallback preditivo desativado. 
+        const hasRealSegmentedData = true; 
 
         if (false) {
-          // Bloco desativado
+           // Bloco mantido desativado
         }
 
         if (!testMode) {
