@@ -213,12 +213,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_DFP_AD_UNIT_ID...");
+           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_AD_UNIT_HIERARCHY...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "AD_EXCHANGE_DFP_AD_UNIT_ID"],
+              dimensions: ["DATE", "AD_EXCHANGE_AD_UNIT_HIERARCHY"],
               debug
            });
            auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
