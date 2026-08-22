@@ -84,7 +84,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     debug.push(`[entry] runSync called with body=${JSON.stringify(parsedBody).slice(0, 200)}`);
 
     const authHeader = req.headers.get("Authorization");
-    if (!skipAuth && !authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
+    debug.push(`[auth] skipAuth=${skipAuth} authHeader_present=${!!authHeader}`);
+    if (!skipAuth && !authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório", debug });
+
 
 
 
@@ -132,15 +134,15 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     debug.push(`[debug] Starting runSync...`);
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
 
-    if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
+    if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada", debug });
     let sa: { client_email: string; private_key: string };
     try {
       sa = JSON.parse(saJsonRaw);
     } catch {
-      return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)" });
+      return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)", debug });
     }
     if (!sa.client_email || !sa.private_key) {
-      return json({ error: "Service Account JSON sem client_email/private_key" });
+      return json({ error: "Service Account JSON sem client_email/private_key", debug });
     }
 
     const userClient = createClient(
