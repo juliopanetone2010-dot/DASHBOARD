@@ -437,7 +437,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           debug.push(`[${networkCode}] SOAP URL_NAME retornou ${urlRows.length} linhas brutas.`);
           
           if (urlRows.length > 0) {
-            const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
+            const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)", debug);
             debug.push(`[${networkCode}] SOAP Intraday parsed: campaigns=${soapAttribution.googleCampaignRows.length}, placements=${soapAttribution.googlePlacementRows.length}`);
             
             // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
@@ -1037,10 +1037,12 @@ async function fetchUtmKeyIds(
 }
 
 async function collectUtmAttribution(args: {
-  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean;
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean; label?: string;
 }): Promise<AttributionResult> {
+
   const { networkCode, accessToken, ranges, debug, deadlineAt, fastMode } = args;
-  const label = "KEY_VALUES_NAME";
+  const label = args.label || "KEY_VALUES_NAME";
+
 
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
   // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
@@ -1123,17 +1125,18 @@ async function collectUtmAttribution(args: {
   // LOG DE AUDITORIA CRÍTICO: Inspeciona TODAS as linhas brutas antes do parser
   if (reportRows.length > 0) {
     const rawAudit = reportRows.slice(0, 30).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
-    debug.push(`[AUDIT_RAW_DATA] total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
+    debug.push(`[AUDIT_RAW_DATA] label=${label} total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
     
     // Procura especificamente pelos IDs de auditoria nos dados crus
     const targetIds = ['23207554976', '23309079322', '22922896278', '22923001384'];
     for (const r of reportRows) {
       const rowStr = JSON.stringify(r.dims);
       if (targetIds.some(id => rowStr.includes(id))) {
-        debug.push(`[AUDIT_RAW_MATCH_FOUND] id_detected in dims=${rowStr} rev=${r.revenue}`);
+        debug.push(`[AUDIT_RAW_MATCH_FOUND] label=${label} id_detected in dims=${rowStr} rev=${r.revenue}`);
       }
     }
   }
+
 
 
 
@@ -1869,7 +1872,7 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
   }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
 }
 
-function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string, debug?: string[]): AttributedRow[] {
   return reportRows.map((r) => {
     const rawKv = r.dims[1] || r.dims[0] || "";
     const kv = parseKeyValueDimension(rawKv);
