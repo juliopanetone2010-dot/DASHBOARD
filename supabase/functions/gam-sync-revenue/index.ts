@@ -231,6 +231,16 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
+    
+    const token = authHeader?.replace("Bearer ", "").trim() || "";
+    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+    const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+    
+    if (parsedBody?.mode === "audit_gam") {
+      debug.push(`[audit] In-flow audit for site=${requestedSiteId}`);
+      const auditRes = await runGamAudit(requestedSiteId || sites[0].id, sa, debug, userId);
+      return json({ ok: true, audit: auditRes, debug });
+    }
     debug.push(`[debug] found ${sites?.length || 0} sites. first_network=${sites?.[0]?.network_code}`);
 
 
