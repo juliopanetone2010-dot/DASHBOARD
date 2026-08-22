@@ -199,29 +199,29 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com CUSTOM_CRITERIA para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com PLACEMENT_NAME para range 2026-08-21...`);
         
         let soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "CUSTOM_CRITERIA"],
+           dimensions: ["DATE", "PLACEMENT_NAME"],
            debug
         });
         
         debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
-        let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
+        let auditRow = soapRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
         
         if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Fallback para SOAP KEY_VALUES_NAME...");
+           debug.push("[AUDIT_MANUAL] Fallback para SOAP MASTER_AD_UNIT_NAME...");
            const pRows = await runSoapReport({
               networkCode: sites[0].network_code,
               accessToken,
               range: ranges[0],
-              dimensions: ["DATE", "KEY_VALUES_NAME"],
+              dimensions: ["DATE", "MASTER_AD_UNIT_NAME"],
               debug
            });
-           auditRow = pRows.find(r => r.dims.some(d => d.includes("23207554976")));
+           auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
         }
 
         if (auditRow) {
