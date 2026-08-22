@@ -1122,9 +1122,19 @@ async function collectUtmAttribution(args: {
 
   // LOG DE AUDITORIA CRÍTICO: Inspeciona TODAS as linhas brutas antes do parser
   if (reportRows.length > 0) {
-    const rawAudit = reportRows.slice(0, 15).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
+    const rawAudit = reportRows.slice(0, 30).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
     debug.push(`[AUDIT_RAW_DATA] total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
+    
+    // Procura especificamente pelos IDs de auditoria nos dados crus
+    const targetIds = ['23207554976', '23309079322', '22922896278', '22923001384'];
+    for (const r of reportRows) {
+      const rowStr = JSON.stringify(r.dims);
+      if (targetIds.some(id => rowStr.includes(id))) {
+        debug.push(`[AUDIT_RAW_MATCH_FOUND] id_detected in dims=${rowStr} rev=${r.revenue}`);
+      }
+    }
   }
+
 
 
   const parsedRows = reportRows.map((r) => {
@@ -1149,7 +1159,7 @@ async function collectUtmAttribution(args: {
       cid = extractCampaignId(rawKv);
     }
 
-    const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394', '22922896278', '22923001384'];
     if (cid && auditCidsList.includes(cid)) {
       debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
     }

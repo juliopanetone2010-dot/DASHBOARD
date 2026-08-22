@@ -5,7 +5,7 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testSync() {
-  console.log("Starting debug sync for CID 23207554976 (Full Attribution Mode)...");
+  console.log("Starting deep audit sync...");
   
   const payload = {
     sync: true,
@@ -28,15 +28,14 @@ async function testSync() {
 
   // Filtrar o log de debug para encontrar os termos de auditoria
   const auditLogs = data.debug?.filter((l: string) => 
-    l.includes("AUDIT") || l.includes("SOAP_RAW") || l.includes("23207554976") || l.includes("SHORT_ID")
+    l.includes("AUDIT") || 
+    l.includes("SOAP_RAW") || 
+    l.includes("23207554976") || 
+    l.includes("SHORT_ID") ||
+    l.includes("MATCH_FOUND")
   ) || [];
   
   console.log("Audit Logs Found:", JSON.stringify(auditLogs, null, 2));
-  if (data.summary) {
-    data.summary.forEach((s: any) => {
-        console.log(`Network ${s.network_code} (${s.sites?.join(', ')}): Mode=${s.mode} Rows=${s.rows_returned}`);
-    });
-  }
 }
 
 testSync();
