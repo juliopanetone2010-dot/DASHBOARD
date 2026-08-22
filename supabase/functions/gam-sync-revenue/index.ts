@@ -192,9 +192,6 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     debug.push("got access token");
 
     const isManualSync = parsedBody?.sync === true;
-    
-    // Auditoria manual solicitada pelo usuário para ID 23207554976
-    const isManualSync = parsedBody?.sync === true;
 
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
