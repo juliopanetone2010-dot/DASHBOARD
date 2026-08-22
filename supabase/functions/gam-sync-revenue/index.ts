@@ -325,7 +325,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
              });
              continue;
           }
-
+          summary.push({
+            network_code: networkCode,
+            sites: networkSites.map((s) => s.name),
+            mode: "site_metrics_only",
             rows_returned: metricRows.length,
             total_revenue_native: metricTotals.revenue,
             total_impressions: metricTotals.impressions,
@@ -379,8 +382,6 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
 
-        const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
-        // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
         let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
         
         if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
@@ -397,19 +398,14 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           debug.push(`[${networkCode}] Forçando SOAP URL_NAME candidate (hoje=${todayStr})...`);
           
           const soapRanges = ranges.map(r => {
-            console.log(`[SOAP_FIXED] mapping range: ${JSON.stringify(r)}`);
-
             const today = new Date();
             const start = new Date(today);
             const end = new Date(today);
             
             const rd = (r as any).dateRange;
-            // Deno/Client range objects can vary in shape
             const relative = rd?.relative || (typeof rd === 'string' ? rd : "");
             
-            if (relative === "TODAY") {
-              // start/end already set to today
-            } else if (relative === "YESTERDAY") {
+            if (relative === "YESTERDAY") {
               start.setUTCDate(today.getUTCDate() - 1);
               end.setUTCDate(today.getUTCDate() - 1);
             } else if (relative === "LAST_7_DAYS") {
@@ -422,7 +418,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
               start.setUTCFullYear(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
               end.setUTCFullYear(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
             } else if (rd?.fixed?.startDate) {
-              return r; // SOAP format
+              return r;
             }
 
             return {
@@ -467,40 +463,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           }
         }
         
-        // AGORA O PULO DO GATO: Predictive Intraday Fallback
-        // Se após KEY_VALUES_NAME, CUSTOM_CRITERIA e SOAP, ainda tivermos campanhas sem receita (ou nenhuma campanha),
-        // mas o site tem receita total no AD_EXCHANGE, distribuímos essa receita proporcionalmente baseada em impressões.
-        const totalSiteRevenue = siteDailyMetrics.reduce((sum, m) => sum + m.rev, 0);
-        const totalSiteImpressions = siteDailyMetrics.reduce((sum, m) => sum + m.impr, 0);
-        const totalAttributedRevenue = attribution.googleCampaignRows.reduce((sum, r) => sum + r.revenue, 0);
-
-        if (totalSiteRevenue > 0.01 && totalAttributedRevenue < (totalSiteRevenue * 0.95) && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Receita atribuída (${totalAttributedRevenue.toFixed(2)}) < 95% da receita total (${totalSiteRevenue.toFixed(2)}). Tentando PREDICTIVE fallback...`);
-          const predictive = await collectPredictiveIntradayAttribution({
-            networkCode,
-            accessToken,
-            ranges,
-            totalSiteRevenue,
-            totalSiteImpressions,
-            debug,
-            deadlineAt
-          });
-          
-          if (predictive.googleCampaignRows.length > 0) {
-            // Mescla os dados do Predictive proporcional
-            for (const sr of predictive.googleCampaignRows) {
-               const idx = attribution.googleCampaignRows.findIndex(gr => gr.cid === sr.cid && gr.date === sr.date);
-               if (idx === -1) {
-                 attribution.googleCampaignRows.push(sr);
-               } else if (attribution.googleCampaignRows[idx].revenue < 0.0001 && sr.revenue > 0) {
-                 attribution.googleCampaignRows[idx] = sr;
-               }
-            }
-            debug.push(`[${networkCode}] Predictive fallback concluído.`);
-          }
-        }
-          }
-        }
+        // Predictive Intraday Fallback REMOVIDO por solicitação do usuário.
+        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
+        debug.push(`[${networkCode}] Predictive fallback desativado.`);
         
 
         const utmRows = attribution.retentionRows;
@@ -596,21 +561,13 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         }));
 
 
-        // NOVO: Fallback Preditivo Intraday (Senior Solution)
-        // Se ainda não temos dados segmentados para hoje, mas temos a receita TOTAL do site
-        // (que o Google libera rápido via dimensão DATE), distribuímos essa receita
-        // baseada nas impressões em tempo real (que também saem rápido via KEY_VALUES_NAME).
+        // Fallback Preditivo Intraday REMOVIDO por solicitação do usuário.
         const siteTodayRows = viewabilityRows.filter(r => r.date === todayStr);
         const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
         const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
         
-        // SEGURANÇA: Fallback preditivo desativado por solicitação do usuário.
-        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
-        const hasRealSegmentedData = false; 
+        // Fallback preditivo desativado permanentemente. 
 
-        if (false) {
-          // Bloco desativado
-        }
 
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
@@ -1533,7 +1490,6 @@ async function collectUrlAttribution(args: {
         return [];
       }
     }))).flat();
-    }))).flat();
     
     const label = "URL_NAME (SOAP Intraday)";
     const rows = rowsFromUrlReportRows(reportRows, label, finalUrlMap);
@@ -1728,54 +1684,7 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     return [];
   }
   
-  // Encontrar o cabeçalho e pular metadados se houver
-  let headerIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes("Dimension.DATE") || lines[i].toLowerCase().includes("date")) {
-      headerIndex = i;
-      break;
-    }
-  }
-  
-  if (headerIndex === -1) {
-    console.log(`[parseSoapCsv] Header not found, using first line as header.`);
-    headerIndex = 0;
-  }
-  
-  const headers = lines[headerIndex].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
-  console.log(`[parseSoapCsv] Detected headers: ${headers.join(", ")}`);
-
-  const rows: ReportRow[] = [];
-  for (let i = headerIndex + 1; i < lines.length; i++) {
-    const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
-    if (vals.length < headers.length) continue;
-    
-    const row: any = {};
-    headers.forEach((h, idx) => {
-      // Map Dimensions
-      if (h.includes("Dimension.DATE")) row.date = vals[idx];
-      else if (h.includes("Dimension.URL_NAME")) row.urlName = vals[idx];
-      else if (h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME")) row.channelName = vals[idx];
-      
-      // Map Columns
-      else if (h.includes("Column.AD_EXCHANGE_REVENUE")) row.revenue = parseFloat(vals[idx]) / 1000000;
-      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_REVENUE")) {
-          const rev = parseFloat(vals[idx]) / 1000000;
-          if (!row.revenue || rev > row.revenue) row.revenue = rev;
-      }
-      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_IMPRESSIONS")) row.impressions = parseInt(vals[idx]);
-    });
-    
-    if (row.date) rows.push(row);
-  }
-  
-  console.log(`[parseSoapCsv] Returning ${rows.length} rows`);
-  return rows;
-}
-  
   // O dump do GAM pode ter aspas
-  console.log(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 500)}`);
-  debug.push(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 200)}`);
   const parseLine = (line: string) => {
     const parts = [];
     let current = "";
@@ -1790,37 +1699,50 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
       }
     }
     parts.push(current);
-    return parts;
+    return parts.map(p => p.trim().replace(/^"|"$/g, ''));
   };
 
-  if (!lines[0]) {
-    debug.push(`[parseSoapCsv] CSV sem headers`);
-    return [];
+  // Encontrar o cabeçalho e pular metadados se houver
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes("Dimension.DATE") || lines[i].toLowerCase().includes("date")) {
+      headerIndex = i;
+      break;
+    }
   }
-  const headers = parseLine(lines[0]);
+  
+  if (headerIndex === -1) {
+    headerIndex = 0;
+  }
+  
+  const headers = parseLine(lines[headerIndex]);
+  console.log(`[parseSoapCsv] Detected headers count: ${headers.length}`);
+
   const rows: ReportRow[] = [];
   
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIndex + 1; i < lines.length; i++) {
     const cols = parseLine(lines[i]);
-    const row: any = { dims: [], impressions: 0, revenue: 0 };
+    if (cols.length < headers.length) continue;
     
+    const row: ReportRow = { dims: [], impressions: 0, revenue: 0, date: "" };
+    
+    // Map Dimensions
     dimensions.forEach((dim, idx) => {
       row.dims.push(cols[idx] || "");
     });
+    
     // Extra dimension AD_EXCHANGE_URL_CHANNEL_NAME if it was added in runSoapReport
-    if (cols.length > dimensions.length && !row.dims[dimensions.length]) {
-       row.dims.push(cols[dimensions.length] || "");
+    // or if dimensions didn't include it but it's in the CSV
+    const channelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
+    if (channelIdx !== -1 && row.dims.length <= channelIdx) {
+       row.dims[channelIdx] = cols[channelIdx] || "";
     }
     
-    // Procura colunas de métricas. O ReportService expõe nomes como "AD_SERVER_IMPRESSIONS" 
     const findMetric = (name: string) => {
-      // Prioridade exata para o header
       let idx = headers.findIndex(h => h.trim() === name);
-      // Fallback para include caso o header venha com networkCode ou sufixos
       if (idx === -1) idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-      // Fallback agressivo: mapear AD_SERVER_REVENUE e AD_SERVER_CPM_AND_CPC_REVENUE que às vezes trocam
       if (idx === -1 && name.includes("REVENUE")) {
-         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && h.toUpperCase().includes("SERVER"));
+         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && (h.toUpperCase().includes("SERVER") || h.toUpperCase().includes("EXCHANGE")));
       }
       return idx !== -1 ? Number(cols[idx] || 0) : 0;
     };
@@ -1830,22 +1752,20 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     const adServerRev = (findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0) / 1_000_000;
     const adExchangeRev = (findMetric("AD_EXCHANGE_REVENUE") || 0) / 1_000_000;
     
-    // Se a receita for zero mas houver impressões, o header pode ser diferente (ex: "Column.AdServerRevenue")
-    // O CSV DUMP do GAM às vezes usa nomes amigáveis em vez dos nomes da API.
     row.impressions = adServerImpr + adExchangeImpr;
     row.revenue = adServerRev + adExchangeRev;
 
     if (row.revenue === 0 && row.impressions > 0) {
-       // Tentativa desesperada de achar QUALQUER coluna de receita
        const anyRevIdx = headers.findIndex(h => h.toLowerCase().includes("revenue"));
        if (anyRevIdx !== -1) {
           row.revenue = Number(cols[anyRevIdx] || 0) / 1_000_000;
        }
     }
     
-    row.date = row.dims[0];
+    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
+    row.date = dateIdx !== -1 ? cols[dateIdx] : (row.dims[0] || "");
     
-    rows.push(row);
+    if (row.date) rows.push(row);
   }
   return rows;
 }
@@ -2878,11 +2798,8 @@ async function persistSiteMetricsDaily(
         .maybeSingle();
       let nextImpr = v.impr;
       let nextRev = v.rev;
-      if (opts?.preserveHigherExisting && exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
-        nextRev = Number(exists.revenue_native ?? 0);
-        nextImpr = Math.max(Number(exists.impressions ?? 0), v.impr);
-        debug.push(`[site_metrics_daily] fallback preserved higher existing site=${siteId} date=${date} existing=${nextRev} incoming=${v.rev}`);
-      }
+      // Preservação de valores maiores desativada por solicitação do usuário.
+      // Mantemos o que o GAM reportou nesta sincronização.
       const ecpm = nextImpr > 0 ? (nextRev / nextImpr) * 1000 : 0;
       if (exists) {
         await admin.from("site_metrics_daily")
@@ -2919,33 +2836,9 @@ async function persistSiteMetricsDaily(
     ecpm_native: number;
     updated_at: string;
   }>;
-  const existingByDate = new Map<string, any>();
-  if (opts?.preserveHigherExisting) {
-    const dateList = [...byDate.keys()];
-    const { data: existingRows } = dateList.length > 0 ? await admin
-      .from("site_metrics_daily")
-      .select("date, impressions, measurable_impressions, viewable_impressions, revenue_native, currency")
-      .eq("user_id", userId)
-      .eq("site_id", siteId)
-      .in("date", dateList) : { data: [] };
-    for (const r of existingRows ?? []) existingByDate.set(String(r.date), r);
-  }
 
-  let preservedHigher = 0;
   for (const [date, v] of byDate.entries()) {
-    const existing = existingByDate.get(date);
-    let next = v;
-    const existingRevenue = Number(existing?.revenue_native ?? 0);
-    const nextRevenue = Number(v.rev ?? 0);
-    if (opts?.preserveHigherExisting && existing && existingRevenue > nextRevenue + 1) {
-      preservedHigher++;
-      next = {
-        impr: Math.max(Number(existing.impressions ?? 0), v.impr),
-        meas: Math.max(Number(existing.measurable_impressions ?? 0), v.meas),
-        view: Math.max(Number(existing.viewable_impressions ?? 0), v.view),
-        rev: existingRevenue,
-      };
-    }
+    const next = v;
     payload.push({
       user_id: userId,
       site_id: siteId,
@@ -2962,97 +2855,8 @@ async function persistSiteMetricsDaily(
   for (let i = 0; i < payload.length; i += 500) {
     await admin.from("site_metrics_daily").upsert(payload.slice(i, i + 500), { onConflict: "user_id,site_id,date" });
   }
-  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}${preservedHigher ? ` preserved_higher=${preservedHigher}` : ""}`);
+  debug.push(`[site_metrics_daily] site=${siteId} rows=${payload.length} currency=${currency}`);
 }
 
 
-async function collectPredictiveIntradayAttribution(args: {
-  networkCode: string;
-  accessToken: string;
-  ranges: GamRange[];
-  totalSiteRevenue: number;
-  totalSiteImpressions: number;
-  debug: string[];
-  deadlineAt?: number;
-}): Promise<AttributionResult> {
-  const { networkCode, accessToken, ranges, totalSiteRevenue, totalSiteImpressions, debug, deadlineAt } = args;
-  
-  // REGRA SENIOR: Puxar apenas impressões (sem receita) para evitar Erro 400 e latência.
-  // Google libera dimensões de targeting com métricas de inventário (impressões) instantaneamente.
-  const metrics = ["AD_SERVER_IMPRESSIONS", "AD_EXCHANGE_IMPRESSIONS"];
-  const label = "PREDICTIVE_INTRADAY";
-
-  try {
-    const reportRows = (await Promise.all(ranges.map((range) =>
-      runReport({ 
-        networkCode, 
-        accessToken, 
-        range, 
-        dimensions: ["DATE", "KEY_VALUES_NAME"], 
-        metrics, 
-        debug, 
-        deadlineAt 
-      })
-    ))).flat();
-
-    if (reportRows.length === 0) {
-      debug.push(`[${label}] 0 rows encontrados para impressões intraday.`);
-      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-    }
-
-    // Agregamos as impressões por campanha
-    const campaignImpressions = new Map<string, { impr: number; date: string; rawKv: string }>();
-    let totalAttributedImpressions = 0;
-
-    for (const r of reportRows) {
-      const rawKv = r.dims[1] || "";
-      const kv = parseKeyValueDimension(rawKv);
-      const cid = extractCampaignId(kv.utm_campaign) ?? extractCampaignId(kv.utm_placement);
-      if (!cid || !r.date) continue;
-
-      const key = `${cid}|${r.date}`;
-      const cur = campaignImpressions.get(key) ?? { impr: 0, date: r.date, rawKv };
-      cur.impr += r.impressions;
-      totalAttributedImpressions += r.impressions;
-      campaignImpressions.set(key, cur);
-    }
-
-    if (totalAttributedImpressions === 0) {
-      debug.push(`[${label}] Impressões atribuídas = 0.`);
-      return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-    }
-
-    // Distribuímos a receita proporcionalmente
-    const googleCampaignRows: AttributedRow[] = [];
-    for (const [key, data] of campaignImpressions.entries()) {
-      const [cid] = key.split("|");
-      const share = data.impr / totalAttributedImpressions; // Use total atribuído para a proporção interna
-      const siteShare = data.impr / totalSiteImpressions; // Use total do site para a receita real
-      const estimatedRev = totalSiteRevenue * siteShare;
-      
-      googleCampaignRows.push({
-        date: data.date,
-        impressions: data.impr,
-        revenue: estimatedRev,
-        source: "google",
-        cid: cid,
-        placement: null,
-        raw: `PREDICTIVE|utm_source=google|raw=${data.rawKv.slice(0, 150)}|share=${(siteShare * 100).toFixed(2)}%`
-      });
-    }
-
-    debug.push(`[${label}] Sucesso: ${googleCampaignRows.length} campanhas estimadas via share de impressões.`);
-    
-    return {
-      retentionRows: [],
-      googleCampaignRows,
-      googlePlacementRows: [],
-      campaignSource: label,
-      placementSource: label
-    };
-
-  } catch (e) {
-    debug.push(`[${label}] Erro na coleta: ${String(e)}`);
-    return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
-  }
-}
+// Predictive Intraday Fallback REMOVIDO por solicitação do usuário.
