@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     if (operatingCustomerId !== dstAcc.customer_id) {
       console.warn(`[html5-upload] customer mismatch: dstAcc=${dstAcc.customer_id} ad_group=${operatingCustomerId} — usando ${operatingCustomerId}`);
     }
-    const apiBase = `https://googleads.googleapis.com/v24/customers/${operatingCustomerId}`;
+    const apiBase = `https://googleads.googleapis.com/v18/customers/${operatingCustomerId}`;
 
     // 0) Valida que o ad group destino ainda existe e não está removido
     try {

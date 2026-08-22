@@ -360,11 +360,11 @@ export function RetentionTab(_props: Props) {
         </div>
       </div>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <MetricCard label="Receita Push (USD)" value={fmtUSD(totals.total)} icon={Wallet} variant="primary" hint="Somente utm_source=push explícito do Ad Manager" />
         <MetricCard label="Push por URL" value={fmtUSD(totals.explicitPush)} icon={Repeat} variant="success" hint={`${byUtm.find((b) => b.utm === "push")?.rows.length ?? 0} URL(s) push`} />
         <MetricCard label="eCPM médio" value={`$${totals.ecpm.toFixed(2)}`} icon={TrendingUp} hint="(receita / impressões) × 1000" />
-        <MetricCard label="Não atribuído (agregadas)" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
+        <MetricCard label="Não atribuído" value={fmtUSD(totals.unattribTotal)} icon={AlertTriangle} hint={`${unattrib.length} linha(s) isoladas`} />
       </section>
 
       <PushBySiteCard
@@ -457,13 +457,13 @@ function UtmGroupCard({
                     return (
                       <TableRow key={r.id}>
                         {isAllSites && <TableCell className="text-xs">{siteName(r.site_id)}</TableCell>}
-                        <TableCell className="max-w-[420px]">
-                          <div className="font-mono text-xs truncate" title={r.url}>{r.normalized_url}</div>
+                        <TableCell className="max-w-[150px] sm:max-w-[420px]">
+                          <div className="font-mono text-[10px] sm:text-xs truncate" title={r.url}>{r.normalized_url}</div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{r.date}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.impressions.toLocaleString("pt-BR")}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{fmtUSD(Number(r.revenue_usd))}</TableCell>
-                        <TableCell className="text-right tabular-nums">${e.toFixed(2)}</TableCell>
+                        <TableCell className="font-mono text-[10px] sm:text-xs">{r.date}</TableCell>
+                        <TableCell className="text-right tabular-nums text-[10px] sm:text-xs">{r.impressions.toLocaleString("pt-BR")}</TableCell>
+                        <TableCell className="text-right tabular-nums font-semibold text-[10px] sm:text-xs">{fmtUSD(Number(r.revenue_usd))}</TableCell>
+                        <TableCell className="text-right tabular-nums text-[10px] sm:text-xs">${e.toFixed(2)}</TableCell>
                       </TableRow>
                     );
                   })}

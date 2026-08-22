@@ -1,7 +1,7 @@
 // Diagnóstico das custom targeting keys do GAM (utm_source / utm_campaign / utm_placement).
 // Mostra o tipo da chave (PREDEFINED x FREEFORM) e se valores de campanha existem.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";

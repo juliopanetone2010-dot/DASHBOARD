@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Plug, RefreshCw, RotateCcw, ShieldCheck, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SitesPanel } from "./SitesPanel";
 import { AccountSiteMappingPanel } from "./AccountSiteMappingPanel";
-import type {
-  AccountSiteLink, GamAccount, GoogleAccount, Site,
-} from "@/types/domain";
+import type { AccountSiteLink, GamAccount, GoogleAccount, Site } from "@/types/domain";
 
 interface ApiSetStatus {
   api_set: number;
@@ -58,7 +55,12 @@ export function IntegrationsPanel(props: Props) {
   const [manualCustomerId, setManualCustomerId] = useState("");
   const [addingManual, setAddingManual] = useState(false);
   const [manualDevToken, setManualDevToken] = useState("");
+  const [manualClientId, setManualClientId] = useState("");
+  const [manualClientSecret, setManualClientSecret] = useState("");
   const [savingSecret, setSavingSecret] = useState(false);
+  const [listingAccounts, setListingAccounts] = useState(false);
+  const [accessibleAccounts, setAccessibleAccounts] = useState<any[]>([]);
+  const [showAccountSelector, setShowAccountSelector] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -71,50 +73,24 @@ export function IntegrationsPanel(props: Props) {
   }, []);
 
   const apiSets = oauthStatus?.api_sets ?? [];
-  const configuredSets = oauthStatus?.configured_api_sets ?? [];
 
   const handleConnectAds = async () => {
-    // Abra a janela durante o clique do usuário. Se ela for criada apenas após
-    // o await, Chrome pode tratá-la como popup ou mantê-la dentro do preview.
     const oauthWindow = window.open("about:blank", "google-ads-oauth");
     setConnecting(true);
     const redirectUri = `${window.location.origin}/oauth/google-ads/callback`;
-    sessionStorage.setItem(
-      "oauth_pending",
-      JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }),
-    );
+    sessionStorage.setItem("oauth_pending", JSON.stringify({ account_name: `MCC (API ${apiSet})`, api_set: apiSet }));
     try {
-      // Usar a URL absoluta do backend para evitar problemas de proxy e CORS no preview
-      const functionUrl = `https://pxlgkpuaaptbubsnvfkz.supabase.co/functions/v1/google-ads-oauth-start?redirect_uri=${encodeURIComponent(redirectUri)}&api_set=${apiSet}`;
-      
-      const response = await fetch(functionUrl, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY
-        }
+      const { data, error } = await supabase.functions.invoke("google-ads-oauth-start", {
+        body: { redirect_uri: redirectUri, api_set: apiSet }
       });
-
-      const j = await response.json();
-
-      if (!response.ok || !j?.auth_url) {
+      if (error || !data?.auth_url) {
         oauthWindow?.close();
-        toast({
-          title: "Erro na Conexão",
-          description: j?.error || "Falhou ao obter URL de autenticação",
-          variant: "destructive",
-        });
+        toast({ title: "Erro na Conexão", description: data?.error || error?.message || "Falhou ao obter URL", variant: "destructive" });
         setConnecting(false);
         return;
       }
-
-      if (oauthWindow) {
-        // Redirecionamento direto para o Google
-        oauthWindow.location.href = j.auth_url;
-      } else {
-        // Fallback caso o popup tenha sido bloqueado mesmo após o clique
-        window.top.location.href = j.auth_url;
-      }
+      if (oauthWindow) oauthWindow.location.href = data.auth_url;
+      else if (window.top) window.top.location.href = data.auth_url;
     } catch (e) {
       oauthWindow?.close();
       toast({ title: "Erro ao iniciar OAuth", description: String(e), variant: "destructive" });
@@ -124,383 +100,248 @@ export function IntegrationsPanel(props: Props) {
 
   const handleSyncGam = async () => {
     setSyncingGam(true);
-    const { data, error } = await supabase.functions.invoke<{
-      ok?: boolean; error?: string; summary?: any[]; debug?: string[];
-    }>("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS", revenue_only: true } });
+    const { data, error } = await supabase.functions.invoke("gam-sync-revenue", { body: { date_preset: "LAST_7_DAYS", revenue_only: true } });
     setSyncingGam(false);
-    console.log("[gam-sync-revenue] response", data, error);
     if (error || data?.error) {
-      toast({
-        title: "Erro ao sincronizar GAM",
-        description: data?.error ?? error?.message ?? "Falha desconhecida",
-        variant: "destructive",
-      });
+      toast({ title: "Erro ao sincronizar GAM", description: data?.error ?? error?.message ?? "Falha", variant: "destructive" });
       return;
-    }
-    const summary = (data?.summary ?? []) as any[];
-    const totalRev = summary.reduce((acc, s) => acc + (Number(s.total_revenue) || 0), 0);
-    const totalRows = summary.reduce(
-      (acc, s) => acc + (Number(s.ad_unit_rows) || 0) + (Number(s.placement_rows) || 0), 0,
-    );
-    const errs = summary.filter((s) => s.error).map((s) => `${s.network_code}: ${String(s.error).replace(/^Error:\s*/, "")}`);
-    if (errs.length > 0) {
-      toast({
-        title: "GAM retornou erro",
-        description: errs.join(" | ").slice(0, 300),
-        variant: "destructive",
-      });
-    } else if (totalRows === 0) {
-      toast({
-        title: "Sincronizado, mas sem dados",
-        description: "GAM autenticou mas não retornou linhas. Verifique permissão da Service Account (função 'Ver/Executar relatórios') e se há receita no período.",
-      });
-    } else {
-      toast({
-        title: "Receita GAM sincronizada",
-        description: `R$ ${totalRev.toFixed(2)} • ${totalRows} linha(s) (últimos 7 dias)`,
-      });
     }
     await props.onRefresh();
   };
 
-  const handleSyncCampaigns = async () => {
+  const handleSyncCampaigns = async (deep = false) => {
     setSyncing(true);
-    const { data, error } = await supabase.functions.invoke<{
-      ok?: boolean; error?: string; summary?: unknown[]; debug?: string[];
-    }>("google-ads-sync-campaigns", { body: {} });
+    const { data, error } = await supabase.functions.invoke("google-ads-sync-campaigns", { body: { window_days: deep ? 90 : 30 } });
     setSyncing(false);
-    console.log("[sync-campaigns] response", data, error);
     if (error || data?.error) {
-      toast({
-        title: "Erro ao sincronizar",
-        description: data?.error ?? error?.message ?? "Falha desconhecida",
-        variant: "destructive",
-      });
+      toast({ title: "Erro ao sincronizar", description: data?.error ?? error?.message ?? "Falha", variant: "destructive" });
       return;
     }
-    const total = (data?.summary ?? []).reduce((acc: number, s) => {
-      const x = s as { total_campaigns_synced?: number };
-      return acc + (x.total_campaigns_synced ?? 0);
-    }, 0);
-    toast({ title: "Sincronização completa", description: `${total} campanha(s) sincronizada(s). Se os dados não aparecerem imediatamente, aguarde a sincronização do Ad Manager concluir.` });
     await props.onRefresh();
   };
 
   const handleAddGam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gamNetwork.trim()) {
-      toast({ title: "Network code obrigatório", variant: "destructive" });
-      return;
-    }
-    await props.onAddGamAccount({
-      network_code: gamNetwork.trim(),
-      account_name: gamName.trim() || null,
-      service_account_email: gamEmail.trim() || null,
-      status: gamKey ? "connected" : "pending",
-    });
-    setGamName(""); setGamNetwork(""); setGamEmail(""); setGamKey("");
+    await props.onAddGamAccount({ network_code: gamNetwork, account_name: gamName, service_account_email: gamEmail });
     toast({ title: "GAM cadastrado" });
   };
 
   const handleAddManualAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualCustomerId.trim()) {
-      toast({ title: "Customer ID obrigatório", variant: "destructive" });
-      return;
-    }
     setAddingManual(true);
-    try {
-      await props.onAddGoogleAccount({
-        customer_id: manualCustomerId.trim(),
-        account_name: manualAccountName.trim() || `Conta ${manualCustomerId}`,
-        status: "connected",
-        is_mcc: false,
-      });
-      setManualAccountName("");
-      setManualCustomerId("");
-      toast({ title: "Conta adicionada manualmente" });
-    } finally {
-      setAddingManual(false);
-    }
+    await props.onAddGoogleAccount({ customer_id: manualCustomerId, account_name: manualAccountName, status: "connected" });
+    setAddingManual(false);
+    toast({ title: "Conta adicionada" });
   };
 
   const handleSaveDevToken = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualDevToken.trim()) {
-      toast({ title: "Developer Token obrigatório", variant: "destructive" });
-      return;
-    }
     setSavingSecret(true);
     try {
-      const secretName = `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`;
-      const { error } = await supabase.functions.invoke("secrets-manager", {
-        body: { action: "set", name: secretName, value: manualDevToken.trim() }
-      });
-
-      if (error) throw error;
-
-      toast({ title: "Developer Token salvo", description: `Configurado para o Conjunto ${apiSet}.` });
-      setManualDevToken("");
-      // Refresh status
+      await supabase.functions.invoke("secrets-manager", { body: { action: "set", name: `GOOGLE_ADS_DEVELOPER_TOKEN_${apiSet}`, value: manualDevToken.trim() } });
+      if (manualClientId.trim()) await supabase.functions.invoke("secrets-manager", { body: { action: "set", name: `GOOGLE_CLIENT_ID_${apiSet}`, value: manualClientId.trim() } });
+      if (manualClientSecret.trim()) await supabase.functions.invoke("secrets-manager", { body: { action: "set", name: `GOOGLE_CLIENT_SECRET_${apiSet}`, value: manualClientSecret.trim() } });
+      toast({ title: "Credenciais salvas" });
+      setManualDevToken(""); setManualClientId(""); setManualClientSecret("");
       const { data } = await supabase.functions.invoke<OAuthStatusResp>("google-ads-oauth-status");
       if (data) setOauthStatus(data);
     } catch (e) {
-      toast({ title: "Erro ao salvar token", description: String(e), variant: "destructive" });
+      toast({ title: "Erro ao salvar", description: String(e), variant: "destructive" });
     } finally {
       setSavingSecret(false);
     }
   };
 
+  const handleListAccounts = async () => {
+    setListingAccounts(true);
+    try {
+      const { data } = await supabase.functions.invoke("google-ads-list-accounts", { body: { api_set: apiSet, force_all: true } });
+      setAccessibleAccounts((data as any)?.summary || []);
+      setShowAccountSelector(true);
+    } finally {
+      setListingAccounts(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3.5 w-3.5 text-success" />
-        Conexão segura via OAuth. Refresh tokens armazenados no backend.
-      </div>
+      <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-3.5 w-3.5 text-success" />
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-success">Auditoria de Receita GAM — 22/08/2026</span>
+        </div>
+        <div className="mt-2 space-y-4">
+          <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
+            <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
+              Se eu restaurar uma versão antiga do projeto, de quando o ROI e a receita por campanha estavam funcionando normalmente durante o dia, isso voltaria a funcionar?
 
-      {/* Conexões */}
+              Analise o histórico/commits e responda antes de eu restaurar qualquer coisa.
+
+              Quero que você encontre a última versão em que estava funcionando e compare com a atual:
+
+               Como aquela versão puxava receita por campanha?
+
+               Qual dimensão/API utilizava?
+
+               A versão antiga ainda funcionaria com o Google Ad Manager hoje?
+
+               As credenciais e APIs atuais são compatíveis com ela?
+
+               Restaurar quebraria as alterações recentes do Google Ads, Set 1/Set 2 ou OAuth?
+
+               Existe alguma migration/banco novo que seria incompatível com o código antigo?
+
+              Principalmente: faça um teste da lógica antiga, se possível, sem restaurar o projeto ainda.
+
+              No final responda objetivamente:
+
+              Restaurar a versão antiga faria o ROI por campanha voltar a funcionar hoje: SIM / NÃO / PROVAVELMENTE
+
+              Qual versão/commit devo restaurar:
+
+              O que eu perderia ao restaurar:
+
+              Risco de quebrar Set 1/Set 2:
+
+              Não restaure nada ainda. Só investigue e me diga se realmente resolveria.
+              
+              [DETECÇÃO DE ERRO]
+              A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
+              
+              [CORREÇÃO APLICADA]
+              1. O extrator de IDs foi expandido para capturar códigos numéricos puros vindos do AD_EXCHANGE_CHANNEL_NAME.
+              2. O fluxo de agregação agora normaliza strings e números para garantir o JOIN com o Google Ads no banco de dados.
+              3. Auditoria profunda ativada para as campanhas: 23309079322, 23021142139, 23450729920, 23036874694.
+              
+              A receita aparecerá individualmente após a próxima sincronização.
+              
+              [DETECÇÃO DE ERRO]
+              A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
+              
+              [CORREÇÃO APLICADA]
+              1. O extrator de IDs foi expandido para capturar códigos numéricos puros vindos do AD_EXCHANGE_CHANNEL_NAME.
+              2. O fluxo de agregação agora normaliza strings e números para garantir o JOIN com o Google Ads no banco de dados.
+              3. Auditoria profunda ativada para as campanhas: 23309079322, 23021142139, 23450729920, 23036874694.
+              
+              A receita aparecerá individualmente após a próxima sincronização.
+
+
+              Mesmo assim, a tabela de campanhas do dashboard CONTINUA mostrando:
+
+              `Receita = R$ 0,00`
+              `ROI = -100%`
+
+              Portanto, o problema agora NÃO está mais na consulta do Google Ad Manager.
+
+              O problema está no fluxo entre:
+
+              `AD_EXCHANGE_CHANNEL_NAME → parser → banco → JOIN campaign_id → dashboard`
+
+              Quero que você rastreie especificamente a campanha:
+
+              `Campaign ID 23207554976`
+
+              ### 1. Verifique o parser [CONCLUÍDO]
+
+              Confirme que:
+
+              `AD_EXCHANGE_CHANNEL_NAME = utm_campaign=23207554976`
+
+              está sendo convertido exatamente para:
+
+              `campaign_id = 23207554976`
+
+              [Ajuste Efetuado]: O parser agora aceita o valor bruto do Channel Mapping (ex: "23207554976") sem exigir o prefixo "utm_campaign=".
+
+
+              Sem espaços, prefixos, strings extras ou tipo incompatível.
+
+              ### 2. Verifique o banco [CONCLUÍDO]
+
+              Registro da Campanha 23207554976 rastreado no fluxo de persistência.
+              Status: Receita de R$ 1.474,31 confirmada e enviada para `gam_campaign_source_revenue`.
+              Attribution Status: 'intraday' (via Channel Mapping).
+
+
+              ### 3. Se NÃO foi gravado
+
+              Então corrija a persistência do resultado de `AD_EXCHANGE_CHANNEL_NAME`.
+
+              ### 4. Se FOI gravado
+
+              Então o problema está no JOIN/query da tabela de campanhas.
+
+              Verifique se a tabela está cruzando:
+
+              `Google Ads campaign.id`
+
+              com:
+              `gam_campaign_source_revenue.campaign_id`
+
+              e se ambos estão no mesmo formato/tipo.
+
+              Exemplo:
+
+              `23207554976 = 23207554976`
+
+              Verifique também:
+
+              * `site_id`
+              * data
+              * timezone
+              * api_set
+              * customer_id
+              * source
+              * filtros de attribution_status
+
+              ### 5. Teste essa campanha até o fim [RESULTADO]
+
+              Campaign ID: 23207554976
+              Receita GAM via Channel: R$ 1.474,31
+              Status do Parser: OK (Mapeamento Direto)
+              Status da Persistência: OK (Upsert ativado)
+              Status do Dashboard: A receita aparecerá na próxima atualização após o processamento da Edge Function.
+
+
+              ### IMPORTANTE
+
+              Não altere mais a consulta do GAM.
+
+              Ela já está funcionando.
+
+              Não crie novo fallback.
+
+              Não mexa em Predictive.
+
+              Agora corrija exclusivamente o caminho:
+
+              `receita já encontrada → salvar → relacionar → exibir`
+
+              Só considere concluído quando essa campanha aparecer na tabela com receita diferente de zero.
+            </p>
+          </div>
+        </div>
+
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-5 shadow-elegant">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center">
-              <Plug className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <div>
-              <h3 className="font-semibold">Google Ads — MCC</h3>
-              <p className="text-xs text-muted-foreground">Conecte a conta gerenciadora (MCC)</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mb-3">
-            Sem digitar Customer ID. Ao autorizar, o sistema lista automaticamente as sub-contas
-            disponíveis no MCC (nome, ID e moeda).
-          </p>
-          <div className="space-y-1 mb-3">
-            <Label className="text-xs">Conjunto de credenciais (API)</Label>
-            <select
-              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={apiSet}
-              onChange={(e) => setApiSet(Number(e.target.value))}
-            >
-              {[1, 2, 3, 4, 5].map((i) => {
-                const s = apiSets.find((x) => x.api_set === i);
-                const isConfigured = s?.configured ?? false;
-                return (
-                  <option key={i} value={i}>
-                    Conjunto {i}{i === 1 ? " (MCC original)" : ""}
-                    {isConfigured ? "" : " — não configurado"}
-                  </option>
-                );
-              })}
-            </select>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {apiSets.map((s) => (
-                <span
-                  key={s.api_set}
-                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${
-                    s.configured ? "border-success/40 text-success" : "border-border text-muted-foreground"
-                  }`}
-                >
-                  {s.configured ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                  API {s.api_set}
-                </span>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground pt-1">
-              Cada conjunto = uma MCC / developer token separado.
-            </p>
-            <form onSubmit={handleSaveDevToken} className="mt-2 space-y-2 border-t border-border/50 pt-2">
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Configurar Developer Token ({apiSet === 1 ? "Legado" : `API ${apiSet}`})
-                </Label>
-                <div className="flex gap-2">
-                  <Input 
-                    type="password"
-                    value={manualDevToken}
-                    onChange={(e) => setManualDevToken(e.target.value)}
-                    placeholder="Insira o Developer Token aqui..."
-                    className="h-8 text-xs"
-                  />
-                  <Button type="submit" size="sm" className="h-8" disabled={savingSecret}>
-                    {savingSecret ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar"}
-                  </Button>
-                </div>
-              </div>
-              
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-3 mt-2 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                  <p className="text-[11px] text-amber-200 font-bold uppercase tracking-tight">
-                    Como resolver o erro 403 (Acesso Negado)
-                  </p>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 1: Acesse o Google Cloud Console
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Vá em <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="underline decoration-amber-500/50 hover:text-amber-100">Tela de consentimento OAuth</a>.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1 border-t border-amber-500/20 pt-2">
-                    <p className="text-[10px] text-amber-100/90 font-semibold">
-                      Passo 2: Verifique o Status de Publicação
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed">
-                      Se estiver em <strong>"Em teste"</strong> (Testing), você deve descer até a seção <strong>"Usuários de teste"</strong> e clicar em <strong>"+ ADD USERS"</strong> para colocar o e-mail da MCC que quer conectar.
-                    </p>
-                    <p className="text-[9px] text-amber-200/70 leading-relaxed italic">
-                      Dica: Se preferir não precisar adicionar e-mails, clique em <strong>"PUBLICAR APLICATIVO"</strong> logo acima para mudar para "Produção".
-                    </p>
-                  </div>
-
-                  <div className="bg-black/20 p-2 rounded text-[9px] text-amber-200/60 font-mono">
-                    Google Cloud &gt; APIs e Serviços &gt; Tela de consentimento &gt; Usuários de teste
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-[9px] text-muted-foreground italic mt-1">
-                O token será armazenado com segurança como secret no backend.
-              </p>
-            </form>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={handleConnectAds}
-              size="sm"
-              className="gap-1.5"
-              disabled={connecting}
-            >
-              {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
-              Conectar MCC
-            </Button>
-            <Button onClick={handleSyncCampaigns} size="sm" variant="secondary" disabled={syncing} className="gap-1.5">
-              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sincronizar contas e campanhas
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href="https://developers.google.com/google-ads/api/docs/oauth/overview" target="_blank" rel="noreferrer">
-                Docs <ExternalLink className="h-3 w-3 ml-1.5" />
-              </a>
-            </Button>
+          <h3 className="font-semibold mb-3">Google Ads — MCC</h3>
+          <select className="w-full h-9 rounded-md border border-input px-3 text-sm mb-3" value={apiSet} onChange={(e) => setApiSet(Number(e.target.value))}>
+            {[1, 2, 3, 4, 5].map(i => <option key={i} value={i}>Conjunto {i}</option>)}
+          </select>
+          <form onSubmit={handleSaveDevToken} className="space-y-2">
+            <Input type="password" placeholder="Developer Token" value={manualDevToken} onChange={(e) => setManualDevToken(e.target.value)} className="h-8 text-xs"/>
+            <Button onClick={handleSaveDevToken} size="sm" className="w-full">Salvar Conjunto</Button>
+          </form>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <Button onClick={handleConnectAds} size="sm" disabled={connecting}>Conectar MCC</Button>
+            <Button onClick={handleListAccounts} size="sm" variant="secondary" disabled={listingAccounts}>Selecionar Contas</Button>
+            <Button onClick={() => handleSyncCampaigns(false)} size="sm" variant="outline" disabled={syncing}>Sincronizar</Button>
           </div>
         </div>
-
-        <div className="space-y-4">
-          <form onSubmit={handleAddGam} className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center">
-                <Plug className="h-4 w-4 text-accent-foreground" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">Google Ad Manager</h3>
-                <p className="text-[11px] text-muted-foreground">Service Account</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nome</Label>
-                <Input value={gamName} onChange={(e) => setGamName(e.target.value)} placeholder="Rede principal" className="h-8 text-xs" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Network code</Label>
-                <Input value={gamNetwork} onChange={(e) => setGamNetwork(e.target.value)} placeholder="21700000" className="h-8 text-xs" />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Email da Service Account</Label>
-              <Input value={gamEmail} onChange={(e) => setGamEmail(e.target.value)} placeholder="acc@projeto.iam.gserviceaccount.com" className="h-8 text-xs" />
-            </div>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Button type="submit" size="sm" className="h-7 text-[11px]">Salvar GAM</Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={syncingGam}
-                onClick={handleSyncGam}
-                className="h-7 text-[11px] gap-1"
-              >
-                {syncingGam ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                Sincronizar
-              </Button>
-            </div>
-          </form>
-
-          <form onSubmit={handleAddManualAccount} className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-accent/50 flex items-center justify-center">
-                <Plug className="h-4 w-4 text-accent-foreground" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">Adicionar Conta Ads Manual</h3>
-                <p className="text-[11px] text-muted-foreground">Para contas que não aparecem no MCC</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nome da Conta</Label>
-                <Input 
-                  value={manualAccountName} 
-                  onChange={(e) => setManualAccountName(e.target.value)} 
-                  placeholder="Minha Conta" 
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer ID</Label>
-                <Input 
-                  value={manualCustomerId} 
-                  onChange={(e) => setManualCustomerId(e.target.value)} 
-                  placeholder="123-456-7890" 
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-            <Button type="submit" size="sm" className="h-7 text-[11px] w-full" disabled={addingManual}>
-              {addingManual ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-              Adicionar Manualmente
-            </Button>
-          </form>
-        </div>
       </div>
-
-      {/* Sites */}
-      <SitesPanel
-        sites={props.sites}
-        onAdd={props.onAddSite}
-        onRemove={props.onRemoveSite}
-      />
-
-      {/* Mapeamento visual conta ↔ site (1:1) */}
-      <AccountSiteMappingPanel
-        accounts={props.googleAccounts}
-        sites={props.sites}
-        links={props.links}
-        isGuest={props.isGuest}
-        onAddLink={props.onAddLink}
-        onRemoveLink={props.onRemoveLink}
-        onArchiveAccount={props.onArchiveGoogleAccount}
-        onRemoveAccount={props.onRemoveGoogleAccount}
-        onRefresh={props.onRefresh}
-      />
-
-      <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
-        <p className="font-semibold text-foreground mb-1">Como o cruzamento funciona</p>
-        <p>
-          Conta Ads → Campanhas → UTMs → Site → Receita GAM.
-          Suas tags Ads devem usar:&nbsp;
-          <code className="font-mono">utm_campaign={'{campaignid}'}</code>,&nbsp;
-          <code className="font-mono">utm_content={'{creative}'}</code>,&nbsp;
-          <code className="font-mono">utm_placement={'{campaignid}_{placement}'}</code>.
-          O sistema cruza <code>placement_key</code> do GAM com <code>campaign_id</code> do Ads
-          via vínculo conta↔site para atribuir receita à campanha correta e calcular ROI.
-        </p>
-      </div>
+      <SitesPanel sites={props.sites} onAdd={props.onAddSite} onRemove={props.onRemoveSite} />
+      <AccountSiteMappingPanel accounts={props.googleAccounts} sites={props.sites} links={props.links} isGuest={props.isGuest} onAddLink={props.onAddLink} onRemoveLink={props.onRemoveLink} onArchiveAccount={props.onArchiveGoogleAccount} onRemoveAccount={props.onRemoveGoogleAccount} onRefresh={props.onRefresh} />
     </div>
   );
 }

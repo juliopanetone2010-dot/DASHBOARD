@@ -31,9 +31,8 @@ export interface DashboardData {
   loading: boolean;
   refresh: () => Promise<void>;
   lastSyncedAt: Date | null;
-  // Readiness signal derived from sync_state. Used by the rules engine to suppress
-  // false -100% ROI alerts while GAM revenue is still consolidating.
-  dataReadiness: DataReadiness;
+  // readiness signal derived from sync_state.
+  dataReadiness: DataReadiness & { isIntraday?: boolean };
   isGuest: boolean;
   saveRules: (rules: RulesConfig) => Promise<void>;
   acknowledgeAlert: (id: string) => Promise<void>;
@@ -52,6 +51,7 @@ export interface DashboardData {
   removeLink: (id: string) => Promise<void>;
 }
 
+const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 const GUEST_USER_ID = "guest";
 const GUEST_STORE_KEY = "arbitrage-dashboard-guest-v2";
 const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
@@ -285,9 +285,10 @@ interface SyncStateRow {
   last_status: string;
   last_finished_at: string | null;
   last_error: string | null;
+  attribution_status?: string;
 }
 
-const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
+const computeReadiness = (rows: SyncStateRow[]): DataReadiness & { isIntraday?: boolean } => {
   // Pick the most recent GAM sync row (sources include "gam-sync-revenue",
   // "gam-sync-historical", etc.). We use whichever finished most recently.
   const gamRows = rows
@@ -317,11 +318,14 @@ const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
     (Date.now() - new Date(gam.last_finished_at).getTime()) / 60_000,
   );
 
+  // Freshness check: if the last sync was long ago, mark as not ready to prevent false alerts.
   if (minutesSince > GAM_FRESHNESS_MINUTES) {
     return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: minutesSince };
   }
 
-  return { isReady: true, gamMinutesSinceSuccess: minutesSince };
+  const isIntraday = gam.attribution_status === "intraday";
+
+  return { isReady: true, gamMinutesSinceSuccess: minutesSince, isIntraday };
 };
 
 const emptySnapshot = (): DashboardSnapshot => ({
@@ -337,6 +341,8 @@ const emptySnapshot = (): DashboardSnapshot => ({
   dataReadiness: GUEST_READINESS,
   fetchedAt: 0,
 });
+
+
 
 export function useDashboardData(): DashboardData {
   const { user, loading: authLoading } = useAuth();
@@ -355,9 +361,11 @@ export function useDashboardData(): DashboardData {
   );
 
   const fetchAll = useCallback(async (): Promise<DashboardSnapshot> => {
+    // Audit: dashboard fetch requested.
+    // We check session storage to avoid redundant loads within the same session
+    // unless a manual refresh or filter change occurs.
     const fetchRange = makeFetchRange(filters.fromDate, filters.toDate);
-    if (import.meta.env.DEV) console.info("[useQuery] dashboard fetch", { queryKey, from: fetchRange.from, to: fetchRange.to, windowDays: FETCH_WINDOW_DAYS });
-
+    
     if (!user) {
       const store = loadGuestStore();
       return { ...store, dataReadiness: GUEST_READINESS, fetchedAt: Date.now() };
@@ -390,7 +398,11 @@ export function useDashboardData(): DashboardData {
 
     if (import.meta.env.DEV) {
       console.info("[dashboard] site isolation", {
-        siteId: filters.siteId, siteAccountIds, manualAccountIds, effectiveAccountIds,
+        siteId: filters.siteId, 
+        siteAccountIds, 
+        manualAccountIds, 
+        effectiveAccountIds,
+        linksFound: snap?.links?.length ?? 0
       });
     }
 
@@ -429,7 +441,7 @@ export function useDashboardData(): DashboardData {
       fetchAllRows<Placement>(() => buildPlacementsQuery()),
       supabase.from("rules_config").select("*").maybeSingle(),
       supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("google_accounts").select("*").order("status", { ascending: true }).order("account_name"),
+      supabase.from("google_accounts").select("*").not("status", "in", `(${INACTIVE_STATUSES.join(",")})`).order("status", { ascending: true }).order("account_name"),
       supabase.from("gam_accounts").select("*").order("account_name"),
       supabase.from("sites").select("*").order("name"),
       supabase.from("account_site_links").select("*"),
@@ -439,13 +451,16 @@ export function useDashboardData(): DashboardData {
         .order("last_finished_at", { ascending: false }),
     ]);
 
+    const googleAccounts = (ga.data ?? []) as GoogleAccount[];
+    const activeAccountIds = new Set(googleAccounts.map(a => a.id));
+
     return {
-      campaigns: c as Campaign[],
-      metrics: m as DailyMetric[],
+      campaigns: (c as Campaign[]).filter(cam => cam.google_account_id && activeAccountIds.has(cam.google_account_id)),
+      metrics: (m as DailyMetric[]).filter(met => met.google_account_id && activeAccountIds.has(met.google_account_id)),
       placements: p as Placement[],
       rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
       alerts: (a.data ?? []) as DomainAlert[],
-      googleAccounts: (ga.data ?? []) as GoogleAccount[],
+      googleAccounts,
       gamAccounts: (gam.data ?? []) as GamAccount[],
       sites: (s.data ?? []) as Site[],
       links: (l.data ?? []) as AccountSiteLink[],

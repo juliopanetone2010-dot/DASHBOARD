@@ -1,7 +1,7 @@
 // Limpeza global de placements ruins.
 // Preview calcula placements ao vivo no Google Ads para o período completo, agrupando por campanha + placement.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getNetFactor, getRevSharePct, DEFAULT_REV_SHARE_PCT } from "../_shared/revshare.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
@@ -889,7 +889,7 @@ async function fetchLiveAdsPlacements(
       let pageToken: string | undefined;
       do {
         const res = await fetch(
-          `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
+          `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
         );
         const data = await res.json();
@@ -1108,7 +1108,7 @@ async function applyNegativePlacements(admin: any, userId: string, items: ApplyI
         };
       });
       const r = await fetch(
-        `https://googleads.googleapis.com/v24/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
+        `https://googleads.googleapis.com/v18/customers/${g.acc.customer_id}/campaignCriteria:mutate`,
         { method: "POST", headers, body: JSON.stringify({ operations, partialFailure: true }) },
       );
       const j = await r.json();

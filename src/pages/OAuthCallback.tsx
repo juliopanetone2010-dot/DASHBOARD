@@ -12,6 +12,7 @@ export default function OAuthCallback() {
 
   useEffect(() => {
     const code = params.get("code");
+    const state = params.get("state");
     const err = params.get("error");
     if (err) { setState("error"); setMessage(err); return; }
     if (!code) { setState("error"); setMessage("Código ausente."); return; }
@@ -25,15 +26,21 @@ export default function OAuthCallback() {
         {
           body: {
             code,
+            state,
             redirect_uri: `${window.location.origin}/oauth/google-ads/callback`,
             ...pending,
           },
         },
       );
-      if (error || data?.error) {
-        console.error("[OAuthCallback] Error:", error, data);
+      if (error || (data && "error" in data && data.error)) {
+        console.error("[OAuthCallback] Error Data:", data);
+        console.error("[OAuthCallback] Invoke Error:", error);
         setState("error");
-        setMessage(data?.error ?? error?.message ?? "Falha no OAuth");
+        
+        // Se o erro for do invoke (rede/timeout) ou retornado explicitamente pelo backend
+        const errorData = (data as any);
+        const detailedMsg = errorData?.error || error?.message || "Erro desconhecido na conexão";
+        setMessage(detailedMsg);
         return;
       }
       setState("ok");

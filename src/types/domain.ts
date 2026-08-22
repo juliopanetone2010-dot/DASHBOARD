@@ -108,6 +108,7 @@ export interface GoogleAccount {
   status: string;
   refresh_token?: string | null;
   last_synced_at?: string | null;
+  api_set?: number;
 }
 
 export interface GamAccount {

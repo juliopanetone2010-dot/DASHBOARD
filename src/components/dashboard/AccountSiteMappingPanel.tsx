@@ -36,6 +36,7 @@ export function AccountSiteMappingPanel({
   }, [accounts, links]);
 
   const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [selectedApiSet, setSelectedApiSet] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -75,6 +76,37 @@ export function AccountSiteMappingPanel({
     }
   };
 
+  const handleSyncMccWithApiSet = async (apiSet: number) => {
+    if (isGuest) {
+      toast({
+        title: "Login necessário",
+        description: "Para sincronizar contas reais do MCC, faça login.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
+        body: { api_set: apiSet, force_all: true },
+      });
+      if (error) throw error;
+      const summary = (data as { summary?: Array<{ manager: string; synced: number; error?: string }> })?.summary ?? [];
+      const total = summary.reduce((s, x) => s + x.synced, 0);
+      toast({
+        title: total > 0 ? "Contas sincronizadas" : "Nada novo",
+        description: total > 0
+          ? `${total} conta(s) importada(s) do MCC (API ${apiSet}).`
+          : (summary.find((s) => s.error)?.error ?? "Nenhuma conta ativa encontrada nesta MCC."),
+      });
+      await onRefresh();
+    } catch (e) {
+      toast({ title: "Erro ao sincronizar", description: String(e), variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleSyncMcc = async () => {
     if (isGuest) {
       toast({
@@ -87,7 +119,7 @@ export function AccountSiteMappingPanel({
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
-        body: {},
+        body: { force_all: true },
       });
       if (error) throw error;
       const summary = (data as { summary?: Array<{ manager: string; synced: number; error?: string }> })?.summary ?? [];
@@ -106,8 +138,12 @@ export function AccountSiteMappingPanel({
     }
   };
 
-  // Separar MCCs (gerenciadoras) das contas operacionais
-  const childAccounts = accounts.filter((a) => !a.is_mcc);
+  // Filtrar contas pelo API Set selecionado
+  const childAccounts = useMemo(() => {
+    if (!selectedApiSet) return accounts;
+    return accounts.filter(a => a.api_set === selectedApiSet || a.is_mcc);
+  }, [accounts, selectedApiSet]);
+
   const mccCount = accounts.filter((a) => a.is_mcc).length;
 
   return (
@@ -125,12 +161,32 @@ export function AccountSiteMappingPanel({
             {mccCount} MCC conectado(s) · {childAccounts.length} conta(s) operacional(is)
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleSyncMcc} disabled={syncing} className="gap-1.5">
-            <RefreshCw className={syncing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-            Sincronizar contas do MCC
-          </Button>
-          <Button onClick={handleSave} disabled={!dirty || saving} className="gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 bg-muted/50 rounded-md px-2 py-1 border border-border">
+            <span className="text-[10px] font-medium uppercase text-muted-foreground">MCC:</span>
+            <Select 
+              value={selectedApiSet?.toString() || ""} 
+              onValueChange={(v) => {
+                const apiSet = v === "all" ? null : Number(v);
+                setSelectedApiSet(apiSet);
+                if (apiSet) handleSyncMccWithApiSet(apiSet);
+              }}
+            >
+              <SelectTrigger className="h-7 w-32 text-xs border-none bg-transparent focus:ring-0">
+                <SelectValue placeholder="Selecionar MCC" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Ver Todas</SelectItem>
+                {[1, 2, 3, 4, 5].map(i => (
+                  <SelectItem key={i} value={i.toString()}>MCC (API {i})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="sm" onClick={handleSyncMcc} disabled={syncing} className="h-7 w-7 p-0">
+              <RefreshCw className={syncing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            </Button>
+          </div>
+          <Button onClick={handleSave} disabled={!dirty || saving} className="gap-1.5 h-9">
             <Save className="h-3.5 w-3.5" /> Salvar Mapeamento
           </Button>
         </div>

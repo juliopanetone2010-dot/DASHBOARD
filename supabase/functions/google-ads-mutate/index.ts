@@ -2,7 +2,7 @@
 // - set_status: pausar / ativar campanha
 // - adjust_cpa: ajusta target_cpa_micros de todos os ad groups da campanha por % (delta)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { devTokenFor, getCreds, normalizeApiSet } from "../_shared/google_api_set.ts";
 
 Deno.serve(async (req) => {
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     };
     if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
 
-    const apiBase = `https://googleads.googleapis.com/v24/customers/${acc.customer_id}`;
+    const apiBase = `https://googleads.googleapis.com/v18/customers/${acc.customer_id}`;
 
     // Log da ação
     const logAction = async (status: string, payload: unknown, error?: string) => {

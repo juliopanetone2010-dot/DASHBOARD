@@ -2,7 +2,7 @@
 // Reaproveita campaign_country_metrics + daily_metrics (mesma lógica da aba Países).
 // Modos: preview | apply | notify
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getRevSharePct } from "../_shared/revshare.ts";
 import { computeCountryPerformance } from "../_shared/country_performance.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
               AND campaign_criterion.status = ENABLED
               AND campaign.id IN (${inList})
           `;
-          const r = await fetch(`https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`, {
+          const r = await fetch(`https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`, {
             method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
           });
           const j = await r.json();

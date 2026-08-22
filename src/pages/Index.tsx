@@ -744,7 +744,7 @@ const IndexInner = () => {
     ? realGamRevenueNetBrl / usdBrl
     : baseTotals.revenue + extraNetUsd;
   const totalRoi = baseTotals.spend > 0 ? (totalProfitBrl / baseTotals.spend) * 100 : 0;
-  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 0;
+  const totalRoas = baseTotals.spend > 0 ? (totalProfitBrl + baseTotals.spend) / baseTotals.spend : 1;
   const totals = {
     spend: baseTotals.spend,
     revenue: totalRevenueUsd,
@@ -794,10 +794,10 @@ const IndexInner = () => {
   const activeTabMeta = TABS.find((t) => t.value === activeTab) ?? TABS[0];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-20 md:pb-0">
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-3 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Mobile hamburger */}
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
@@ -805,7 +805,7 @@ const IndexInner = () => {
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col">
+              <SheetContent side="left" className="w-[86vw] max-w-[340px] p-0 flex flex-col bg-background/95 backdrop-blur-sm">
                 <SheetHeader className="px-4 py-4 border-b">
                   <SheetTitle className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
@@ -852,9 +852,32 @@ const IndexInner = () => {
                       </Badge>
                     )}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { handleRefresh(); setMenuOpen(false); }} disabled={syncing} className="w-full justify-start gap-2">
-                    <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                    {syncing ? "Sincronizando…" : "Atualizar"}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      handleRefresh();
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }} 
+                    disabled={syncing || allSites.processingCount > 0} 
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    {syncing || allSites.processingCount > 0 ? "Sincronizando…" : "Atualizar"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      void allSites.syncAll(true, range);
+                      setMenuOpen(false);
+                    }}
+                    disabled={allSites.processingCount > 0}
+                    className="w-full justify-start gap-2"
+                  >
+                    <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                    Sincronizar todos os sites
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => { insertSampleData(); setMenuOpen(false); }} className="w-full justify-start gap-2">
                     <Plus className="h-4 w-4" /> Dados de teste
@@ -888,59 +911,60 @@ const IndexInner = () => {
                 )}
               </p>
             </div>
-          </div>
-          {/* Desktop actions */}
-          <div className="hidden md:flex items-center gap-2 flex-wrap">
-            <GlobalSiteSelector
-              sites={data.sites}
-              links={data.links}
-              onChange={(siteId) => {
-                const linked = siteId === "all"
-                  ? []
-                  : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
-                handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
-              }}
-            />
-            <Button variant="outline" size="sm" onClick={insertSampleData} className="gap-2">
-              <Plus className="h-4 w-4" /> Dados de teste
-            </Button>
+            
+            {/* Mobile-only Update Button in Header */}
             <Button
               variant="outline"
-              size="sm"
-              onClick={() => { void allSites.syncAll(true, range); }}
-              disabled={!allSites.totalCount || allSites.processingCount > 0}
-              className="gap-2"
-              title="Sincroniza todos os sites"
+              size="icon"
+              className="md:hidden h-10 w-10 shrink-0 ml-auto border-primary/20 text-primary hover:bg-primary/10"
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
             >
-              <RefreshCw className={allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              Sincronizar todos os sites
+              <RefreshCw className={syncing || evaluating || allSites.processingCount > 0 ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            </Button>
+          </div>
+          {/* Desktop actions */}
+          <div className="flex items-center gap-2 ml-auto">
+            <div className="hidden lg:block">
+              <GlobalSiteSelector
+                sites={data.sites}
+                links={data.links}
+                onChange={(siteId) => {
+                  const linked = siteId === "all"
+                    ? []
+                    : data.links.filter((l) => l.site_id === siteId).map((l) => l.google_account_id);
+                  handleFilterChange({ ...filters, siteId, googleAccountIds: linked });
+                }}
+              />
+            </div>
+            
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                handleRefresh();
+                void allSites.syncAll(true, range);
+              }}
+              disabled={syncing || allSites.processingCount > 0}
+              className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg h-10 px-4 font-bold border-none"
+            >
+              <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-5 w-5 animate-spin" : "h-5 w-5"} />
+              <span className="hidden sm:inline">
+                {syncing || allSites.processingCount > 0 ? "Sincronizando..." : "Atualizar Gastos"}
+              </span>
+              <span className="sm:hidden text-[12px]">Atualizar</span>
               {allSites.processingCount > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {allSites.processingCount}/{allSites.totalCount}
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[11px] bg-white/20 text-white">
+                  {allSites.processingCount}
                 </Badge>
               )}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={syncing} className="gap-2">
-              <RefreshCw className={syncing || evaluating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              {syncing ? "Sincronizando…" : "Atualizar"}
-            </Button>
-            {currentRole && (
-              <Badge
-                variant="outline"
-                className={
-                  currentRole.isSuperAdmin ? "border-purple-500 text-purple-600 bg-purple-500/10"
-                  : currentRole.role === "admin" ? "border-blue-500 text-blue-600 bg-blue-500/10"
-                  : currentRole.role === "manager" ? "border-amber-500 text-amber-600 bg-amber-500/10"
-                  : "border-slate-400 text-slate-600 bg-slate-400/10"
-                }
-              >
-                {currentRole.isSuperAdmin ? "Super Admin"
-                  : currentRole.role === "admin" ? "Admin"
-                  : currentRole.role === "manager" ? "Manager" : "Viewer"}
-              </Badge>
-            )}
+
             {currentRole?.isSuperAdmin && (
-              <Button variant="outline" size="sm" asChild className="gap-2" title="Gerenciar usuários">
+              <Button variant="outline" size="sm" asChild className="hidden md:flex gap-2 h-9" title="Gerenciar usuários">
                 <Link to="/admin/users"><UserCog className="h-4 w-4" /> Admins</Link>
               </Button>
             )}
@@ -962,7 +986,7 @@ const IndexInner = () => {
       </header>
 
 
-      <main className="w-full max-w-[3440px] mx-auto px-3 sm:px-4 lg:px-6 py-4 md:py-5 space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+      <main className="w-full max-w-[3440px] mx-auto px-2 sm:px-4 lg:px-6 py-2 md:py-5 space-y-4 md:space-y-6 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="hidden md:block -mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList className="w-max md:w-auto flex-nowrap">
@@ -1000,24 +1024,24 @@ const IndexInner = () => {
               const adsAt = adsFreshnessQuery.data ?? null;
               const gamInfo = gamFreshnessQuery.data;
               return (
-                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+                <div className="rounded-lg border border-border bg-card/40 px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] sm:text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-primary" />
-                    <span className="text-muted-foreground">Google Ads atualizado:</span>
-                    <span className="font-mono font-medium">{fmtFresh(adsAt)}</span>
+                    <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                    <span className="text-muted-foreground">Google Ads:</span>
+                    <span className="font-mono font-bold">{fmtFresh(adsAt)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-success" />
-                    <span className="font-mono font-medium">
-                      {gamFreshnessQuery.isLoading ? "Verificando GAM…" : (gamInfo?.label ?? "Ad Manager: —")}
+                    <span className="h-2 w-2 rounded-full bg-success shrink-0" />
+                    <span className="font-mono font-bold">
+                      {gamFreshnessQuery.isLoading ? "GAM…" : (gamInfo?.label?.replace("Ad Manager salvo até:", "GAM:") ?? "GAM: —")}
                     </span>
                     {gamInfo?.date && <span className="text-muted-foreground">({gamInfo.date})</span>}
                   </div>
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" />
-                    <span className="text-muted-foreground">USD → BRL:</span>
-                    <span className="font-mono font-medium">
-                      R$ {usdBrl.toFixed(4)}
+                  <div className="flex items-center gap-1.5 sm:ml-auto">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                    <span className="text-muted-foreground">USD:</span>
+                    <span className="font-mono font-bold">
+                      R$ {usdBrl.toFixed(2)}
                     </span>
                     {fxSource && (
                       <span className="text-muted-foreground">({fxSource})</span>
@@ -1037,12 +1061,18 @@ const IndexInner = () => {
                       Atualizar
                     </Button>
                   </div>
+                  {allSites.processingCount > 0 && (
+                    <div className="w-full mt-1 pt-1 border-t border-border/50 flex items-center gap-2 text-[10px] text-primary animate-pulse">
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                      Sincronização em segundo plano ativa ({allSites.processingCount} site(s)). Os dados aparecerão em instantes.
+                    </div>
+                  )}
                 </div>
               );
             })()}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Receita GAM líquida (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">GAM Líquido (−{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
@@ -1075,40 +1105,63 @@ const IndexInner = () => {
             )}
 
             {/* Métricas */}
-            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <MetricCard
-                label="Gasto (Google Ads)"
-                value={fmtCurrency(totals.spend)}
-                icon={Wallet}
-                hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
-              />
-              <MetricCard
-                label="Receita (Ad Manager)"
-                value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
-                icon={DollarSign}
-                variant="primary"
-                hint={
-                  realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
-                    ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
-                    : realGamRevenueNetDisplay > 0
-                      ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
-                      : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
-                }
-              />
-              <MetricCard
-                label="Lucro"
-                value={fmtCurrency(totals.profit)}
-                icon={profitPositive ? TrendingUp : TrendingDown}
-                variant={profitPositive ? "success" : "danger"}
-                hint="BRL (receita convertida)"
-              />
-              <MetricCard
-                label="ROI / ROAS"
-                value={fmtPercent(totals.roi)}
-                icon={profitPositive ? TrendingUp : TrendingDown}
-                variant={profitPositive ? "success" : "danger"}
-                hint={`ROAS ${totals.roas.toFixed(2)}x`}
-              />
+            <section className="space-y-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <MetricCard
+                  label="Gasto (Google Ads)"
+                  value={fmtCurrency(totals.spend)}
+                  icon={Wallet}
+                  hint={`${engine?.aggregates.length ?? 0} campanha(s) · BRL`}
+                />
+                <MetricCard
+                  label={data.dataReadiness.isIntraday ? "Receita ESTIMADA (Ad Manager)" : "Receita (Ad Manager)"}
+                  value={fmtRevenue(realGamRevenueNetDisplay > 0 ? realGamRevenueNetDisplay : attributedRevenueNetDisplay)}
+                  icon={DollarSign}
+                  variant="primary"
+                  hint={
+                    realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
+                      ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
+                      : realGamRevenueNetDisplay > 0
+                        ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                        : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                  }
+                />
+                <MetricCard
+                  label={data.dataReadiness.isIntraday ? "Lucro ESTIMADO" : "Lucro"}
+                  value={fmtCurrency(totals.profit)}
+                  icon={profitPositive ? TrendingUp : TrendingDown}
+                  variant={profitPositive ? "success" : "danger"}
+                  hint="BRL (receita convertida)"
+                />
+                <MetricCard
+                  label={data.dataReadiness.isIntraday ? "ROI ESTIMADO / ROAS" : "ROI / ROAS"}
+                  value={fmtPercent(totals.roi)}
+                  icon={profitPositive ? TrendingUp : TrendingDown}
+                  variant={profitPositive ? "success" : "danger"}
+                  hint={`ROAS ${totals.roas.toFixed(2)}x`}
+                />
+              </div>
+
+              {filters.siteId !== "all" && linkedAccountIdsForSelectedSite.length === 0 && (
+                <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 animate-pulse">
+                  <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+                    <Plug className="h-5 w-5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">Configuração Pendente</p>
+                      <p className="text-xs opacity-90">
+                        Este site ({selectedSite?.name}) não tem nenhuma conta Google Ads vinculada. 
+                        Os gastos aparecerão como R$ 0,00 até que você faça o mapeamento na aba 
+                        <button 
+                          onClick={() => setActiveTab("integrations")} 
+                          className="underline font-bold ml-1 hover:opacity-80"
+                        >
+                          Integrações
+                        </button>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
             {siteMetricsQuery.data && (
@@ -1200,6 +1253,7 @@ const IndexInner = () => {
                 onRefresh={data.refresh}
                 dateRange={{ from: range.from, to: range.to }}
                 siteId={filters.siteId}
+                isIntraday={data.dataReadiness.isIntraday}
               />
             </section>
             </DashboardErrorBoundary>
@@ -1299,6 +1353,33 @@ const IndexInner = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Mobile Sticky Update Bar */}
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-card/90 backdrop-blur-md border-t border-border z-[60] md:hidden flex items-center justify-between gap-3 shadow-elegant-up">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Status</span>
+          <span className="text-xs font-medium truncate text-primary">
+            {allSites.processingCount > 0 ? (
+              <span className="flex items-center gap-1.5 animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Sincronizando {allSites.processingCount} sites
+              </span>
+            ) : "Dados atualizados"}
+          </span>
+        </div>
+        <Button 
+          size="sm" 
+          className="gap-2 px-6 rounded-full shadow-glow-primary h-9" 
+          onClick={() => {
+            handleRefresh();
+            void allSites.syncAll(true, range);
+          }}
+          disabled={syncing || allSites.processingCount > 0}
+        >
+          <RefreshCw className={syncing || allSites.processingCount > 0 ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+          {syncing || allSites.processingCount > 0 ? "Aguarde" : "Atualizar"}
+        </Button>
+      </div>
     </div>
   );
 };

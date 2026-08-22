@@ -1,7 +1,7 @@
 // Troca code por tokens, descobre quais customer IDs o usuário liberou
 // e salva o(s) MCC(s) na tabela google_accounts (sem precisar customer_id digitado).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { normalizeApiSet, tryGetCreds } from "../_shared/google_api_set.ts";
 
 const GUEST_USER_ID = "00000000-0000-0000-0000-000000000000";
@@ -11,17 +11,29 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { code, redirect_uri, account_name } = body ?? {};
-    const apiSet = normalizeApiSet(body?.api_set ?? 1);
-    console.log("[oauth-callback] received", { hasCode: !!code, redirect_uri, apiSet });
+    const { code, state, redirect_uri, account_name } = body ?? {};
+    
+    let apiSet = normalizeApiSet(body?.api_set ?? 1);
+    
+    // Tenta extrair api_set do state (JSON vindo do start)
+    if (state) {
+      try {
+        const parsedState = JSON.parse(state);
+        if (parsedState.api_set) apiSet = normalizeApiSet(parsedState.api_set);
+      } catch (e) {
+        console.log("[oauth-callback] state is not JSON, using default/provided apiSet");
+      }
+    }
+    
+    console.log("[oauth-callback] received", { hasCode: !!code, hasState: !!state, redirect_uri, apiSet });
 
     if (!code || !redirect_uri) {
-      return json({ error: "code e redirect_uri obrigatórios" });
+      return json({ error: "code e redirect_uri obrigatórios" }, 400);
     }
 
     const creds = tryGetCreds(apiSet);
     if (!creds) {
-      return json({ error: `Secrets do conjunto ${apiSet} não configurados` });
+      return json({ error: `Secrets do conjunto ${apiSet} não configurados` }, 400);
     }
     const { clientId, clientSecret, devToken } = creds;
 
@@ -41,15 +53,18 @@ Deno.serve(async (req) => {
     console.log("[oauth-callback] token exchange status", tokenRes.status, "ok:", tokenRes.ok);
     if (!tokenRes.ok || !tokens.refresh_token || !tokens.access_token) {
       console.error("[oauth-callback] token exchange failed", tokens);
+      const errorMsg = tokens?.error_description || tokens?.error || JSON.stringify(tokens);
       return json({
-        error: `OAuth falhou: ${tokens?.error ?? "?"} - ${tokens?.error_description ?? JSON.stringify(tokens)}`,
+        error: `Falha na troca de token (OAuth): ${errorMsg}`,
         detail: tokens,
-      });
+        api_set: apiSet,
+        creds_used: { clientId: creds.clientId.slice(0, 8) + "..." }
+      }, 400);
     }
 
     // 2) Descobre quais customer IDs o usuário liberou
     const listRes = await fetch(
-      "https://googleads.googleapis.com/v17/customers:listAccessibleCustomers",
+      "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
       {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
@@ -57,14 +72,15 @@ Deno.serve(async (req) => {
         },
       },
     );
-    const listJson = await listRes.json();
+    const listText = await listRes.text();
+    let listJson: any = null;
+    try { listJson = JSON.parse(listText); } catch { /* HTML response */ }
     console.log("[oauth-callback] listAccessibleCustomers status", listRes.status);
-    if (!listRes.ok) {
-      console.error("[oauth-callback] list failed", listJson);
+    if (!listRes.ok || !listJson) {
+      console.error("[oauth-callback] list failed", listRes.status, listText.slice(0, 300));
       return json({
-        error: `Falhou ao listar customers: ${listJson?.error?.message ?? JSON.stringify(listJson)}`,
-        detail: listJson,
-      });
+        error: `Falhou ao listar contas (status ${listRes.status}): ${listJson?.error?.message ?? listText.slice(0, 200)}`,
+      }, 400);
     }
     const resourceNames: string[] = listJson.resourceNames ?? [];
     const customerIds = resourceNames.map((r) => r.split("/")[1]);
@@ -98,16 +114,18 @@ Deno.serve(async (req) => {
       };
       if (loginCid) headers["login-customer-id"] = loginCid;
       const r = await fetch(
-        `https://googleads.googleapis.com/v17/customers/${targetCid}/googleAds:search`,
+        `https://googleads.googleapis.com/v18/customers/${targetCid}/googleAds:search`,
         {
           method: "POST",
           headers,
           body: JSON.stringify({ query }),
         },
       );
-      const j = await r.json();
+      const t = await r.text();
+      let j: any = null;
+      try { j = JSON.parse(t); } catch { j = { error: { message: t.slice(0, 200) } }; }
       if (!r.ok) {
-        console.error(`[gaql] ${targetCid} (login=${loginCid}) failed`, r.status, JSON.stringify(j));
+        console.error(`[gaql] ${targetCid} (login=${loginCid}) failed`, r.status, JSON.stringify(j).slice(0, 300));
       }
       return { ok: r.ok, status: r.status, json: j };
     };
@@ -147,13 +165,13 @@ Deno.serve(async (req) => {
         const exp = await gaqlSearch(
           cid,
           cid,
-          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status = 'ENABLED' AND customer_client.manager = FALSE`,
+          `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager, customer_client.status, customer_client.level FROM customer_client WHERE customer_client.status IN ('ENABLED', 'SUSPENDED')`,
         );
         const results = exp.json?.results ?? [];
         console.log(`[oauth-callback] mcc ${cid} expanded -> ${results.length} clients`);
         for (const r of results) {
           const cc = r.customerClient;
-          if (!cc || cc.manager) continue;
+          if (!cc) continue;
           const subId = String(cc.id);
           if (subId === cid) continue;
           enriched.push({
@@ -210,7 +228,7 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[oauth-callback] uncaught error", e);
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return json({ error: e instanceof Error ? e.message : String(e), stack: e instanceof Error ? e.stack : null }, 400);
   }
 });
 

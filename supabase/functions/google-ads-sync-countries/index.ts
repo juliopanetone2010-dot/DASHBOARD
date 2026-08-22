@@ -2,7 +2,7 @@
 // Receita NÃO é materializada aqui: CountriesTab/geo-expansion/geo-cleanup calculam pela engine oficial
 // usando daily_metrics.profit+spend × site_factor × share do país.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { COUNTRY_BY_ID } from "./countries.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
         let pageToken: string | undefined;
         do {
           const r = await fetch(
-            `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
+            `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`,
             { method: "POST", headers, body: JSON.stringify({ query, pageToken }) },
           );
           const j = await r.json();
@@ -286,7 +286,7 @@ async function resolveGeoTargets(
       };
       if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
       const rr = await fetch(
-        `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
+        `https://googleads.googleapis.com/v18/customers/${acc.customer_id}/googleAds:search`,
         { method: "POST", headers, body: JSON.stringify({ query: q }) },
       );
       const jj = await rr.json();

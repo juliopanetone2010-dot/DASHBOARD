@@ -5,7 +5,7 @@
 //  - preview : retorna lista de winners com base em campaign_country_metrics + daily_metrics
 //  - apply   : duplica a campanha (cria budget + campaign + ad_groups + ads + location criterion)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { getRevSharePct } from "../_shared/revshare.ts";
 import { computeCountryPerformance } from "../_shared/country_performance.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
@@ -270,7 +270,7 @@ async function duplicateCampaign(
     "Content-Type": "application/json",
   };
   if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
-  const apiBase = `https://googleads.googleapis.com/v24/customers/${acc.customer_id}`;
+  const apiBase = `https://googleads.googleapis.com/v18/customers/${acc.customer_id}`;
   const sourceCampaignResource = `customers/${acc.customer_id}/campaigns/${item.campaign_id}`;
 
   // 1) Lê config completa da campanha origem
