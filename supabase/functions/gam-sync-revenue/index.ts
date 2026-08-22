@@ -150,7 +150,7 @@ async function runUnifiedReport(
       if (revenue > 0 || impressions > 0) {
         // Log detailed attribution failure for diagnostic purposes
         if (!cid && revenue > 0.01) {
-          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} or Channel: ${channelName} | Rev: ${revenue}`);
+          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
           auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
         }
         allRows.push({
