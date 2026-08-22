@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
     const lookFor: string[] = Array.isArray(body?.campaign_ids) ? body.campaign_ids.map(String) : [];
 
     const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.replace("Bearer ", "").trim();
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
     const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
 
@@ -22,13 +22,12 @@ Deno.serve(async (req) => {
     
     let userId = "";
     if (isServiceKey) {
-      // Find the user_id that owns the requested site if service key is used
       const { data: sOwner } = await admin.from("sites").select("user_id").eq("id", siteId).maybeSingle();
       userId = sOwner?.user_id || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
     } else {
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
       const { data: { user } } = await userClient.auth.getUser(token);
-      if (!user) return json({ error: "Token inválido" });
+      if (!user) return json({ error: "Token inválido", token_len: token.length });
       userId = user.id;
     }
 
