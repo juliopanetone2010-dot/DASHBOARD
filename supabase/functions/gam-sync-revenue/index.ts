@@ -981,7 +981,7 @@ async function collectUtmAttribution(args: {
           if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
             return rows.map(r => ({
               ...r,
-              dims: [r.dims[0], r.dims[1]] // r.dims[1] é o Channel Name
+              dims: [r.dims[0], r.dims[1], "google", r.dims[1]] // DATE, rawKv, sourceRaw=google, campaignRaw=rawKv
             }));
           }
 
