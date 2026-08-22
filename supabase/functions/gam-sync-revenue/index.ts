@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
   let body: any = {};
   try {
     const text = await req.clone().text();
-    body = JSON.parse(text);
+    const body_temp = JSON.parse(text); body = body_temp;
   } catch (_) { /* */ }
 
   if (body?.sync === true) {
