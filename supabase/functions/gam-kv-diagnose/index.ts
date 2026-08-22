@@ -7,14 +7,9 @@ const SCOPE = "https://www.googleapis.com/auth/admanager";
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
-  // BYPASS EVERYTHING FOR NOW
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const siteId = body?.site_id || "7185031b-788f-4134-b040-0255c4d6f461";
-    const lookFor = ["23207554976", "23309079322", "22923001384"];
-
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", siteId).maybeSingle();
+    const { data: site } = await admin.from("sites").select("id, name, network_code").eq("id", "7185031b-788f-4134-b040-0255c4d6f461").maybeSingle();
     
     if (!site?.network_code) return new Response(JSON.stringify({ error: "Site not found" }), { headers: corsHeaders });
 
@@ -22,12 +17,21 @@ Deno.serve(async (req) => {
     const accessToken = await getAccessToken(sa);
     const networkCode = String(site.network_code);
 
+    // 1) Keys
     const keys: any[] = [];
-    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    url.searchParams.set("pageSize", "200");
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const j = await r.json();
-    keys.push(...(j.customTargetingKeys ?? []));
+    let pageToken: string | undefined;
+    let pages = 0;
+    do {
+      const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+      url.searchParams.set("pageSize", "1000");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const j = await r.json();
+      if (!r.ok) return new Response(JSON.stringify({ error: `keys failed`, detail: j }), { headers: corsHeaders });
+      keys.push(...(j.customTargetingKeys ?? []));
+      pageToken = j.nextPageToken;
+      pages++;
+    } while (pageToken && pages < 10);
 
     const wanted = keys
       .filter((k) => ["utm_source", "utm_campaign", "utm_placement"].includes(String(k.adTagName ?? "").toLowerCase()))
@@ -35,22 +39,39 @@ Deno.serve(async (req) => {
         adTagName: k.adTagName,
         id: String(k.customTargetingKeyId ?? String(k.name ?? "").split("/").pop()),
         type: k.type || k.customTargetingKeyType,
+        reportable: k.reportableType,
+        status: k.status
       }));
 
+    // 2) Values for utm_campaign
     const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
     let valuesSummary: any = null;
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
+
     if (campKey) {
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
-      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const vj = await vr.json();
-      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.adTagName ?? v.displayName ?? ""));
+      const vals: string[] = [];
+      let vt: string | undefined;
+      let vPages = 0;
+      do {
+        const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
+        vUrl.searchParams.set("pageSize", "1000");
+        if (vt) vUrl.searchParams.set("pageToken", vt);
+        const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const vj = await vr.json();
+        if (vr.ok) {
+           for (const v of (vj.customTargetingValues ?? [])) {
+             vals.push(String(v.adTagName ?? v.displayName ?? ""));
+           }
+        }
+        vt = vj.nextPageToken;
+        vPages++;
+      } while (vt && vPages < 50);
       
       valuesSummary = {
         total_sample: vals.length,
         matched: lookFor.filter((c) => vals.includes(c)),
         missing: lookFor.filter((c) => !vals.includes(c)),
-        sample: vals.slice(0, 20)
+        sample: vals.slice(0, 50)
       };
     }
 
