@@ -1699,6 +1699,7 @@ async function runSoapReport(args: {
     
     // Scan for target CIDs in all raw content
     const targetCids = ['23207554976', '23309079322', '22923001384'];
+    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 100)}`);
     targetCids.forEach(cid => {
        if (csvText.includes(cid)) {
          const matchingLine = rawLines.find(l => l.includes(cid));
@@ -1710,6 +1711,7 @@ async function runSoapReport(args: {
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 
