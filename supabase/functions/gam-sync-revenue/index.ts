@@ -124,7 +124,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
     } catch (_) { /* */ }
 
+    debug.push(`[debug] Starting runSync...`);
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
+
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
     let sa: { client_email: string; private_key: string };
     try {
