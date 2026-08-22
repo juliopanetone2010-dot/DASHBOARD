@@ -41,11 +41,9 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    // Dynamic key identification
     const utmKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_campaign");
     console.log(`[gam-sync] Site: ${site.name} | Network: ${networkCode} | utm_campaign Key: ${utmKeyId}`);
 
-    // Unified report using URL as the fallback attribution dimension
     const rows = await runUnifiedReport(networkCode, accessToken, from, to, utmKeyId);
     console.log(`[gam-sync] Report complete. Rows: ${rows.length}`);
 
@@ -87,7 +85,6 @@ async function runUnifiedReport(
     }
   };
 
-  // Create
   const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -96,7 +93,6 @@ async function runUnifiedReport(
   if (!createRes.ok) throw new Error(`Report create failed: ${await createRes.text()}`);
   const { name: reportName } = await createRes.json();
 
-  // Run
   const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -105,7 +101,6 @@ async function runUnifiedReport(
   if (!runRes.ok) throw new Error(`Report run failed: ${await runRes.text()}`);
   const { name: operationName } = await runRes.json();
 
-  // Poll
   let resultName = null;
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
@@ -122,7 +117,6 @@ async function runUnifiedReport(
 
   if (!resultName) throw new Error("Report timeout");
 
-  // Fetch
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
   do {
@@ -144,7 +138,10 @@ async function runUnifiedReport(
       const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
-      const revenue = Number(metrics[0]?.intValue || 0) / 1_000_000;
+      // Handle both doubleValue (REST v1 Exchange Rev) and intValue (micros)
+      const revenue = metrics[0]?.doubleValue !== undefined 
+        ? Number(metrics[0].doubleValue) 
+        : Number(metrics[0]?.intValue || 0) / 1_000_000;
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
@@ -165,7 +162,6 @@ async function runUnifiedReport(
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  // Match 10-12 digit IDs in URL parameters or path
   const match = text.match(/\b(\d{10,12})\b/);
   return match ? match[1] : null;
 }
@@ -173,10 +169,9 @@ function extractCampaignId(text: string): string | null {
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const stats = { attributed: 0, total_revenue: 0 };
   
-  // Group by date and campaign
   const groups = new Map<string, { revenue: number, impressions: number }>();
   for (const r of rows) {
-    if (!r.campaignId) continue; // We only store attributed rows in this table for now
+    if (!r.campaignId) continue;
     const key = `${r.date}|${r.campaignId}`;
     const cur = groups.get(key) || { revenue: 0, impressions: 0 };
     cur.revenue += r.revenue;
