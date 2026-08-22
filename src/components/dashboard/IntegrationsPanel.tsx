@@ -88,7 +88,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Vou dormir, e amanha quero ver todas as campanhas tendo receitas, e ja atualize a de hoje, e a de manha tb !
+              Acordei e os problemas continuam so que pior o site universo dos cartoes, nao esta puxando os gastos do google ads, é algum problema de token? se for a gente configura tudo denovo, é melhor confere ai
             </p>
           </div>
         </div>
