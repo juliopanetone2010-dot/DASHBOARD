@@ -1749,15 +1749,18 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     
     const row: ReportRow = { dims: [], impressions: 0, revenue: 0, date: "" };
     
-    // Map Dimensions
-    dimensions.forEach((dim, idx) => {
-      row.dims.push(cols[idx] || "");
-    });
+    // Map Dimensions dynamically based on headers to avoid index mismatches
+    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
+    const urlIdx = headers.findIndex(h => h.includes("Dimension.URL_NAME"));
+    const urlChannelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
+    const channelNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_NAME"));
     
-    // Extra dimension AD_EXCHANGE_URL_CHANNEL_NAME if it was added in runSoapReport
-    // or if dimensions didn't include it but it's in the CSV
-    const channelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
-    if (channelIdx !== -1 && row.dims.length <= channelIdx) {
+    row.date = dateIdx !== -1 ? cols[dateIdx] : "";
+    row.dims[0] = row.date;
+    row.dims[1] = urlIdx !== -1 ? cols[urlIdx] : "";
+    row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
+    row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
+
        row.dims[channelIdx] = cols[channelIdx] || "";
     }
     
