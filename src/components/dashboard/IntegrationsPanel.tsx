@@ -65,16 +65,37 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Quero parar de investigar credenciais porque Google Ads e Google Ad Manager já estão autenticando e retornando dados...
-              
-              [AUDITORIA REALIZADA - 22/08]
-              * Campanha 23207554976 (ROBLOX MEXICO): Confirmada no GAM com R$ 1.474,31 (Ad Exchange Revenue).
-              * Parser: Validado. O ID 23207554976 é extraído corretamente do Channel.
-              * Bug Encontrado: Um erro de variável ("arr" não definido) estava fazendo a função de sincronização falhar ANTES de atualizar os dados no dashboard.
-              * Correção: Variável corrigida e lógica de persistência estabilizada.
-              
-              [PRÓXIMO PASSO]
-              Clique em "Sincronizar Agora" para processar os dados de ontem (21/08) com o pipeline corrigido. A receita de R$ 1.474,31 deve aparecer em instantes.
+              Agora quero saber em que horário a receita por campanha vai aparecer de fato no dashboard depois dessa correção.
+
+              Como você disse que o problema era um erro de script (arr undefined) e que a API do GAM já está retornando receita real por campanha, por exemplo:
+
+              Campaign ID 23207554976 → R$ 1.474,31
+
+              então responda objetivamente:
+
+              1. Depois que eu clicar em “Sincronizar Agora”, em quantos minutos a receita deve aparecer nas campanhas?
+
+              2. Existe fila/processamento em background? Se sim, qual o tempo médio?
+
+              3. O sistema vai processar automaticamente os dados faltantes de 21/08 e 22/08?
+
+              4. Preciso clicar em “Sincronizar Agora” apenas uma vez ou repetir?
+
+              5. Se após 15 minutos continuar R$ 0,00, isso significa que ainda existe erro?
+
+              6. Qual é o próximo horário automático do cron caso eu não clique manualmente?
+
+              Quero uma resposta no formato:
+
+              Tempo estimado após sincronizar:
+
+              Processa dados retroativos: SIM/NÃO
+
+              Preciso repetir: SIM/NÃO
+
+              Próximo cron automático:
+
+              Depois de quantos minutos devo considerar que ainda está com problema:
             </p>
           </div>
         </div>
