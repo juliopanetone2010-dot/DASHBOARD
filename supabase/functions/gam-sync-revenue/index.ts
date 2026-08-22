@@ -1,6 +1,7 @@
 // Sincroniza receita do Google Ad Manager (REST API v1 beta + SOAP ReportService para Intraday)
-// REDEPLOY TRIGGER: v1.0.6 - RESTORE FULL LOGIC
-// REDEPLOY TRIGGER: v1.0.2 - Full rename of internal variables
+// REDEPLOY TRIGGER: v1.0.8 - Final Audit Verification
+
+
 
 
 // - Roda reports por AD_UNIT, PLACEMENT e URL_NAME (via SOAP para intraday)
@@ -51,11 +52,14 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  console.log(`[Deno.serve] Request received: ${req.method} url=${req.url}`);
   let body: any = {};
   try {
     const text = await req.clone().text();
-    const body_temp = JSON.parse(text); body = body_temp;
-  } catch (_) { /* */ }
+    console.log(`[Deno.serve] Body text: ${text.slice(0, 300)}`);
+    body = JSON.parse(text);
+  } catch (e) { console.error(`[Deno.serve] JSON parse error: ${e}`); }
+
 
   if (body?.sync === true) {
     const res = await runSync(req, true, body);
@@ -78,8 +82,12 @@ Deno.serve(async (req) => {
 async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promise<Response> {
   const debug: string[] = [];
   try {
+    debug.push(`[entry] runSync called with body=${JSON.stringify(parsedBody).slice(0, 200)}`);
+
     const authHeader = req.headers.get("Authorization");
-    if (!skipAuth && !authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
+    debug.push(`[auth] skipAuth=${skipAuth} authHeader_present=${!!authHeader}`);
+    if (!skipAuth && !authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório", debug });
+
 
 
 
@@ -114,26 +122,29 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       includeYesterdayFallback = Boolean((body as any)?.include_yesterday_fallback);
       testMode = Boolean((body as any)?.test);
       const includeFullReports = Boolean((body as any)?.include_full_reports);
-      revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
-      skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
-      // Viewability/eCPM diário (site_metrics_daily) é leve (só dimensão DATE) e crítico para o dashboard.
-      // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
-      skipViewability = Boolean((body as any)?.skip_viewability);
-      skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
-      totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
-      siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
+      revenueOnly = (body?.include_full_reports !== true) || (body?.revenue_only === true) || String(body?.mode ?? "").toLowerCase() === "revenue";
+      skipLegacyReports = revenueOnly || (body?.skip_legacy_reports === true);
+      skipViewability = (body?.skip_viewability === true);
+      skipSnapshotRegen = (body?.skip_snapshot_regen === true);
+      totalRequestsOnly = (body?.total_requests_only === true || body?.match_rate_only === true);
+      siteMetricsOnly = (body?.site_metrics_only === true || body?.metrics_only === true);
+
+
+
     } catch (_) { /* */ }
 
+    debug.push(`[debug] Starting runSync...`);
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
-    if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
+
+    if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada", debug });
     let sa: { client_email: string; private_key: string };
     try {
       sa = JSON.parse(saJsonRaw);
     } catch {
-      return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)" });
+      return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)", debug });
     }
     if (!sa.client_email || !sa.private_key) {
-      return json({ error: "Service Account JSON sem client_email/private_key" });
+      return json({ error: "Service Account JSON sem client_email/private_key", debug });
     }
 
     const userClient = createClient(
@@ -151,7 +162,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
       debug.push(`[auth] authenticated via ${skipAuth ? "skipAuth" : "service_role"}. target_user=${userId}`);
     } else {
+      debug.push(`[auth] skipAuth=${skipAuth} isServiceKey=${isServiceKey}`);
       if (!token) {
+
         return json({ error: "Token ausente", debug });
       }
       debug.push(`[auth] attempting getUser with token len ${token.length}`);
@@ -184,8 +197,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code, gam_currency, gam_currency_override")
+      .select("id, name, domain, network_code, gam_currency, gam_currency_override, user_id")
       .eq("user_id", userId);
+    debug.push(`[debug] userId=${userId} requestedSiteId=${requestedSiteId}`);
+
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
     const { data: sites, error: sErr } = await sitesQuery;
     if (sErr) return json({ error: sErr.message });
@@ -193,6 +208,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
+    debug.push(`[debug] found ${sites?.length || 0} sites. first_network=${sites?.[0]?.network_code}`);
+
 
     const isManualSync = parsedBody?.sync === true;
 
@@ -215,6 +232,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
+        debug.push(`[${networkCode}] Starting network sync. Ranges count: ${ranges.length}`);
+
 
         // Auto-detect Network currency (respeita override manual)
         const detectedCurrency = await fetchNetworkCurrency(networkCode, accessToken, debug);
@@ -240,25 +259,16 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
         const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
 
-        if (true) { // Sempre puxa os totais do site para o fallback preditivo
+        if (siteMetricsOnly) {
+          debug.push(`[${networkCode}] siteMetricsOnly is true. Running site metrics daily reports.`);
           const siteMetricsVariants: Array<{ label: string; metrics: string[] }> = [
             {
               label: "AD_SERVER",
-              metrics: [
-                "AD_SERVER_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "AD_SERVER_REVENUE",
-              ],
+              metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS", "AD_SERVER_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS", "AD_SERVER_REVENUE"],
             },
             {
               label: "AD_EXCHANGE",
-              metrics: [
-                "AD_EXCHANGE_IMPRESSIONS",
-                "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS",
-                "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS",
-                "AD_EXCHANGE_REVENUE",
-              ],
+              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_ACTIVE_VIEW_MEASURABLE_IMPRESSIONS", "AD_EXCHANGE_ACTIVE_VIEW_VIEWABLE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
             },
           ];
           const metricMap = new Map<string, { impr: number; meas: number; viewable: number; rev: number }>();
@@ -278,15 +288,14 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
                 cur.rev += Number(r.revenue ?? 0);
                 metricMap.set(key, cur);
               }
-
             } catch (e) {
               siteMetricsVariantFailures++;
               debug.push(`[${networkCode}] site_metrics_only ${variant.label} falhou: ${String(e).slice(0, 220)}`);
             }
           }
+          const todayStr = new Date().toISOString().slice(0, 10);
           siteDailyMetrics = Array.from(metricMap.entries()).map(([date, v]) => ({ date: date === "_" ? todayStr : date, impr: v.impr, meas: v.meas, view: v.viewable, rev: v.rev }));
-
-
+          
           const metricRows = [...metricMap.entries()].map(([d, v]) => ({
             date: d === "_" ? null : d,
             impressions: v.impr,
@@ -296,47 +305,33 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           }));
 
           await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
-            // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
-            // Nessa situação nunca reduzimos uma receita já salva e maior.
             preserveHigherExisting: siteMetricsVariantFailures > 0,
           });
+          
           if (!skipSnapshotRegen) {
-            await regenerateSnapshotsForRanges({
-              ranges,
-              authHeader,
-              siteId: requestedSiteId ?? networkSites[0]?.id ?? null,
-              debug,
-              wait: true,
-            });
+            await regenerateSnapshotsForRanges({ ranges, authHeader, siteId: requestedSiteId ?? networkSites[0]?.id ?? null, debug, wait: true });
           }
+          
           const metricTotals = metricRows.reduce((a, r) => ({
             revenue: a.revenue + r.revenue,
             impressions: a.impressions + r.impressions,
           }), { revenue: 0, impressions: 0 });
-          if (siteMetricsOnly) {
-             summary.push({
-               network_code: networkCode,
-               sites: networkSites.map((s) => s.name),
-               mode: "site_metrics_only",
-               currency: siteCurrency,
-               date_range: ranges.map((r) => r.debugLabel),
-               site_id: requestedSiteId ?? null,
-               total_revenue: metricTotals.revenue,
-             });
-             continue;
-          }
+          
           summary.push({
             network_code: networkCode,
             sites: networkSites.map((s) => s.name),
             mode: "site_metrics_only",
-            rows_returned: metricRows.length,
-            total_revenue_native: metricTotals.revenue,
+            currency: siteCurrency,
+            date_range: ranges.map((r) => r.debugLabel),
+            site_id: requestedSiteId ?? null,
+            total_revenue: metricTotals.revenue,
             total_impressions: metricTotals.impressions,
           });
           continue;
         }
+        
+        debug.push(`[${networkCode}] Running attribution sync (siteMetricsOnly is false).`);
 
-        // PRIORIDADE: roda persistCampaignTotalRequests primeiro, pois é o que
         // alimenta a coluna "Taxa de Correspondência" e era frequentemente cortado
         // pelo IDLE_TIMEOUT de 150s quando vinha depois do trabalho pesado abaixo.
         if (!testMode && hasBudget(25_000)) {
@@ -382,7 +377,10 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const utmKeyIds: UtmKeyIds = { utm_source: null, utm_campaign: null, utm_placement: null };
         // Usamos KEY_VALUES_NAME para UTMs. Se falhar ou vier vazio, tentamos fallbacks via CUSTOM_CRITERIA.
 
+        debug.push(`[${networkCode}] Starting collectUtmAttribution...`);
         let attribution = await collectUtmAttribution({ networkCode, accessToken, ranges, utmKeyIds, debug, deadlineAt, fastMode: revenueOnly });
+        debug.push(`[${networkCode}] collectUtmAttribution finished. googleCampaignRows=${attribution.googleCampaignRows.length}`);
+
         
         if (attribution.googleCampaignRows.length === 0 && hasBudget(15_000)) {
           debug.push(`[${networkCode}] KEY_VALUES_NAME retornou 0 campanhas, tentando CUSTOM_CRITERIA fallback...`);
@@ -437,7 +435,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           debug.push(`[${networkCode}] SOAP URL_NAME retornou ${urlRows.length} linhas brutas.`);
           
           if (urlRows.length > 0) {
-            const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)");
+            const soapAttribution = rowsToAttributionResult(urlRows, "URL_NAME (SOAP Intraday)", debug);
             debug.push(`[${networkCode}] SOAP Intraday parsed: campaigns=${soapAttribution.googleCampaignRows.length}, placements=${soapAttribution.googlePlacementRows.length}`);
             
             // Mescla os dados do SOAP (intraday) com o que veio do REST v1 (consolidated)
@@ -1037,10 +1035,12 @@ async function fetchUtmKeyIds(
 }
 
 async function collectUtmAttribution(args: {
-  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean;
+  networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean; label?: string;
 }): Promise<AttributionResult> {
+
   const { networkCode, accessToken, ranges, debug, deadlineAt, fastMode } = args;
-  const label = "KEY_VALUES_NAME";
+  const label = args.label || "KEY_VALUES_NAME";
+
 
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
   // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
@@ -1057,7 +1057,9 @@ async function collectUtmAttribution(args: {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
           let dims = group.dimensions ?? ["DATE", "KEY_VALUES_NAME"];
           
+          debug.push(`[collectUtmAttribution] Network ${networkCode} Group ${group.label} Range ${range.debugLabel} starting...`);
           // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_ID
+
           try {
             const rows = await runReport({
               networkCode, accessToken, range,
@@ -1109,7 +1111,7 @@ async function collectUtmAttribution(args: {
           
           return [];
         }))).flat();
-        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
+        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)} samples=${JSON.stringify(groupRows.slice(0, 5).map(r => r.dims))}`);
         reportRows.push(...groupRows);
       } catch (e) {
         debug.push(`[${networkCode}/${label}/${group.label}] erro global grupo=${String(e).slice(0, 500)}`);
@@ -1120,17 +1122,30 @@ async function collectUtmAttribution(args: {
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
+  // LOG DE AUDITORIA CRÍTICO: Inspeciona TODAS as linhas brutas antes do parser
+  if (reportRows.length > 0) {
+    const rawAudit = reportRows.slice(0, 50).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
+    debug.push(`[AUDIT_RAW_DATA] label=${label} total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
+    
+    // Procura especificamente pelos IDs de auditoria nos dados crus
+    const targetIds = ['23207554976', '23309079322', '22922896278', '22923001384'];
+    for (const r of reportRows) {
+      const rowStr = JSON.stringify(r.dims);
+      if (targetIds.some(id => rowStr.includes(id))) {
+        debug.push(`[AUDIT_RAW_MATCH_FOUND] label=${label} id_detected in dims=${rowStr} rev=${r.revenue}`);
+      }
+    }
+  }
+
   const parsedRows = reportRows.map((r) => {
     const rawKv = r.dims[1] || "";
-    // O Channel Name do Ad Exchange já vem no formato "utm_campaign=123" ou "utm_source=push"
-    // O parser parseKeyValueDimension lida com ambos os formatos (key=value ou key=value;key2=value2)
     const kv = parseKeyValueDimension(rawKv);
-
     const sourceRaw = kv.utm_source ?? "";
     const campaignRaw = kv.utm_campaign ?? "";
     const placementRaw = kv.utm_placement ?? "";
     return { r, rawKv, sourceRaw, campaignRaw, placementRaw };
   });
+
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
@@ -1142,10 +1157,11 @@ async function collectUtmAttribution(args: {
       cid = extractCampaignId(rawKv);
     }
 
-    const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394', '22922896278', '22923001384'];
     if (cid && auditCidsList.includes(cid)) {
-      debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
+      debug.push(`[AUDIT_raw_parser] label=${label} ID ${cid} identificado. rawKv=${rawKv.slice(0, 100)} rev=${r.revenue}`);
     }
+
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
@@ -1429,6 +1445,8 @@ async function collectUrlAttribution(args: {
       // Normalização agressiva do range para SOAP (Garante objetos de data mesmo para TODAY/YESTERDAY)
       let soapRange = range;
       const r = range as any;
+      debug.push(`[collectUrlAttribution/SOAP] Starting range ${r.debugLabel}...`);
+
       console.log(`[collectUrlAttribution/SOAP] Incoming range: ${JSON.stringify(r)}`);
       
       const rd = r.dateRange;
@@ -1480,9 +1498,10 @@ async function collectUrlAttribution(args: {
       }
       try {
         console.log(`[${networkCode}/SOAP] Triggering runSoapReport for range=${soapRange.debugLabel}`);
-        const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME"], debug, deadlineAt });
+        const results = await runSoapReport({ networkCode, accessToken, range: soapRange, dimensions: ["DATE", "URL_NAME", "AD_EXCHANGE_URL_CHANNEL_NAME", "AD_EXCHANGE_CHANNEL_NAME"], debug, deadlineAt });
         console.log(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
-        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length}`);
+        debug.push(`[${networkCode}/SOAP] range=${soapRange.debugLabel} rows=${results.length} samples=${JSON.stringify(results.slice(0, 5).map(r => r.dims))}`);
+
         return results;
       } catch (soapErr) {
         console.error(`[collectUrlAttribution] SOAP individual range failed for net=${networkCode} range=${soapRange.debugLabel}`, soapErr);
@@ -1549,8 +1568,12 @@ async function runSoapReport(args: {
          <v202405:reportJob>
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
+                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE' && d !== 'AD_EXCHANGE_URL_CHANNEL_NAME' && d !== 'AD_EXCHANGE_CHANNEL_NAME').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+
+
+
                 <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
@@ -1586,7 +1609,9 @@ async function runSoapReport(args: {
   });
 
   const xml = await res.text();
-  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 1000)}`);
+  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 2000)}`);
+  debug.push(`[SOAP_INIT_AUDIT] xml_sample=${xml.slice(0, 500)}`);
+
   if (!res.ok) throw new Error(`SOAP runReportJob failed: ${xml.slice(0, 500)}`);
 
   const jobIdMatch = xml.match(/<id>(\d+)<\/id>/);
@@ -1625,7 +1650,9 @@ async function runSoapReport(args: {
       body: pollBody
     });
     const statusXml = await pollRes.text();
+    debug.push(`[SOAP_POLL] i=${i} status_xml=${statusXml.slice(0, 300)}`);
     if (statusXml.includes("COMPLETED")) {
+
       // Get Download URL
       const downloadBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
@@ -1672,8 +1699,14 @@ async function runSoapReport(args: {
   const csvText = await csvRes.text();
   console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
   console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
-  console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
+  if (csvText.length > 0) {
+    const rawLines = csvText.split('\n');
+    const first10 = rawLines.slice(0, 10);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} first_10_lines=${JSON.stringify(first10)}`);
+
+  }
   return parseSoapCsv(csvText, dimensions, debug);
+
 }
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
@@ -1681,7 +1714,9 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
   const lines = csv.split("\n").filter(l => l.trim().length > 0);
   if (lines.length <= 1) {
     console.log(`[parseSoapCsv] No data rows found (lines=${lines.length})`);
+    debug.push(`[parseSoapCsv] No data rows found (lines=${lines.length})`);
     return [];
+
   }
   
   // O dump do GAM pode ter aspas
@@ -1726,17 +1761,17 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     
     const row: ReportRow = { dims: [], impressions: 0, revenue: 0, date: "" };
     
-    // Map Dimensions
-    dimensions.forEach((dim, idx) => {
-      row.dims.push(cols[idx] || "");
-    });
+    // Map Dimensions dynamically based on headers to avoid index mismatches
+    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
+    const urlIdx = headers.findIndex(h => h.includes("Dimension.URL_NAME"));
+    const urlChannelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
+    const channelNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_NAME"));
     
-    // Extra dimension AD_EXCHANGE_URL_CHANNEL_NAME if it was added in runSoapReport
-    // or if dimensions didn't include it but it's in the CSV
-    const channelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
-    if (channelIdx !== -1 && row.dims.length <= channelIdx) {
-       row.dims[channelIdx] = cols[channelIdx] || "";
-    }
+    row.date = dateIdx !== -1 ? cols[dateIdx] : "";
+    row.dims[0] = row.date;
+    row.dims[1] = urlIdx !== -1 ? cols[urlIdx] : "";
+    row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
+    row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
     
     const findMetric = (name: string) => {
       let idx = headers.findIndex(h => h.trim() === name);
@@ -1762,8 +1797,6 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
        }
     }
     
-    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
-    row.date = dateIdx !== -1 ? cols[dateIdx] : (row.dims[0] || "");
     
     if (row.date) rows.push(row);
   }
@@ -1773,10 +1806,13 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
 function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlMap?: Map<string, string>): AttributedRow[] {
   return reportRows.map((r) => {
     const rawUrl = r.dims[1] || r.dims[0] || "";
-    // O fallback SOAP agora traz AD_EXCHANGE_URL_CHANNEL_NAME na dimensão 2 (index 2)
-    const rawChannel = r.dims[2] || "";
+    // O fallback SOAP agora traz AD_EXCHANGE_URL_CHANNEL_NAME e AD_EXCHANGE_CHANNEL_NAME
+    // dims: [date, URL_NAME (se houver), AD_EXCHANGE_URL_CHANNEL_NAME, AD_EXCHANGE_CHANNEL_NAME]
+    const rawUrlChannel = r.dims[2] || "";
+    const rawChannel = r.dims[3] || "";
     
     const params = parseUrlParams(rawUrl);
+
     const sourceRaw = params.utm_source ?? "";
     const campaignRaw = params.utm_campaign ?? "";
     const placementRaw = params.utm_placement ?? "";
@@ -1786,8 +1822,19 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
     
     if (!cid) {
       // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
-      cid = extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
+      cid = extractCampaignId(rawUrlChannel) ?? extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
+      
+      // LOG DE AUDITORIA: Se falhou encontrar CID mas temos dados no canal, vamos ver o que é
+      if (!cid && (rawUrlChannel || rawChannel || rawUrl)) {
+        const auditIds = ['31699642', '31631691', '32210520', '32331737', '31696443'];
+        const isTarget = auditIds.some(id => (rawUrlChannel && rawUrlChannel.includes(id)) || (rawChannel && rawChannel.includes(id)) || rawUrl.includes(id));
+        if (isTarget) {
+          debug.push(`[AUDIT_SHORT_ID_DETECTED] rawUrlChannel=${rawUrlChannel} rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
+        }
+      }
     }
+
+
     
     if (!cid && finalUrlMap) {
       // Busca reversa no mapa de URLs finais se disponível
@@ -1800,15 +1847,17 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
       }
     }
     
-    // Se ainda não temos source, tentamos extrair do Channel Name
+    // Se ainda não temos source, tentamos extrair dos Channels
     let source = sourceRaw ? safeDecode(sourceRaw).toLowerCase().trim() : null;
-    if (!source && rawChannel) {
-      const chParams = parseUrlParams("?" + rawChannel.replace(/;/g, "&")); // Simula query string
+    if (!source && (rawUrlChannel || rawChannel)) {
+      const combined = (rawUrlChannel || "") + ";" + (rawChannel || "");
+      const chParams = parseUrlParams("?" + combined.replace(/;/g, "&")); // Simula query string
       source = chParams.utm_source ? safeDecode(chParams.utm_source).toLowerCase().trim() : null;
-      if (!source && (rawChannel.toLowerCase().includes("push") || rawChannel.toLowerCase().includes("google"))) {
-         source = rawChannel.toLowerCase().includes("push") ? "push" : "google";
+      if (!source && (combined.toLowerCase().includes("push") || combined.toLowerCase().includes("google"))) {
+         source = combined.toLowerCase().includes("push") ? "push" : "google";
       }
     }
+
     
     if (!source) source = cid ? "google" : "unknown";
 
@@ -1826,7 +1875,7 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
   }).filter((r) => r.source !== "unknown" || !!r.cid || !!r.placement);
 }
 
-function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string): AttributedRow[] {
+function rowsFromKeyValueReportRows(reportRows: ReportRow[], label: string, debug?: string[]): AttributedRow[] {
   return reportRows.map((r) => {
     const rawKv = r.dims[1] || r.dims[0] || "";
     const kv = parseKeyValueDimension(rawKv);
