@@ -87,7 +87,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              PUXE MANUALMENTE PRA VER SE TA FUNCIONANDO JA AS RECEITAS AINDA ESTAO TODAS ZERADAS
+              EU N TO PEDINDO PRA VC ALTERAR TEXTO, QUERO Q VEJA O POR QUE AS CAMPANHAS ESTAO SEM RECEITAS
             </p>
           </div>
         </div>
