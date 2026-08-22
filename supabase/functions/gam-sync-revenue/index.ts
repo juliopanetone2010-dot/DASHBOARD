@@ -1059,7 +1059,9 @@ async function collectUtmAttribution(args: {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
           let dims = group.dimensions ?? ["DATE", "KEY_VALUES_NAME"];
           
+          debug.push(`[collectUtmAttribution] Network ${networkCode} Group ${group.label} Range ${range.debugLabel} starting...`);
           // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_ID
+
           try {
             const rows = await runReport({
               networkCode, accessToken, range,
@@ -1445,6 +1447,8 @@ async function collectUrlAttribution(args: {
       // Normalização agressiva do range para SOAP (Garante objetos de data mesmo para TODAY/YESTERDAY)
       let soapRange = range;
       const r = range as any;
+      debug.push(`[collectUrlAttribution/SOAP] Starting range ${r.debugLabel}...`);
+
       console.log(`[collectUrlAttribution/SOAP] Incoming range: ${JSON.stringify(r)}`);
       
       const rd = r.dateRange;
