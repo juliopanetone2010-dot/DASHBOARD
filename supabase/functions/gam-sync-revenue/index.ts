@@ -1727,7 +1727,7 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
   }
   
   const headers = parseLine(lines[headerIndex]);
-  console.log(`[parseSoapCsv] Detected headers: ${headers.join(", ")}`);
+  console.log(`[parseSoapCsv] Detected headers count: ${headers.length}`);
 
   const rows: ReportRow[] = [];
   
@@ -2848,7 +2848,7 @@ async function persistSiteMetricsDaily(
     updated_at: string;
   }>;
   const existingByDate = new Map<string, any>();
-  if (opts?.preserveHigherExisting) {
+  if (false && opts?.preserveHigherExisting) {
     const dateList = [...byDate.keys()];
     const { data: existingRows } = dateList.length > 0 ? await admin
       .from("site_metrics_daily")
