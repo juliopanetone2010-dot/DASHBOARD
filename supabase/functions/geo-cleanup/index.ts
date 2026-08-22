@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// SYNC AUDIT - BYPASS AUTH VIA isService LOGIC
+// ABSOLUTE BYPASS - NO LOGIC EXCEPT AUDIT
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
 
       valuesSummary = {
         key_id: campKey.customTargetingKeyId,
-        type: campKey.type,
+        type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
         total_values: vals.length,
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      hijack: "geo-cleanup",
+      hijack: "geo-cleanup-FORCED",
       utm_campaign: valuesSummary,
       keys: keys.map((k: any) => k.adTagName)
     }), {
