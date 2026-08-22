@@ -48,6 +48,8 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  return new Response(JSON.stringify({ hello: "world" }), { headers: { "Content-Type": "application/json" } });
+
   let body: any = {};
   try {
     const text = await req.clone().text();
