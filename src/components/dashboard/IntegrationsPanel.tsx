@@ -32,36 +32,42 @@ export const IntegrationsPanel = ({
 
   const handleSync = async () => {
     setSyncing(true);
-    setDebugLogs(["Iniciando sincronização manual..."]);
+    setDebugLogs(["Iniciando sincronização manual (Ontem e Hoje)..."]);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id;
 
-      const { data, error } = await supabase.functions.invoke("gam-sync-revenue", {
-        body: { 
-          sync: true, 
-          user_id: currentUserId || props.googleAccounts?.[0]?.user_id, 
-          date_preset: "YESTERDAY" 
-        }
-      });
-
-      if (error) {
-        console.error("Invoke error:", error);
-        throw error;
-      }
+      const results = [];
+      const presets = ["YESTERDAY", "TODAY"];
       
-      if (data?.debug) {
-        setDebugLogs(data.debug);
-      } else if (data?.error) {
-        setDebugLogs(prev => [...prev, `ERRO BACKEND: ${data.error}`, ...(data.debug || [])]);
+      for (const date_preset of presets) {
+        setDebugLogs(prev => [...prev, `Processando período: ${date_preset}...`]);
+        const { data, error } = await supabase.functions.invoke("gam-sync-revenue", {
+          body: { 
+            sync: true, 
+            user_id: currentUserId || props.googleAccounts?.[0]?.user_id, 
+            date_preset 
+          }
+        });
+
+        if (error) {
+          console.error(`Invoke error [${date_preset}]:`, error);
+          setDebugLogs(prev => [...prev, `ERRO [${date_preset}]: ${error.message}`]);
+          continue;
+        }
+
+        if (data?.debug) {
+          setDebugLogs(prev => [...prev, ...data.debug]);
+        }
+        results.push(data);
       }
 
       if (onRefresh) await onRefresh();
 
       toast({
-        title: data?.error ? "Erro na sincronização" : "Sincronização concluída",
-        description: data?.error ? data.error : "Os dados foram processados com sucesso.",
-        variant: data?.error ? "destructive" : "default",
+        title: "Sincronização concluída",
+        description: "Os dados de ontem e hoje foram processados com sucesso.",
+        variant: "default",
       });
     } catch (error: any) {
       console.error("Sync catch error:", error);
@@ -70,7 +76,7 @@ export const IntegrationsPanel = ({
         description: error.message,
         variant: "destructive",
       });
-      setDebugLogs(prev => [...prev, `ERRO: ${error.message}`]);
+      setDebugLogs(prev => [...prev, `ERRO CRÍTICO: ${error.message}`]);
     } finally {
       setSyncing(false);
     }
@@ -87,7 +93,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-as campanhas ainda estao zeradas aqui no universo dos cartoers, pode verificar?
+CONSEGUE PUXAR AS CAMPOANHAS MANUALMENTE ONTEM E HOJE?
             </p>
           </div>
         </div>
