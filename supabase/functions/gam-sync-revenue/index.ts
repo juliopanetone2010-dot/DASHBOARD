@@ -1036,6 +1036,11 @@ async function collectUtmAttribution(args: {
       cid = extractCampaignId(rawKv);
     }
 
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    if (cid && auditCids.includes(cid)) {
+      console.log(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
+    }
+
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
@@ -2172,6 +2177,8 @@ async function applyGoogleUtmRevenue(
       .in("campaign_id", cids);
 
     const aggregatedByCid = new Map<string, number>();
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id).trim();
       const rev = Number(r.revenue_usd ?? 0);
