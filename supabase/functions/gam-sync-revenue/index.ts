@@ -215,6 +215,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     for (const [networkCode, networkSites] of byNetwork) {
       try {
         const ranges = buildGamRanges(datePreset, dateFrom, dateTo, includeYesterdayFallback);
+        debug.push(`[${networkCode}] Starting network sync. Ranges count: ${ranges.length}`);
+
 
         // Auto-detect Network currency (respeita override manual)
         const detectedCurrency = await fetchNetworkCurrency(networkCode, accessToken, debug);
