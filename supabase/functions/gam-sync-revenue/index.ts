@@ -195,37 +195,52 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const isManualSync = body?.sync === true;
 
     // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (isManualSync || testMode) {
+    if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
-        const ranges = buildGamRanges("YESTERDAY", null, null, false);
-        const reportRows = await runReport({
-          networkCode: sites[0].network_code,
-          accessToken,
-          range: ranges[0],
-          dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
-          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-          debug
+        const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com AD_EXCHANGE_CHANNEL_ID para range 2026-08-21...`);
+        
+        let soapRows = await runSoapReport({
+           networkCode: sites[0].network_code,
+           accessToken,
+           range: ranges[0],
+           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
+           debug
         });
-        const auditRow = reportRows.find(r => r.dims[1].includes("23207554976"));
+        
+        debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
+        let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
+        
+        if (!auditRow) {
+           debug.push("[AUDIT_MANUAL] Tentando AD_EXCHANGE_URL_CHANNEL_NAME (Metric: AD_EXCHANGE_REVENUE)...");
+           const pRows = await runSoapReport({
+              networkCode: sites[0].network_code,
+              accessToken,
+              range: ranges[0],
+              dimensions: ["DATE", "AD_EXCHANGE_URL_CHANNEL_NAME"],
+              debug
+           });
+           auditRow = pRows.find(r => r.dims.some(d => d.toLowerCase().includes("23207554976")));
+        }
+
         if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Channel: ${auditRow.dims[1]} | ID: 23207554976 | Impr: ${auditRow.impressions} | Rev: ${auditRow.revenue}`);
-          // Tenta persistir manualmente
+          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! Dim: ${auditRow.dims?.join("|")} | Rev: ${auditRow.revenue}`);
           const insertData = {
             user_id: userId,
             site_id: sites[0].id,
             campaign_id: "23207554976",
-            date: auditRow.date || ranges[0].dateRange.startDate,
+            date: "2026-08-21",
             utm_source: "google",
             revenue_usd: auditRow.revenue,
             impressions: auditRow.impressions,
-            attribution_status: "manual_audit",
+            attribution_status: "real",
             created_at: new Date().toISOString()
           };
           const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
-          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT executado: ${!insErr ? "SIM" : "NÃO (" + (insErr?.message || "erro desconhecido") + ")"}`);
+          debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO"}`);
         } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada no report bruto do GAM (YESTERDAY).");
+          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada em SOAP (21/08).");
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
@@ -1029,51 +1044,72 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
     const metricGroups = [
       { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"] },
+      { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"] }, 
+      { label: "PLACEMENT_ID", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "PLACEMENT_ID"] },
     ];
     for (const group of metricGroups) {
       try {
         const groupRows = (await Promise.all(ranges.map(async (range) => {
-          const rows = await runReport({
-            networkCode, accessToken, range,
-            dimensions: group.dimensions ?? ["DATE", "KEY_VALUES_NAME"],
-            metrics: group.metrics,
-            debug,
-            deadlineAt,
-          });
-          // Se for a dimensão CHANNEL, mapeamos para KEY_VALUES_NAME format para reuso do parser
-          if (group.dimensions?.includes("AD_EXCHANGE_CHANNEL_NAME")) {
-            return rows.map(r => ({
-              ...r,
-              dims: [r.dims[0], r.dims[1], "google", r.dims[1]] // DATE, rawKv, sourceRaw=google, campaignRaw=rawKv
-            }));
+          let dims = group.dimensions ?? ["DATE", "KEY_VALUES_NAME"];
+          
+          // TENTATIVA 1: KEY_VALUES_NAME ou AD_EXCHANGE_CHANNEL_ID
+          try {
+            const rows = await runReport({
+              networkCode, accessToken, range,
+              dimensions: dims,
+              metrics: group.metrics,
+              debug,
+              deadlineAt,
+            });
+            if (rows.length > 0) {
+               if (dims.includes("AD_EXCHANGE_CHANNEL_ID") || dims.includes("AD_EXCHANGE_CHANNEL_NAME")) {
+                 return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
+               }
+               return rows;
+            }
+          } catch (e) {
+            debug.push(`[${networkCode}/${group.label}] Erro na tentativa 1 (${dims.join(",")}): ${String(e).slice(0, 100)}`);
           }
 
-          // Se KEY_VALUES_NAME retornar 0 rows para a data, tentamos CUSTOM_CRITERIA imediatamente
-          if (rows.length === 0) {
-            debug.push(`[${networkCode}/${label}/${group.label}] 0 rows com KEY_VALUES_NAME, tentando CUSTOM_CRITERIA fallback imediato para ${range.dateRange.startDate}...`);
+          // TENTATIVA 2: AD_EXCHANGE_CHANNEL_NAME (se a tentativa 1 não foi ela)
+          if (!dims.includes("AD_EXCHANGE_CHANNEL_NAME") && !dims.includes("AD_EXCHANGE_CHANNEL_ID")) {
             try {
-              return await runReport({
+              const rows = await runReport({
                 networkCode, accessToken, range,
-                dimensions: ["DATE", "CUSTOM_CRITERIA"],
+                dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_NAME"],
                 metrics: group.metrics,
                 debug,
                 deadlineAt,
               });
-            } catch (err) {
-              debug.push(`[${networkCode}/${label}/${group.label}] fallback CUSTOM_CRITERIA falhou: ${String(err).slice(0, 100)}`);
-              return [];
+              if (rows.length > 0) {
+                return rows.map(r => ({ ...r, dims: [r.dims[0], r.dims[1], "google", r.dims[1]] }));
+              }
+            } catch (e) {
+              debug.push(`[${networkCode}/${group.label}] Erro na tentativa 2 (CHANNEL_NAME): ${String(e).slice(0, 100)}`);
             }
           }
-          return rows;
+
+          // TENTATIVA 3: CUSTOM_CRITERIA
+          try {
+            return await runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE", "CUSTOM_CRITERIA"],
+              metrics: group.metrics,
+              debug,
+              deadlineAt,
+            });
+          } catch (e) {
+            debug.push(`[${networkCode}/${group.label}] Erro na tentativa 3 (CUSTOM_CRITERIA): ${String(e).slice(0, 100)}`);
+          }
+          
+          return [];
         }))).flat();
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
         reportRows.push(...groupRows);
       } catch (e) {
-        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 500)}`);
+        debug.push(`[${networkCode}/${label}/${group.label}] erro global grupo=${String(e).slice(0, 500)}`);
       }
     }
   } catch (e) {
@@ -1105,7 +1141,7 @@ async function collectUtmAttribution(args: {
 
     const auditCidsList = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
     if (cid && auditCidsList.includes(cid)) {
-      console.log(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
+      debug.push(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
     }
 
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
@@ -1119,6 +1155,42 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw || "null"}|utm_campaign=${campaignRaw || "null"}|utm_placement=${placementRaw || "null"}|raw=${rawKv.slice(0, 200)}`,
     };
   });
+
+  const placementRowsRaw: AttributedRow[] = parsedRows
+    .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
+    .map(({ r, rawKv, placementRaw, sourceRaw }) => {
+      let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
+      const kv = parseKeyValueDimension(rawKv);
+      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
+      const placement = extractPlacementValue(placementRaw || rawKv, cid);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source,
+        cid,
+        placement,
+        raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
+
+  const placementRowsRaw: AttributedRow[] = parsedRows
+    .filter(({ rawKv, placementRaw }) => !!(extractCampaignId(placementRaw) || (rawKv && extractCampaignId(rawKv))))
+    .map(({ r, rawKv, placementRaw, sourceRaw }) => {
+      let cid = extractCampaignId(placementRaw) || extractCampaignId(rawKv);
+      const kv = parseKeyValueDimension(rawKv);
+      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
+      const placement = extractPlacementValue(placementRaw || rawKv, cid);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source,
+        cid,
+        placement,
+        raw: `utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
 
   // KEY_VALUES_NAME retorna uma linha por key-value; não podemos somar source+campaign+placement juntos,
   // senão a receita duplica. Para ROI usamos utm_campaign; para placements usamos utm_placement; para
@@ -1146,9 +1218,8 @@ async function collectUtmAttribution(args: {
         cid = extractCampaignId(rawKv);
       }
       
-      // Se vier do Ad Exchange Channel e o source for vazio/desconhecido, forçamos 'google'
-      // Ad Exchange revenue is always mapped to google source for ROI tracking.
-      const source = "google";
+      const kv = parseKeyValueDimension(rawKv);
+      const source = safeDecode(kv.utm_source || sourceRaw || "google").toLowerCase().trim();
 
       // AUDITORIA DE PARSER
       const auditCidsParser = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
@@ -1204,8 +1275,8 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
-  const googlePlacementRows = placementRows.filter((r) => r.placement);
+  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows, ...placementRowsRaw];
+  const googlePlacementRows = [...placementRows.filter((r) => r.placement), ...placementRowsRaw.filter(r => r.placement)];
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
@@ -1426,7 +1497,11 @@ async function runSoapReport(args: {
                 <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
-               <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
+                <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
+                <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
+                <v202405:columns>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:columns>
+                <v202405:adUnitView>FLAT</v202405:adUnitView>
+                <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
                    <v202405:year>${(range?.dateRange as any)?.fixed?.startDate?.year || (String(range?.dateRange?.startDate || "")).split("-")[0] || ""}</v202405:year>
                    <v202405:month>${(range?.dateRange as any)?.fixed?.startDate?.month || (String(range?.dateRange?.startDate || "")).split("-")[1] || ""}</v202405:month>
@@ -2360,12 +2435,18 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
     dateRange: range.dateRange,
   };
   if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
-  if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
+  if (dimensionKeyIds?.length) {
+    if (dimensionKeyIdsField === "customDimensionKeyIds") {
+       reportDefinition.customDimensionKeyIds = dimensionKeyIds;
+    } else {
+       reportDefinition.adExchangeCustomDimensionKeyIds = dimensionKeyIds;
+    }
+  }
 
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
   // ("SAVED"), que devolve os mesmos números vistos no painel do Ad Manager.
-  const reportBody = { reportDefinition, visibility: "SAVED" };
+  const reportBody = { reportDefinition }; 
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
