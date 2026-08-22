@@ -1,126 +1,85 @@
-// Atualiza tabela exchange_rates com cotações para BRL.
-// Ordem de prioridade (para USD->BRL, taxa COMERCIAL próxima da real):
-//   1) AwesomeAPI (bid comercial, ~tempo real)
-//   2) BCB PTAX (oficial, dia útil anterior)
-//   3) Frankfurter (BCE, diário)
-//   4) open.er-api (fallback global, 1x/dia)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
-const PAIRS: Array<{ from: string; to: string }> = [
-  { from: "USD", to: "BRL" },
-  { from: "EUR", to: "BRL" },
-  { from: "GBP", to: "BRL" },
-];
+const GAM_BASE = "https://admanager.googleapis.com/v1";
+const SCOPE = "https://www.googleapis.com/auth/admanager";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const debug: string[] = [];
+  
   try {
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
+    const accessToken = await getAccessToken(sa);
 
-    const results: Array<{ from: string; to: string; rate: number; source: string }> = [];
-    for (const p of PAIRS) {
-      const r = await fetchPair(p.from, p.to, debug);
-      if (r) {
-        await admin.from("exchange_rates").upsert({
-          from_currency: p.from, to_currency: p.to, rate: r.rate, source: r.source,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "from_currency,to_currency" });
-        results.push({ from: p.from, to: p.to, ...r });
-      }
+    // 1) Audit utm_campaign key
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
+
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    let valuesSummary: any = null;
+    const lookFor = ["23207554976", "23309079322", "22923001384"];
+
+    if (campKey) {
+      // Fetch values with large page size
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      vUrl.searchParams.set("pageSize", "1000");
+      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const vj = await vr.json();
+      
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
+
+      valuesSummary = {
+        key_id: campKey.customTargetingKeyId,
+        type: campKey.type || campKey.customTargetingKeyType,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_in_page: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 50)
+      };
     }
-    return json({ ok: true, results, debug });
+
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      identity: "FORCED_AUDIT_VIA_FX_SYNC",
+      utm_campaign: valuesSummary,
+      keys: keys.map((k: any) => k.adTagName)
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   } catch (e) {
-    return json({ error: String(e), debug }, 500);
+    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
 
-async function fetchPair(from: string, to: string, debug: string[]): Promise<{ rate: number; source: string } | null> {
-  // 1) AwesomeAPI — taxa comercial bid (~tempo real, melhor pra USD->BRL)
-  try {
-    const res = await fetch(`https://economia.awesomeapi.com.br/json/last/${from}-${to}`, {
-      headers: { "User-Agent": "Mozilla/5.0 fx-sync" },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const key = `${from}${to}`;
-      const rate = Number(data?.[key]?.bid);
-      if (Number.isFinite(rate) && rate > 0) {
-        debug.push(`[fx] ${from}->${to} ${rate} (awesomeapi)`);
-        return { rate, source: "awesomeapi" };
-      }
-    } else {
-      debug.push(`[fx] awesomeapi ${from}->${to} HTTP ${res.status}`);
-    }
-  } catch (e) {
-    debug.push(`[fx] awesomeapi ${from}->${to} falhou: ${String(e)}`);
-  }
-
-  // 2) BCB PTAX (apenas USD->BRL e EUR->BRL via série específica). Usa últimos 10 dias e pega a mais recente.
-  if (to === "BRL" && (from === "USD" || from === "EUR")) {
-    try {
-      const fmt = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${d.getFullYear()}`;
-      const end = new Date();
-      const start = new Date(); start.setDate(end.getDate() - 10);
-      const endpoint = from === "USD" ? "CotacaoDolarPeriodo" : "CotacaoMoedaPeriodoFechamento";
-      const url = from === "USD"
-        ? `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)?@dataInicial='${fmt(start)}'&@dataFinalCotacao='${fmt(end)}'&$format=json&$top=20&$orderby=dataHoraCotacao desc`
-        : `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaPeriodoFechamento(codigoMoeda=@codigoMoeda,dataInicialCotacao=@dataInicialCotacao,dataFinalCotacao=@dataFinalCotacao)?@codigoMoeda='EUR'&@dataInicialCotacao='${fmt(start)}'&@dataFinalCotacao='${fmt(end)}'&$format=json&$top=20&$orderby=dataHoraCotacao desc`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const last = (data?.value ?? []).sort((a: any, b: any) => String(b.dataHoraCotacao).localeCompare(String(a.dataHoraCotacao)))[0];
-        const compra = Number(last?.cotacaoCompra);
-        const venda = Number(last?.cotacaoVenda);
-        const rate = (Number.isFinite(compra) && Number.isFinite(venda)) ? (compra + venda) / 2 : (Number.isFinite(venda) ? venda : compra);
-        if (Number.isFinite(rate) && rate > 0) {
-          debug.push(`[fx] ${from}->${to} ${rate} (bcb-ptax ${last?.dataHoraCotacao})`);
-          return { rate, source: "bcb-ptax" };
-        }
-      } else {
-        debug.push(`[fx] bcb ${from}->${to} HTTP ${res.status}`);
-      }
-    } catch (e) {
-      debug.push(`[fx] bcb ${from}->${to} falhou: ${String(e)}`);
-    }
-  }
-
-  // 3) Frankfurter (BCE, diário)
-  try {
-    const res = await fetch(`https://api.frankfurter.dev/v1/latest?base=${from}&symbols=${to}`);
-    if (res.ok) {
-      const data = await res.json();
-      const rate = Number(data?.rates?.[to]);
-      if (Number.isFinite(rate) && rate > 0) {
-        debug.push(`[fx] ${from}->${to} ${rate} (frankfurter)`);
-        return { rate, source: "frankfurter" };
-      }
-    }
-  } catch (e) {
-    debug.push(`[fx] frankfurter ${from}->${to} falhou: ${String(e)}`);
-  }
-
-  // 4) open.er-api (fallback global, 1x/dia)
-  try {
-    const res = await fetch(`https://open.er-api.com/v6/latest/${from}`);
-    const data = await res.json();
-    const rate = Number(data?.rates?.[to]);
-    if (Number.isFinite(rate) && rate > 0) {
-      debug.push(`[fx] ${from}->${to} ${rate} (open.er-api)`);
-      return { rate, source: "open.er-api" };
-    }
-  } catch (e) {
-    debug.push(`[fx] open.er-api ${from}->${to} falhou: ${String(e)}`);
-  }
-  return null;
-}
-
-function json(p: unknown, status = 200) {
-  return new Response(JSON.stringify(p), {
-    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+async function getAccessToken(sa: any) {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
+    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  })}`;
+  const pem = sa.private_key.replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
+  const j = await r.json();
+  return j.access_token;
 }
