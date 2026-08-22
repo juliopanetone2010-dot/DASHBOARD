@@ -129,8 +129,15 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       totalRequestsOnly = (body?.total_requests_only === true || body?.match_rate_only === true);
       siteMetricsOnly = (body?.site_metrics_only === true || body?.metrics_only === true);
 
-
-
+      if ((body as any)?.mode === "audit_gam") {
+        const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
+        if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada", debug });
+        const sa = JSON.parse(saJsonRaw);
+        
+        // Audit trigger
+        const auditRes = await runGamAudit(requestedSiteId || "7185031b-788f-4134-b040-0255c4d6f461", sa, debug);
+        return json({ ok: true, audit: auditRes, debug });
+      }
     } catch (_) { /* */ }
 
     debug.push(`[debug] Starting runSync...`);
