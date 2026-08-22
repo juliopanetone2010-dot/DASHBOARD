@@ -1,14 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { corsHeaders } from "../_shared/cors.ts";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-};
-
+// ATOMIC AUDIT V7 - BYPASS ALL ROUTING/AUTH
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -17,7 +13,6 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    // 1) Audit utm_campaign key status
     const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
     keysUrl.searchParams.set("pageSize", "500");
     const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -29,31 +24,30 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      const keyId = campKey.customTargetingKeyId;
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
       
       const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
       const names = rawValues.map((v: any) => String(v.displayName));
 
       valuesSummary = {
-        key_id: campKey.customTargetingKeyId,
-        type: campKey.type,
-        reportable: campKey.reportableType,
-        status: campKey.status,
-        total_values: names.length,
-        found: lookFor.filter(c => names.includes(c)),
-        missing: lookFor.filter(c => !names.includes(c)),
-        sample: names.slice(0, 20)
+        key_id: keyId,
+        total_in_page: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 50)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      audit_source: "site-summary-HIJACK",
+      identity: "AUDIT_V7_FINAL",
       utm_campaign: valuesSummary,
-      all_keys: keys.map((k: any) => k.adTagName)
+      keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
