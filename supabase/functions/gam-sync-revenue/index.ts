@@ -135,7 +135,22 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada", debug });
         const sa = JSON.parse(saJsonRaw);
         
-        const auditRes = await runGamAudit(requestedSiteId || "7185031b-788f-4134-b040-0255c4d6f461", sa, debug);
+        const authHeader = req.headers.get("Authorization");
+        const token = authHeader?.replace("Bearer ", "").trim() || "";
+        const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+        const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
+        
+        let userId = "";
+        if (skipAuth || isServiceKey) {
+           userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
+        } else {
+           const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+           const { data: { user } } = await userClient.auth.getUser(token);
+           if (!user) return json({ error: "Unauthorized", debug });
+           userId = user.id;
+        }
+
+        const auditRes = await runGamAudit(requestedSiteId || "7185031b-788f-4134-b040-0255c4d6f461", sa, debug, userId);
         return json({ ok: true, audit: auditRes, debug });
       }
     } catch (_) { /* */ }
