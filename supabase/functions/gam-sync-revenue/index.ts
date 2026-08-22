@@ -1695,54 +1695,7 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     return [];
   }
   
-  // Encontrar o cabeçalho e pular metadados se houver
-  let headerIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes("Dimension.DATE") || lines[i].toLowerCase().includes("date")) {
-      headerIndex = i;
-      break;
-    }
-  }
-  
-  if (headerIndex === -1) {
-    console.log(`[parseSoapCsv] Header not found, using first line as header.`);
-    headerIndex = 0;
-  }
-  
-  const headers = lines[headerIndex].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
-  console.log(`[parseSoapCsv] Detected headers: ${headers.join(", ")}`);
-
-  const rows: ReportRow[] = [];
-  for (let i = headerIndex + 1; i < lines.length; i++) {
-    const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
-    if (vals.length < headers.length) continue;
-    
-    const row: any = {};
-    headers.forEach((h, idx) => {
-      // Map Dimensions
-      if (h.includes("Dimension.DATE")) row.date = vals[idx];
-      else if (h.includes("Dimension.URL_NAME")) row.urlName = vals[idx];
-      else if (h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME")) row.channelName = vals[idx];
-      
-      // Map Columns
-      else if (h.includes("Column.AD_EXCHANGE_REVENUE")) row.revenue = parseFloat(vals[idx]) / 1000000;
-      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_REVENUE")) {
-          const rev = parseFloat(vals[idx]) / 1000000;
-          if (!row.revenue || rev > row.revenue) row.revenue = rev;
-      }
-      else if (h.includes("Column.TOTAL_INVENTORY_LEVEL_IMPRESSIONS")) row.impressions = parseInt(vals[idx]);
-    });
-    
-    if (row.date) rows.push(row);
-  }
-  
-  console.log(`[parseSoapCsv] Returning ${rows.length} rows`);
-  return rows;
-}
-  
   // O dump do GAM pode ter aspas
-  console.log(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 500)}`);
-  debug.push(`[parseSoapCsv] lines=${lines.length} headers=${lines[0]?.slice(0, 200)}`);
   const parseLine = (line: string) => {
     const parts = [];
     let current = "";
@@ -1757,37 +1710,50 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
       }
     }
     parts.push(current);
-    return parts;
+    return parts.map(p => p.trim().replace(/^"|"$/g, ''));
   };
 
-  if (!lines[0]) {
-    debug.push(`[parseSoapCsv] CSV sem headers`);
-    return [];
+  // Encontrar o cabeçalho e pular metadados se houver
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes("Dimension.DATE") || lines[i].toLowerCase().includes("date")) {
+      headerIndex = i;
+      break;
+    }
   }
-  const headers = parseLine(lines[0]);
+  
+  if (headerIndex === -1) {
+    headerIndex = 0;
+  }
+  
+  const headers = parseLine(lines[headerIndex]);
+  console.log(`[parseSoapCsv] Detected headers: ${headers.join(", ")}`);
+
   const rows: ReportRow[] = [];
   
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIndex + 1; i < lines.length; i++) {
     const cols = parseLine(lines[i]);
-    const row: any = { dims: [], impressions: 0, revenue: 0 };
+    if (cols.length < headers.length) continue;
     
+    const row: ReportRow = { dims: [], impressions: 0, revenue: 0, date: "" };
+    
+    // Map Dimensions
     dimensions.forEach((dim, idx) => {
       row.dims.push(cols[idx] || "");
     });
+    
     // Extra dimension AD_EXCHANGE_URL_CHANNEL_NAME if it was added in runSoapReport
-    if (cols.length > dimensions.length && !row.dims[dimensions.length]) {
-       row.dims.push(cols[dimensions.length] || "");
+    // or if dimensions didn't include it but it's in the CSV
+    const channelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
+    if (channelIdx !== -1 && row.dims.length <= channelIdx) {
+       row.dims[channelIdx] = cols[channelIdx] || "";
     }
     
-    // Procura colunas de métricas. O ReportService expõe nomes como "AD_SERVER_IMPRESSIONS" 
     const findMetric = (name: string) => {
-      // Prioridade exata para o header
       let idx = headers.findIndex(h => h.trim() === name);
-      // Fallback para include caso o header venha com networkCode ou sufixos
       if (idx === -1) idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-      // Fallback agressivo: mapear AD_SERVER_REVENUE e AD_SERVER_CPM_AND_CPC_REVENUE que às vezes trocam
       if (idx === -1 && name.includes("REVENUE")) {
-         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && h.toUpperCase().includes("SERVER"));
+         idx = headers.findIndex(h => h.toUpperCase().includes("REVENUE") && (h.toUpperCase().includes("SERVER") || h.toUpperCase().includes("EXCHANGE")));
       }
       return idx !== -1 ? Number(cols[idx] || 0) : 0;
     };
@@ -1797,22 +1763,20 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     const adServerRev = (findMetric("AD_SERVER_CPM_AND_CPC_REVENUE") || findMetric("AD_SERVER_REVENUE") || 0) / 1_000_000;
     const adExchangeRev = (findMetric("AD_EXCHANGE_REVENUE") || 0) / 1_000_000;
     
-    // Se a receita for zero mas houver impressões, o header pode ser diferente (ex: "Column.AdServerRevenue")
-    // O CSV DUMP do GAM às vezes usa nomes amigáveis em vez dos nomes da API.
     row.impressions = adServerImpr + adExchangeImpr;
     row.revenue = adServerRev + adExchangeRev;
 
     if (row.revenue === 0 && row.impressions > 0) {
-       // Tentativa desesperada de achar QUALQUER coluna de receita
        const anyRevIdx = headers.findIndex(h => h.toLowerCase().includes("revenue"));
        if (anyRevIdx !== -1) {
           row.revenue = Number(cols[anyRevIdx] || 0) / 1_000_000;
        }
     }
     
-    row.date = row.dims[0];
+    const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
+    row.date = dateIdx !== -1 ? cols[dateIdx] : (row.dims[0] || "");
     
-    rows.push(row);
+    if (row.date) rows.push(row);
   }
   return rows;
 }
