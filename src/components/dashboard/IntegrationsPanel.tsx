@@ -27,22 +27,30 @@ export const IntegrationsPanel = ({
   ...props
 }: IntegrationsPanelProps) => {
   const [syncing, setSyncing] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const { toast } = useToast();
 
   const handleSync = async () => {
     setSyncing(true);
+    setDebugLogs(["Iniciando sincronização manual..."]);
     try {
       const { data, error } = await supabase.functions.invoke("gam-sync-revenue", {
-        body: { date_preset: "LAST_7_DAYS", revenue_only: true }
+        body: { sync: true, user_id: props.googleAccounts?.[0]?.user_id, date_preset: "YESTERDAY" }
       });
 
       if (error) throw error;
+      
+      if (data?.debug) {
+        setDebugLogs(data.debug);
+      }
 
       if (onRefresh) await onRefresh();
 
       toast({
-        title: "Sincronização iniciada",
-        description: "Os dados estão sendo processados em background.",
+        title: "Sincronização concluída",
+        description: data?.debug?.some((d: string) => d.includes("AUDIT_MANUAL_RESULT")) 
+          ? "Auditoria da campanha 23207554976 realizada." 
+          : "Os dados foram processados com sucesso.",
       });
     } catch (error: any) {
       toast({
@@ -50,6 +58,7 @@ export const IntegrationsPanel = ({
         description: error.message,
         variant: "destructive",
       });
+      setDebugLogs(prev => [...prev, `ERRO: ${error.message}`]);
     } finally {
       setSyncing(false);
     }
@@ -70,6 +79,21 @@ export const IntegrationsPanel = ({
           </div>
         </div>
       </div>
+
+      {debugLogs.length > 0 && (
+        <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-[10px] max-h-[300px] overflow-y-auto border border-green-900/30">
+          <div className="flex justify-between items-center mb-2 border-b border-green-900/30 pb-1">
+            <span className="text-green-500 font-bold uppercase">Logs de Execução em Tempo Real</span>
+            <Button variant="ghost" size="sm" className="h-5 text-[9px] text-green-500 hover:text-green-400 p-0" onClick={() => setDebugLogs([])}>LIMPAR</Button>
+          </div>
+          {debugLogs.map((log, i) => (
+            <div key={i} className="mb-0.5 whitespace-pre-wrap">
+              <span className="text-green-600 mr-2">[{new Date().toLocaleTimeString()}]</span>
+              {log}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border shadow-sm">
         <div className="flex items-center gap-3">
