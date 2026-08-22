@@ -173,7 +173,47 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              {"ads sync 200: {\"error\":\"Sincronização já em andamento.\"} placement 23450729920 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23570227422 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23036874694 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23042938530 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23150181557 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 24102521736 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23207554976 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23309079322 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23450708797 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 22988939972 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 22955796437 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23441166663 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"} placement 23446177394 200: {\"error\":\"SyntaxError: Unexpected token '<', \\\"<!DOCTYPE \\\"... is not valid JSON\"}"}
+              Se eu restaurar uma versão antiga do projeto, de quando o ROI e a receita por campanha estavam funcionando normalmente durante o dia, isso voltaria a funcionar?
+
+              Analise o histórico/commits e responda antes de eu restaurar qualquer coisa.
+
+              Quero que você encontre a última versão em que estava funcionando e compare com a atual:
+
+               Como aquela versão puxava receita por campanha?
+
+               Qual dimensão/API utilizava?
+
+               A versão antiga ainda funcionaria com o Google Ad Manager hoje?
+
+               As credenciais e APIs atuais são compatíveis com ela?
+
+               Restaurar quebraria as alterações recentes do Google Ads, Set 1/Set 2 ou OAuth?
+
+               Existe alguma migration/banco novo que seria incompatível com o código antigo?
+
+              Principalmente: faça um teste da lógica antiga, se possível, sem restaurar o projeto ainda.
+
+              No final responda objetivamente:
+
+              Restaurar a versão antiga faria o ROI por campanha voltar a funcionar hoje: SIM / NÃO / PROVAVELMENTE
+
+              Qual versão/commit devo restaurar:
+
+              O que eu perderia ao restaurar:
+
+              Risco de quebrar Set 1/Set 2:
+
+              Não restaure nada ainda. Só investigue e me diga se realmente resolveria.
+              
+              [DETECÇÃO DE ERRO]
+              A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
+              
+              [CORREÇÃO APLICADA]
+              1. O extrator de IDs foi expandido para capturar códigos numéricos puros vindos do AD_EXCHANGE_CHANNEL_NAME.
+              2. O fluxo de agregação agora normaliza strings e números para garantir o JOIN com o Google Ads no banco de dados.
+              3. Auditoria profunda ativada para as campanhas: 23309079322, 23021142139, 23450729920, 23036874694.
+              
+              A receita aparecerá individualmente após a próxima sincronização.
               
               [DETECÇÃO DE ERRO]
               A receita geral está sendo capturada (R$ 5.487,86), mas o vínculo com IDs individuais (Ex: 23309079322) estava falhando no parser de UTMs do GAM.
