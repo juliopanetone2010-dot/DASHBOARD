@@ -204,6 +204,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           accessToken,
           range: ranges[0],
           dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
+          dimensionKeyIds: ["utm_campaign"],
+          dimensionKeyIdsField: "customDimensionKeyIds",
+          expandedCompatibility: true,
           metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
           debug
         });
