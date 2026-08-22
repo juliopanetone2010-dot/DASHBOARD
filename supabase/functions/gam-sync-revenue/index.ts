@@ -51,11 +51,14 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  console.log(`[Deno.serve] Request received: ${req.method} url=${req.url}`);
   let body: any = {};
   try {
     const text = await req.clone().text();
-    const body_temp = JSON.parse(text); body = body_temp;
-  } catch (_) { /* */ }
+    console.log(`[Deno.serve] Body text: ${text.slice(0, 300)}`);
+    body = JSON.parse(text);
+  } catch (e) { console.error(`[Deno.serve] JSON parse error: ${e}`); }
+
 
   if (body?.sync === true) {
     const res = await runSync(req, true, body);
