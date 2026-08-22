@@ -216,8 +216,8 @@ async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
     // We use a custom table or existing gam_campaign_revenue logic
     // For this project, we target gam_campaign_revenue
     const { error } = await supabase
-      .from("gam_campaign_revenue")
-      .upsert(upserts, { onConflict: "site_id,date,campaign_id,utm_source" });
+      .from("gam_campaign_source_revenue")
+      .upsert(upserts, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
       
     if (error) throw new Error(`Upsert failed: ${error.message}`);
   }
