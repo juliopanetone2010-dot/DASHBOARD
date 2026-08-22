@@ -173,7 +173,11 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
+              ta puxando os gasgtos no google ads mas nao ta puxando a receita de cada Campaign ID ae as campanha estao vindo zeradas,
+              
+              [LOG DE CORREÇÃO - 22/08/2026]
               A nova dimensão `AD_EXCHANGE_CHANNEL_NAME` já provou que consegue recuperar a receita real por campanha.
+
 
               Exemplo confirmado:
 
