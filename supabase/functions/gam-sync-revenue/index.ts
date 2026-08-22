@@ -184,8 +184,7 @@ function extractCampaignId(text: string): string | null {
   
   if (match) return match[1];
 
-  // Fallback: If no direct ID found, try to map known profitable slugs to campaign IDs
-  // This is a last-resort mapping based on campaign names provided in previous audits
+  // Fallback: slug mapping
   const slugMappings: Record<string, string> = {
     "rec-aprenda-a-monitorar-conversas-no-whatsapp": "23207554976", // MONITORAR WHAPP
     "rec-roblox-robux-skins-e-gift-cards": "23309079322",          // ROBLOX
