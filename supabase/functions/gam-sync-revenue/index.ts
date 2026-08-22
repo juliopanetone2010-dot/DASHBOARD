@@ -56,7 +56,8 @@ Deno.serve(async (req) => {
 
   // Auditoria forçada: Se vier sync=true, rodamos síncrono.
   if (body?.sync === true) {
-    return await runSync(req, true, body);
+    const res = await runSync(req, true, body);
+    return res;
   }
 
   // Roda o trabalho pesado em background
