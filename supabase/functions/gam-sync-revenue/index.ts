@@ -194,44 +194,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     const isManualSync = parsedBody?.sync === true;
     
     // Auditoria manual solicitada pelo usuário para ID 23207554976
-    if (requestedUserId === "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9") {
-      debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
-      try {
-        const testDates = ["2026-08-20", "2026-08-21"];
-        for (const tDate of testDates) {
-          const ranges = buildGamRanges("CUSTOM", tDate, tDate, false);
-          debug.push(`[AUDIT_MANUAL] Testando REST v1 KEY_VALUES_NAME para ${tDate}...`);
-          
-          const rows = await runReport({
-             networkCode: sites[0].network_code,
-             accessToken,
-             range: ranges[0],
-             dimensions: ["KEY_VALUES_NAME"],
-             debug
-          });
-          
-          debug.push(`[AUDIT_MANUAL_RAW] REST rows count for ${tDate}: ${rows.length}`);
-          
-          const utmRows = rows.filter(r => {
-            const raw = r.dims && r.dims[0] ? r.dims[0] : "";
-            return raw.includes("utm_");
-          });
-          debug.push(`[AUDIT_MANUAL_UTM] Linhas com UTM para ${tDate}: ${utmRows.length}`);
-
-          const auditRow = rows.find(r => r.dims && r.dims.some(d => d.includes("23207554976")));
-          if (auditRow) {
-            debug.push(`[AUDIT_MANUAL_RESULT] Found via REST on ${tDate}! Rev: ${auditRow.revenue} Dims: ${JSON.stringify(auditRow.dims)}`);
-          } else {
-            debug.push(`[AUDIT_MANUAL_RESULT] NOT found via REST on ${testDates}.`);
-            if (utmRows.length > 0) {
-               debug.push(`[AUDIT_MANUAL_SAMPLE] Sample UTM raw: ${utmRows[0].dims?.[0]}`);
-            }
-          }
-        }
-      } catch (e: any) {
-        debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
-      }
-    }
+    const isManualSync = parsedBody?.sync === true;
 
     // Receita do GAM fica em USD; gasto do Ads fica na moeda nativa (BRL nas contas BR).
     const fxRates = await getFxRates(debug);
