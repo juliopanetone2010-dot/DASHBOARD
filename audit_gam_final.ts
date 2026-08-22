@@ -1,9 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 const networkCode = "22953977775";
 const targetCampaignId = "23207554976";
 const date = "2026-08-21";
@@ -11,18 +7,27 @@ const date = "2026-08-21";
 async function runAudit() {
   console.log("--- GAM API AUDIT: CHANNEL DIMENSION REPRODUCTION ---");
   
-  // 1. Get Service Account credentials
-  const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
-  if (!saJsonRaw) throw new Error("GAM_SERVICE_ACCOUNT_JSON not set");
-  const sa = JSON.parse(saJsonRaw);
+  // Read from file directly to avoid env var issues
+  const saJsonRaw = Deno.readTextFileSync(".env")
+    .split("\n")
+    .find(line => line.startsWith("GAM_SERVICE_ACCOUNT_JSON="))
+    ?.split("=")[1];
+    
+  if (!saJsonRaw) throw new Error("GAM_SERVICE_ACCOUNT_JSON not found in .env");
+  
+  // Handle quotes
+  let cleaned = saJsonRaw.trim();
+  if (cleaned.startsWith('"')) cleaned = cleaned.substring(1);
+  if (cleaned.endsWith('"')) cleaned = cleaned.substring(0, cleaned.length - 1);
+  // Unescape \n
+  cleaned = cleaned.replace(/\\n/g, "\n");
+  
+  const sa = JSON.parse(cleaned);
 
   const accessToken = await getAccessToken(sa);
   console.log("Got Access Token");
 
-  // In the GAM UI, 'Channel' often maps to AD_EXCHANGE_CHANNEL_NAME or AD_EXCHANGE_CHANNEL_ID
-  // However, it can also be a Custom Dimension.
   // We will try to fetch a report using AD_EXCHANGE_CHANNEL_NAME filtered by the campaign ID.
-  
   const reportRequest = {
     reportSpec: {
       dateRange: "CUSTOM",
@@ -32,7 +37,6 @@ async function runAudit() {
       columns: [
         "AD_EXCHANGE_IMPRESSIONS",
         "AD_EXCHANGE_REVENUE",
-        "AD_EXCHANGE_MATCH_RATE"
       ],
       dimensionFilters: [
         {
@@ -70,7 +74,7 @@ async function runAudit() {
 
   let done = false;
   let resultName = "";
-  while (!done) {
+  for(let i=0; i<30; i++) {
     console.log("Polling report status...");
     const opRes = await fetch(`https://admanager.googleapis.com/v1/${opName}`, {
       headers: { "Authorization": `Bearer ${accessToken}` }
@@ -79,10 +83,13 @@ async function runAudit() {
     if (opJson.done) {
       done = true;
       resultName = opJson.response.name;
+      break;
     } else {
       await new Promise(r => setTimeout(r, 2000));
     }
   }
+
+  if(!done) throw new Error("Report timeout");
 
   console.log(`Fetching rows from ${resultName}...`);
   const rowsRes = await fetch(`https://admanager.googleapis.com/v1/${resultName}:fetchRows`, {
@@ -109,7 +116,7 @@ async function runAudit() {
       console.log(`Valor do GAM manual: R$ 1.474,31`);
       console.log(`API bateu com o GAM: ${Math.abs(revenue - 1474.31) < 10 ? "SIM" : "NÃO"}`);
   } else {
-      console.log("\nNenhuma linha retornada. Tentando descobrir outras dimensões...");
+      console.log("\nNenhuma linha retornada.");
   }
 }
 
@@ -132,7 +139,9 @@ async function getAccessToken(sa: any) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
-  return (await res.json()).access_token;
+  const data = await res.json();
+  if(!res.ok) throw new Error("Token failed: " + JSON.stringify(data));
+  return data.access_token;
 }
 
 async function importKey(pem: string) {
