@@ -199,46 +199,29 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        const reportRows = await runReport({
-          networkCode: sites[0].network_code,
-          accessToken,
-          range: ranges[0],
-          dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"],
-          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-          debug
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport para range 2026-08-21...`);
+        
+        const soapRows = await runSoapReport({
+           networkCode: sites[0].network_code,
+           accessToken,
+           range: ranges[0],
+           dimensions: ["DATE", "URL_NAME"],
+           debug
         });
-        debug.push(`[AUDIT_MANUAL_RAW] reportRows count: ${reportRows.length}`);
         
-        let auditRow = reportRows.find(r => r.dims[1].includes("23207554976"));
+        debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
         
-        if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando KEY_VALUES_NAME...");
-           const kvRows = await runReport({
-              networkCode: sites[0].network_code,
-              accessToken,
-              range: ranges[0],
-              dimensions: ["DATE", "KEY_VALUES_NAME"],
-              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-              debug
-           });
-           auditRow = kvRows.find(r => r.dims[1].includes("23207554976"));
-        }
-
-        if (!auditRow) {
-           debug.push("[AUDIT_MANUAL] Tentando CUSTOM_CRITERIA...");
-           const ccRows = await runReport({
-              networkCode: sites[0].network_code,
-              accessToken,
-              range: ranges[0],
-              dimensions: ["DATE", "CUSTOM_CRITERIA"],
-              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-              debug
-           });
-           auditRow = ccRows.find(r => r.dims[1].includes("23207554976"));
-        }
-
+        // No SOAP URL_NAME, a dimensão costuma ser a URL completa ou o path.
+        // O usuário disse que o ID 23207554976 tem receita. 
+        // Vamos buscar nas URLs capturadas se alguma bate com a campanha.
+        
+        const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds.length ? requestedAccountIds : [], debug);
+        const attributed = rowsFromUrlReportRows(soapRows, "AUDIT_SOAP", finalUrlMap);
+        
+        let auditRow = attributed.find(r => r.campaign_id === "23207554976");
+        
         if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Found! Dim: ${auditRow.dims[1]} | Rev: ${auditRow.revenue}`);
+          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! CID: 23207554976 | Rev: ${auditRow.revenue}`);
           const insertData = {
             user_id: userId,
             site_id: sites[0].id,
@@ -253,7 +236,21 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
           debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO"}`);
         } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada em nenhuma dimensão (21/08).");
+          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada via SOAP URL_NAME (21/08).");
+          // Se não achar via URL, o usuário pode estar vendo "Channel" no painel.
+          // Tentar KEY_VALUES_NAME uma última vez sem dimensionKeyIds
+           const kvRows = await runReport({
+              networkCode: sites[0].network_code,
+              accessToken,
+              range: ranges[0],
+              dimensions: ["DATE", "KEY_VALUES_NAME"],
+              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+              debug
+           });
+           const kvRow = kvRows.find(r => r.dims[1].includes("23207554976"));
+           if (kvRow) {
+              debug.push(`[AUDIT_MANUAL_RESULT] Found via KV (Final)! Rev: ${kvRow.revenue}`);
+           }
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
