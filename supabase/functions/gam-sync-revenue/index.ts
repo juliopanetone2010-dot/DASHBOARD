@@ -1605,7 +1605,9 @@ async function runSoapReport(args: {
   });
 
   const xml = await res.text();
-  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 1000)}`);
+  console.log(`[SOAP_INIT] response_xml=${xml.slice(0, 2000)}`);
+  debug.push(`[SOAP_INIT_AUDIT] xml_sample=${xml.slice(0, 500)}`);
+
   if (!res.ok) throw new Error(`SOAP runReportJob failed: ${xml.slice(0, 500)}`);
 
   const jobIdMatch = xml.match(/<id>(\d+)<\/id>/);
