@@ -4,7 +4,7 @@ import { RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from "lucide-reac
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-const IntegrationsPanel = () => {
+export const IntegrationsPanel = () => {
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
 
@@ -103,4 +103,4 @@ const IntegrationsPanel = () => {
   );
 };
 
-export default IntegrationsPanel;
+
