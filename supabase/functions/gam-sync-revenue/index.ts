@@ -1703,11 +1703,14 @@ async function runSoapReport(args: {
        if (csvText.includes(cid)) {
          const matchingLine = rawLines.find(l => l.includes(cid));
          debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
+       } else {
+         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV text`);
        }
     });
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
