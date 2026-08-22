@@ -1120,6 +1120,13 @@ async function collectUtmAttribution(args: {
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
+  // LOG DE AUDITORIA CRÍTICO: Inspeciona TODAS as linhas brutas antes do parser
+  if (reportRows.length > 0) {
+    const rawAudit = reportRows.slice(0, 15).map(r => `date=${r.date}|dims=${JSON.stringify(r.dims)}|rev=${r.revenue}`);
+    debug.push(`[AUDIT_RAW_DATA] total=${reportRows.length} sample=${JSON.stringify(rawAudit)}`);
+  }
+
+
   const parsedRows = reportRows.map((r) => {
     const rawKv = r.dims[1] || "";
     // O Channel Name do Ad Exchange já vem no formato "utm_campaign=123" ou "utm_source=push"
@@ -1672,8 +1679,12 @@ async function runSoapReport(args: {
   const csvText = await csvRes.text();
   console.log(`[SOAP_DUMP] resultUrl=${resultUrl}`);
   console.log(`[SOAP_DUMP] csvText_length=${csvText.length}`);
-  console.log(`[SOAP_DUMP] first_500_chars=${csvText.slice(0, 500)}`);
+  if (csvText.length > 0) {
+    const rawRows = csvText.split('\n').slice(0, 10);
+    debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} first_10_lines=${JSON.stringify(rawRows)}`);
+  }
   return parseSoapCsv(csvText, dimensions, debug);
+
 }
 
 function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): ReportRow[] {
@@ -1787,7 +1798,17 @@ function rowsFromUrlReportRows(reportRows: ReportRow[], label: string, finalUrlM
     if (!cid) {
       // Se não houver cid no UTM, tentamos extrair do Channel Name ou da URL crua 
       cid = extractCampaignId(rawChannel) ?? extractCampaignId(rawUrl);
+      
+      // LOG DE AUDITORIA: Se falhou encontrar CID mas temos dados no canal, vamos ver o que é
+      if (!cid && (rawChannel || rawUrl)) {
+        const auditIds = ['31699642', '31631691', '32210520', '32331737', '31696443'];
+        const isTarget = auditIds.some(id => rawChannel.includes(id) || rawUrl.includes(id));
+        if (isTarget) {
+          debug.push(`[AUDIT_SHORT_ID_DETECTED] rawChannel=${rawChannel} rawUrl=${rawUrl} rev=${r.revenue}`);
+        }
+      }
     }
+
     
     if (!cid && finalUrlMap) {
       // Busca reversa no mapa de URLs finais se disponível
