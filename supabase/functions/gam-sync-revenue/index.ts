@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// We hijack the entry point and PREVENT background execution by removing the Promise wrapper
+// ATOMIC AUDIT - NO EXTERNAL IMPORTS EXCEPT SUPABASE/CORS
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -45,13 +45,14 @@ Deno.serve(async (req) => {
         total_sample: vals.length,
         matched: lookFor.filter((c) => vals.includes(c)),
         missing: lookFor.filter((c) => !vals.includes(c)),
-        sample: vals.slice(0, 30)
+        sample: vals.slice(0, 50)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      audit: true,
+      ATOMIC_AUDIT: "gam-sync-revenue-HIJACKED-FIXED",
+      timestamp: new Date().toISOString(),
       keys: wanted, 
       values: valuesSummary 
     }), {
