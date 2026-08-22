@@ -75,7 +75,7 @@ async function runUnifiedReport(
 
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_ID"],
+    dimensions: ["DATE", "URL"],
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
@@ -137,11 +137,9 @@ async function runUnifiedReport(
       const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
       
       const urlText = String(dims[1]?.stringValue || "");
-      const channelName = String(dims[2]?.stringValue || "");
       
-      // Try channel attribution first, then URL fallback
-      let cid = extractCampaignId(channelName);
-      if (!cid) cid = extractCampaignId(urlText);
+      // Extract CID from URL
+      const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = metrics[0]?.doubleValue !== undefined 
