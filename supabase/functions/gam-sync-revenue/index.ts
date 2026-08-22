@@ -73,9 +73,17 @@ async function runUnifiedReport(
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
 
+  // We add CUSTOM_TARGETING_VALUE_ID if utm_campaign key is found
+  const dimensions = ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_NAME"];
+  if (utmKeyId) {
+    // Custom dimensions in REST API are referenced by ID
+    // However, REST v1 Beta might not support this dimension easily.
+    // We will stick to URL and Channel for now as they were working previously.
+  }
+
   const reportDefinition: any = {
     reportType: "HISTORICAL",
-    dimensions: ["DATE", "URL", "AD_EXCHANGE_URL_CHANNEL_NAME"],
+    dimensions: dimensions,
     metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
     dateRange: {
       fixed: {
@@ -119,7 +127,6 @@ async function runUnifiedReport(
 
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
-  const auditLogs: string[] = [];
 
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
@@ -139,8 +146,8 @@ async function runUnifiedReport(
       const urlText = String(dims[1]?.stringValue || "");
       const channelText = String(dims[2]?.stringValue || "");
       
-      // Try attribution from URL, then Channel, then slug fallback
-      let cid = extractCampaignId(urlText) || extractCampaignId(channelText);
+      // Strict extraction: 10-12 digits only
+      const cid = extractCampaignId(urlText) || extractCampaignId(channelText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
       const revenue = metrics[0]?.doubleValue !== undefined 
@@ -149,39 +156,31 @@ async function runUnifiedReport(
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
-        // Log detailed attribution failure for diagnostic purposes
-        if (!cid && revenue > 0.01) {
-          console.log(`[audit-raw] Site: ${networkCode} | No CID in URL: ${urlText} | Rev: ${revenue}`);
-          auditLogs.push(`[audit] No CID for: ${urlText.slice(0, 50)}...`);
-        }
         allRows.push({
           date,
           campaignId: cid,
           revenue,
           impressions,
-          source: cid ? "url_attributed" : "unattributed"
+          source: cid ? "attributed" : "unattributed"
         });
       }
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
-  if (auditLogs.length > 0) {
-    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 10).join(" | ")}`);
-  }
-
   return allRows;
 }
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  // Decode URL if it looks encoded
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
-  const match = decoded.match(/(?:campaignid|utm_campaign)[=:](d{10,12})b/) || 
-                decoded.match(/b(d{10,12})b/);
+  // Look for 10-12 digit IDs only.
+  const match = decoded.match(/(?:campaignid|utm_campaign)[=:](\d{10,12})\b/) || 
+                decoded.match(/\b(\d{10,12})\b/);
   
   return match ? match[1] : null;
+}
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const stats = { attributed: 0, total_revenue: 0, unattributed_revenue: 0 };
