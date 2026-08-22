@@ -1062,7 +1062,8 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
     }));
   const campaignRows: AttributedRow[] = parsedRows
-    .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
+    .filter(({ rawKv, campaignRaw }) => !!extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && !!extractCampaignId(rawKv)))
+
     .map(({ r, rawKv, campaignRaw }) => {
       let cid = extractCampaignId(campaignRaw);
       if (!cid && rawKv && !rawKv.includes("=")) cid = extractCampaignId(rawKv);
