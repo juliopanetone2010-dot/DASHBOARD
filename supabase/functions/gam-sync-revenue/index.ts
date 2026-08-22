@@ -1567,20 +1567,23 @@ async function runSoapReport(args: {
       <v202405:runReportJob>
          <v202405:reportJob>
             <v202405:reportQuery>
-                <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
-                <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
+                 <v202405:dimensions>DATE</v202405:dimensions>
+                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
+                 <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
+                 <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
+                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
+                 <v202405:startDate>
+                    <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
+                    <v202405:month>${soapRange.dateRange.startDate.month}</v202405:month>
+                    <v202405:day>${soapRange.dateRange.startDate.day}</v202405:day>
+                 </v202405:startDate>
+                 <v202405:endDate>
+                    <v202405:year>${soapRange.dateRange.endDate.year}</v202405:year>
+                    <v202405:month>${soapRange.dateRange.endDate.month}</v202405:month>
+                    <v202405:day>${soapRange.dateRange.endDate.day}</v202405:day>
+                 </v202405:endDate>
 
-
-
-
-
-
-                <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
-
-
-                <v202405:dateRangeType>TODAY</v202405:dateRangeType>
 
             </v202405:reportQuery>
          </v202405:reportJob>
@@ -1693,21 +1696,11 @@ async function runSoapReport(args: {
     const first50 = rawLines.slice(0, 50);
     debug.push(`[SOAP_RAW_CSV_AUDIT] length=${csvText.length} rows=${rawLines.length} head=${JSON.stringify(first50)}`);
     
-    // Scan for target CIDs in all raw content
-    const targetCids = ['23207554976', '23309079322', '22923001384'];
-    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 1500).replace(/\n/g, ' ')}`);
-    targetCids.forEach(cid => {
-       if (csvText.includes(cid)) {
-         const matchingLine = rawLines.find(l => l.includes(cid));
-         debug.push(`[SOAP_LITERAL_MATCH] Found CID=${cid} in line: ${matchingLine}`);
-       } else {
-         const matches = rawLines.filter(l => l.includes(',')).slice(0, 30);
-         debug.push(`[SOAP_LITERAL_MISS] CID=${cid} NOT in CSV. Total lines=${rawLines.length}. Matches short ID: ${JSON.stringify(matches)}`);
-       }
-    });
+    debug.push(`[SOAP_RAW_CSV_AUDIT] size=${csvText.length} rows=${rawLines.length} head=${csvText.substring(0, 300).replace(/\n/g, ' ')}`);
   }
   return parseSoapCsv(csvText, dimensions, debug);
 }
+
 
 
 
