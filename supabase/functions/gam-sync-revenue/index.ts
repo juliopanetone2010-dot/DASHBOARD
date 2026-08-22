@@ -1767,22 +1767,23 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
     const urlChannelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
     const channelNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_NAME"));
-    const adUnitIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_DFP_AD_UNIT_ID"));
-    const adUnitNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_DFP_AD_UNIT_NAME"));
+    const urlChannelIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_ID"));
+    const channelIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_ID"));
     
     row.date = dateIdx !== -1 ? cols[dateIdx] : "";
     row.dims[0] = row.date;
-    row.dims[1] = ""; // URL_NAME not available in this combination
+    row.dims[1] = ""; 
     row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
     row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
-    row.dims[4] = adUnitIdIdx !== -1 ? cols[adUnitIdIdx] : "";
-    row.dims[5] = adUnitNameIdx !== -1 ? cols[adUnitNameIdx] : "";
+    row.dims[4] = urlChannelIdIdx !== -1 ? cols[urlChannelIdIdx] : "";
+    row.dims[5] = channelIdIdx !== -1 ? cols[channelIdIdx] : "";
     
-    // Audit raw row if it contains anything interesting
-    const rowText = cols.join(" | ");
-    if (rowText.includes("23207554976") || rowText.includes("utm_campaign")) {
-      debug.push(`[SOAP_RAW_MATCH] ${rowText}`);
+    // Log every single row name/channel during debug to see what's actually there
+    const rowContent = `URL_CHAN="${row.dims[2]}" CHAN="${row.dims[3]}"`;
+    if (row.revenue > 0) {
+      debug.push(`[SOAP_ROW_REV] ${rowContent} rev=${row.revenue}`);
     }
+
 
     
     const findMetric = (name: string) => {
