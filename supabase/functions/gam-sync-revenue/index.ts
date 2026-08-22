@@ -150,7 +150,11 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
            userId = user.id;
         }
 
-        const auditRes = await runGamAudit(requestedSiteId || "7185031b-788f-4134-b040-0255c4d6f461", sa, debug, userId);
+        const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { data: auditSites } = await admin.from("sites").select("id").eq("user_id", userId);
+        debug.push(`[audit] Found ${auditSites?.length || 0} sites for user=${userId}`);
+        
+        const auditRes = await runGamAudit(requestedSiteId || auditSites?.[0]?.id || "7185031b-788f-4134-b040-0255c4d6f461", sa, debug, userId);
         return json({ ok: true, audit: auditRes, debug });
       }
     } catch (_) { /* */ }
