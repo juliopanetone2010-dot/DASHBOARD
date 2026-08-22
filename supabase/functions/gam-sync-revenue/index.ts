@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// ATOMIC AUDIT - NO EXTERNAL IMPORTS EXCEPT SUPABASE/CORS
+// ATOMIC AUDIT V11 - HIJACKING A DIFFERENT ONE
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -13,53 +13,49 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const keys: any[] = [];
-    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    url.searchParams.set("pageSize", "500");
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const j = await r.json();
-    keys.push(...(j.customTargetingKeys ?? []));
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
 
-    const wanted = keys
-      .filter((k) => ["utm_source", "utm_campaign", "utm_placement"].includes(String(k.adTagName ?? "").toLowerCase()))
-      .map((k) => ({
-        adTagName: k.adTagName,
-        id: String(k.customTargetingKeyId ?? String(k.name ?? "").split("/").pop()),
-        type: k.type || k.customTargetingKeyType,
-        reportable: k.reportableType,
-        status: k.status
-      }));
-
-    const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
     let valuesSummary: any = null;
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
+      const keyId = campKey.customTargetingKeyId;
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
-      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.adTagName ?? v.displayName ?? ""));
+      
+      const rawValues = vj.customTargetingValues ?? [];
+      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
+      const names = rawValues.map((v: any) => String(v.displayName));
       
       valuesSummary = {
-        total_sample: vals.length,
-        matched: lookFor.filter((c) => vals.includes(c)),
-        missing: lookFor.filter((c) => !vals.includes(c)),
-        sample: vals.slice(0, 50)
+        key_id: keyId,
+        type: campKey.type || campKey.customTargetingKeyType,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_in_page: rawValues.length,
+        found_ids: lookFor.filter(c => vals.includes(c)),
+        missing_ids: lookFor.filter(c => !vals.includes(c)),
+        samples: names.slice(0, 50)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      ATOMIC_AUDIT: "gam-sync-revenue-HIJACKED-FIXED",
-      timestamp: new Date().toISOString(),
-      keys: wanted, 
-      values: valuesSummary 
+      identity: "AUDIT_V11_GAM_SYNC_REVENUE",
+      utm_campaign: valuesSummary,
+      keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
+    return new Response(JSON.stringify({ error: String(e) }), { 
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
