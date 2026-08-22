@@ -87,93 +87,141 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              O Set 1 NÃO está 100% resolvido enquanto este erro continuar aparecendo:
+              A receita das campanhas apareceu, mas está TOTALMENTE BUGADA.
               {"\n\n"}
-              https://googleads.googleapis.com/v18/customers/4345381395/googleAds:search
+              O print mostra que praticamente todas as campanhas estão com:
               {"\n\n"}
-              retornando:
+              ROI = +274,84%
               {"\n\n"}
-              404
+              e
               {"\n\n"}
-              text/html
+              ROAS = 3,75x
               {"\n\n"}
-              SyntaxError: Unexpected token '&lt;'
+              mesmo tendo gastos, impressões, cliques e desempenho completamente diferentes.
               {"\n\n"}
-              Você afirmou que todas as Edge Functions foram migradas para v24, mas esse log prova que ainda existe algum código/rota/job usando v18.
+              Isso prova que o sistema está aplicando o ROI/ROAS geral do site ou distribuindo a receita proporcionalmente entre as campanhas.
               {"\n\n"}
-              Quero que você faça uma busca global no projeto inteiro por:
+              EU NÃO QUERO ISSO.
               {"\n\n"}
-              googleads.googleapis.com/v18
+              REMOVA A ATRIBUIÇÃO PROPORCIONAL
               {"\n\n"}
-              "/v18/"
+              Não use mais:
               {"\n\n"}
-              "v18"
+              proporção por gasto;
               {"\n\n"}
-              GOOGLE_ADS_API_VERSION
+              proporção por impressões;
               {"\n\n"}
-              e qualquer constante/fallback que possa montar a URL com v18.
+              proporção por cliques;
               {"\n\n"}
-              Verifique também:
+              ROI geral do site;
               {"\n\n"}
-              Edge Functions antigas ainda publicadas;
+              Predictive para preencher receita real histórica.
               {"\n\n"}
-              cron jobs apontando para função antiga;
+              Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo Google Ad Manager para o seu próprio Campaign ID.
               {"\n\n"}
-              funções duplicadas;
+              Nós já comprovamos que no GAM é possível consultar:
               {"\n\n"}
-              código legado;
+              Channel = utm_campaign=23207554976
               {"\n\n"}
-              variável de ambiente com versão v18;
+              e obter a receita real daquela campanha.
               {"\n\n"}
-              função MCC search;
+              Portanto, para cada Channel:
               {"\n\n"}
-              sync manual;
+              utm_campaign=CAMPAIGN_ID
               {"\n\n"}
-              sync automático;
+              faça:
               {"\n\n"}
-              funções de placement/campanha;
+              Campaign ID → Receita real GAM daquele Channel
               {"\n\n"}
-              deploy antigo ainda ativo.
+              e associe diretamente à campanha correspondente.
               {"\n\n"}
-              Quero identificar EXATAMENTE qual função está gerando esta chamada:
+              EXEMPLO
               {"\n\n"}
-              https://googleads.googleapis.com/v18/customers/4345381395/googleAds:search
+              Se o GAM retornar:
               {"\n\n"}
-              Mostre:
+              utm_campaign=23207554976 → R$ 1.474,31
               {"\n\n"}
-              Nome da função: google-ads-sync-campaigns
+              então SOMENTE a campanha:
               {"\n\n"}
-              Arquivo: supabase/functions/google-ads-sync-campaigns/index.ts
+              23207554976
               {"\n\n"}
-              Linha: 199 e 245 (Corrigidas para v24)
+              deve receber:
               {"\n\n"}
-              Quem chama essa função: Frontend (IntegrationsPanel) e Cron Jobs
+              Receita = R$ 1.474,31
               {"\n\n"}
-              Cron/job associado: sites-sync-cron
+              Depois:
               {"\n\n"}
-              Versão configurada atualmente: v24 (Global)
+              Lucro = Receita real - Gasto
               {"\n\n"}
-              Depois corrija esse último caminho para v24.
+              ROI = (Lucro / Gasto) × 100
               {"\n\n"}
-              Também confirme se existe uma Edge Function antiga ainda deployada que o frontend/cron continua chamando mesmo depois da migração.
+              ROAS = Receita real / Gasto
               {"\n\n"}
-              Após corrigir, faça uma nova sincronização manual e prove:
+              Não use nenhuma receita de outra campanha.
               {"\n\n"}
-              Nenhuma chamada para v18: SIM
+              CORRIJA OS DADOS DE ONTEM
               {"\n\n"}
-              Todas as chamadas usam v24: SIM
+              Os valores que foram inseridos ontem usando a atribuição proporcional estão incorretos.
               {"\n\n"}
-              MCC 4345381395 retorna JSON 200: SIM
+              Reprocesse a data usando os dados REAIS por:
               {"\n\n"}
-              Campanhas carregadas: SIM
+              AD_EXCHANGE_CHANNEL_NAME
               {"\n\n"}
-              Gastos carregados: SIM
+              ou dimensão equivalente ao Channel do Interactive Report.
               {"\n\n"}
-              Erro Unexpected token '&lt;' desapareceu: SIM
+              Pegue todos os Channels que começam com:
               {"\n\n"}
-              NÃO mexa no GAM e NÃO mexa no Set 2 ainda.
+              utm_campaign=
               {"\n\n"}
-              Quero eliminar completamente qualquer chamada v18 do Set 1 antes de considerar resolvido.
+              Extraia o Campaign ID e grave a receita real correspondente.
+              {"\n\n"}
+              VALIDAÇÃO
+              {"\n\n"}
+              Escolha pelo menos 5 campanhas com gastos diferentes e me mostre:
+              {"\n\n"}
+              Campaign ID | Gasto | Channel GAM | Receita REAL GAM | Lucro | ROI | ROAS
+              {"\n\n"}
+              Os valores de ROI NÃO podem ser todos iguais, a menos que os dados reais matematicamente resultem nisso.
+              {"\n\n"}
+              VERIFIQUE O BANCO
+              {"\n\n"}
+              Certifique-se de que os registros proporcionais/estimados antigos não estão sendo tratados como receita consolidada.
+              {"\n\n"}
+              Se houver:
+              {"\n\n"}
+              attribution_status = estimated/intraday/predictive
+              {"\n\n"}
+              eles NÃO devem substituir:
+              {"\n\n"}
+              attribution_status = consolidated/real
+              {"\n\n"}
+              Para datas passadas já consolidadas pelo GAM, use SOMENTE receita real.
+              {"\n\n"}
+              IMPORTANTE
+              {"\n\n"}
+              O print atual está errado.
+              {"\n\n"}
+              Ver todas as campanhas com aproximadamente:
+              {"\n\n"}
+              ROI +274,84%
+              {"\n\n"}
+              ROAS 3,75x
+              {"\n\n"}
+              é evidência de que a lógica de atribuição está replicando o desempenho geral do site.
+              {"\n\n"}
+              Corrija a atribuição individual REAL.
+              {"\n\n"}
+              NÃO altere textos do dashboard.
+              {"\n\n"}
+              NÃO mexa no Google Ads v24.
+              {"\n\n"}
+              NÃO altere OAuth/MCC.
+              {"\n\n"}
+              NÃO crie outro fallback proporcional.
+              {"\n\n"}
+              Só considere concluído quando cada campanha apresentar seu próprio valor real de:
+              {"\n\n"}
+              Gasto | Receita | Lucro | ROI | ROAS FACA FUNCIONAR IGUAL FUNCIONOU NO DIA 20
             </p>
           </div>
         </div>

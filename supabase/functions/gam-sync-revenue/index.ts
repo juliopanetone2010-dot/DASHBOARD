@@ -551,30 +551,12 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         const totalSiteRevenue = siteTodayRows.reduce((sum, r) => sum + r.revenue, 0);
         const totalSiteImpressions = siteTodayRows.reduce((sum, r) => sum + r.impressions, 0);
         
-        const hasRealSegmentedData = googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        // SEGURANÇA: Fallback preditivo desativado por solicitação do usuário.
+        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
+        const hasRealSegmentedData = false; 
 
-        if (!hasRealSegmentedData && totalSiteRevenue > 0 && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Iniciando Fallback Preditivo: SiteRev=${totalSiteRevenue.toFixed(2)} SiteImpr=${totalSiteImpressions}`);
-          try {
-            const predictive = await collectPredictiveIntradayAttribution({
-              networkCode, 
-              accessToken, 
-              ranges, 
-              totalSiteRevenue, 
-              totalSiteImpressions, 
-              debug, 
-              deadlineAt 
-            });
-            
-            if (predictive.googleCampaignRows.length > 0) {
-              debug.push(`[${networkCode}] Fallback Preditivo gerou ${predictive.googleCampaignRows.length} campanhas estimadas.`);
-              // Adiciona as estimadas ao set de hoje para persistência
-              googleCampaignRows.push(...predictive.googleCampaignRows);
-              googlePlacementRows.push(...predictive.googlePlacementRows);
-            }
-          } catch (predErr) {
-            debug.push(`[${networkCode}] Fallback Preditivo falhou: ${String(predErr).slice(0, 100)}`);
-          }
+        if (false) {
+          // Bloco desativado
         }
 
         if (!testMode) {
@@ -2296,7 +2278,8 @@ async function applyGoogleUtmRevenue(
     const matchedIds = new Set<string>();
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
     let attributedRev = 0;
-    for (const v of directMap.values()) attributedRev += (v as any).revenue;
+    // Removido o loop que gerava atribuição proporcional/residual
+    // for (const v of directMap.values()) attributedRev += (v as any).revenue;
 
     const updates: any[] = [];
     const matchDebug: string[] = [];
@@ -2382,7 +2365,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
   // ("SAVED"), que devolve os mesmos números vistos no painel do Ad Manager.
-  const reportBody = { reportDefinition };
+  const reportBody = { reportDefinition, visibility: "SAVED" };
   const createRes = await gamFetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -2400,6 +2383,8 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
   const reportName: string = createJson.name;
 
+  // Corrigindo loop de polling para ler latestReportRun do objeto Report retornado
+  let opName = "";
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -2407,7 +2392,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   });
   const runJson = await parseJsonResponse(runRes, "run report", tag);
   if (!runRes.ok) throw new Error(`[${tag}] run failed: ${JSON.stringify(runJson)}`);
-  const opName: string = runJson.name;
+  opName = runJson.name;
 
   let resultName: string | null = null;
   for (let i = 0; i < 30; i++) {
