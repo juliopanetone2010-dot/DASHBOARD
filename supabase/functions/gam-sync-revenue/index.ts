@@ -1051,6 +1051,7 @@ async function collectUtmAttribution(args: {
     const metricGroups = [
       { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
       { label: "CHANNEL_SOURCE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "AD_EXCHANGE_CHANNEL_ID"] }, 
+      { label: "PLACEMENT_ID", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], dimensions: ["DATE", "PLACEMENT_ID"] },
     ];
     for (const group of metricGroups) {
       try {
