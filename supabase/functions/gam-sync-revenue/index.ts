@@ -199,29 +199,37 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       debug.push("[AUDIT_MANUAL] Iniciando verificação profunda para ID 23207554976");
       try {
         const ranges = buildGamRanges("CUSTOM", "2026-08-21", "2026-08-21", false);
-        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport para range 2026-08-21...`);
+        debug.push(`[AUDIT_MANUAL] Tentando runSoapReport com CUSTOM_DIMENSION para range 2026-08-21...`);
         
+        // No SOAP do GAM, KEY_VALUES_NAME via REST v1 pode falhar, mas o ReportService permite CUSTOM_DIMENSION
+        // O usuário quer ver "Channel" no painel. O ID 23207554976 costuma ser utm_campaign.
         const soapRows = await runSoapReport({
            networkCode: sites[0].network_code,
            accessToken,
            range: ranges[0],
-           dimensions: ["DATE", "URL_NAME"],
+           dimensions: ["DATE", "CUSTOM_DIMENSION"], // Tentar capturar Custom Dimensions
            debug
         });
         
         debug.push(`[AUDIT_MANUAL_RAW] soapRows count: ${soapRows.length}`);
+        let auditRow = soapRows.find(r => r.dims.some(d => d.includes("23207554976")));
         
-        // No SOAP URL_NAME, a dimensão costuma ser a URL completa ou o path.
-        // O usuário disse que o ID 23207554976 tem receita. 
-        // Vamos buscar nas URLs capturadas se alguma bate com a campanha.
-        
-        const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds.length ? requestedAccountIds : [], debug);
-        const attributed = rowsFromUrlReportRows(soapRows, "AUDIT_SOAP", finalUrlMap);
-        
-        let auditRow = attributed.find(r => r.campaign_id === "23207554976");
-        
+        if (!auditRow) {
+           debug.push("[AUDIT_MANUAL] Fallback para SOAP URL_NAME...");
+           const urlSoapRows = await runSoapReport({
+              networkCode: sites[0].network_code,
+              accessToken,
+              range: ranges[0],
+              dimensions: ["DATE", "URL_NAME"],
+              debug
+           });
+           const finalUrlMap = await buildFinalUrlMap(admin, userId, requestedAccountIds.length ? requestedAccountIds : [], debug);
+           const attributed = rowsFromUrlReportRows(urlSoapRows, "AUDIT_SOAP_URL", finalUrlMap);
+           auditRow = attributed.find(r => r.campaign_id === "23207554976") as any;
+        }
+
         if (auditRow) {
-          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! CID: 23207554976 | Rev: ${auditRow.revenue}`);
+          debug.push(`[AUDIT_MANUAL_RESULT] Found via SOAP! Dim: ${auditRow.dims?.join("|")} | Rev: ${auditRow.revenue}`);
           const insertData = {
             user_id: userId,
             site_id: sites[0].id,
@@ -236,21 +244,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           const { error: insErr } = await admin.from("gam_campaign_source_revenue").upsert(insertData, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
           debug.push(`[AUDIT_MANUAL_SAVE] UPSERT real executado: ${!insErr ? "SIM" : "NÃO"}`);
         } else {
-          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada via SOAP URL_NAME (21/08).");
-          // Se não achar via URL, o usuário pode estar vendo "Channel" no painel.
-          // Tentar KEY_VALUES_NAME uma última vez sem dimensionKeyIds
-           const kvRows = await runReport({
-              networkCode: sites[0].network_code,
-              accessToken,
-              range: ranges[0],
-              dimensions: ["DATE", "KEY_VALUES_NAME"],
-              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
-              debug
-           });
-           const kvRow = kvRows.find(r => r.dims[1].includes("23207554976"));
-           if (kvRow) {
-              debug.push(`[AUDIT_MANUAL_RESULT] Found via KV (Final)! Rev: ${kvRow.revenue}`);
-           }
+          debug.push("[AUDIT_MANUAL_RESULT] Campanha 23207554976 não encontrada em SOAP (21/08).");
         }
       } catch (e: any) {
         debug.push(`[AUDIT_MANUAL_ERROR] ${e?.message || String(e)}`);
