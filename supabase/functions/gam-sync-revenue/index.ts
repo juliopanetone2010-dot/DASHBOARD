@@ -78,6 +78,8 @@ Deno.serve(async (req) => {
 async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promise<Response> {
   const debug: string[] = [];
   try {
+    debug.push(`[entry] runSync called with body=${JSON.stringify(parsedBody).slice(0, 200)}`);
+
     const authHeader = req.headers.get("Authorization");
     if (!skipAuth && !authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
 
