@@ -1,66 +1,226 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// ATOMIC AUDIT V11 - HIJACKING A DIFFERENT ONE
+interface ReportRow {
+  date: string;
+  campaignId: string | null;
+  revenue: number;
+  impressions: number;
+  source: string;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  
+
   try {
-    const networkCode = "21683973686"; // Universo Dos Cartoes
+    const body = await req.json().catch(() => ({}));
+    const { site_id, from, to } = body;
+    
+    if (!site_id || !from || !to) {
+      return json({ error: "site_id, from, and to are required" }, 400);
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const { data: site, error: siteErr } = await supabase
+      .from("sites")
+      .select("*")
+      .eq("id", site_id)
+      .single();
+
+    if (siteErr || !site) return json({ error: "Site not found" }, 404);
+    if (!site.network_code) return json({ error: "Site has no network_code" }, 400);
+
+    const networkCode = site.network_code;
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    keysUrl.searchParams.set("pageSize", "500");
-    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const kj = await kr.json();
-    const keys = kj.customTargetingKeys ?? [];
+    // Dynamic key identification
+    const utmKeyId = await findCustomTargetingKeyId(networkCode, accessToken, "utm_campaign");
+    console.log(`[gam-sync] Site: ${site.name} | Network: ${networkCode} | utm_campaign Key: ${utmKeyId}`);
 
-    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
-    let valuesSummary: any = null;
-    const lookFor = ["23207554976", "23309079322", "22923001384"];
+    // Unified report using URL as the fallback attribution dimension
+    const rows = await runUnifiedReport(networkCode, accessToken, from, to, utmKeyId);
+    console.log(`[gam-sync] Report complete. Rows: ${rows.length}`);
 
-    if (campKey) {
-      const keyId = campKey.customTargetingKeyId;
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
-      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const vj = await vr.json();
-      
-      const rawValues = vj.customTargetingValues ?? [];
-      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
-      const names = rawValues.map((v: any) => String(v.displayName));
-      
-      valuesSummary = {
-        key_id: keyId,
-        type: campKey.type || campKey.customTargetingKeyType,
-        reportable: campKey.reportableType,
-        status: campKey.status,
-        total_in_page: rawValues.length,
-        found_ids: lookFor.filter(c => vals.includes(c)),
-        missing_ids: lookFor.filter(c => !vals.includes(c)),
-        samples: names.slice(0, 50)
-      };
-    }
+    const stats = await attributeAndStore(supabase, site, rows);
 
-    return new Response(JSON.stringify({ 
-      ok: true, 
-      identity: "AUDIT_V11_GAM_SYNC_REVENUE",
-      utm_campaign: valuesSummary,
-      keys: keys.map((k: any) => k.adTagName)
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    return json({
+      ok: true,
+      site: site.name,
+      period: { from, to },
+      processed_rows: rows.length,
+      stats
     });
+
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { 
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
+    console.error("[gam-sync-revenue] Error:", e);
+    return json({ error: String(e) }, 500);
   }
 });
+
+async function runUnifiedReport(
+  networkCode: string, 
+  accessToken: string, 
+  from: string, 
+  to: string,
+  utmKeyId: string | null
+): Promise<ReportRow[]> {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+
+  const reportDefinition: any = {
+    reportType: "HISTORICAL",
+    dimensions: ["DATE", "URL"],
+    metrics: ["AD_EXCHANGE_REVENUE", "AD_EXCHANGE_IMPRESSIONS"],
+    dateRange: {
+      fixed: {
+        startDate: { year: fy, month: fm, day: fd },
+        endDate: { year: ty, month: tm, day: td }
+      }
+    }
+  };
+
+  // Create
+  const createRes = await fetch(`${GAM_BASE}/networks/${networkCode}/reports`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ reportDefinition }),
+  });
+  if (!createRes.ok) throw new Error(`Report create failed: ${await createRes.text()}`);
+  const { name: reportName } = await createRes.json();
+
+  // Run
+  const runRes = await fetch(`${GAM_BASE}/${reportName}:run`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!runRes.ok) throw new Error(`Report run failed: ${await runRes.text()}`);
+  const { name: operationName } = await runRes.json();
+
+  // Poll
+  let resultName = null;
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const opRes = await fetch(`${GAM_BASE}/${operationName}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const opStatus = await opRes.json();
+    if (opStatus.done) {
+      if (opStatus.error) throw new Error(`Report job error: ${JSON.stringify(opStatus.error)}`);
+      resultName = opStatus.response?.reportResult;
+      break;
+    }
+  }
+
+  if (!resultName) throw new Error("Report timeout");
+
+  // Fetch
+  const allRows: ReportRow[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
+    url.searchParams.set("pageSize", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const rowsRes = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const rowsJson = await rowsRes.json();
+    
+    for (const r of (rowsJson.rows || [])) {
+      const dims = r.dimensionValues || [];
+      const dateRaw = String(dims[0]?.stringValue || dims[0]?.intValue || "");
+      const date = dateRaw.length === 8 ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}` : dateRaw;
+      
+      const urlText = String(dims[1]?.stringValue || "");
+      const cid = extractCampaignId(urlText);
+      
+      const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
+      const revenue = Number(metrics[0]?.intValue || 0) / 1_000_000;
+      const impressions = Number(metrics[1]?.intValue || 0);
+
+      if (revenue > 0 || impressions > 0) {
+        allRows.push({
+          date,
+          campaignId: cid,
+          revenue,
+          impressions,
+          source: cid ? "url_attributed" : "unattributed"
+        });
+      }
+    }
+    pageToken = rowsJson.nextPageToken;
+  } while (pageToken);
+
+  return allRows;
+}
+
+function extractCampaignId(text: string): string | null {
+  if (!text) return null;
+  // Match 10-12 digit IDs in URL parameters or path
+  const match = text.match(/\b(\d{10,12})\b/);
+  return match ? match[1] : null;
+}
+
+async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
+  const stats = { attributed: 0, total_revenue: 0 };
+  
+  // Group by date and campaign
+  const groups = new Map<string, { revenue: number, impressions: number }>();
+  for (const r of rows) {
+    if (!r.campaignId) continue; // We only store attributed rows in this table for now
+    const key = `${r.date}|${r.campaignId}`;
+    const cur = groups.get(key) || { revenue: 0, impressions: 0 };
+    cur.revenue += r.revenue;
+    cur.impressions += r.impressions;
+    groups.set(key, cur);
+  }
+
+  const upserts = [];
+  for (const [key, data] of groups.entries()) {
+    const [date, cid] = key.split("|");
+    upserts.push({
+      site_id: site.id,
+      user_id: site.user_id,
+      date,
+      campaign_id: cid,
+      revenue_usd: data.revenue,
+      impressions: data.impressions,
+      utm_source: "google",
+      attribution_status: "consolidated"
+    });
+    stats.attributed++;
+    stats.total_revenue += data.revenue;
+  }
+
+  if (upserts.length > 0) {
+    const { error } = await supabase
+      .from("gam_campaign_source_revenue")
+      .upsert(upserts, { onConflict: "user_id,site_id,campaign_id,date,utm_source" });
+      
+    if (error) throw new Error(`Upsert failed: ${error.message}`);
+  }
+
+  return stats;
+}
+
+async function findCustomTargetingKeyId(networkCode: string, accessToken: string, name: string): Promise<string | null> {
+  const r = await fetch(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys?pageSize=500`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!r.ok) return null;
+  const data = await r.json();
+  const key = (data.customTargetingKeys || []).find((k: any) => k.adTagName.toLowerCase() === name.toLowerCase());
+  return key ? key.name.split("/").pop() : null;
+}
 
 async function getAccessToken(sa: any) {
   const now = Math.floor(Date.now() / 1000);
@@ -81,5 +241,13 @@ async function getAccessToken(sa: any) {
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
   });
   const j = await r.json();
+  if (!r.ok) throw new Error(`Token error: ${JSON.stringify(j)}`);
   return j.access_token;
+}
+
+function json(payload: any, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" }
+  });
 }
