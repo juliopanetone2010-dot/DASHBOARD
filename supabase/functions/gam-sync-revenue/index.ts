@@ -1062,11 +1062,22 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
     }));
   const campaignRows: AttributedRow[] = parsedRows
-    .filter(({ rawKv, campaignRaw }) => !!extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && !!extractCampaignId(rawKv)))
-
+    .filter(({ rawKv, campaignRaw }) => {
+      const cid = extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && extractCampaignId(rawKv));
+      return !!cid;
+    })
     .map(({ r, rawKv, campaignRaw }) => {
       let cid = extractCampaignId(campaignRaw);
-      if (!cid && rawKv && !rawKv.includes("=")) cid = extractCampaignId(rawKv);
+      if (!cid && rawKv && !rawKv.includes("=")) {
+        cid = extractCampaignId(rawKv);
+      }
+      
+      // LOG DE PARSER PARA CAMPANHAS ESPECÍFICAS (AUDITORIA)
+      const auditCids = ['23207554976', '23309079322', '23021142139'];
+      if (cid && auditCids.includes(cid)) {
+        console.log(`[AUDIT_parser] ID ${cid} extraído de rawKv=${rawKv} ou campaignRaw=${campaignRaw}`);
+      }
+
       return {
         date: r.date,
         impressions: r.impressions,
@@ -1077,6 +1088,7 @@ async function collectUtmAttribution(args: {
         raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
+
 
   const placementRows: AttributedRow[] = parsedRows
     .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
