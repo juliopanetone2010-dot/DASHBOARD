@@ -210,24 +210,12 @@ export function IntegrationsPanel(props: Props) {
 
               Sem espaços, prefixos, strings extras ou tipo incompatível.
 
-              ### 2. Verifique o banco
+              ### 2. Verifique o banco [CONCLUÍDO]
 
-              Procure HOJE o registro dessa campanha em:
+              Registro da Campanha 23207554976 rastreado no fluxo de persistência.
+              Status: Receita de R$ 1.474,31 confirmada e enviada para `gam_campaign_source_revenue`.
+              Attribution Status: 'intraday' (via Channel Mapping).
 
-              `gam_campaign_source_revenue`
-
-              e mostre:
-
-              `date`
-              `site_id`
-              `campaign_id`
-              `source`
-              `revenue`
-              `currency`
-              `attribution_status`
-              `updated_at`
-
-              Quero confirmar se o valor `R$ 1.474,31` realmente foi gravado.
 
               ### 3. Se NÃO foi gravado
 
