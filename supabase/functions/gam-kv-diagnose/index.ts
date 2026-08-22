@@ -4,74 +4,59 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
+// COMPLETELY SYNC - NO BACKGROUND WRAPPER
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
-  const authHeader = req.headers.get("Authorization") || "";
-  const token = authHeader.replace("Bearer ", "").trim();
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  
-  // LOG EVERYTHING TO SEE WHAT IS HAPPENING
-  console.log(`[gam-kv-diagnose] Request URL: ${req.url}`);
-  console.log(`[gam-kv-diagnose] Token matches Service Role: ${token === serviceRoleKey}`);
-  console.log(`[gam-kv-diagnose] Token length: ${token.length}, expected: ${serviceRoleKey.length}`);
-  
-  // COMPLETELY BYPASS AUTH FOR THIS TURN TO SEE IF IT IS AN AUTH ISSUE
-  // We will check for any token that looks like a JWT or is long enough.
-  const bypassAuth = token.length > 20;
-
   try {
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
     const networkCode = "21683973686"; // Universo Dos Cartoes
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const keys: any[] = [];
-    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    url.searchParams.set("pageSize", "500");
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const j = await r.json();
-    keys.push(...(j.customTargetingKeys ?? []));
+    // 1) Audit utm_campaign key
+    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
+    keysUrl.searchParams.set("pageSize", "500");
+    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const kj = await kr.json();
+    const keys = kj.customTargetingKeys ?? [];
 
-    const wanted = keys
-      .filter((k) => ["utm_source", "utm_campaign", "utm_placement"].includes(String(k.adTagName ?? "").toLowerCase()))
-      .map((k) => ({
-        adTagName: k.adTagName,
-        id: String(k.customTargetingKeyId ?? String(k.name ?? "").split("/").pop()),
-        type: k.type,
-        reportable: k.reportableType
-      }));
-
-    const campKey = wanted.find((k) => String(k.adTagName).toLowerCase() === "utm_campaign");
+    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
     let valuesSummary: any = null;
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.id}/customTargetingValues`);
+      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       const vj = await vr.json();
-      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.adTagName ?? v.displayName ?? ""));
+      const vals = (vj.customTargetingValues ?? []).map((v: any) => String(v.name.split("/").pop()));
       
+      // We also check displayNames
+      const names = (vj.customTargetingValues ?? []).map((v: any) => String(v.displayName));
+
       valuesSummary = {
-        total_sample: vals.length,
-        matched: lookFor.filter((c) => vals.includes(c)),
-        missing: lookFor.filter((c) => !vals.includes(c)),
-        sample: vals.slice(0, 30)
+        key_id: campKey.customTargetingKeyId,
+        type: campKey.type,
+        reportable: campKey.reportableType,
+        status: campKey.status,
+        total_values: vals.length,
+        found_in_names: lookFor.filter(c => names.includes(c)),
+        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
+        sample_names: names.slice(0, 10)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      auth_debug: { token_len: token.length, bypassed: bypassAuth },
-      keys: wanted, 
-      values: valuesSummary 
+      network: networkCode,
+      utm_campaign: valuesSummary,
+      keys: keys.map((k: any) => k.adTagName)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
-      status: 200, // Still return 200 so curl shows it
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
   }
