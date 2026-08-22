@@ -143,26 +143,34 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
     const isServiceKey = token === serviceRoleKey && serviceRoleKey.length > 0;
     
+    // Prioriza o bypass de autenticação se solicitado explicitamente (trigger interno)
     if (skipAuth || isServiceKey) {
       userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
       debug.push(`[auth] authenticated via ${skipAuth ? "skipAuth" : "service_role"}. target_user=${userId}`);
     } else {
+      if (!token) {
+        return json({ error: "Token ausente", debug });
+      }
       debug.push(`[auth] attempting getUser with token len ${token.length}`);
       const { data: { user }, error: authErr } = await userClient.auth.getUser(token);
-      if (authErr) debug.push(`[auth] getUser error: ${authErr.message}`);
-      if (!user) {
+      
+      if (authErr || !user) {
+         debug.push(`[auth] getUser failure: ${authErr?.message || "User not found"}`);
          return json({ 
             error: "Token inválido", 
             debug: [
               ...debug,
               `skipAuth: ${skipAuth}`,
               `requestedUserId: ${requestedUserId}`,
-              `tokenLen: ${token.length}`
+              `tokenLen: ${token.length}`,
+              `authErr: ${authErr?.message || "none"}`
             ]
           });
       }
       userId = user.id;
+      debug.push(`[auth] user authenticated: ${userId}`);
     }
+
 
 
 
