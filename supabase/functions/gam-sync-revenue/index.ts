@@ -346,8 +346,8 @@ async function runSync(req: Request): Promise<Response> {
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
         // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        const hasTodayData = attribution.googleCampaignRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
-                             attribution.googlePlacementRows.some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
+        const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__") ||
+                             (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid !== "__aggregate__");
 
         if (!hasTodayData && hasBudget(10_000)) {
           debug.push(`[${networkCode}] Sem dados de hoje (today=${todayStr}), tentando SOAP URL_NAME candidate...`);
@@ -1997,7 +1997,7 @@ async function applyGoogleUtmRevenue(
   // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
   // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
   const arr = [...placementBuckets.values()];
-  const hasData = arr.length > 0 || googleCampaignRows.length > 0;
+  const hasData = arr.length > 0 || (googleCampaignRows && googleCampaignRows.length > 0);
   
   if (!hasData) {
     debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM.`);

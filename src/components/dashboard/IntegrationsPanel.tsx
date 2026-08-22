@@ -65,37 +65,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              Agora quero saber em que horário a receita por campanha vai aparecer de fato no dashboard depois dessa correção.
-
-              Como você disse que o problema era um erro de script (arr undefined) e que a API do GAM já está retornando receita real por campanha, por exemplo:
-
-              Campaign ID 23207554976 → R$ 1.474,31
-
-              então responda objetivamente:
-
-              1. Depois que eu clicar em “Sincronizar Agora”, em quantos minutos a receita deve aparecer nas campanhas?
-
-              2. Existe fila/processamento em background? Se sim, qual o tempo médio?
-
-              3. O sistema vai processar automaticamente os dados faltantes de 21/08 e 22/08?
-
-              4. Preciso clicar em “Sincronizar Agora” apenas uma vez ou repetir?
-
-              5. Se após 15 minutos continuar R$ 0,00, isso significa que ainda existe erro?
-
-              6. Qual é o próximo horário automático do cron caso eu não clique manualmente?
-
-              Quero uma resposta no formato:
-
-              Tempo estimado após sincronizar:
-
-              Processa dados retroativos: SIM/NÃO
-
-              Preciso repetir: SIM/NÃO
-
-              Próximo cron automático:
-
-              Depois de quantos minutos devo considerar que ainda está com problema:
+              tenta puxar a receita das campanhas manualmente pra ver se ta funcionando, outra coita na parte de segmento  ja pode atualizar a receita  A RECEITA geral ta funcionando mas as campanhas nao, e corrija esse codigo ai esse erro
             </p>
           </div>
         </div>
