@@ -178,32 +178,10 @@ function extractCampaignId(text: string): string | null {
   // Decode URL if it looks encoded
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
-  // Look for 8-12 digit IDs
-  const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
-                decoded.match(/\b(\d{10,12})\b/) ||
-                decoded.match(/\b(\d{8,11})\b/);
+  const match = decoded.match(/(?:campaignid|utm_campaign)[=:](d{10,12})b/) || 
+                decoded.match(/b(d{10,12})b/);
   
-  if (match) return match[1];
-
-  // Fallback: slug mapping
-  const slugMappings: Record<string, string> = {
-    "monitorar-conversas-no-whatsapp": "23207554976", // MONITORAR WHAPP
-    "monitorar-whapp": "23207554976",
-    "roblox-robux-skins": "23309079322",             // ROBLOX
-    "roblox": "23309079322",
-    "como-ganhar-robux": "23309079322",
-    "robux-gratis": "23309079322",
-    "como-conseguir-robux": "23309079322",
-    "vagas-de-emprego": "22923001384",               // EMPREGO
-    "vagas": "22923001384"
-  };
-
-  for (const [slug, id] of Object.entries(slugMappings)) {
-    if (decoded.includes(slug)) return id;
-  }
-
-  return null;
-}
+  return match ? match[1] : null;
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
   const stats = { attributed: 0, total_revenue: 0, unattributed_revenue: 0 };
