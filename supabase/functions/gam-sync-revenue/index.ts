@@ -153,7 +153,17 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
     }
     
     if (!userId) {
-      return json({ error: "Token inválido", debug: { skipAuth, requestedUserId, authHeader: authHeader?.slice(0, 15), bodySync: parsedBody?.sync } });
+      return json({ 
+        error: "Token inválido", 
+        debug: { 
+          skipAuth, 
+          requestedUserId, 
+          authHeader: authHeader?.slice(0, 15), 
+          bodySync: parsedBody?.sync,
+          tokenLen: token.length,
+          srkLen: serviceRoleKey.length
+        } 
+      });
     }
 
 
