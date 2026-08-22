@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
 
-// ATOMIC AUDIT V10 - NO WRAPPERS - NO IMPORTS BESIDES SHARED
+// FORCED SOAP AUDIT V12 - BYPASSING REST LIMITS
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
@@ -13,44 +13,55 @@ Deno.serve(async (req) => {
     const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
     const accessToken = await getAccessToken(sa);
 
-    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    keysUrl.searchParams.set("pageSize", "500");
-    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const kj = await kr.json();
-    const keys = kj.customTargetingKeys ?? [];
+    // 1) Query SOAP ReportService to see if these IDs exist for TODAY
+    const targetIds = ["23207554976", "23309079322", "22923001384"];
+    const now = new Date();
+    const today = now.toISOString().split("T")[0].replace(/-/g, "");
 
-    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
-    let valuesSummary: any = null;
-    const lookFor = ["23207554976", "23309079322", "22923001384"];
+    const soapBody = `
+      <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v202405="https://www.google.com/apis/ads/publisher/v202405">
+        <soapenv:Header>
+          <v202405:RequestHeader>
+            <v202405:networkCode>${networkCode}</v202405:networkCode>
+            <v202405:applicationName>AdGeniusAudit</v202405:applicationName>
+          </v202405:RequestHeader>
+        </soapenv:Header>
+        <soapenv:Body>
+          <v202405:runReportJob>
+            <v202405:reportJob>
+              <v202405:reportQuery>
+                <v202405:dimensions>DATE</v202405:dimensions>
+                <v202405:dimensions>CUSTOM_DIMENSION</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
+                <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
+                <v202405:dateRangeType>TODAY</v202405:dateRangeType>
+                <v202405:customDimensionKeyIds>13833777</v202405:customDimensionKeyIds> <!-- utm_campaign key ID from previous turn -->
+              </v202405:reportQuery>
+            </v202405:reportJob>
+          </v202405:runReportJob>
+        </soapenv:Body>
+      </soapenv:Envelope>
+    `;
 
-    if (campKey) {
-      const keyId = campKey.customTargetingKeyId;
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${keyId}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
-      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const vj = await vr.json();
-      
-      const rawValues = vj.customTargetingValues ?? [];
-      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
-      const names = rawValues.map((v: any) => String(v.displayName));
-      
-      valuesSummary = {
-        key_id: keyId,
-        type: campKey.type || campKey.customTargetingKeyType,
-        reportable: campKey.reportableType,
-        status: campKey.status,
-        total_in_page: rawValues.length,
-        found_ids: lookFor.filter(c => vals.includes(c)),
-        missing_ids: lookFor.filter(c => !vals.includes(c)),
-        samples: names.slice(0, 50)
-      };
-    }
+    const soapR = await fetch(`https://ads.google.com/apis/ads/publisher/v202405/ReportService`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "text/xml",
+        "SOAPAction": "runReportJob"
+      },
+      body: soapBody
+    });
+
+    const soapText = await soapR.text();
+    const jobIdMatch = soapText.match(/<jobId>(\d+)<\/jobId>/);
+    const jobId = jobIdMatch ? jobIdMatch[1] : null;
 
     return new Response(JSON.stringify({ 
       ok: true, 
-      identity: "AUDIT_V10_PROD",
-      utm_campaign: valuesSummary,
-      keys: keys.map((k: any) => k.adTagName)
+      identity: "AUDIT_V12_SOAP",
+      jobId: jobId,
+      raw_response: soapText.substring(0, 1000)
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
