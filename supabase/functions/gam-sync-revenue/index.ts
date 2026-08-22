@@ -224,6 +224,19 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
            auditRow = kvRows.find(r => r.dims[1].includes("23207554976"));
         }
 
+        if (!auditRow) {
+           debug.push("[AUDIT_MANUAL] Tentando CUSTOM_CRITERIA...");
+           const ccRows = await runReport({
+              networkCode: sites[0].network_code,
+              accessToken,
+              range: ranges[0],
+              dimensions: ["DATE", "CUSTOM_CRITERIA"],
+              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+              debug
+           });
+           auditRow = ccRows.find(r => r.dims[1].includes("23207554976"));
+        }
+
         if (auditRow) {
           debug.push(`[AUDIT_MANUAL_RESULT] Found! Dim: ${auditRow.dims[1]} | Rev: ${auditRow.revenue}`);
           const insertData = {
