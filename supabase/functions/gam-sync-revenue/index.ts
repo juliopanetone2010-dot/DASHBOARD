@@ -165,7 +165,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
       });
     }
 
-    if (!userId && skipAuth) {
+    if (!userId) {
         userId = requestedUserId ?? "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9";
     }
 
