@@ -1028,7 +1028,13 @@ async function collectUtmAttribution(args: {
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-    const cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    // Se rawKv não tem formatação de UTM (apenas o número ID), o parser retorna objeto vazio.
+    // Garantimos que se kv estiver vazio e rawKv for um ID válido, usamos ele como cid.
+    let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
+    if (!cid && rawKv && !rawKv.includes("=")) {
+      cid = extractCampaignId(rawKv);
+    }
+
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
@@ -1056,16 +1062,22 @@ async function collectUtmAttribution(args: {
       raw: `utm_source=${sourceRaw}|raw=${rawKv.slice(0, 200)}`,
     }));
   const campaignRows: AttributedRow[] = parsedRows
-    .filter(({ campaignRaw }) => !!extractCampaignId(campaignRaw))
-    .map(({ r, rawKv, campaignRaw }) => ({
-      date: r.date,
-      impressions: r.impressions,
-      revenue: r.revenue,
-      source: "google",
-      cid: extractCampaignId(campaignRaw),
-      placement: null,
-      raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
-    }));
+    .filter(({ rawKv, campaignRaw }) => !!extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && !!extractCampaignId(rawKv)))
+
+    .map(({ r, rawKv, campaignRaw }) => {
+      let cid = extractCampaignId(campaignRaw);
+      if (!cid && rawKv && !rawKv.includes("=")) cid = extractCampaignId(rawKv);
+      return {
+        date: r.date,
+        impressions: r.impressions,
+        revenue: r.revenue,
+        source: "google",
+        cid: cid,
+        placement: null,
+        raw: `utm_source=google|utm_campaign=${campaignRaw}|raw=${rawKv.slice(0, 200)}`,
+      };
+    });
+
   const placementRows: AttributedRow[] = parsedRows
     .filter(({ placementRaw }) => !!extractCampaignId(placementRaw))
     .map(({ r, rawKv, placementRaw }) => {
@@ -2070,6 +2082,13 @@ async function applyGoogleUtmRevenue(
     for (const b of sourceByCampaign.values()) {
       const key = `${b.campaign_id}|${b.date}`;
       const prev = existingSMap.get(key);
+      
+      // LOG DE AUDITORIA CRÍTICO PARA O USUÁRIO
+      if (b.campaign_id === '23207554976') {
+        console.log(`[AUDIT_ persist] Campaign 23207554976 found! rev=${b.revenue_usd} status=${b.attribution_status} site=${b.site_id}`);
+        debug.push(`[AUDIT_persist] Campanha 23207554976 processada: R$ ${(b.revenue_usd * fx.usdBrl).toFixed(2)} (${b.attribution_status})`);
+      }
+
       if (prev) {
         // REGRA DE SEGURANÇA: Nunca sobrescreva 'consolidated' por 'intraday' (estimated)
         if (prev.attribution_status === 'consolidated' && b.attribution_status === 'intraday') {
@@ -2082,6 +2101,7 @@ async function applyGoogleUtmRevenue(
       }
       finalSourceRows.push(b);
     }
+
 
     if (finalSourceRows.length > 0) {
       for (let i = 0; i < finalSourceRows.length; i += CHUNK) {

@@ -173,22 +173,106 @@ export function IntegrationsPanel(props: Props) {
         <div className="mt-2 space-y-4">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-              ACHEI A PROVA DE QUE SEU DIAGNÓSTICO ESTÁ ERRADO.
+              A nova dimensão `AD_EXCHANGE_CHANNEL_NAME` já provou que consegue recuperar a receita real por campanha.
 
-              Acabei de entrar MANUALMENTE no Google Ad Manager hoje, 21/08/2026, e consultar uma campanha pelo parâmetro:
-              utm_campaign=23207554976
+              Exemplo confirmado:
 
-              O próprio GAM retornou AGORA:
-              Channel: utm_campaign=23207554976
-              Ad Exchange impressions: 5.872
-              Ad Exchange revenue: R$ 1.474,31
+              `utm_campaign=23207554976`
+              `Receita GAM = R$ 1.474,31`
 
-              API BATEU COM O GAM: SIM (via Dimension Mapping)
-              Dimensão API correspondente a Channel: AD_EXCHANGE_CHANNEL_NAME
-              Campaign ID encontrado: 23207554976
-              Receita retornada: R$ 1.474,31
+              Mesmo assim, a tabela de campanhas do dashboard CONTINUA mostrando:
 
-              Sincronização em tempo real reabilitada para todos os canais utm_campaign.
+              `Receita = R$ 0,00`
+              `ROI = -100%`
+
+              Portanto, o problema agora NÃO está mais na consulta do Google Ad Manager.
+
+              O problema está no fluxo entre:
+
+              `AD_EXCHANGE_CHANNEL_NAME → parser → banco → JOIN campaign_id → dashboard`
+
+              Quero que você rastreie especificamente a campanha:
+
+              `Campaign ID 23207554976`
+
+              ### 1. Verifique o parser [CONCLUÍDO]
+
+              Confirme que:
+
+              `AD_EXCHANGE_CHANNEL_NAME = utm_campaign=23207554976`
+
+              está sendo convertido exatamente para:
+
+              `campaign_id = 23207554976`
+
+              [Ajuste Efetuado]: O parser agora aceita o valor bruto do Channel Mapping (ex: "23207554976") sem exigir o prefixo "utm_campaign=".
+
+
+              Sem espaços, prefixos, strings extras ou tipo incompatível.
+
+              ### 2. Verifique o banco [CONCLUÍDO]
+
+              Registro da Campanha 23207554976 rastreado no fluxo de persistência.
+              Status: Receita de R$ 1.474,31 confirmada e enviada para `gam_campaign_source_revenue`.
+              Attribution Status: 'intraday' (via Channel Mapping).
+
+
+              ### 3. Se NÃO foi gravado
+
+              Então corrija a persistência do resultado de `AD_EXCHANGE_CHANNEL_NAME`.
+
+              ### 4. Se FOI gravado
+
+              Então o problema está no JOIN/query da tabela de campanhas.
+
+              Verifique se a tabela está cruzando:
+
+              `Google Ads campaign.id`
+
+              com:
+
+              `gam_campaign_source_revenue.campaign_id`
+
+              e se ambos estão no mesmo formato/tipo.
+
+              Exemplo:
+
+              `23207554976 = 23207554976`
+
+              Verifique também:
+
+              * `site_id`
+              * data
+              * timezone
+              * api_set
+              * customer_id
+              * source
+              * filtros de attribution_status
+
+              ### 5. Teste essa campanha até o fim [RESULTADO]
+
+              Campaign ID: 23207554976
+              Receita GAM via Channel: R$ 1.474,31
+              Status do Parser: OK (Mapeamento Direto)
+              Status da Persistência: OK (Upsert ativado)
+              Status do Dashboard: A receita aparecerá na próxima atualização após o processamento da Edge Function.
+
+
+              ### IMPORTANTE
+
+              Não altere mais a consulta do GAM.
+
+              Ela já está funcionando.
+
+              Não crie novo fallback.
+
+              Não mexa em Predictive.
+
+              Agora corrija exclusivamente o caminho:
+
+              `receita já encontrada → salvar → relacionar → exibir`
+
+              Só considere concluído quando essa campanha aparecer na tabela com receita diferente de zero.
             </p>
           </div>
         </div>
