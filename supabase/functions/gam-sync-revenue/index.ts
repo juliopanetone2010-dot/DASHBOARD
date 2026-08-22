@@ -1570,20 +1570,11 @@ async function runSoapReport(args: {
                 <v202405:dimensions>DATE</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_ID</v202405:dimensions>
-                <v202405:dimensions>AD_EXCHANGE_CHANNEL_ID</v202405:dimensions>
-
-
-
-
-
-                <v202405:columns>AD_SERVER_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_SERVER_CPM_AND_CPC_REVENUE</v202405:columns>
+                <v202405:columns>AD_EXCHANGE_AD_REQUESTS</v202405:columns>
                 <v202405:columns>AD_EXCHANGE_IMPRESSIONS</v202405:columns>
-                <v202405:columns>AD_EXCHANGE_REVENUE</v202405:columns>
-                <v202405:columns>TOTAL_INVENTORY_LEVEL_REVENUE</v202405:columns>
-                <v202405:columns>TOTAL_INVENTORY_LEVEL_IMPRESSIONS</v202405:columns>
-                <v202405:adUnitView>FLAT</v202405:adUnitView>
+                <v202405:columns>AD_EXCHANGE_ESTIMATED_REVENUE</v202405:columns>
+                <v202405:adUnitView>TOP_LEVEL</v202405:adUnitView>
+
                 <v202405:dateRangeType>CUSTOM_DATE</v202405:dateRangeType>
                 <v202405:startDate>
                    <v202405:year>${soapRange.dateRange.startDate.year}</v202405:year>
