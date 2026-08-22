@@ -164,6 +164,7 @@ export function IntegrationsPanel(props: Props) {
   };
 
   return (
+  return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-muted/50 p-4 rounded-lg border border-border">
         <div className="flex items-center gap-2">
@@ -173,48 +174,26 @@ export function IntegrationsPanel(props: Props) {
         <div className="space-y-4 mt-2">
           <div className="bg-destructive/10 p-3 rounded border border-destructive/20 space-y-1">
             <p className="text-[11px] leading-relaxed font-semibold text-destructive">
-              utm_source=google&utm_campaign={"{"}campaignid{"}"}&utm_adgroup={"{"}adgroupid{"}"}&utm_content={"{"}creative{"}"}&utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso? 
+              utm_source=google&amp;utm_campaign={"{"}campaignid{"}"}&amp;utm_adgroup={"{"}adgroupid{"}"}&amp;utm_content={"{"}creative{"}"}&amp;utm_placement={"{"}campaignid{"}"}__placement{"}"} ta usando isso? 
             </p>
             <div className="mt-2 space-y-1 font-mono text-[9px] text-destructive/80">
-              <p>ads sync 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23450729920 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23570227422 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23036874694 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23042938530 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23150181557 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 24102521736 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23207554976 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23309079322 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23450708797 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 22988939972 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 22955796437 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23441166663 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"{"}"}</p>
-              <p>placement 23446177394 200: {"{"}"error":"SyntaxError: Unexpected token '<', \"<!DOCTYPE</p>
+              <p>ads sync 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23450729920 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23570227422 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23036874694 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23042938530 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23150181557 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 24102521736 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23207554976 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23309079322 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23450708797 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 22988939972 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 22955796437 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23441166663 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE \\"... is not valid JSON\"}"}</p>
+              <p>placement 23446177394 200: {"{\"error\":\"SyntaxError: Unexpected token '<', \\"<!DOCTYPE"}</p>
             </div>
             <p className="text-[10px] mt-2 text-muted-foreground whitespace-pre-wrap">
               ta damdo falha na sincronizacao, e passou das 21:00 e as campanhas nao estao funcionando, faca funcionar igual ontem  ontem tava funcionando igual a foto
-            </p>
-          </div>
-        </div>
-      </div>
-
-          
-          <div className="bg-muted/50 p-3 rounded border border-border space-y-2">
-            <p className="text-[11px] font-semibold text-foreground underline">Comparativo Histórico (Auditado):</p>
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="p-2 bg-background rounded border border-border">
-                <span className="font-bold text-success">20/08</span> → Resultado: Receita atribuída com sucesso via API Consolidada (Dados processados pelo GAM).
-              </div>
-              <div className="p-2 bg-background rounded border border-border">
-                <span className="font-bold text-destructive">21/08</span> → Resultado: API GAM REST v1 retorna 0 linhas para KEY_VALUES_NAME segmentados (Latência de processamento).
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-destructive/5 p-2 rounded border border-destructive/20">
-            <p className="text-[10px] text-destructive font-mono leading-tight">
-              RESULTADO BRUTO DA CONSULTA (21/08): Total de linhas segmentadas por Campaign ID: 0.
-              Status: Receita geral do site disponível, porém segmentação utm_campaign/utm_placement aguardando indexação da API.
             </p>
           </div>
         </div>
