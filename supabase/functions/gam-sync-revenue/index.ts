@@ -376,9 +376,8 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
         
         const todayStr = new Date().toISOString().slice(0, 10);
         // attribution já foi populado pelo collectUtmAttribution (via REST v1)
-        // Somente ignora se já tivermos dados segmentados por CAMPANHA real (não agregados 'push')
-        // Adicionado filtro para ID de 10+ dígitos (Google Ads ID) para evitar que LineItemIDs curtos do AdExchange
-        // bloqueiem o fallback SOAP que expande as UTMs reais.
+        // Somente ignora se já tivermos dados segmentados por CAMPANHA real (ID de 10+ dígitos)
+        // Isso garante que LineItemIDs curtos (8-9 dígitos) NÃO bloqueiem o fallback SOAP que busca UTMs reais.
         const hasTodayData = (attribution.googleCampaignRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__") ||
                              (attribution.googlePlacementRows || []).some(r => r.date === todayStr && r.revenue > 0.0001 && r.cid && r.cid.length >= 10 && r.cid !== "__aggregate__");
 
@@ -891,17 +890,25 @@ function extractPlacementValue(raw: string, cid: string | null): string | null {
 
 // Escolhe o MAIOR número (em comprimento) com 6+ dígitos dentro do raw.
 // Real campaign IDs do Google Ads têm 11 dígitos; ad IDs costumam ter 10.
-// Pegar o maior evita atribuir receita ao ad_id quando ambos aparecem na URL
-// (ex: utm_placement=1589883010_23836816710_slug ou final URL com ID hardcoded).
+// LineItemIDs internos do GAM costumam ter 8-9 dígitos.
 function extractCampaignId(raw: string | null | undefined): string | null {
   const decoded = safeDecode(String(raw ?? "").trim());
   if (!decoded || decoded === "(not applicable)" || decoded === "(empty)") return null;
+  
+  // Regra do Usuário: se o valor vier de utm_placement=CAMPAIGN_ID_..., extraímos o prefixo.
+  // Já lidamos com isso no extractPlacementValue chamando extractCampaignId.
+  
   const matches = decoded.match(/\d{6,}/g);
   if (!matches || matches.length === 0) return null;
   let best = matches[0];
   for (const candidate of matches) {
     if (candidate.length > best.length) best = candidate;
   }
+  
+  // REGRA SENIOR: Validar o ID. Se for menor que 10 dígitos, NÃO tratamos como Campaign ID do Google Ads.
+  // Isso evita que IDs curtos de LineItem (8-9 dígitos) sejam salvos como campanhas Ads.
+  if (best.length < 10) return null;
+  
   return best;
 }
 
