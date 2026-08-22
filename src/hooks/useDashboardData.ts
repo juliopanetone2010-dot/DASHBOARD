@@ -31,8 +31,9 @@ export interface DashboardData {
   loading: boolean;
   refresh: () => Promise<void>;
   lastSyncedAt: Date | null;
-  // readiness signal derived from sync_state.
-  dataReadiness: DataReadiness & { isIntraday?: boolean };
+  // Readiness signal derived from sync_state. Used by the rules engine to suppress
+  // false -100% ROI alerts while GAM revenue is still consolidating.
+  dataReadiness: DataReadiness;
   isGuest: boolean;
   saveRules: (rules: RulesConfig) => Promise<void>;
   acknowledgeAlert: (id: string) => Promise<void>;
@@ -51,7 +52,6 @@ export interface DashboardData {
   removeLink: (id: string) => Promise<void>;
 }
 
-const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 const GUEST_USER_ID = "guest";
 const GUEST_STORE_KEY = "arbitrage-dashboard-guest-v2";
 const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
@@ -285,10 +285,9 @@ interface SyncStateRow {
   last_status: string;
   last_finished_at: string | null;
   last_error: string | null;
-  attribution_status?: string;
 }
 
-const computeReadiness = (rows: SyncStateRow[]): DataReadiness & { isIntraday?: boolean } => {
+const computeReadiness = (rows: SyncStateRow[]): DataReadiness => {
   // Pick the most recent GAM sync row (sources include "gam-sync-revenue",
   // "gam-sync-historical", etc.). We use whichever finished most recently.
   const gamRows = rows
@@ -318,14 +317,11 @@ const computeReadiness = (rows: SyncStateRow[]): DataReadiness & { isIntraday?: 
     (Date.now() - new Date(gam.last_finished_at).getTime()) / 60_000,
   );
 
-  // Freshness check: if the last sync was long ago, mark as not ready to prevent false alerts.
   if (minutesSince > GAM_FRESHNESS_MINUTES) {
     return { isReady: false, reason: "gam_stale", gamMinutesSinceSuccess: minutesSince };
   }
 
-  const isIntraday = gam.attribution_status === "intraday";
-
-  return { isReady: true, gamMinutesSinceSuccess: minutesSince, isIntraday };
+  return { isReady: true, gamMinutesSinceSuccess: minutesSince };
 };
 
 const emptySnapshot = (): DashboardSnapshot => ({
@@ -342,6 +338,7 @@ const emptySnapshot = (): DashboardSnapshot => ({
   fetchedAt: 0,
 });
 
+const INACTIVE_STATUSES = ["suspended", "canceled", "cancelled", "closed", "inactive"];
 
 
 export function useDashboardData(): DashboardData {
