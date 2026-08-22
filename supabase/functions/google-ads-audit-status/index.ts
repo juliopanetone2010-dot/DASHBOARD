@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
     const lookFor = ["23207554976", "23309079322", "22923001384"];
 
     if (campKey) {
+      // Fetch MORE values and scan for our targets
       const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
       vUrl.searchParams.set("pageSize", "1000");
       const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -33,22 +34,30 @@ Deno.serve(async (req) => {
       const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
       const names = rawValues.map((v: any) => String(v.displayName));
 
+      // Try searching directly for one of the values to verify if it exists at all
+      const searchUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
+      searchUrl.searchParams.set("filter", `name = "networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues/23207554976"`);
+      const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const sj = await sr.json();
+
       valuesSummary = {
         key_id: campKey.customTargetingKeyId,
         type: campKey.type || campKey.customTargetingKeyType,
         reportable: campKey.reportableType,
         status: campKey.status,
-        total_values: vals.length,
+        total_values_in_first_page: vals.length,
         found_in_names: lookFor.filter(c => names.includes(c)),
         found_in_ids: lookFor.filter(c => vals.includes(c)),
-        missing: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
-        sample_names: names.slice(0, 10)
+        missing_in_first_page: lookFor.filter(c => !names.includes(c) && !vals.includes(c)),
+        direct_search_23207554976: sj.customTargetingValues?.[0] ? "FOUND" : "NOT_FOUND",
+        sample_names: names.slice(0, 30)
       };
     }
 
     return new Response(JSON.stringify({ 
       ok: true, 
       audit_executed: true,
+      version: "v2-deep-audit",
       network: networkCode,
       utm_campaign: valuesSummary,
       available_keys: keys.map((k: any) => k.adTagName)
