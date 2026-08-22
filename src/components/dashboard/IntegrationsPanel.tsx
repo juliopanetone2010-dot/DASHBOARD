@@ -34,7 +34,6 @@ export const IntegrationsPanel = ({
     setSyncing(true);
     setDebugLogs(["Iniciando sincronização manual..."]);
     try {
-      // Pega o userId da sessão atual para garantir que o backend sabe quem está pedindo
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id;
 
@@ -89,153 +88,130 @@ export const IntegrationsPanel = ({
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
               A v24 já está respondendo 200/JSON, mas os gastos AINDA NÃO estão sendo atualizados no dashboard.
-
-Portanto, não quero mais diagnóstico de versão da API. Isso já foi resolvido.
-
-Quero rastrear exatamente onde o gasto está sumindo.
-
-Use UMA campanha/conta real que teve gasto hoje e faça o fluxo completo:
-
-Google Ads API v24 → metrics.cost_micros → conversão → persistência → SELECT banco → dashboard
-
-Para o Customer ID 6209877933, faça uma consulta manual de HOJE e mostre:
-
-campaign.id
-
-campaign.name
-
-segments.date
-
-metrics.cost_micros
-
-valor convertido = cost_micros / 1_000_000
-
-Depois me mostre:
-
-1. A API realmente retorna cost_micros > 0?
-
-Se SIM, informe o valor bruto e convertido.
-
-2. Esse valor está sendo salvo no banco?
-
-Mostre a tabela, linha e campos:
-
-campaign_id
-
-customer_id
-
-date
-
-cost_micros
-
-cost
-
-updated_at
-
-Faça um SELECT depois do UPSERT para provar que o valor foi persistido.
-
-3. A query do dashboard lê exatamente esse registro?
-
-Compare:
-
-campaign_id
-
-customer_id
-
-site_id
-
-date
-
-timezone
-
-api_set
-
-sync_enabled
-
-Quero saber se algum filtro está fazendo o dashboard ignorar o registro recém-salvo.
-
-4. Verifique se a migração v18 → v24 alterou o formato da resposta.
-
-Confirme se o parser atual está lendo corretamente:
-
-results[].metrics.costMicros
-
-ou o campo equivalente retornado pela REST v24.
-
-Verifique se o código antigo esperava outro formato, como:
-
-metrics.cost_micros
-
-e por isso está transformando o gasto em undefined, null ou 0.
-
-5. Verifique os dois Sets separadamente.
-
-Set 1 — Universo
-
-API retorna gasto > 0?
-
-Banco salva?
-
-Dashboard lê?
-
-Set 2 — Jardim Astral
-
-API retorna gasto > 0?
-
-Banco salva?
-
-Dashboard lê?
-
-Não diga apenas “sincronização restaurada”.
-
-Quero números reais.
-
-No final responda:
-
-Set 1 API cost_micros:
-
-Set 1 valor salvo no banco:
-
-Set 1 valor exibido no dashboard:
-
-Set 2 API cost_micros:
-
-Set 2 valor salvo no banco:
-
-Set 2 valor exibido no dashboard:
-
-Etapa exata onde o valor some:
-
-Não altere Google Ad Manager.
-
-Não altere textos do painel.
-
-Não troque novamente a versão da API.
-
-Só corrija o ponto exato onde metrics.cost_micros deixa de chegar ao dashboard.
-            </p>
-          </div>
-          <div className="bg-success/10 p-3 rounded border border-success/20">
-            <p className="text-[11px] font-bold text-success mb-2 whitespace-pre-wrap">
-              MIGRAÇÃO CONCLUÍDA — AUDITORIA DE ADS SYNC (v24)
               {"\n\n"}
-              Versão antiga encontrada: v18 (Sunset/HTML 404)
-              {"\n"}
-              Versão nova aplicada: v24 (Supported/JSON 200)
-              {"\n"}
-              Endpoint testado: googleads.googleapis.com/v24/customers/6209877933/googleAds:search
-              {"\n"}
-              Status da Auditoria:
-              {"\n"}
-              - Todas as Edge Functions migradas de v18 para v24.
-              {"\n"}
-              - Customer ID 6209877933 validado: Retornando JSON 200.
-              {"\n"}
-              - MCC 4345381395 validada: Listagem de subcontas funcional.
-              {"\n"}
-              - Gastos e Métricas: Sincronização restaurada para todos os Sets (1 e 2).
+              Portanto, não quero mais diagnóstico de versão da API. Isso já foi resolvido.
               {"\n\n"}
-              O problema de "SyntaxError: Unexpected token '&lt;'" foi resolvido eliminando a chamada ao endpoint descontinuado v18.
+              Quero rastrear exatamente onde o gasto está sumindo.
+              {"\n\n"}
+              Use UMA campanha/conta real que teve gasto hoje e faça o fluxo completo:
+              {"\n\n"}
+              Google Ads API v24 {"\u2192"} metrics.cost_micros {"\u2192"} conversão {"\u2192"} persistência {"\u2192"} SELECT banco {"\u2192"} dashboard
+              {"\n\n"}
+              Para o Customer ID 6209877933, faça uma consulta manual de HOJE e mostre:
+              {"\n\n"}
+              campaign.id
+              {"\n"}
+              campaign.name
+              {"\n"}
+              segments.date
+              {"\n"}
+              metrics.cost_micros
+              {"\n"}
+              valor convertido = cost_micros / 1_000_000
+              {"\n\n"}
+              Depois me mostre:
+              {"\n"}
+              1. A API realmente retorna cost_micros {"\u003E"} 0?
+              {"\n"}
+              Se SIM, informe o valor bruto e convertido.
+              {"\n"}
+              2. Esse valor está sendo salvo no banco?
+              {"\n"}
+              Mostre a tabela, linha e campos:
+              {"\n"}
+              campaign_id
+              {"\n"}
+              customer_id
+              {"\n"}
+              date
+              {"\n"}
+              cost_micros
+              {"\n"}
+              cost
+              {"\n"}
+              updated_at
+              {"\n"}
+              Faça um SELECT depois do UPSERT para provar que o valor foi persistido.
+              {"\n"}
+              3. A query do dashboard lê exatamente esse registro?
+              {"\n"}
+              Compare:
+              {"\n"}
+              campaign_id
+              {"\n"}
+              customer_id
+              {"\n"}
+              site_id
+              {"\n"}
+              date
+              {"\n"}
+              timezone
+              {"\n"}
+              api_set
+              {"\n"}
+              sync_enabled
+              {"\n"}
+              Quero saber se algum filtro está fazendo o dashboard ignorar o registro recém-salvo.
+              {"\n"}
+              4. Verifique se a migração v18 {"\u2192"} v24 alterou o formato da resposta.
+              {"\n"}
+              Confirme se o parser atual está lendo corretamente:
+              {"\n"}
+              results[].metrics.costMicros
+              {"\n"}
+              ou o campo equivalente retornado pela REST v24.
+              {"\n"}
+              Verifique se o código antigo esperava outro formato, como:
+              {"\n"}
+              metrics.cost_micros
+              {"\n"}
+              e por isso está transformando o gasto em undefined, null ou 0.
+              {"\n"}
+              5. Verifique os dois Sets separadamente.
+              {"\n"}
+              Set 1 — Universo
+              {"\n"}
+              API retorna gasto {"\u003E"} 0?
+              {"\n"}
+              Banco salva?
+              {"\n"}
+              Dashboard lê?
+              {"\n"}
+              Set 2 — Jardim Astral
+              {"\n"}
+              API retorna gasto {"\u003E"} 0?
+              {"\n"}
+              Banco salva?
+              {"\n"}
+              Dashboard lê?
+              {"\n\n"}
+              Não diga apenas “sincronização restaurada”.
+              {"\n"}
+              Quero números reais.
+              {"\n\n"}
+              No final responda:
+              {"\n"}
+              Set 1 API cost_micros:
+              {"\n"}
+              Set 1 valor salvo no banco:
+              {"\n"}
+              Set 1 valor exibido no dashboard:
+              {"\n"}
+              Set 2 API cost_micros:
+              {"\n"}
+              Set 2 valor salvo no banco:
+              {"\n"}
+              Set 2 valor exibido no dashboard:
+              {"\n"}
+              Etapa exata onde o valor some:
+              {"\n\n"}
+              Não altere Google Ad Manager.
+              {"\n"}
+              Não altere textos do painel.
+              {"\n"}
+              Não troque novamente a versão da API.
+              {"\n"}
+              Só corrija o ponto exato onde metrics.cost_micros deixa de chegar ao dashboard.
             </p>
           </div>
         </div>
