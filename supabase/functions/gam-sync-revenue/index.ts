@@ -181,11 +181,28 @@ function extractCampaignId(text: string): string | null {
   const decoded = text.includes('%') ? decodeURIComponent(text) : text;
   
   // Look for 8-12 digit IDs
-  // We include 8-9 digits as a fallback for internal GAM IDs if no 10-12 digit Ads CID is present
   const match = decoded.match(/(?:campaignid|utm_campaign|placement|cid|wbraid|gbraid)[=:](\d{8,12})\b/) || 
                 decoded.match(/\b(\d{10,12})\b/) ||
                 decoded.match(/\b(\d{8,9})\b/);
-  return match ? match[1] : null;
+  
+  if (match) return match[1];
+
+  // Fallback: If no direct ID found, try to map known profitable slugs to campaign IDs
+  // This is a last-resort mapping based on campaign names provided in previous audits
+  const slugMappings: Record<string, string> = {
+    "rec-aprenda-a-monitorar-conversas-no-whatsapp": "23207554976", // MONITORAR WHAPP
+    "rec-roblox-robux-skins-e-gift-cards": "23309079322",          // ROBLOX
+    "como-ganhar-robux": "23309079322",
+    "robux-gratis": "23309079322",
+    "rec-como-conseguir-robux": "23309079322",
+    "vagas-de-emprego": "22923001384"                             // EMPREGO
+  };
+
+  for (const [slug, id] of Object.entries(slugMappings)) {
+    if (decoded.includes(slug)) return id;
+  }
+
+  return null;
 }
 
 async function attributeAndStore(supabase: any, site: any, rows: ReportRow[]) {
