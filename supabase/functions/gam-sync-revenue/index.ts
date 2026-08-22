@@ -2901,15 +2901,8 @@ async function persistSiteMetricsDaily(
     let next = v;
     const existingRevenue = Number(existing?.revenue_native ?? 0);
     const nextRevenue = Number(v.rev ?? 0);
-    if (opts?.preserveHigherExisting && existing && existingRevenue > nextRevenue + 1) {
-      preservedHigher++;
-      next = {
-        impr: Math.max(Number(existing.impressions ?? 0), v.impr),
-        meas: Math.max(Number(existing.measurable_impressions ?? 0), v.meas),
-        view: Math.max(Number(existing.viewable_impressions ?? 0), v.view),
-        rev: existingRevenue,
-      };
-    }
+    // Preservação desativada por solicitação do usuário.
+    next = v;
     payload.push({
       user_id: userId,
       site_id: siteId,
