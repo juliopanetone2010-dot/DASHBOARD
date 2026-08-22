@@ -4,7 +4,28 @@ import { RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from "lucide-reac
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-export const IntegrationsPanel = () => {
+interface IntegrationsPanelProps {
+  googleAccounts?: any[];
+  gamAccounts?: any[];
+  sites?: any[];
+  links?: any[];
+  isGuest?: boolean;
+  onAddGoogleAccount?: (input: any) => Promise<any>;
+  onArchiveGoogleAccount?: (id: string) => Promise<any>;
+  onRemoveGoogleAccount?: (id: string) => Promise<any>;
+  onAddGamAccount?: (input: any) => Promise<any>;
+  onRemoveGamAccount?: (id: string) => Promise<any>;
+  onAddSite?: (input: any) => Promise<any>;
+  onRemoveSite?: (id: string) => Promise<any>;
+  onAddLink?: (input: any) => Promise<any>;
+  onRemoveLink?: (id: string) => Promise<any>;
+  onRefresh?: () => Promise<any>;
+}
+
+export const IntegrationsPanel = ({
+  onRefresh,
+  ...props
+}: IntegrationsPanelProps) => {
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
 
@@ -16,6 +37,8 @@ export const IntegrationsPanel = () => {
       });
 
       if (error) throw error;
+
+      if (onRefresh) await onRefresh();
 
       toast({
         title: "Sincronização iniciada",
@@ -102,5 +125,3 @@ export const IntegrationsPanel = () => {
     </div>
   );
 };
-
-
