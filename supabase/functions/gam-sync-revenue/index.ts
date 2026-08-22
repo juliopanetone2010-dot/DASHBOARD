@@ -119,6 +119,8 @@ async function runUnifiedReport(
 
   const allRows: ReportRow[] = [];
   let pageToken: string | undefined;
+  const auditLogs: string[] = [];
+
   do {
     const url = new URL(`${GAM_BASE}/${resultName}:fetchRows`);
     url.searchParams.set("pageSize", "1000");
@@ -138,13 +140,15 @@ async function runUnifiedReport(
       const cid = extractCampaignId(urlText);
       
       const metrics = r.metricValueGroups?.[0]?.primaryValues || [];
-      // Handle both doubleValue (REST v1 Exchange Rev) and intValue (micros)
       const revenue = metrics[0]?.doubleValue !== undefined 
         ? Number(metrics[0].doubleValue) 
         : Number(metrics[0]?.intValue || 0) / 1_000_000;
       const impressions = Number(metrics[1]?.intValue || 0);
 
       if (revenue > 0 || impressions > 0) {
+        if (!cid && revenue > 0.01) {
+          auditLogs.push(`[audit] No CID found for URL: ${urlText.slice(0, 100)}... | Rev: ${revenue}`);
+        }
         allRows.push({
           date,
           campaignId: cid,
@@ -157,12 +161,18 @@ async function runUnifiedReport(
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
 
+  if (auditLogs.length > 0) {
+    console.log(`[gam-sync] Audit summary for ${networkCode}: ${auditLogs.slice(0, 5).join(" | ")}`);
+  }
+
   return allRows;
 }
 
 function extractCampaignId(text: string): string | null {
   if (!text) return null;
-  const match = text.match(/\b(\d{10,12})\b/);
+  // Look for 10-12 digit IDs, often preceded by 'campaignid=', 'utm_campaign=', or just in the path
+  const match = text.match(/(?:campaignid|utm_campaign|placement|cid)[=:](\d{10,12})\b/) || 
+                text.match(/\b(\d{10,12})\b/);
   return match ? match[1] : null;
 }
 
