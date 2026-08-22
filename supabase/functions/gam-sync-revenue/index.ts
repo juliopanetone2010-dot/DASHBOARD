@@ -467,38 +467,9 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
           }
         }
         
-        // AGORA O PULO DO GATO: Predictive Intraday Fallback
-        // Se após KEY_VALUES_NAME, CUSTOM_CRITERIA e SOAP, ainda tivermos campanhas sem receita (ou nenhuma campanha),
-        // mas o site tem receita total no AD_EXCHANGE, distribuímos essa receita proporcionalmente baseada em impressões.
-        const totalSiteRevenue = siteDailyMetrics.reduce((sum, m) => sum + m.rev, 0);
-        const totalSiteImpressions = siteDailyMetrics.reduce((sum, m) => sum + m.impr, 0);
-        const totalAttributedRevenue = attribution.googleCampaignRows.reduce((sum, r) => sum + r.revenue, 0);
-
-        if (totalSiteRevenue > 0.01 && totalAttributedRevenue < (totalSiteRevenue * 0.95) && hasBudget(10_000)) {
-          debug.push(`[${networkCode}] Receita atribuída (${totalAttributedRevenue.toFixed(2)}) < 95% da receita total (${totalSiteRevenue.toFixed(2)}). Tentando PREDICTIVE fallback...`);
-          const predictive = await collectPredictiveIntradayAttribution({
-            networkCode,
-            accessToken,
-            ranges,
-            totalSiteRevenue,
-            totalSiteImpressions,
-            debug,
-            deadlineAt
-          });
-          
-          if (predictive.googleCampaignRows.length > 0) {
-            // Mescla os dados do Predictive proporcional
-            for (const sr of predictive.googleCampaignRows) {
-               const idx = attribution.googleCampaignRows.findIndex(gr => gr.cid === sr.cid && gr.date === sr.date);
-               if (idx === -1) {
-                 attribution.googleCampaignRows.push(sr);
-               } else if (attribution.googleCampaignRows[idx].revenue < 0.0001 && sr.revenue > 0) {
-                 attribution.googleCampaignRows[idx] = sr;
-               }
-            }
-            debug.push(`[${networkCode}] Predictive fallback concluído.`);
-          }
-        }
+        // Predictive Intraday Fallback REMOVIDO por solicitação do usuário.
+        // Cada campanha deve receber EXCLUSIVAMENTE a receita REAL retornada pelo GAM.
+        debug.push(`[${networkCode}] Predictive fallback desativado.`);
           }
         }
         
