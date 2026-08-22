@@ -240,7 +240,7 @@ async function runSync(req: Request, skipAuth = false, parsedBody?: any): Promis
 
         const siteCurrency = String((networkSites[0] as any)?.gam_currency ?? "USD").toUpperCase();
 
-        if (siteMetricsOnly) {
+        if (true) { // Sempre puxa os totais do site para o fallback preditivo
           const siteMetricsVariants: Array<{ label: string; metrics: string[] }> = [
             {
               label: "AD_SERVER",
