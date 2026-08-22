@@ -1568,9 +1568,11 @@ async function runSoapReport(args: {
          <v202405:reportJob>
             <v202405:reportQuery>
                 <v202405:dimensions>DATE</v202405:dimensions>
-                <v202405:dimensions>${dimensions.filter(d => d !== 'DATE' && d !== 'AD_EXCHANGE_URL_CHANNEL_NAME' && d !== 'AD_EXCHANGE_CHANNEL_NAME').join("</v202405:dimensions><v202405:dimensions>")}</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_URL_CHANNEL_NAME</v202405:dimensions>
                 <v202405:dimensions>AD_EXCHANGE_CHANNEL_NAME</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_DFP_AD_UNIT_ID</v202405:dimensions>
+                <v202405:dimensions>AD_EXCHANGE_DFP_AD_UNIT_NAME</v202405:dimensions>
+
 
 
 
@@ -1763,15 +1765,25 @@ function parseSoapCsv(csv: string, dimensions: string[], debug: string[]): Repor
     
     // Map Dimensions dynamically based on headers to avoid index mismatches
     const dateIdx = headers.findIndex(h => h.includes("Dimension.DATE"));
-    const urlIdx = headers.findIndex(h => h.includes("Dimension.URL_NAME"));
     const urlChannelIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_URL_CHANNEL_NAME"));
     const channelNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_CHANNEL_NAME"));
+    const adUnitIdIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_DFP_AD_UNIT_ID"));
+    const adUnitNameIdx = headers.findIndex(h => h.includes("Dimension.AD_EXCHANGE_DFP_AD_UNIT_NAME"));
     
     row.date = dateIdx !== -1 ? cols[dateIdx] : "";
     row.dims[0] = row.date;
-    row.dims[1] = urlIdx !== -1 ? cols[urlIdx] : "";
+    row.dims[1] = ""; // URL_NAME not available in this combination
     row.dims[2] = urlChannelIdx !== -1 ? cols[urlChannelIdx] : "";
     row.dims[3] = channelNameIdx !== -1 ? cols[channelNameIdx] : "";
+    row.dims[4] = adUnitIdIdx !== -1 ? cols[adUnitIdIdx] : "";
+    row.dims[5] = adUnitNameIdx !== -1 ? cols[adUnitNameIdx] : "";
+    
+    // Audit raw row if it contains anything interesting
+    const rowText = cols.join(" | ");
+    if (rowText.includes("23207554976") || rowText.includes("utm_campaign")) {
+      debug.push(`[SOAP_RAW_MATCH] ${rowText}`);
+    }
+
     
     const findMetric = (name: string) => {
       let idx = headers.findIndex(h => h.trim() === name);
