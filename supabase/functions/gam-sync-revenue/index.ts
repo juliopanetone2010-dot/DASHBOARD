@@ -1036,6 +1036,11 @@ async function collectUtmAttribution(args: {
       cid = extractCampaignId(rawKv);
     }
 
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    if (cid && auditCids.includes(cid)) {
+      console.log(`[AUDIT_raw_parser] ID ${cid} identificado. rawKv=${rawKv} rev=${r.revenue}`);
+    }
+
     const placement = isRealValue(placementRaw) ? extractPlacementValue(placementRaw, cid) : null;
     return {
       date: r.date,
@@ -1934,12 +1939,12 @@ async function persistCampaignSourceRevenueFromUtm(
   for (let i = 0; i < finalRows.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(finalRows.slice(i, i + CHUNK));
   }
-  const sources = arr.reduce((acc: Record<string, number>, b) => {
+  const sources = finalRows.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
   }, {});
-  const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
-  const byCampaign = arr.filter((b) => b.campaign_id !== "__aggregate__").length;
-  debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
+  const aggregated = finalRows.filter((b) => b.campaign_id === "__aggregate__").length;
+  const byCampaign = finalRows.filter((b) => b.campaign_id !== "__aggregate__").length;
+  debug.push(`[gam_campaign_source_revenue] ${finalRows.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
@@ -2172,6 +2177,8 @@ async function applyGoogleUtmRevenue(
       .in("campaign_id", cids);
 
     const aggregatedByCid = new Map<string, number>();
+    const auditCids = ['23207554976', '23309079322', '23021142139', '23450729920', '23036874694', '23570227422', '23042938530', '23150181557', '24102521736', '23450708797', '22988939972', '22955796437', '23441166663', '23446177394'];
+    
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id).trim();
       const rev = Number(r.revenue_usd ?? 0);
