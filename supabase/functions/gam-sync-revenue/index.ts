@@ -1028,10 +1028,11 @@ async function collectUtmAttribution(args: {
 
   const rows: AttributedRow[] = parsedRows.map(({ r, rawKv, sourceRaw, campaignRaw, placementRaw }) => {
     const source = safeDecode(sourceRaw).toLowerCase().trim() || "unknown";
-    // Se rawKv não tem formatação de UTM (apenas o número ID), o parser retorna objeto vazio.
-    // Garantimos que se kv estiver vazio e rawKv for um ID válido, usamos ele como cid.
+    
+    // EXTRATOR DE ID MELHORADO
     let cid = extractCampaignId(campaignRaw) ?? extractCampaignId(placementRaw);
-    if (!cid && rawKv && !rawKv.includes("=")) {
+    if (!cid && rawKv) {
+      // Se não estiver no formato key=value, tenta pegar o número puro da string (Ad Exchange Channel Name)
       cid = extractCampaignId(rawKv);
     }
 
@@ -1063,7 +1064,8 @@ async function collectUtmAttribution(args: {
     }));
   const campaignRows: AttributedRow[] = parsedRows
     .filter(({ rawKv, campaignRaw, sourceRaw }) => {
-      const cid = extractCampaignId(campaignRaw) || (rawKv && !rawKv.includes("=") && extractCampaignId(rawKv));
+      // Filtra linhas que possuem um ID de campanha válido
+      const cid = extractCampaignId(campaignRaw) || (rawKv && extractCampaignId(rawKv));
       return !!cid;
     })
     .map(({ r, rawKv, campaignRaw, sourceRaw }) => {
