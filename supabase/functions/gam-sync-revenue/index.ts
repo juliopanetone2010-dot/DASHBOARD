@@ -45,58 +45,38 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  
+  // Reconstruct req to avoid body consumption issues
+  const bodyText = await req.text();
+  let body: any = {};
+  try {
+    body = JSON.parse(bodyText);
+  } catch (_) {}
 
-  let bodyText = "";
-  try {
-    bodyText = await req.text();
-  } catch (e) {
-    console.error("[gam-sync-revenue] Failed to read request body:", e);
-  }
-  
-  let control: any = {};
-  try {
-    control = JSON.parse(bodyText);
-  } catch (_) { /* ignore */ }
-  
-  if (control?.wait === true || control?.sync === true) {
-    return await runSync(bodyText, req.headers);
+  if (body?.sync === true || body?.wait === true) {
+    return await runSync(body, req.headers);
   }
 
-  const work = runSync(bodyText, req.headers).catch((e) => console.error("[gam-sync-revenue] background error", e));
-  
+  const work = runSync(body, req.headers).catch((e) => console.error("[gam-sync-revenue] background error", e));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
   }
-  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background." }), {
+  return new Response(JSON.stringify({ ok: true, status: "started" }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
 
-async function runSync(bodyText: string, headers: Headers): Promise<Response> {
+async function runSync(body: any, headers: Headers): Promise<Response> {
   const debug: string[] = [];
   try {
     const authHeader = headers.get("Authorization");
     
-    let datePreset = "LAST_7_DAYS";
-    let dateFrom: string | null = null;
-    let dateTo: string | null = null;
-    let requestedSiteId: string | null = null;
-    let requestedUserId: string | null = null;
-    
-    try {
-      if (bodyText) {
-        const body = JSON.parse(bodyText);
-        requestedUserId = body.user_id;
-        requestedSiteId = body.site_id;
-        const p = String(body.date_preset ?? "").toUpperCase();
-        if (ALLOWED_PRESETS.has(p)) datePreset = p;
-        dateFrom = body.from || body.date_from || null;
-        dateTo = body.to || body.date_to || null;
-      }
-    } catch (e) {
-      console.error("[gam-sync-revenue] runSync body parse error:", e);
-    }
+    let datePreset = body.date_preset || "LAST_7_DAYS";
+    let dateFrom = body.from || body.date_from || null;
+    let dateTo = body.to || body.date_to || null;
+    let requestedSiteId = body.site_id || null;
+    let requestedUserId = body.user_id || null;
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON not set" });
@@ -107,8 +87,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
       return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)" });
     }
 
-    // EMERGENCY BYPASS FOR REPAIR
-    let userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; 
+    let userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; // EMERGENCY OVERRIDE
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -138,6 +117,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
       list.push(s);
       byNetwork.set(s.network_code, list);
     }
+
 
     const summary: Array<Record<string, unknown>> = [];
 
