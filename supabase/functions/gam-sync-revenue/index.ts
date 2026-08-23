@@ -90,6 +90,8 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
     let dateTo = body.to || body.date_to || null;
     let requestedSiteId = body.site_id || null;
     let requestedUserId = body.user_id || null;
+    const includeYesterdayFallback = body.include_yesterday_fallback ?? false;
+
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON not set" });
