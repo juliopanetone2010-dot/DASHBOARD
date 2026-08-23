@@ -97,7 +97,12 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
     const skipLegacyReports = body.skip_legacy_reports ?? false;
     const skipSnapshotRegen = body.skip_snapshot_regen ?? false;
     const totalRequestsOnly = body.total_requests_only ?? false;
-    const deadlineAt = Date.now() + 140_000; // 140s limit
+    const skipViewability = body.skip_viewability ?? false;
+    
+    // Função helper para verificar orçamento de tempo (deadline de 150s do Deno/Edge)
+    const deadlineAt = Date.now() + 140_000;
+    const hasBudget = (minimumMs = 5000) => Date.now() + minimumMs < deadlineAt;
+
 
 
 
