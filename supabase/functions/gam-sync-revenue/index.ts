@@ -53,18 +53,10 @@ Deno.serve(async (req) => {
   } catch (_) { /* ignore */ }
   
   if (control?.wait === true || control?.sync === true) {
-    return await runSync(new Request(req.url, {
-      method: req.method,
-      headers: req.headers,
-      body: bodyText
-    }));
+    return await runSync(bodyText, req.headers);
   }
 
-  const work = runSync(new Request(req.url, {
-    method: req.method,
-    headers: req.headers,
-    body: bodyText
-  })).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  const work = runSync(bodyText, req.headers).catch((e) => console.error("[gam-sync-revenue] background error", e));
   
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
@@ -75,10 +67,10 @@ Deno.serve(async (req) => {
   });
 });
 
-async function runSync(req: Request): Promise<Response> {
+async function runSync(bodyText: string, headers: Headers): Promise<Response> {
   const debug: string[] = [];
   try {
-    const authHeader = req.headers.get("Authorization");
+    const authHeader = headers.get("Authorization");
     
     let datePreset = "LAST_7_DAYS";
     let dateFrom: string | null = null;
@@ -87,7 +79,7 @@ async function runSync(req: Request): Promise<Response> {
     let requestedUserId: string | null = null;
     
     try {
-      const body = await req.json();
+      const body = JSON.parse(bodyText);
       requestedUserId = body.user_id;
       requestedSiteId = body.site_id;
       const p = String(body.date_preset ?? "").toUpperCase();
