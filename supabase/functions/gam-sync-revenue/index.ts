@@ -47,12 +47,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   let control: any = {};
+  const bodyText = await req.text();
   try {
-    control = await req.clone().json();
+    control = JSON.parse(bodyText);
   } catch (_) { /* ignore */ }
   
   if (control?.wait === true || control?.sync === true) {
-    return await runSync(req);
+    return await runSync(new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: bodyText
+    }));
   }
 
   // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
@@ -95,6 +100,7 @@ async function runSync(req: Request): Promise<Response> {
     
     try {
       const body = await req.json().catch(() => ({}));
+      console.log("[gam-sync-revenue] Received body:", JSON.stringify(body));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
       dateFrom = typeof (body as any)?.from === "string" ? (body as any).from : (typeof (body as any)?.date_from === "string" ? (body as any).date_from : null);
@@ -113,7 +119,9 @@ async function runSync(req: Request): Promise<Response> {
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
       totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
       siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
-    } catch (_) { /* ignore */ }
+    } catch (e) { 
+      console.error("[gam-sync-revenue] Body parse error:", e);
+    }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
