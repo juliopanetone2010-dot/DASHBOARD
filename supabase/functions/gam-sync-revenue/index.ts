@@ -86,7 +86,9 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     
     try {
       if (bodyText) {
+        console.log("[gam-sync-revenue] Attempting to parse bodyText:", bodyText);
         const body = JSON.parse(bodyText);
+        console.log("[gam-sync-revenue] Parsed body successfully");
         requestedUserId = body.user_id;
         requestedSiteId = body.site_id;
         const p = String(body.date_preset ?? "").toUpperCase();
@@ -95,7 +97,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
         dateTo = body.to || body.date_to || null;
       }
     } catch (e) {
-      console.error("[gam-sync-revenue] runSync body parse error:", e);
+      console.error("[gam-sync-revenue] runSync body parse error:", e, "bodyText:", bodyText);
     }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
