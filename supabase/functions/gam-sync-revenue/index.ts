@@ -46,14 +46,17 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
-  // Reconstruct req to avoid body consumption issues
   const bodyText = await req.text();
   let body: any = {};
   try {
     body = JSON.parse(bodyText);
   } catch (_) {}
 
-  if (body?.sync === true || body?.wait === true) {
+  // SERVICE ROLE OR EMERGENCY BYPASS
+  const authHeader = req.headers.get("Authorization");
+  const isServiceRole = authHeader?.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  
+  if (body?.sync === true || body?.wait === true || isServiceRole) {
     return await runSync(body, req.headers);
   }
 
@@ -89,6 +92,7 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
 
     let userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; 
     console.log(`[gam-sync-revenue] FORCING userId=${userId}`);
+    if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
