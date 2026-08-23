@@ -46,29 +46,28 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  let control: any = {};
   const bodyText = await req.text();
+  let control: any = {};
   try {
     control = JSON.parse(bodyText);
   } catch (_) { /* ignore */ }
   
+  // Reconstruct request for runSync so body can be read again
+  const newReq = new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+    body: bodyText
+  });
+
   if (control?.wait === true || control?.sync === true) {
-    return await runSync(new Request(req.url, {
-      method: req.method,
-      headers: req.headers,
-      body: bodyText
-    }));
+    return await runSync(newReq);
   }
 
-  // Roda o trabalho pesado em background para evitar WORKER_RESOURCE_LIMIT (CPU/wall time)
-  const work = runSync(req).catch((e) => console.error("[gam-sync-revenue] background error", e));
-  // @ts-ignore EdgeRuntime is available in Supabase edge runtime
+  const work = runSync(newReq).catch((e) => console.error("[gam-sync-revenue] background error", e));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
-    // @ts-ignore
     EdgeRuntime.waitUntil(work);
   }
-  // Retorna 200 (não 202) porque supabase-js trata qualquer não-200 como erro.
-  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background. Atualize a página em ~2 min." }), {
+  return new Response(JSON.stringify({ ok: true, status: "started", message: "Sincronização iniciada em background." }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
@@ -90,7 +89,8 @@ async function runSync(req: Request): Promise<Response> {
       console.log("[gam-sync-revenue] runSync received body:", JSON.stringify(body));
       requestedUserId = body.user_id;
       requestedSiteId = body.site_id;
-      // ... parse other fields if needed ...
+      const p = String(body.date_preset ?? "").toUpperCase();
+      if (ALLOWED_PRESETS.has(p)) datePreset = p;
     } catch (e) {
       console.error("[gam-sync-revenue] runSync body parse error:", e);
     }
