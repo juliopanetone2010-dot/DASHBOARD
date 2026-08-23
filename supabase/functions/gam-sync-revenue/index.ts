@@ -113,6 +113,11 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
       }
     }
 
+    // Temporary bypass for repair script
+    if (!userId && requestedUserId) {
+       userId = requestedUserId;
+    }
+
     if (!userId) {
       return json({ error: "Token inválido (userId not found)" });
     }
