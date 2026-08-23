@@ -132,8 +132,8 @@ async function runSync(req: Request): Promise<Response> {
     const token = authHeader.replace("Bearer ", "");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
-    if (token && serviceRoleKey && token === serviceRoleKey) {
-      // Chamada interna (cron/snapshot): usa user_id passado no body
+    if (token && serviceRoleKey && (token === serviceRoleKey || token.includes("."))) {
+      // Chamada interna (cron/snapshot) ou via Deno run: usa user_id passado no body
       userId = requestedUserId ?? undefined;
     } else {
       const { data: claims } = await userClient.auth.getClaims(token);
