@@ -113,8 +113,10 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
       }
     }
 
+    // Temporary bypass for repair script - simple bypass for any requestedUserId to unblock repair
     if (!userId && requestedUserId) {
        userId = requestedUserId;
+       console.log(`[gam-sync-revenue] Bypassing auth for user: ${userId}`);
     }
 
     if (!userId) {
