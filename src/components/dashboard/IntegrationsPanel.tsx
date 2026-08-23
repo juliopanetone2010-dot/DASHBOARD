@@ -93,59 +93,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-QUERO RESTAURAR TODO O SISTEMA PARA O ESTADO EM QUE ESTAVA NO DIA 20/08/2026.
-
-No dia 20 de agosto tudo estava funcionando corretamente: Google Ads puxava gastos, GAM puxava receita geral e, principalmente, cada campanha recebia sua receita REAL individual corretamente.
-
-Quero desfazer TODAS as alterações feitas depois do estado funcional de 20/08 relacionadas a:
-
-gam-sync-revenue
-
- Google Ads sync
-
- atribuição por campanha
-
- SOAP/REST
-
- URL/Channel
-
-KEY_VALUES_NAME
-
-CUSTOM_CRITERIA
-
- Predictive Intraday
-
- rateio proporcional
-
- fallbacks
-
- parser de Campaign ID
-
- sincronização ontem + hoje
-
- alterações nas Edge Functions relacionadas a esse fluxo
-
-Use o histórico/versionamento do projeto e identifique a última versão funcional do dia 20/08/2026.
-
-Restaure o CÓDIGO e a LÓGICA, mas NÃO restaure/retroceda o banco de dados inteiro, pois não quero perder dados atuais.
-
-Também não altere textos, layout ou interface desnecessariamente.
-
-Depois da restauração, execute uma sincronização manual de hoje e valide:
-
-Google Ads → gastos
-
-GAM → receita geral
-
-utm_campaign → receita real individual
-
-Campanha → gasto + receita + lucro + ROI
-
-Compare o comportamento com os dados de 20/08, quando sabemos que estava funcionando.
-
-Não tente corrigir o código atual adicionando mais fallbacks. Quero efetivamente voltar a lógica para a versão funcional de 20/08.
-
-Antes de aplicar, me informe qual commit/versão/snapshot do dia 20/08 será restaurado e quais arquivos serão revertidos. Depois faça a restauração e teste ponta a ponta.
+ATUALIZE OQ TIVER Q ATUALIZAR E ARRUME AS CAMPANHAS PQ ESTAO ZERADAS NA RECEITA
             </p>
           </div>
         </div>
