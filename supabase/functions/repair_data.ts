@@ -25,7 +25,7 @@ async function repair() {
 
   // 2. Trigger GAM Sync (Revenue)
   console.log("Triggering gam-sync-revenue...");
-  // Use the service role key directly in the header and body
+  // Use "wait: true" to ensure we get the result in the response
   const gamRes = await fetch(`${SUPABASE_URL}/functions/v1/gam-sync-revenue`, {
     method: "POST",
     headers,
@@ -33,6 +33,7 @@ async function repair() {
       site_id: siteId, 
       date_preset: "LAST_7_DAYS", 
       sync: true, 
+      wait: true,
       user_id: userId 
     })
   });
@@ -42,5 +43,6 @@ async function repair() {
 }
 
 repair();
+
 
 
