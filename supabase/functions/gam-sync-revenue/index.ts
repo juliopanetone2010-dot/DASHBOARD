@@ -47,6 +47,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
   const bodyText = await req.text();
+  console.log(`[gam-sync-revenue] RECEIVED REQUEST: ${bodyText.slice(0, 100)}`);
+  
   let body: any = {};
   try {
     body = JSON.parse(bodyText);
@@ -57,6 +59,7 @@ Deno.serve(async (req) => {
   const isServiceRole = authHeader?.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   
   if (body?.sync === true || body?.wait === true || isServiceRole) {
+    console.log(`[gam-sync-revenue] RUNNING SYNC (isServiceRole=${isServiceRole})`);
     return await runSync(body, req.headers);
   }
 
@@ -64,7 +67,7 @@ Deno.serve(async (req) => {
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
   }
-  return new Response(JSON.stringify({ ok: true, status: "started" }), {
+  return new Response(JSON.stringify({ ok: true, status: "started", message: "DEBUG VERSION ACTIVE" }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
