@@ -91,6 +91,14 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
     let requestedSiteId = body.site_id || null;
     let requestedUserId = body.user_id || null;
     const includeYesterdayFallback = body.include_yesterday_fallback ?? false;
+    const siteMetricsOnly = body.site_metrics_only ?? false;
+    const testMode = body.test_mode ?? false;
+    const revenueOnly = body.revenue_only ?? false;
+    const skipLegacyReports = body.skip_legacy_reports ?? false;
+    const skipSnapshotRegen = body.skip_snapshot_regen ?? false;
+    const totalRequestsOnly = body.total_requests_only ?? false;
+    const deadlineAt = Date.now() + 140_000; // 140s limit
+
 
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
