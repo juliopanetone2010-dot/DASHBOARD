@@ -47,22 +47,28 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   
   const bodyText = await req.text();
-  console.log(`[gam-sync-revenue] RECEIVED REQUEST: ${bodyText.slice(0, 100)}`);
+  console.log(`[gam-sync-revenue] RECEIVED REQUEST BODY: ${bodyText.slice(0, 100)}`);
   
   let body: any = {};
   try {
     body = JSON.parse(bodyText);
-  } catch (_) {}
+  } catch (_) {
+    console.log(`[gam-sync-revenue] FAILED TO PARSE BODY AS JSON`);
+  }
 
   // SERVICE ROLE OR EMERGENCY BYPASS
   const authHeader = req.headers.get("Authorization");
-  const isServiceRole = authHeader?.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const isServiceRole = serviceRoleKey && authHeader?.includes(serviceRoleKey);
+  
+  console.log(`[gam-sync-revenue] AUTH CHECK - isServiceRole=${!!isServiceRole} wait=${body?.wait} sync=${body?.sync}`);
   
   if (body?.sync === true || body?.wait === true || isServiceRole) {
-    console.log(`[gam-sync-revenue] RUNNING SYNC (isServiceRole=${isServiceRole})`);
+    console.log(`[gam-sync-revenue] RUNNING SYNC DIRECTLY`);
     return await runSync(body, req.headers);
   }
 
+  console.log(`[gam-sync-revenue] RUNNING SYNC IN BACKGROUND`);
   const work = runSync(body, req.headers).catch((e) => console.error("[gam-sync-revenue] background error", e));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
@@ -76,6 +82,7 @@ Deno.serve(async (req) => {
 async function runSync(body: any, headers: Headers): Promise<Response> {
   const debug: string[] = [];
   try {
+    console.log(`[gam-sync-revenue] runSync internal start`);
     const authHeader = headers.get("Authorization");
     
     let datePreset = body.date_preset || "LAST_7_DAYS";
