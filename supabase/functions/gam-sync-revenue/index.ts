@@ -137,12 +137,18 @@ async function runSync(req: Request): Promise<Response> {
 
     if (requestedUserId) {
       userId = requestedUserId;
+      console.log(`[gam-sync-revenue] Using requestedUserId: ${userId}`);
     } else if (token) {
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
+      try {
+        const { data: claims } = await userClient.auth.getClaims(token);
+        userId = claims?.claims?.sub;
+      } catch (e) {
+        console.error("[gam-sync-revenue] Error getting claims:", e);
+      }
     }
     
     if (!userId) {
+      console.error(`[gam-sync-revenue] Auth failed. reqUserId: ${requestedUserId}, tokenLength: ${token.length}`);
       return json({ error: "Token inválido" });
     }
 
