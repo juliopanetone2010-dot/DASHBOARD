@@ -47,6 +47,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const bodyText = await req.text();
+  console.log("[gam-sync-revenue] Deno.serve bodyText length:", bodyText.length);
+  
   let control: any = {};
   try {
     control = JSON.parse(bodyText);
@@ -71,6 +73,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
   const debug: string[] = [];
   try {
     const authHeader = headers.get("Authorization");
+    console.log("[gam-sync-revenue] runSync authHeader present:", !!authHeader);
     
     let datePreset = "LAST_7_DAYS";
     let dateFrom: string | null = null;
@@ -80,6 +83,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     
     try {
       const body = JSON.parse(bodyText);
+      console.log("[gam-sync-revenue] runSync parsed body user_id:", body.user_id);
       requestedUserId = body.user_id;
       requestedSiteId = body.site_id;
       const p = String(body.date_preset ?? "").toUpperCase();
@@ -102,6 +106,7 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     }
 
     if (!userId) {
+      console.error(`[gam-sync-revenue] Auth failed. reqUserId: ${requestedUserId}`);
       return json({ error: "Token inválido (userId not found)" });
     }
 
