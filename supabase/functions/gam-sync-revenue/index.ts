@@ -137,17 +137,20 @@ async function runSync(req: Request): Promise<Response> {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
 
-    if (requestedUserId) {
+    console.log(`[gam-sync-revenue] Auth investigation: has-token=${!!token}, has-service-role=${!!serviceRoleKey}, token-is-service-role=${token === serviceRoleKey}, requestedUserId=${requestedUserId}`);
+
+    if (requestedUserId && token === serviceRoleKey) {
       userId = requestedUserId;
+      console.log(`[gam-sync-revenue] Authorized via Service Role for user ${userId}`);
     } else if (token && serviceRoleKey && token === serviceRoleKey) {
       userId = requestedUserId ?? undefined;
     } else {
       const { data: claims } = await userClient.auth.getClaims(token);
       userId = claims?.claims?.sub;
+      console.log(`[gam-sync-revenue] Auth via Claims: ${userId}`);
     }
     
     if (!userId) {
-      console.error("[gam-sync-revenue] Auth failed. token-exists:", !!token, "requestedUserId:", requestedUserId);
       return json({ error: "Token inválido" });
     }
 
