@@ -26,6 +26,23 @@ export function getAdminClient(): SupabaseClient {
 
 export async function requireUser(req: Request): Promise<{ userId: string; admin: SupabaseClient }> {
   const authHeader = req.headers.get("Authorization");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  
+  // BYPASS FOR SERVICE ROLE (used in repairs/syncs)
+  if (serviceRoleKey && authHeader?.includes(serviceRoleKey)) {
+    const bodyText = await req.clone().text().catch(() => "");
+    let userId: string | undefined;
+    try {
+      const body = JSON.parse(bodyText);
+      userId = body.user_id;
+    } catch (_) {}
+    
+    if (userId) {
+      console.log(`[rbac] Bypassing auth via service role for userId: ${userId}`);
+      return { userId, admin: getAdminClient() };
+    }
+  }
+
   if (!authHeader?.startsWith("Bearer ")) {
     throw new HttpError(401, "Login obrigatório");
   }
