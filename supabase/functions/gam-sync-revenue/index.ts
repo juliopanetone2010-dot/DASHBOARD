@@ -391,6 +391,7 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
         ];
         const aggMap = new Map<string, { impr: number; meas: number; view: number; rev: number }>();
         let viewabilityVariantFailures = 0;
+        const skipViewability = body.skip_viewability ?? false;
         if (skipViewability || !hasBudget(15_000)) {
           viewabilityVariantFailures = viewabilityVariants.length;
           debug.push(`[${networkCode}] viewability skipped (skip=${skipViewability}, budget low)`);
