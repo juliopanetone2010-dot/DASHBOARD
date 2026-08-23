@@ -46,7 +46,11 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const control = await req.clone().json().catch(() => ({}));
+  let control: any = {};
+  try {
+    control = await req.clone().json();
+  } catch (_) { /* ignore */ }
+  
   if (control?.wait === true || control?.sync === true) {
     return await runSync(req);
   }
