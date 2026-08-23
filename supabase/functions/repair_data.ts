@@ -16,7 +16,7 @@ async function repair() {
       "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ site_id: siteId, date_preset: "LAST_7_DAYS" })
+    body: JSON.stringify({ site_id: siteId, date_preset: "LAST_7_DAYS", user_id: "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9" })
   });
   console.log("Ads Sync Result:", await adsRes.text());
 
@@ -28,7 +28,7 @@ async function repair() {
       "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ site_id: siteId, date_preset: "LAST_7_DAYS", sync: true })
+    body: JSON.stringify({ site_id: siteId, date_preset: "LAST_7_DAYS", sync: true, user_id: "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9" })
   });
   console.log("GAM Sync Result:", await gamRes.text());
 
@@ -36,3 +36,4 @@ async function repair() {
 }
 
 repair();
+
