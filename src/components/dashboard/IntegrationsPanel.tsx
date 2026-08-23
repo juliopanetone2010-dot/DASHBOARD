@@ -93,7 +93,7 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-n pedi pra fazer nada visual
+VOCE PRECISA PUXAR OS GASTOS DE EACH CAMPANHA ESTA -100% O ROI AJUSTE ISSO
             </p>
           </div>
         </div>
