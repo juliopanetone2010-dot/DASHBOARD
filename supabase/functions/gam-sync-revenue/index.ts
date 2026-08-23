@@ -92,7 +92,6 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
 
     let userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; 
     console.log(`[gam-sync-revenue] FORCING userId=${userId}`);
-    if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
