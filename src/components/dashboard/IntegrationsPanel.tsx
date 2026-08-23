@@ -93,8 +93,12 @@ export const IntegrationsPanel = ({
         <div className="mt-2 space-y-4">
           <div className="bg-success/10 p-3 rounded border border-success/20">
             <p className="text-[11px] font-bold text-destructive mb-2 whitespace-pre-wrap">
-VOCE PRECISA PUXAR OS GASTOS DE EACH CAMPANHA ESTA -100% O ROI AJUSTE ISSO
+quick revenue 200: {"ok":true,"date_preset":"LAST_7_DAYS","summary":[{"network_code":"22953977775","error":"ReferenceError: includeYesterdayFallback is not defined"}],"gam_debug":{"gam_called":true,"rows_returned":0,"date_range":[],"site":"28404d69-ba48-432c-ae7c-2610f79ab81f","error":"ReferenceError: includeYesterday gam 2026-08-22..2026-08-23 200: {"ok":true,"date_preset":"LAST_7_DAYS","summary":[{"network_code":"22953977775","error":"ReferenceError: includeYesterdayFallback is not defined"}],"gam_debug":{"gam_called":true,"rows_returned":0,"date_range":[],"site":"28404d69-ba48-432c-ae7c-2610f79ab81f","error":"ReferenceError: includeYesterday gam 2026-08-19..2026-08-21 200: {"ok":true,"date_preset":"LAST_7_DAYS","summary":[{"network_code":"22953977775","error":"ReferenceError: includeYesterdayFallback is not defined"}],"gam_debug":{"gam_called":true,"rows_returned":0,"date_range":[],"site":"28404d69-ba48-432c-ae7c-2610f79ab81f","error":"ReferenceError: includeYesterday gam 2026-08-16..2026-08-18 200: {"ok":true,"date_preset":"LAST_7_DAYS","summary":[{"network_code":"22953977775","error":"ReferenceError: includeYesterdayFallback is not defined"}],"gam_debug":{"gam_called":true,"rows_returned":0,"date_range":[],"site":"28404d69-ba48-432c-ae7c-2610f79ab81f","error":"ReferenceError: includeYesterday
+
+
+ AJUSTA ESSE ERRO"
             </p>
+
           </div>
         </div>
       </div>
