@@ -93,8 +93,8 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
       return json({ error: "GAM_SERVICE_ACCOUNT_JSON inválido (não é JSON)" });
     }
 
-    let userId = "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; 
-    console.log(`[gam-sync-revenue] FORCING userId=${userId}`);
+    let userId = body.user_id || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; 
+    console.log(`[gam-sync-revenue] SYNC START - userId=${userId} siteId=${requestedSiteId}`);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
