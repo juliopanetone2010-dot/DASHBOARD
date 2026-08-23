@@ -52,18 +52,20 @@ Deno.serve(async (req) => {
     control = JSON.parse(bodyText);
   } catch (_) { /* ignore */ }
   
-  // Reconstruct request for runSync so body can be read again
-  const newReq = new Request(req.url, {
+  if (control?.wait === true || control?.sync === true) {
+    return await runSync(new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: bodyText
+    }));
+  }
+
+  const work = runSync(new Request(req.url, {
     method: req.method,
     headers: req.headers,
     body: bodyText
-  });
-
-  if (control?.wait === true || control?.sync === true) {
-    return await runSync(newReq);
-  }
-
-  const work = runSync(newReq).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  })).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
   }
@@ -86,11 +88,12 @@ async function runSync(req: Request): Promise<Response> {
     
     try {
       const body = await req.json();
-      console.log("[gam-sync-revenue] runSync received body:", JSON.stringify(body));
       requestedUserId = body.user_id;
       requestedSiteId = body.site_id;
       const p = String(body.date_preset ?? "").toUpperCase();
       if (ALLOWED_PRESETS.has(p)) datePreset = p;
+      dateFrom = body.from || body.date_from || null;
+      dateTo = body.to || body.date_to || null;
     } catch (e) {
       console.error("[gam-sync-revenue] runSync body parse error:", e);
     }
@@ -107,8 +110,7 @@ async function runSync(req: Request): Promise<Response> {
     }
 
     if (!userId) {
-      console.error("[gam-sync-revenue] Auth failed. userId still null.");
-      return json({ error: "Token inválido" });
+      return json({ error: "Token inválido (userId not found)" });
     }
 
     const admin = createClient(
