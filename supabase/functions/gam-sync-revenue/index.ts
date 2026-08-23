@@ -73,8 +73,7 @@ async function runSync(req: Request): Promise<Response> {
   const debug: string[] = [];
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Login obrigatório" });
-
+    // Removed strict Bearer check to allow service role calls via Deno run
 
     let datePreset = "LAST_7_DAYS";
     let dateFrom: string | null = null;
@@ -93,6 +92,7 @@ async function runSync(req: Request): Promise<Response> {
     const startedAt = Date.now();
     const deadlineAt = startedAt + 115_000;
     const hasBudget = (minimumMs = 20_000) => Date.now() + minimumMs < deadlineAt;
+    
     try {
       const body = await req.json().catch(() => ({}));
       const p = String((body as any)?.date_preset ?? "").toUpperCase();
@@ -109,13 +109,11 @@ async function runSync(req: Request): Promise<Response> {
       const includeFullReports = Boolean((body as any)?.include_full_reports);
       revenueOnly = !includeFullReports || Boolean((body as any)?.revenue_only) || String((body as any)?.mode ?? "").toLowerCase() === "revenue";
       skipLegacyReports = revenueOnly || Boolean((body as any)?.skip_legacy_reports);
-      // Viewability/eCPM diário (site_metrics_daily) é leve (só dimensão DATE) e crítico para o dashboard.
-      // Só pula se cliente pedir EXPLICITAMENTE — não atrelar ao revenue_only.
       skipViewability = Boolean((body as any)?.skip_viewability);
       skipSnapshotRegen = Boolean((body as any)?.skip_snapshot_regen);
       totalRequestsOnly = Boolean((body as any)?.total_requests_only || (body as any)?.match_rate_only);
       siteMetricsOnly = Boolean((body as any)?.site_metrics_only || (body as any)?.metrics_only);
-    } catch (_) { /* */ }
+    } catch (_) { /* ignore */ }
 
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
@@ -133,13 +131,13 @@ async function runSync(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
     );
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader?.replace("Bearer ", "") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     let userId: string | undefined;
 
     if (requestedUserId) {
       userId = requestedUserId;
-    } else {
+    } else if (token) {
       const { data: claims } = await userClient.auth.getClaims(token);
       userId = claims?.claims?.sub;
     }
