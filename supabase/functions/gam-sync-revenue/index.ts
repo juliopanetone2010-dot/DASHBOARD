@@ -46,8 +46,12 @@ async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0)
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const bodyText = await req.text();
-  console.log("[gam-sync-revenue] Deno.serve bodyText length:", bodyText.length);
+  let bodyText = "";
+  try {
+    bodyText = await req.text();
+  } catch (e) {
+    console.error("[gam-sync-revenue] Failed to read request body:", e);
+  }
   
   let control: any = {};
   try {
@@ -73,7 +77,6 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
   const debug: string[] = [];
   try {
     const authHeader = headers.get("Authorization");
-    console.log("[gam-sync-revenue] runSync authHeader present:", !!authHeader);
     
     let datePreset = "LAST_7_DAYS";
     let dateFrom: string | null = null;
@@ -82,14 +85,15 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     let requestedUserId: string | null = null;
     
     try {
-      const body = JSON.parse(bodyText);
-      console.log("[gam-sync-revenue] runSync parsed body user_id:", body.user_id);
-      requestedUserId = body.user_id;
-      requestedSiteId = body.site_id;
-      const p = String(body.date_preset ?? "").toUpperCase();
-      if (ALLOWED_PRESETS.has(p)) datePreset = p;
-      dateFrom = body.from || body.date_from || null;
-      dateTo = body.to || body.date_to || null;
+      if (bodyText) {
+        const body = JSON.parse(bodyText);
+        requestedUserId = body.user_id;
+        requestedSiteId = body.site_id;
+        const p = String(body.date_preset ?? "").toUpperCase();
+        if (ALLOWED_PRESETS.has(p)) datePreset = p;
+        dateFrom = body.from || body.date_from || null;
+        dateTo = body.to || body.date_to || null;
+      }
     } catch (e) {
       console.error("[gam-sync-revenue] runSync body parse error:", e);
     }
@@ -101,12 +105,15 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     if (!userId && authHeader?.startsWith("Bearer ")) {
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
       const token = authHeader.replace("Bearer ", "");
-      const { data: claims } = await userClient.auth.getClaims(token);
-      userId = claims?.claims?.sub;
+      try {
+        const { data: claims } = await userClient.auth.getClaims(token);
+        userId = claims?.claims?.sub;
+      } catch (e) {
+        console.error("[gam-sync-revenue] Error fetching claims:", e);
+      }
     }
 
     if (!userId) {
-      console.error(`[gam-sync-revenue] Auth failed. reqUserId: ${requestedUserId}`);
       return json({ error: "Token inválido (userId not found)" });
     }
 
