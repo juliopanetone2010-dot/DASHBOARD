@@ -101,9 +101,24 @@ async function runSync(bodyText: string, headers: Headers): Promise<Response> {
     const saJsonRaw = Deno.env.get("GAM_SERVICE_ACCOUNT_JSON");
     if (!saJsonRaw) return json({ error: "GAM_SERVICE_ACCOUNT_JSON não configurada" });
 
-    let userId = requestedUserId || "1b0affc0-d2e9-4f5c-87fc-3776e04bc3e9"; // FORCED REPAIR OVERRIDE
-    
+    let userId = requestedUserId;
+    if (!userId && authHeader?.startsWith("Bearer ")) {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const token = authHeader.replace("Bearer ", "");
+      try {
+        const { data: claims } = await userClient.auth.getClaims(token);
+        userId = claims?.claims?.sub;
+      } catch (e) {
+        console.error("[gam-sync-revenue] Error fetching claims:", e);
+      }
+    }
+
+    if (!userId && requestedUserId) {
+       userId = requestedUserId;
+    }
+
     if (!userId) {
+      console.error("[gam-sync-revenue] Auth failed. userId is null.");
       return json({ error: "Token inválido (userId not found)" });
     }
 
