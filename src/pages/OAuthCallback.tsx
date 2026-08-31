@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,15 @@ export default function OAuthCallback() {
   const navigate = useNavigate();
   const [state, setState] = useState<"working" | "ok" | "error">("working");
   const [message, setMessage] = useState("Trocando código por tokens…");
+  const ran = useRef(false);
 
   useEffect(() => {
+    // The auth code is single-use — never let this run twice.
+    if (ran.current) return;
+    ran.current = true;
+
     const code = params.get("code");
-    const state = params.get("state");
+    const stateParam = params.get("state");
     const err = params.get("error");
     if (err) { setState("error"); setMessage(err); return; }
     if (!code) { setState("error"); setMessage("Código ausente."); return; }
@@ -21,31 +26,47 @@ export default function OAuthCallback() {
     sessionStorage.removeItem("oauth_pending");
 
     (async () => {
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; message?: string; error?: string }>(
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; message?: string; error?: string; requires_login?: boolean }>(
         "google-ads-oauth-callback",
         {
           body: {
             code,
-            state,
+            state: stateParam,
             redirect_uri: `${window.location.origin}/oauth/google-ads/callback`,
             ...pending,
           },
         },
       );
-      if (error || (data && "error" in data && data.error)) {
-        console.error("[OAuthCallback] Error Data:", data);
-        console.error("[OAuthCallback] Invoke Error:", error);
+
+      // On a non-2xx, supabase-js gives a FunctionsHttpError whose `context` is
+      // the raw Response — dig the real { error } message out of its body.
+      let bodyError: string | null = (data && "error" in data && data.error) ? (data.error as string) : null;
+      if (!bodyError && error) {
+        try {
+          const ctx = (error as unknown as { context?: Response }).context;
+          if (ctx && typeof ctx.text === "function") {
+            const raw = await ctx.clone().text();
+            try { bodyError = JSON.parse(raw)?.error ?? raw; } catch { bodyError = raw; }
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (error || bodyError) {
+        console.error("[OAuthCallback] data:", data, "error:", error, "bodyError:", bodyError);
         setState("error");
-        
-        // Se o erro for do invoke (rede/timeout) ou retornado explicitamente pelo backend
-        const errorData = (data as any);
-        const detailedMsg = errorData?.error || error?.message || "Erro desconhecido na conexão";
-        setMessage(detailedMsg);
+        setMessage(bodyError || error?.message || "Erro desconhecido na conexão");
         return;
       }
+
+      if (data?.requires_login) {
+        setState("error");
+        setMessage("Tokens recebidos, mas não há sessão para salvar. Configure VITE_DEV_LOGIN_* (ou faça login) e tente de novo.");
+        return;
+      }
+
       setState("ok");
       setMessage(data?.message ?? "Conta conectada");
-      setTimeout(() => navigate("/settings", { replace: true }), 1500);
+      setTimeout(() => navigate("/", { replace: true }), 1500);
     })();
   }, [params, navigate]);
 
@@ -58,9 +79,9 @@ export default function OAuthCallback() {
         <h1 className="text-lg font-semibold mb-2">
           {state === "working" ? "Conectando…" : state === "ok" ? "Conectado" : "Erro"}
         </h1>
-        <p className="text-sm text-muted-foreground mb-4 break-words">{message}</p>
+        <p className="text-sm text-muted-foreground mb-4 break-words whitespace-pre-wrap">{message}</p>
         {state !== "working" && (
-          <Button asChild size="sm"><Link to="/settings">Voltar para Configurações</Link></Button>
+          <Button asChild size="sm"><Link to="/">Voltar ao dashboard</Link></Button>
         )}
       </div>
     </div>
