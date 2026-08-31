@@ -76,67 +76,45 @@ export function AccountSiteMappingPanel({
     }
   };
 
-  const handleSyncMccWithApiSet = async (apiSet: number) => {
+  // Sincroniza sub-contas + campanhas via google-ads-sync-campaigns
+  // (expande cada MCC e faz upsert das contas-folha e das métricas).
+  const runAccountSync = async (opts: { apiSet?: number } = {}) => {
     if (isGuest) {
       toast({
-        title: "Login necessário",
-        description: "Para sincronizar contas reais do MCC, faça login.",
+        title: "Sessão necessária",
+        description: "Para sincronizar contas reais do MCC, é preciso uma sessão real (login).",
         variant: "destructive",
       });
       return;
     }
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
-        body: { api_set: apiSet, force_all: true },
-      });
-      if (error) throw error;
-      const summary = (data as { summary?: Array<{ manager: string; synced: number; error?: string }> })?.summary ?? [];
-      const total = summary.reduce((s, x) => s + x.synced, 0);
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean;
+        summary?: Array<{ root_account?: string; leaf_count?: number; total_campaigns_synced?: number; error?: string }>;
+        errors?: Array<{ account_id: string; error: string }>;
+        error?: string;
+      }>("google-ads-sync-campaigns", { body: { window_days: 30 } });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      const summary = data?.summary ?? [];
+      const leaves = summary.reduce((s, x) => s + (x.leaf_count ?? 0), 0);
+      const camps = summary.reduce((s, x) => s + (x.total_campaigns_synced ?? 0), 0);
+      const errs = data?.errors ?? [];
       toast({
-        title: total > 0 ? "Contas sincronizadas" : "Nada novo",
-        description: total > 0
-          ? `${total} conta(s) importada(s) do MCC (API ${apiSet}).`
-          : (summary.find((s) => s.error)?.error ?? "Nenhuma conta ativa encontrada nesta MCC."),
+        title: errs.length ? "Sincronização parcial" : "Contas sincronizadas",
+        description: `${leaves} conta(s), ${camps} campanha(s)${opts.apiSet ? ` — MCC ${opts.apiSet}` : ""}.${errs.length ? ` ${errs.length} com erro.` : ""}`,
+        variant: errs.length ? "destructive" : "default",
       });
       await onRefresh();
     } catch (e) {
-      toast({ title: "Erro ao sincronizar", description: String(e), variant: "destructive" });
+      toast({ title: "Erro ao sincronizar", description: String((e as Error).message ?? e), variant: "destructive" });
     } finally {
       setSyncing(false);
     }
   };
 
-  const handleSyncMcc = async () => {
-    if (isGuest) {
-      toast({
-        title: "Login necessário",
-        description: "Para sincronizar contas reais do MCC, faça login.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("google-ads-list-accounts", {
-        body: { force_all: true },
-      });
-      if (error) throw error;
-      const summary = (data as { summary?: Array<{ manager: string; synced: number; error?: string }> })?.summary ?? [];
-      const total = summary.reduce((s, x) => s + x.synced, 0);
-      toast({
-        title: total > 0 ? "Contas sincronizadas" : "Nada novo",
-        description: total > 0
-          ? `${total} conta(s) importada(s) do MCC.`
-          : (summary.find((s) => s.error)?.error ?? "Nenhuma conta filha encontrada."),
-      });
-      await onRefresh();
-    } catch (e) {
-      toast({ title: "Erro ao sincronizar", description: String(e), variant: "destructive" });
-    } finally {
-      setSyncing(false);
-    }
-  };
+  const handleSyncMccWithApiSet = (apiSet: number) => runAccountSync({ apiSet });
+  const handleSyncMcc = () => runAccountSync();
 
   // Filtrar contas pelo API Set selecionado
   const childAccounts = useMemo(() => {
