@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Environment files — never commit real secrets. Keep .env.example only.
+.env
+.env.*
+!.env.example
+.vercel
+supabase/.temp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

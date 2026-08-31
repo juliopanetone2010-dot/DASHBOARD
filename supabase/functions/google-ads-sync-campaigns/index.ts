@@ -4,7 +4,7 @@
 // 3) Auto-aplica final_url_suffix padrão em qualquer campanha que não tenha
 // Spend fica na moeda nativa da conta Google Ads; receita vem somente do GAM.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 
 const STANDARD_UTM_SUFFIX = [
@@ -201,10 +201,9 @@ Deno.serve(async (req) => {
       await admin.from("sites").update({ sync_lock: true, sync_status: "syncing", sync_started_at: new Date().toISOString() }).eq("id", bodySiteId);
     }
 
-    try {
-      // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
-      for (const root of accounts) {
-
+    // Para cada conta-raiz (MCC ou direta), expande sub-contas se for MCC
+    for (const root of accounts) {
+     try {
         const { devToken } = getCreds((root as any).api_set ?? 1);
         const accessToken = await getAccessToken(root.refresh_token!, (root as any).api_set ?? 1);
         if (!accessToken) {
@@ -624,15 +623,14 @@ Deno.serve(async (req) => {
           total_metric_rows: totalMetrics,
           accounts: accountResults,
         });
-      } catch (e) {
+       } catch (e) {
         const msg = String(e);
         summary.push(
           isInactiveErr(msg)
             ? { root_account: root.customer_id, skipped: "suspended" }
             : { root_account: root.customer_id, error: msg },
         );
-      }
-
+     }
     }
 
     // Update sync_state with results

@@ -1,42 +1,41 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+// Secrets are managed in the Supabase dashboard (Project Settings > Edge
+// Functions > Secrets) or via `supabase secrets set`. Edge functions cannot
+// write their own env, so this endpoint is read-only: it reports which
+// Google Ads credential sets are configured. The old Lovable-agent write path
+// ("set" action) is gone.
 import { corsHeaders } from "../_shared/cors.ts";
-import { normalizeApiSet, pick } from "../_shared/google_api_set.ts";
+import { listApiSets } from "../_shared/google_api_set.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  let action = "status";
   try {
-    const { action, name, value } = await req.json();
-
-    if (action !== "set") {
-      return new Response(JSON.stringify({ error: "Ação não suportada" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (!name || !value) {
-      return new Response(JSON.stringify({ error: "Nome e valor são obrigatórios" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    console.log(`[secrets-manager] Tentativa de definir secret: ${name}`);
-    
-    // Como estamos no Lovable Cloud, o backend não consegue rodar 'add_secret' diretamente.
-    // O log acima instrui o agente Lovable (eu) a processar a alteração.
-    
-    return new Response(JSON.stringify({ 
-      ok: true, 
-      message: "Solicitação de configuração registrada no log. O sistema aplicará a alteração em instantes." 
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const body = await req.json();
+    if (body && typeof body.action === "string") action = body.action;
+  } catch (_) {
+    // no body -> default to status
   }
+
+  if (action === "set") {
+    return new Response(
+      JSON.stringify({
+        error:
+          "Definir secrets pelo app foi desativado. Configure em: Supabase Dashboard > " +
+          "Project Settings > Edge Functions > Secrets (ou `supabase secrets set`).",
+      }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  const sets = listApiSets();
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      api_sets: sets,
+      configured_api_sets: sets.filter((s) => s.configured).map((s) => s.api_set),
+      gam_service_account: !!Deno.env.get("GAM_SERVICE_ACCOUNT_JSON"),
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
 });

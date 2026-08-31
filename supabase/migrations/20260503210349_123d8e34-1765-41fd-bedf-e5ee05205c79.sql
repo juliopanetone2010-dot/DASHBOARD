@@ -24,7 +24,7 @@ SELECT cron.schedule(
   '0 6 * * *',
   $$
   SELECT net.http_post(
-    url := 'https://pxlgkpuaaptbubsnvfkz.supabase.co/functions/v1/placements-cleanup-cron',
+    url := 'https://xqpbkvlaxoswgwedscqf.supabase.co/functions/v1/placements-cleanup-cron',
     headers := jsonb_build_object('Content-Type','application/json'),
     body := '{}'::jsonb
   );
