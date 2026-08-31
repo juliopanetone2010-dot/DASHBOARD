@@ -41,12 +41,19 @@ export default function OAuthCallback() {
       // On a non-2xx, supabase-js gives a FunctionsHttpError whose `context` is
       // the raw Response — dig the real { error } message out of its body.
       let bodyError: string | null = (data && "error" in data && data.error) ? (data.error as string) : null;
+      let rawBody: string | null = null;
       if (!bodyError && error) {
         try {
           const ctx = (error as unknown as { context?: Response }).context;
           if (ctx && typeof ctx.text === "function") {
-            const raw = await ctx.clone().text();
-            try { bodyError = JSON.parse(raw)?.error ?? raw; } catch { bodyError = raw; }
+            rawBody = await ctx.clone().text();
+            try {
+              const j = JSON.parse(rawBody);
+              bodyError = j?.error ?? rawBody;
+              if (j?.google_status || j?.raw) {
+                bodyError = `${bodyError}\n\n[google_status] ${j.google_status ?? "?"}\n[raw] ${String(j.raw ?? "").slice(0, 400)}`;
+              }
+            } catch { bodyError = rawBody; }
           }
         } catch { /* ignore */ }
       }

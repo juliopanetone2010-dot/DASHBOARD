@@ -77,9 +77,16 @@ Deno.serve(async (req) => {
     try { listJson = JSON.parse(listText); } catch { /* HTML response */ }
     console.log("[oauth-callback] listAccessibleCustomers status", listRes.status);
     if (!listRes.ok || !listJson) {
-      console.error("[oauth-callback] list failed", listRes.status, listText.slice(0, 300));
+      console.error("[oauth-callback] list failed", listRes.status, listText.slice(0, 800));
+      const gErr = listJson?.error ?? {};
+      const detail = JSON.stringify(gErr?.details ?? gErr?.status ?? {}).slice(0, 400);
       return json({
-        error: `Falhou ao listar contas (status ${listRes.status}): ${listJson?.error?.message ?? listText.slice(0, 200)}`,
+        error: `Falhou ao listar contas (status ${listRes.status}): ${gErr?.message ?? listText.slice(0, 200)}`,
+        google_status: gErr?.status ?? null,
+        google_details: gErr?.details ?? null,
+        raw: listText.slice(0, 600),
+        dev_token_prefix: devToken.slice(0, 6),
+        client_id_prefix: clientId.slice(0, 12),
       }, 400);
     }
     const resourceNames: string[] = listJson.resourceNames ?? [];
