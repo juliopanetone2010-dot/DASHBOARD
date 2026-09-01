@@ -573,6 +573,52 @@ Deno.serve(async (req) => {
               debugLogs.push(`final_urls exception ${leaf.customer_id}: ${String(e)}`);
             }
 
+            // ===== SYNC FINAL URLS — Performance Max (asset_group.final_urls) =====
+            // Campanhas PMAX não têm ad_group_ad, então a query acima não devolve URL
+            // nenhuma para elas. O landing page da PMAX fica em asset_group.final_urls.
+            try {
+              const agQuery = "SELECT campaign.id, asset_group.id, asset_group.name, asset_group.final_urls, asset_group.status FROM asset_group WHERE campaign.status != 'REMOVED'";
+              const agRes = await fetch(
+                `https://googleads.googleapis.com/v24/customers/${leaf.customer_id}/googleAds:search`,
+                { method: "POST", headers, body: JSON.stringify({ query: agQuery }) },
+              );
+              const agJson = await agRes.json();
+              if (agRes.ok) {
+                const agRows = (agJson.results ?? []) as Array<{
+                  campaign: { id: string };
+                  assetGroup: { id: string; name?: string; finalUrls?: string[]; status?: string };
+                }>;
+                const agPayload: Array<Record<string, unknown>> = [];
+                for (const r of agRows) {
+                  const urls = r.assetGroup?.finalUrls ?? [];
+                  if (!urls.length || !r.assetGroup?.id) continue;
+                  agPayload.push({
+                    user_id: userId,
+                    google_account_id: leaf.id,
+                    campaign_id: r.campaign.id,
+                    ad_group_id: null,
+                    ad_id: `assetgroup:${r.assetGroup.id}`,
+                    final_url: urls[0],
+                    source: "asset_group.final_urls",
+                    ad_status: (r.assetGroup?.status ?? "").toUpperCase() || null,
+                  });
+                }
+                const CHUNK_AG = 500;
+                for (let i = 0; i < agPayload.length; i += CHUNK_AG) {
+                  const slice = agPayload.slice(i, i + CHUNK_AG);
+                  const { error: agErr } = await admin
+                    .from("campaign_final_urls")
+                    .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id,ad_id" });
+                  if (agErr) debugLogs.push(`final_urls(pmax) upsert err ${leaf.customer_id}: ${agErr.message}`);
+                }
+                debugLogs.push(`final_urls(pmax) ${leaf.customer_id}: ${agPayload.length} asset groups`);
+              } else {
+                debugLogs.push(`final_urls(pmax) fetch err ${leaf.customer_id}: ${agJson?.error?.message ?? "?"}`);
+              }
+            } catch (e) {
+              debugLogs.push(`final_urls(pmax) exception ${leaf.customer_id}: ${String(e)}`);
+            }
+
             // Bulk upsert métricas diárias (apenas campos de spend; preserva revenue existente)
             const metricRows = results.map((r) => {
               const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
