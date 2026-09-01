@@ -17,9 +17,20 @@ Deno.serve(async (req) => {
     const lookbackDays = Math.max(1, Math.min(90, Number(body?.lookback_days ?? 30)));
     const siteId = typeof body?.site_id === "string" && body.site_id !== "all" ? body.site_id : null;
 
-    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    const token = authHeader.replace("Bearer ", "");
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    let isServiceRole = token === SERVICE_ROLE;
+    if (!isServiceRole) {
+      try { const p = JSON.parse(atob(token.split(".")[1] ?? "")); if (p?.role === "service_role") isServiceRole = true; } catch { /* */ }
+    }
+    let userId: string | undefined;
+    if (isServiceRole) {
+      userId = typeof body?.user_id === "string" ? body.user_id : undefined;
+    } else {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
