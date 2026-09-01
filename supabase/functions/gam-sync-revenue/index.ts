@@ -1455,10 +1455,13 @@ async function persistCampaignTotalRequests(args: {
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
-    const denom = adsClicks > 0 ? adsClicks : b.total_requests;
-    const rate = denom > 0 && prev.impressions > 0
-      ? Math.min(100, (prev.impressions / denom) * 100)
-      : null;
+    // Denominador = cliques do Google Ads. NÃO caímos mais no AD_EXCHANGE_TOTAL_REQUESTS
+    // (inflado: várias chamadas de leilão por slot → taxa irrealista de 10-40% que ficava
+    // "presa" quando o sync do Ads ainda não tinha trazido os cliques). Sem cliques ainda,
+    // preservamos o valor anterior; recomputeCampaignMatchRateFromClicks corrige no próximo ciclo.
+    const rate = adsClicks > 0 && prev.impressions > 0
+      ? Math.min(100, (prev.impressions / adsClicks) * 100)
+      : (prev.match_rate_pct ?? null);
     return {
       user_id: userId,
       site_id: siteId,
@@ -1467,7 +1470,7 @@ async function persistCampaignTotalRequests(args: {
       utm_source: "google",
       revenue_usd: prev.revenue_usd,
       impressions: prev.impressions,
-      total_requests: denom,
+      total_requests: adsClicks > 0 ? adsClicks : 0,
       match_rate_pct: rate,
     };
   });
