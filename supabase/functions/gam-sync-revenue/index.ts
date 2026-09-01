@@ -1791,6 +1791,26 @@ async function applyGoogleUtmRevenue(
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
 
+    // Salvaguarda contra "conta inteira zerada": se NENHUMA campanha deste dia tem
+    // receita por campanha em gam_campaign_source_revenue nem gam_placement_revenue
+    // (em qualquer site), o cenário quase certo é atribuição do GAM incompleta/falha
+    // neste pull — não que todas as campanhas realmente zeraram. Forçar revenue=0
+    // aqui gera ROI -100% falso em toda a conta e dispara auto-pause. Preservamos o
+    // valor anterior de daily_metrics e deixamos o log gritar.
+    const anyCampaignRevenue = [...aggregatedByCid.values()].some((v) => v > 0);
+    if (!anyCampaignRevenue) {
+      const { data: siteRev } = await admin
+        .from("site_metrics_daily")
+        .select("revenue_native")
+        .eq("user_id", userId)
+        .eq("site_id", siteId)
+        .eq("date", date)
+        .maybeSingle();
+      const siteHadRevenue = Number((siteRev as any)?.revenue_native ?? 0) > 0;
+      debug.push(`[daily_metrics] ${date}: SKIP zeragem — 0 campanhas com receita atribuída (site_revenue=${siteHadRevenue ? "SIM" : "não"}); provável atribuição GAM incompleta, preservando daily_metrics anterior`);
+      continue;
+    }
+
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
