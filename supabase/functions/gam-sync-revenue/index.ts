@@ -1747,6 +1747,21 @@ async function applyGoogleUtmRevenue(
     return;
   }
 
+  // O rateio de receita por gasto (fallback abaixo) só é seguro quando as contas
+  // deste site NÃO são compartilhadas com outros sites — senão a mesma campanha
+  // seria rateada em 2 sites e o último sync sobrescreveria o outro.
+  const { data: allLinksForAccounts } = await admin
+    .from("account_site_links")
+    .select("google_account_id, site_id")
+    .in("google_account_id", accountIds);
+  const sitesPerAccount = new Map<string, Set<string>>();
+  for (const l of (allLinksForAccounts ?? []) as any[]) {
+    const set = sitesPerAccount.get(l.google_account_id) ?? new Set<string>();
+    set.add(l.site_id);
+    sitesPerAccount.set(l.google_account_id, set);
+  }
+  const accountsAreDedicated = accountIds.every((id) => (sitesPerAccount.get(id)?.size ?? 1) <= 1);
+
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics } = await admin
@@ -1791,23 +1806,45 @@ async function applyGoogleUtmRevenue(
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
 
-    // Salvaguarda contra "conta inteira zerada": se NENHUMA campanha deste dia tem
-    // receita por campanha em gam_campaign_source_revenue nem gam_placement_revenue
-    // (em qualquer site), o cenário quase certo é atribuição do GAM incompleta/falha
-    // neste pull — não que todas as campanhas realmente zeraram. Forçar revenue=0
-    // aqui gera ROI -100% falso em toda a conta e dispara auto-pause. Preservamos o
-    // valor anterior de daily_metrics e deixamos o log gritar.
-    const anyCampaignRevenue = [...aggregatedByCid.values()].some((v) => v > 0);
-    if (!anyCampaignRevenue) {
-      const { data: siteRev } = await admin
-        .from("site_metrics_daily")
-        .select("revenue_native")
-        .eq("user_id", userId)
-        .eq("site_id", siteId)
-        .eq("date", date)
-        .maybeSingle();
-      const siteHadRevenue = Number((siteRev as any)?.revenue_native ?? 0) > 0;
-      debug.push(`[daily_metrics] ${date}: SKIP zeragem — 0 campanhas com receita atribuída (site_revenue=${siteHadRevenue ? "SIM" : "não"}); provável atribuição GAM incompleta, preservando daily_metrics anterior`);
+    // Receita já atribuída por campanha (utm_campaign / utm_placement) para as
+    // campanhas deste dia/conta.
+    const attributedUsd = (metrics as any[]).reduce(
+      (s, m) => s + (aggregatedByCid.get(String(m.campaign_id)) ?? 0), 0,
+    );
+    const { data: siteRev } = await admin
+      .from("site_metrics_daily")
+      .select("revenue_native")
+      .eq("user_id", userId)
+      .eq("site_id", siteId)
+      .eq("date", date)
+      .maybeSingle();
+    const siteRevenueUsd = Number((siteRev as any)?.revenue_native ?? 0) / (ingestionDivisor || 1);
+    const attributionWeak = attributedUsd < siteRevenueUsd * 0.5;
+
+    // FALLBACK POR RATEIO DE GASTO
+    // O site fatura no GAM mas o utm_campaign não casa (as tags do site não repassam
+    // a key-value, ou é inventário AdSense/offerwall que o relatório por
+    // KEY_VALUES_NAME não quebra por campanha). Sem isto a receita nunca chega nas
+    // campanhas e todas ficam com ROI -100% falso. Se o atribuído por campanha é
+    // < 50% do total GAM do site no dia, completamos o que falta rateando
+    // proporcionalmente ao gasto do Google Ads. É ESTIMATIVA, não dado real.
+    if (siteRevenueUsd > 0 && attributionWeak && accountsAreDedicated) {
+      const totalSpend = (metrics as any[]).reduce((s, m) => s + Number(m.spend ?? 0), 0);
+      const remainderUsd = Math.max(0, siteRevenueUsd - attributedUsd);
+      if (totalSpend > 0 && remainderUsd > 0) {
+        for (const m of metrics as any[]) {
+          const add = remainderUsd * (Number(m.spend ?? 0) / totalSpend);
+          if (add > 0) {
+            const cid = String(m.campaign_id);
+            aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + add);
+          }
+        }
+        debug.push(`[daily_metrics] ${date}: RATEIO por gasto — site_usd=${siteRevenueUsd.toFixed(2)} atribuído=${attributedUsd.toFixed(2)} rateado=${remainderUsd.toFixed(2)} entre ${metrics.length} campanha(s)`);
+      }
+    } else if (attributedUsd <= 0 && (siteRevenueUsd <= 0 || !accountsAreDedicated)) {
+      // Nada a atribuir e nada pra ratear com segurança: NÃO força revenue=0 (gera
+      // ROI -100% falso na conta toda e dispara auto-pause). Preserva o valor anterior.
+      debug.push(`[daily_metrics] ${date}: SKIP zeragem — atribuído=0, site_usd=${siteRevenueUsd.toFixed(2)}, contas_dedicadas=${accountsAreDedicated}; preservando daily_metrics anterior`);
       continue;
     }
 
