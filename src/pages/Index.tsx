@@ -1104,6 +1104,16 @@ const IndexInner = () => {
               <SiteSyncBanner siteId={filters.siteId} siteName={selectedSite?.name} />
             )}
 
+            {filters.siteId === "all" ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-12 text-center">
+                <MapPin className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+                <p className="text-sm font-medium">Selecione um site para ver os dados</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use o seletor de site acima. Os totais só são exibidos por site.
+                </p>
+              </div>
+            ) : (
+            <>
             {/* Métricas */}
             <section className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -1256,6 +1266,8 @@ const IndexInner = () => {
                 isIntraday={false}
               />
             </section>
+            </>
+            )}
             </DashboardErrorBoundary>
           </TabsContent>
 
