@@ -879,12 +879,16 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // KEY_VALUES_NAME é INCOMPATÍVEL com ADSENSE_* (e às vezes com o AD_EXCHANGE_* +
-    // AD_SERVER_* juntos) no GAM: retorna REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
-    // Rodamos cada família de métrica em um relatório separado e somamos.
+    // KEY_VALUES_NAME quebra com o conjunto de métricas MISTO (AD_EXCHANGE_* +
+    // AD_SERVER_* + ADSENSE_* juntos) → REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
+    // Rodamos cada família em um relatório SEPARADO e somamos. Cada uma tem seu
+    // try/catch: se uma família for incompatível nesse network, é logada e ignorada.
+    // ADSENSE_* é essencial p/ sites monetizados via offerwall/interstitial (ex.:
+    // Ligado 360) — sem ele a receita dessas campanhas nunca é atribuída.
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
       { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
     ];
     for (const group of metricGroups) {
       try {
@@ -1769,7 +1773,7 @@ async function applyGoogleUtmRevenue(
   for (const date of allDates) {
     const { data: metrics } = await admin
       .from("daily_metrics")
-      .select("id, campaign_id, spend, impressions")
+      .select("id, campaign_id, spend, impressions, google_account_id")
       .eq("user_id", userId)
       .eq("date", date)
       .in("google_account_id", accountIds);
@@ -1822,32 +1826,42 @@ async function applyGoogleUtmRevenue(
       .eq("date", date)
       .maybeSingle();
     const siteRevenueUsd = Number((siteRev as any)?.revenue_native ?? 0) / (ingestionDivisor || 1);
-    const attributionWeak = attributedUsd < siteRevenueUsd * 0.5;
 
     // FALLBACK POR RATEIO DE GASTO
-    // O site fatura no GAM mas o utm_campaign não casa (as tags do site não repassam
-    // a key-value, ou é inventário AdSense/offerwall que o relatório por
-    // KEY_VALUES_NAME não quebra por campanha). Sem isto a receita nunca chega nas
-    // campanhas e todas ficam com ROI -100% falso. Se o atribuído por campanha é
-    // < 50% do total GAM do site no dia, completamos o que falta rateando
-    // proporcionalmente ao gasto do Google Ads. É ESTIMATIVA, não dado real.
-    if (siteRevenueUsd > 0 && attributionWeak && accountsAreDedicated) {
-      const totalSpend = (metrics as any[]).reduce((s, m) => s + Number(m.spend ?? 0), 0);
-      const remainderUsd = Math.max(0, siteRevenueUsd - attributedUsd);
-      if (totalSpend > 0 && remainderUsd > 0) {
-        for (const m of metrics as any[]) {
-          const add = remainderUsd * (Number(m.spend ?? 0) / totalSpend);
+    // A receita do site existe no GAM mas parte não casou por campanha — porque o
+    // utm_campaign não chegou na key-value (tags do site / campanha nova ainda não
+    // ingerida) ou é inventário AdSense/offerwall que o relatório por KEY_VALUES_NAME
+    // não quebra. Sem isto essas campanhas ficam com receita 0 e ROI -100% falso.
+    //
+    // Regra: pega o que sobrou (receita do site − já atribuído) e distribui SÓ entre
+    // as campanhas com gasto no dia e SEM nenhuma receita atribuída, proporcional ao
+    // gasto. Assim funciona tanto pro site todo estourado (Ligado) quanto pro site
+    // que atribui quase tudo e só tem 1-2 campanhas novas zeradas (Diário). É
+    // ESTIMATIVA. Peso = gasto ÷ nº de sites da conta (trava anti-dupla contagem).
+    const remainderUsd = Math.max(0, siteRevenueUsd - attributedUsd);
+    const weightOf = (m: any) => {
+      const nSites = sitesPerAccount.get(String(m.google_account_id))?.size ?? 1;
+      return Number(m.spend ?? 0) / Math.max(1, nSites);
+    };
+    const unattributed = (metrics as any[]).filter(
+      (m) => (aggregatedByCid.get(String(m.campaign_id)) ?? 0) <= 0 && Number(m.spend ?? 0) > 0,
+    );
+    if (remainderUsd > 0 && unattributed.length > 0) {
+      const totalWeight = unattributed.reduce((s, m) => s + weightOf(m), 0);
+      if (totalWeight > 0) {
+        for (const m of unattributed) {
+          const add = remainderUsd * (weightOf(m) / totalWeight);
           if (add > 0) {
             const cid = String(m.campaign_id);
             aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + add);
           }
         }
-        debug.push(`[daily_metrics] ${date}: RATEIO por gasto — site_usd=${siteRevenueUsd.toFixed(2)} atribuído=${attributedUsd.toFixed(2)} rateado=${remainderUsd.toFixed(2)} entre ${metrics.length} campanha(s)`);
+        debug.push(`[daily_metrics] ${date}: RATEIO por gasto — remainder=${remainderUsd.toFixed(2)} entre ${unattributed.length}/${metrics.length} campanha(s) sem atribuição (site_usd=${siteRevenueUsd.toFixed(2)} atribuído=${attributedUsd.toFixed(2)}, dedicadas=${accountsAreDedicated})`);
       }
-    } else if (attributedUsd <= 0 && (siteRevenueUsd <= 0 || !accountsAreDedicated)) {
-      // Nada a atribuir e nada pra ratear com segurança: NÃO força revenue=0 (gera
-      // ROI -100% falso na conta toda e dispara auto-pause). Preserva o valor anterior.
-      debug.push(`[daily_metrics] ${date}: SKIP zeragem — atribuído=0, site_usd=${siteRevenueUsd.toFixed(2)}, contas_dedicadas=${accountsAreDedicated}; preservando daily_metrics anterior`);
+    } else if (attributedUsd <= 0 && siteRevenueUsd <= 0) {
+      // Nada a atribuir e nada pra ratear: NÃO força revenue=0 (gera ROI -100% falso
+      // na conta toda e dispara auto-pause). Preserva o valor anterior de daily_metrics.
+      debug.push(`[daily_metrics] ${date}: SKIP zeragem — atribuído=0 e site_usd=0 (receita do site ainda não sincronizada?); preservando daily_metrics anterior`);
       continue;
     }
 
