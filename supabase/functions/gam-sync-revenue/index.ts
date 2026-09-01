@@ -1282,13 +1282,15 @@ async function persistCampaignTotalRequests(args: {
   let siteMatchRateRows: ReportRow[] = [];
   
   try {
-    // Tentamos buscar ambos no mesmo request (DATE + KEY_VALUES_NAME)
+    // KEY_VALUES_NAME só é compatível com a família AD_EXCHANGE_* neste network
+    // (AD_REQUESTS / AD_EXCHANGE_MATCH_RATE davam REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY).
+    // m[0] = total de requests AdX; m[1] = impressões AdX (matched). O match rate
+    // é calculado no cliente como impressions / total_requests.
     const combined = (await Promise.all(ranges.map((range) =>
       runReport({
         networkCode, accessToken, range,
         dimensions: ["DATE", "KEY_VALUES_NAME"],
-        metrics: ["AD_REQUESTS", "AD_EXCHANGE_MATCH_RATE"],
-        expandedCompatibility: true,
+        metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS"],
         debug, deadlineAt,
       })
     ))).flat();
@@ -1296,8 +1298,7 @@ async function persistCampaignTotalRequests(args: {
     matchRateRows = combined;
     console.log(`[${networkCode}/total_requests_optimized] rows=${combined.length}`);
   } catch (e) {
-    debug.push(`[${networkCode}/total_requests_optimized] combined report failed, falling back: ${String(e).slice(0, 200)}`);
-    // ... rest of fallback logic remains similar but less aggressive ...
+    debug.push(`[${networkCode}/total_requests_optimized] combined report failed: ${String(e).slice(0, 400)}`);
   }
 
   // Agrega por (cid, date) usando a regra oficial:
