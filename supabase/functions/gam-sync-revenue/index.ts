@@ -879,9 +879,12 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // Otimização: Agrupamos todas as chamadas por tipo de métrica para reduzir o número total de requests.
+    // KEY_VALUES_NAME é INCOMPATÍVEL com ADSENSE_* (e às vezes com o AD_EXCHANGE_* +
+    // AD_SERVER_* juntos) no GAM: retorna REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
+    // Rodamos cada família de métrica em um relatório separado e somamos.
     const metricGroups = [
-      { label: "ALL_SOURCES", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE", "ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
+      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
+      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
     ];
     for (const group of metricGroups) {
       try {
@@ -897,11 +900,11 @@ async function collectUtmAttribution(args: {
         debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
         reportRows.push(...groupRows);
       } catch (e) {
-        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 500)}`);
+        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 1500)}`);
       }
     }
   } catch (e) {
-    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 500)}`);
+    debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 1500)}`);
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
@@ -1762,7 +1765,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
       "Google Ad Manager API não está habilitada no projeto do Google Cloud da Service Account. Acesse https://console.cloud.google.com/apis/library/admanager.googleapis.com, selecione o projeto correto e clique em ENABLE."
     );
   }
-  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 400)}`);
+  if (!createRes.ok) throw new Error(`[${tag}] create failed (${createRes.status}): ${createText.slice(0, 2000)}`);
   const reportName: string = createJson.name;
 
   const runRes = await gamFetch(`${GAM_BASE}/${reportName}:run`, {
