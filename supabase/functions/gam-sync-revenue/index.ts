@@ -1420,6 +1420,22 @@ async function persistCampaignTotalRequests(args: {
     .eq("site_id", siteId)
     .in("campaign_id", cids)
     .in("date", dates);
+
+  // "Taxa de correspondência" no modelo de arbitragem = impressões monetizadas no
+  // GAM / cliques comprados no Google Ads. O AD_EXCHANGE_TOTAL_REQUESTS infla
+  // (várias chamadas de leilão por slot), então usamos os cliques do Google Ads
+  // como denominador. Fallback: o request count do AdX.
+  const { data: adsClicksRows } = await admin
+    .from("daily_metrics")
+    .select("campaign_id,date,clicks")
+    .eq("user_id", userId)
+    .in("campaign_id", cids)
+    .in("date", dates);
+  const adsClicksByKey = new Map<string, number>();
+  for (const r of (adsClicksRows ?? []) as any[]) {
+    const k = `${r.campaign_id}|${r.date}`;
+    adsClicksByKey.set(k, (adsClicksByKey.get(k) ?? 0) + Number(r.clicks || 0));
+  }
   const existingMap = new Map<string, { revenue_usd: number; impressions: number; match_rate_pct: number | null }>();
   for (const r of (existing ?? []) as any[]) {
     existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0), match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
@@ -1437,6 +1453,11 @@ async function persistCampaignTotalRequests(args: {
   }
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
+    const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
+    const denom = adsClicks > 0 ? adsClicks : b.total_requests;
+    const rate = denom > 0 && prev.impressions > 0
+      ? Math.min(100, (prev.impressions / denom) * 100)
+      : null;
     return {
       user_id: userId,
       site_id: siteId,
@@ -1445,8 +1466,8 @@ async function persistCampaignTotalRequests(args: {
       utm_source: "google",
       revenue_usd: prev.revenue_usd,
       impressions: prev.impressions,
-      total_requests: b.total_requests,
-      match_rate_pct: b.match_rate_pct ?? prev.match_rate_pct,
+      total_requests: denom,
+      match_rate_pct: rate,
     };
   });
   const CHUNK = 500;
