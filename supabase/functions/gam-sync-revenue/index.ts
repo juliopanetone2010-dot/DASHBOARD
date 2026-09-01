@@ -879,16 +879,12 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // KEY_VALUES_NAME quebra com o conjunto de métricas MISTO (AD_EXCHANGE_* +
-    // AD_SERVER_* + ADSENSE_* juntos) → REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
-    // Rodamos cada família em um relatório SEPARADO e somamos. Cada uma tem seu
-    // try/catch: se uma família for incompatível nesse network, é logada e ignorada.
-    // ADSENSE_* é essencial p/ sites monetizados via offerwall/interstitial (ex.:
-    // Ligado 360) — sem ele a receita dessas campanhas nunca é atribuída.
+    // KEY_VALUES_NAME é INCOMPATÍVEL com ADSENSE_* (e às vezes com o AD_EXCHANGE_* +
+    // AD_SERVER_* juntos) no GAM: retorna REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
+    // Rodamos cada família de métrica em um relatório separado e somamos.
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
       { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
     ];
     for (const group of metricGroups) {
       try {
@@ -1614,20 +1610,8 @@ async function persistCampaignSourceRevenueFromUtm(
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;
   }
-  // Apaga só os pares (campanha, dia) que ESTE pull retornou. Antes o delete cobria todo o
-  // range inteiro e, quando o GAM devolvia atribuição parcial (429/timeout/incompatibilidade
-  // de dimensão), as campanhas/dias ausentes eram apagados aqui e depois zerados em
-  // daily_metrics por applyGoogleUtmRevenue. Agora o snapshot deles é preservado.
-  const cidsByDate = new Map<string, Set<string>>();
-  for (const b of arr) {
-    const set = cidsByDate.get(b.date) ?? new Set<string>();
-    set.add(b.campaign_id);
-    cidsByDate.set(b.date, set);
-  }
-  for (const [d, cidSet] of cidsByDate) {
-    await admin.from("gam_campaign_source_revenue")
-      .delete().eq("user_id", userId).eq("site_id", siteId).eq("date", d).in("campaign_id", [...cidSet]);
-  }
+  await admin.from("gam_campaign_source_revenue")
+    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
@@ -1693,19 +1677,8 @@ async function applyGoogleUtmRevenue(
     debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (provável rate-limit/quota). Mantendo snapshot anterior.`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
-    // Mesmo motivo do gam_campaign_source_revenue: apaga só os pares (campanha, dia) que este
-    // pull retornou, para não zerar receita real quando o GAM devolve atribuição parcial.
-    const placementCidsByDate = new Map<string, Set<string>>();
-    for (const p of arr) {
-      if (!p.campaign_id) continue;
-      const set = placementCidsByDate.get(p.date) ?? new Set<string>();
-      set.add(p.campaign_id);
-      placementCidsByDate.set(p.date, set);
-    }
-    for (const [d, cidSet] of placementCidsByDate) {
-      await admin.from("gam_placement_revenue")
-        .delete().eq("user_id", userId).eq("site_id", siteId).eq("date", d).in("campaign_id", [...cidSet]);
-    }
+    await admin.from("gam_placement_revenue")
+      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
@@ -1754,26 +1727,11 @@ async function applyGoogleUtmRevenue(
     return;
   }
 
-  // O rateio de receita por gasto (fallback abaixo) só é seguro quando as contas
-  // deste site NÃO são compartilhadas com outros sites — senão a mesma campanha
-  // seria rateada em 2 sites e o último sync sobrescreveria o outro.
-  const { data: allLinksForAccounts } = await admin
-    .from("account_site_links")
-    .select("google_account_id, site_id")
-    .in("google_account_id", accountIds);
-  const sitesPerAccount = new Map<string, Set<string>>();
-  for (const l of (allLinksForAccounts ?? []) as any[]) {
-    const set = sitesPerAccount.get(l.google_account_id) ?? new Set<string>();
-    set.add(l.site_id);
-    sitesPerAccount.set(l.google_account_id, set);
-  }
-  const accountsAreDedicated = accountIds.every((id) => (sitesPerAccount.get(id)?.size ?? 1) <= 1);
-
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
     const { data: metrics } = await admin
       .from("daily_metrics")
-      .select("id, campaign_id, spend, impressions, google_account_id")
+      .select("id, campaign_id, spend, impressions")
       .eq("user_id", userId)
       .eq("date", date)
       .in("google_account_id", accountIds);
@@ -1812,58 +1770,6 @@ async function applyGoogleUtmRevenue(
       }
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
-
-    // Receita já atribuída por campanha (utm_campaign / utm_placement) para as
-    // campanhas deste dia/conta.
-    const attributedUsd = (metrics as any[]).reduce(
-      (s, m) => s + (aggregatedByCid.get(String(m.campaign_id)) ?? 0), 0,
-    );
-    const { data: siteRev } = await admin
-      .from("site_metrics_daily")
-      .select("revenue_native")
-      .eq("user_id", userId)
-      .eq("site_id", siteId)
-      .eq("date", date)
-      .maybeSingle();
-    const siteRevenueUsd = Number((siteRev as any)?.revenue_native ?? 0) / (ingestionDivisor || 1);
-
-    // FALLBACK POR RATEIO DE GASTO
-    // A receita do site existe no GAM mas parte não casou por campanha — porque o
-    // utm_campaign não chegou na key-value (tags do site / campanha nova ainda não
-    // ingerida) ou é inventário AdSense/offerwall que o relatório por KEY_VALUES_NAME
-    // não quebra. Sem isto essas campanhas ficam com receita 0 e ROI -100% falso.
-    //
-    // Regra: pega o que sobrou (receita do site − já atribuído) e distribui SÓ entre
-    // as campanhas com gasto no dia e SEM nenhuma receita atribuída, proporcional ao
-    // gasto. Assim funciona tanto pro site todo estourado (Ligado) quanto pro site
-    // que atribui quase tudo e só tem 1-2 campanhas novas zeradas (Diário). É
-    // ESTIMATIVA. Peso = gasto ÷ nº de sites da conta (trava anti-dupla contagem).
-    const remainderUsd = Math.max(0, siteRevenueUsd - attributedUsd);
-    const weightOf = (m: any) => {
-      const nSites = sitesPerAccount.get(String(m.google_account_id))?.size ?? 1;
-      return Number(m.spend ?? 0) / Math.max(1, nSites);
-    };
-    const unattributed = (metrics as any[]).filter(
-      (m) => (aggregatedByCid.get(String(m.campaign_id)) ?? 0) <= 0 && Number(m.spend ?? 0) > 0,
-    );
-    if (remainderUsd > 0 && unattributed.length > 0) {
-      const totalWeight = unattributed.reduce((s, m) => s + weightOf(m), 0);
-      if (totalWeight > 0) {
-        for (const m of unattributed) {
-          const add = remainderUsd * (weightOf(m) / totalWeight);
-          if (add > 0) {
-            const cid = String(m.campaign_id);
-            aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + add);
-          }
-        }
-        debug.push(`[daily_metrics] ${date}: RATEIO por gasto — remainder=${remainderUsd.toFixed(2)} entre ${unattributed.length}/${metrics.length} campanha(s) sem atribuição (site_usd=${siteRevenueUsd.toFixed(2)} atribuído=${attributedUsd.toFixed(2)}, dedicadas=${accountsAreDedicated})`);
-      }
-    } else if (attributedUsd <= 0 && siteRevenueUsd <= 0) {
-      // Nada a atribuir e nada pra ratear: NÃO força revenue=0 (gera ROI -100% falso
-      // na conta toda e dispara auto-pause). Preserva o valor anterior de daily_metrics.
-      debug.push(`[daily_metrics] ${date}: SKIP zeragem — atribuído=0 e site_usd=0 (receita do site ainda não sincronizada?); preservando daily_metrics anterior`);
-      continue;
-    }
 
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
