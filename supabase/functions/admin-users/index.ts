@@ -199,6 +199,23 @@ async function setSiteAccess(admin: any, body: any, callerId: string) {
   const userId = String(body.user_id ?? "");
   const siteIds = (body.site_ids ?? []) as string[];
   if (!userId) return jsonResp({ error: "user_id obrigatório" }, 400);
+
+  // Make sure the user has a profile so the UI doesn't render them as "inactive".
+  const { data: prof } = await admin.from("admin_profiles").select("user_id").eq("user_id", userId).maybeSingle();
+  if (!prof) {
+    const { data: u } = await admin.auth.admin.getUserById(userId);
+    await admin.from("admin_profiles").upsert({
+      user_id: userId,
+      name: (u?.user?.email ?? "").split("@")[0] || "user",
+      role: "viewer",
+      is_active: true,
+    }, { onConflict: "user_id" });
+    await admin.from("admin_permissions").upsert(
+      { user_id: userId, can_view_dashboard: true },
+      { onConflict: "user_id" },
+    );
+  }
+
   await admin.from("admin_site_access").delete().eq("user_id", userId);
   if (siteIds.length > 0) {
     await admin.from("admin_site_access").insert(
