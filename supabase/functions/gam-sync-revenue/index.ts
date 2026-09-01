@@ -1397,7 +1397,8 @@ async function persistCampaignTotalRequests(args: {
     }
   }
   if (agg.size === 0) {
-    debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign encontrada`);
+    debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
+    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode });
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1479,6 +1480,85 @@ async function persistCampaignTotalRequests(args: {
     if (error) debug.push(`[${networkCode}/total_requests] upsert err=${error.message}`);
   }
   debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
+
+  // Recalcula match_rate_pct para TODAS as linhas utm_source='google' com impressões no
+  // período — inclusive as campanhas que o relatório AdX (AD_EXCHANGE_TOTAL_REQUESTS) não
+  // retornou (inventário servido só via Ad Server / AdSense, ou relatório parcial/timeout).
+  // Sem isto elas ficavam com o match rate ANTIGO (denominador AdX inflado, pré-mudança
+  // "impressões / cliques").
+  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode });
+}
+
+// Match rate no modelo de arbitragem = impressões monetizadas no GAM / cliques comprados
+// no Google Ads (cap 100%). Roda direto sobre gam_campaign_source_revenue, sem depender do
+// relatório AD_EXCHANGE_TOTAL_REQUESTS, para garantir que nenhuma campanha mantenha o valor
+// antigo. Só toca em match_rate_pct/total_requests — nunca em revenue_usd/impressions.
+async function recomputeCampaignMatchRateFromClicks(args: {
+  admin: any;
+  userId: string;
+  siteId: string | undefined;
+  dates: string[];
+  debug: string[];
+  networkCode?: string;
+}) {
+  const { admin, userId, siteId, dates, debug } = args;
+  const tag = args.networkCode ? `${args.networkCode}/match_rate_clicks` : "match_rate_clicks";
+  if (!siteId || !dates || dates.length === 0) return;
+
+  const { data: rows, error: rowsErr } = await admin
+    .from("gam_campaign_source_revenue")
+    .select("id,campaign_id,date,impressions,total_requests,match_rate_pct")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .eq("utm_source", "google")
+    .in("date", dates);
+  if (rowsErr) { debug.push(`[${tag}] select err=${rowsErr.message}`); return; }
+  if (!rows || rows.length === 0) return;
+
+  const cids = [...new Set((rows as any[])
+    .map((r) => String(r.campaign_id))
+    .filter((c) => c && c !== "__aggregate__"))];
+  if (cids.length === 0) return;
+
+  const { data: clicksRows } = await admin
+    .from("daily_metrics")
+    .select("campaign_id,date,clicks")
+    .eq("user_id", userId)
+    .in("campaign_id", cids)
+    .in("date", dates);
+  const clicksByKey = new Map<string, number>();
+  for (const r of (clicksRows ?? []) as any[]) {
+    const k = `${r.campaign_id}|${r.date}`;
+    clicksByKey.set(k, (clicksByKey.get(k) ?? 0) + Number(r.clicks || 0));
+  }
+
+  const updates: Array<{ id: any; match_rate_pct: number; total_requests: number }> = [];
+  for (const r of rows as any[]) {
+    const cid = String(r.campaign_id);
+    if (!cid || cid === "__aggregate__") continue;
+    const impressions = Number(r.impressions || 0);
+    if (impressions <= 0) continue;
+    const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
+    if (clicks <= 0) continue; // sem cliques do Ads não há denominador — preserva o valor atual
+    const rate = Math.min(100, (impressions / clicks) * 100);
+    const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
+    const prevDenom = Number(r.total_requests || 0);
+    if (prevRate != null && Math.abs(prevRate - rate) < 0.01 && prevDenom === clicks) continue;
+    updates.push({ id: r.id, match_rate_pct: rate, total_requests: clicks });
+  }
+  if (updates.length === 0) {
+    debug.push(`[${tag}] ${rows.length} linha(s) verificadas, nada a recalcular`);
+    return;
+  }
+  const CHUNK = 25;
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    await Promise.all(updates.slice(i, i + CHUNK).map((u) =>
+      admin.from("gam_campaign_source_revenue")
+        .update({ match_rate_pct: u.match_rate_pct, total_requests: u.total_requests })
+        .eq("id", u.id)
+    ));
+  }
+  debug.push(`[${tag}] ${updates.length}/${rows.length} linha(s) recalculadas (impressões/cliques, cap 100%)`);
 }
 
 async function persistCampaignSourceRevenueFromUtm(
@@ -1527,8 +1607,20 @@ async function persistCampaignSourceRevenueFromUtm(
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;
   }
-  await admin.from("gam_campaign_source_revenue")
-    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+  // Apaga só os pares (campanha, dia) que ESTE pull retornou. Antes o delete cobria todo o
+  // range inteiro e, quando o GAM devolvia atribuição parcial (429/timeout/incompatibilidade
+  // de dimensão), as campanhas/dias ausentes eram apagados aqui e depois zerados em
+  // daily_metrics por applyGoogleUtmRevenue. Agora o snapshot deles é preservado.
+  const cidsByDate = new Map<string, Set<string>>();
+  for (const b of arr) {
+    const set = cidsByDate.get(b.date) ?? new Set<string>();
+    set.add(b.campaign_id);
+    cidsByDate.set(b.date, set);
+  }
+  for (const [d, cidSet] of cidsByDate) {
+    await admin.from("gam_campaign_source_revenue")
+      .delete().eq("user_id", userId).eq("site_id", siteId).eq("date", d).in("campaign_id", [...cidSet]);
+  }
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
@@ -1594,8 +1686,19 @@ async function applyGoogleUtmRevenue(
     debug.push(`[gam_placement_revenue] SKIP delete/insert: nenhum dado retornado pelo GAM (provável rate-limit/quota). Mantendo snapshot anterior.`);
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
-    await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    // Mesmo motivo do gam_campaign_source_revenue: apaga só os pares (campanha, dia) que este
+    // pull retornou, para não zerar receita real quando o GAM devolve atribuição parcial.
+    const placementCidsByDate = new Map<string, Set<string>>();
+    for (const p of arr) {
+      if (!p.campaign_id) continue;
+      const set = placementCidsByDate.get(p.date) ?? new Set<string>();
+      set.add(p.campaign_id);
+      placementCidsByDate.set(p.date, set);
+    }
+    for (const [d, cidSet] of placementCidsByDate) {
+      await admin.from("gam_placement_revenue")
+        .delete().eq("user_id", userId).eq("site_id", siteId).eq("date", d).in("campaign_id", [...cidSet]);
+    }
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));

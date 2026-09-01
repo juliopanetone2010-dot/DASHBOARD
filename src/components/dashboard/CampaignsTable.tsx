@@ -127,6 +127,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     | "ecpm" | "matchRate" | "bestMatch" | "deltaMatch" | "impressions" | "clicks" | "ctr"
     | "conversions" | "convRate" | "cpa" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
+  // Ordem padrão: métricas principais → Taxa Corresp. → ações Pause / CPA logo ao lado →
+  // demais métricas. Colunas em DEFAULT_HIDDEN existem mas começam ocultas (reativáveis no
+  // menu "Colunas").
   const ALL_COLUMNS: Array<{ key: ColKey; label: string; width: number }> = [
     { key: "score", label: "Saúde", width: 60 },
     { key: "startDate", label: "Início gasto", width: 100 },
@@ -136,12 +139,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "revenue", label: "Receita", width: 110 },
     { key: "profit", label: "Lucro", width: 110 },
     { key: "roi", label: "ROI", width: 110 },
-    { key: "trend", label: "Tendência", width: 100 },
-    { key: "roas", label: "ROAS", width: 80 },
     { key: "ecpm", label: "eCPM", width: 100 },
     { key: "matchRate", label: "Taxa Corresp.", width: 110 },
+    { key: "act_pause", label: "Ação · Pause", width: 56 },
+    { key: "act_cpa", label: "Ação · CPA", width: 120 },
     { key: "bestMatch", label: "Melhor Match", width: 160 },
-    { key: "deltaMatch", label: "Δ Match", width: 100 },
     { key: "impressions", label: "Impr.", width: 100 },
     { key: "clicks", label: "Cliques", width: 80 },
     { key: "ctr", label: "CTR", width: 70 },
@@ -149,21 +151,28 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "convRate", label: "Tx. Conv.", width: 90 },
     { key: "cpa", label: "CPA", width: 90 },
     { key: "finalUrl", label: "Final URL", width: 560 },
-    { key: "act_pause", label: "Ação · Pause", width: 56 },
-    { key: "act_cpa", label: "Ação · CPA", width: 120 },
+    { key: "trend", label: "Tendência", width: 100 },
+    { key: "roas", label: "ROAS", width: 80 },
+    { key: "deltaMatch", label: "Δ Match", width: 100 },
     { key: "act_budget", label: "Ação · Orçamento", width: 120 },
     { key: "act_history", label: "Ação · Histórico", width: 110 },
     { key: "act_restart", label: "Ação · Reiniciar", width: 110 },
     { key: "act_html5", label: "Ação · HTML5", width: 90 },
   ];
   const ALL_KEYS = ALL_COLUMNS.map((c) => c.key);
+  // Ocultas por padrão (pedido do usuário) — continuam disponíveis no menu "Colunas".
+  const DEFAULT_HIDDEN = new Set<ColKey>([
+    "trend", "roas", "deltaMatch", "act_budget", "act_history", "act_restart", "act_html5",
+  ]);
+  const DEFAULT_VISIBLE = ALL_KEYS.filter((k) => !DEFAULT_HIDDEN.has(k));
   const DEFAULT_WIDTHS = Object.fromEntries(ALL_COLUMNS.map((c) => [c.key, c.width])) as Record<ColKey, number>;
   const layout = useColumnLayout({
-    storageKeyOrder: "campaigns-table-col-order-v1",
-    storageKeyWidths: "campaigns-table-col-widths-v1",
-    storageKeyVisible: "campaigns-table-visible-cols-v8",
+    storageKeyOrder: "campaigns-table-col-order-v2",
+    storageKeyWidths: "campaigns-table-col-widths-v2",
+    storageKeyVisible: "campaigns-table-visible-cols-v9",
     allKeys: ALL_KEYS,
     defaultWidths: DEFAULT_WIDTHS,
+    defaultVisible: DEFAULT_VISIBLE,
   });
   const visibleCols = layout.visible as Set<ColKey>;
   const isVisible = (k: ColKey) => visibleCols.has(k);
