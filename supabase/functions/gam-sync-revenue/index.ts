@@ -879,64 +879,12 @@ async function collectUtmAttribution(args: {
   const { networkCode, accessToken, ranges, debug, deadlineAt, fastMode } = args;
   const label = "KEY_VALUES_NAME";
 
-  // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
-  // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
-  // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
-  // === PRIORIDADE: CUSTOM_DIMENSION_0_VALUE (receita TOTAL por utm_campaign) ===
-  // KEY_VALUES_NAME não combina com AD_SERVER_*/ADSENSE_* na REST v1 (só AdX). Passando
-  // dimensionKeyIds=[<id da key utm_campaign>], o GAM expõe a key como CUSTOM_DIMENSION_0_VALUE
-  // (ou EKV_DIMENSION_0_VALUE), que ACEITA as 6 métricas (AdX + Ad Server + AdSense) com
-  // expandedCompatibility. É a receita real por campanha em sites de offerwall/AdSense.
-  // RODA PRIMEIRO — antes tava no fim e o orçamento de tempo do Edge acabava antes dela.
-  let fullCampaignRows: AttributedRow[] = [];
-  try {
-    const keyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
-    const campKeyId = keyIds.utm_campaign;
-    if (campKeyId) {
-      outer:
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
-          const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
-          try {
-            const rawRows = (await Promise.all(ranges.map((range) =>
-              runReport({
-                networkCode, accessToken, range,
-                dimensions: ["DATE", dimName],
-                dimensionKeyIdsField: dimField,
-                dimensionKeyIds: [campKeyId],
-                expandedCompatibility: true,
-                debug, deadlineAt,
-              })
-            ))).flat();
-            const mapped = rawRows
-              .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
-              .filter(({ cid }) => !!cid)
-              .map(({ r, cid }) => ({
-                date: r.date, impressions: r.impressions, revenue: r.revenue,
-                source: "google", cid, placement: null,
-                raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
-              } as AttributedRow));
-            const rev = mapped.reduce((s, r) => s + r.revenue, 0);
-            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
-            debug.push(line); console.log(`[ATTR] ${line}`);
-            if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break outer; }
-          } catch (e) {
-            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) erro=${String(e).slice(0, 500)}`;
-            debug.push(line); console.log(`[ATTR] ${line}`);
-          }
-        }
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
-      }
-    } else {
-      debug.push(`[${networkCode}] custom key 'utm_campaign' não encontrada`);
-    }
-  } catch (e) {
-    debug.push(`[${networkCode}/CUSTOM_DIMENSION] erro=${String(e).slice(0, 500)}`);
-  }
-
-  // KEY_VALUES_NAME (só AD_EXCHANGE — é o único compatível): usado p/ separar
-  // utm_source (retenção/push) e utm_placement. A receita por campanha vem do
-  // CUSTOM_DIMENSION acima; aqui é só o breakdown por source/placement.
+  // ========================================================================
+  // 1) AD_EXCHANGE por KEY_VALUES_NAME — é o CONFIÁVEL. É o que a "outra dash"
+  //    usa e o que já funcionou aqui. Roda PRIMEIRO, sempre, com o tempo garantido.
+  //    Traz utm_source (retenção/push), utm_campaign (ROI) e utm_placement — só
+  //    a fatia AdX, mas confiável.
+  // ========================================================================
   let reportRows: ReportRow[] = [];
   try {
     for (const expanded of [false, true]) {
@@ -962,6 +910,50 @@ async function collectUtmAttribution(args: {
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 1500)}`);
   }
+
+  // ========================================================================
+  // 2) BÔNUS: CUSTOM_DIMENSION_0_VALUE (receita TOTAL por utm_campaign —
+  //    AdX + Ad Server + AdSense). Só roda se SOBRAR orçamento de tempo, 1
+  //    tentativa, sem EKV. Se voltar vazio/erro, seguimos com o AD_EXCHANGE
+  //    acima. Nunca gasta o tempo do relatório confiável.
+  // ========================================================================
+  let fullCampaignRows: AttributedRow[] = [];
+  const budgetOk = !deadlineAt || (Date.now() + 40_000 < deadlineAt);
+  if (budgetOk) {
+    try {
+      const campKeyId = (await fetchUtmKeyIds(networkCode, accessToken, debug)).utm_campaign;
+      if (campKeyId) {
+        const rawRows = (await Promise.all(ranges.map((range) =>
+          runReport({
+            networkCode, accessToken, range,
+            dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
+            dimensionKeyIdsField: "customDimensionKeyIds",
+            dimensionKeyIds: [campKeyId],
+            expandedCompatibility: true,
+            debug, deadlineAt,
+          })
+        ))).flat();
+        const mapped = rawRows
+          .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
+          .filter(({ cid }) => !!cid)
+          .map(({ r, cid }) => ({
+            date: r.date, impressions: r.impressions, revenue: r.revenue,
+            source: "google", cid, placement: null,
+            raw: `CUSTOM_DIMENSION_0_VALUE|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
+          } as AttributedRow));
+        const rev = mapped.reduce((s, r) => s + r.revenue, 0);
+        const line = `[${networkCode}/CUSTOM_DIMENSION_0_VALUE/utm_campaign] rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
+        debug.push(line); console.log(`[ATTR] ${line}`);
+        if (mapped.length > 0 && rev > 0) fullCampaignRows = mapped;
+      }
+    } catch (e) {
+      const line = `[${networkCode}/CUSTOM_DIMENSION_0_VALUE/utm_campaign] erro=${String(e).slice(0, 400)}`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+    }
+  } else {
+    console.log(`[ATTR] [${networkCode}/CUSTOM_DIMENSION] pulado (orçamento de tempo baixo)`);
+  }
+
   if (fullCampaignRows.length === 0 && reportRows.length === 0) {
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
@@ -1053,11 +1045,12 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  // Se o CUSTOM_DIMENSION trouxe receita TOTAL por campanha (todas as fontes), usa ela —
-  // é a receita real. Senão, cai no AdX-only de KEY_VALUES_NAME (comportamento antigo).
-  const googleCampaignRows = fullCampaignRows.length > 0
-    ? fullCampaignRows
-    : [...campaignRows, ...placementCampaignFallbackRows];
+  const adxCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
+  // Só usa o CUSTOM_DIMENSION se ele trouxe MAIS receita que o AdX confiável (é
+  // upgrade — todas as fontes). Nunca troca um valor bom por um menor/vazio.
+  const adxRev = adxCampaignRows.reduce((s, r) => s + r.revenue, 0);
+  const fullRev = fullCampaignRows.reduce((s, r) => s + r.revenue, 0);
+  const googleCampaignRows = fullRev > adxRev ? fullCampaignRows : adxCampaignRows;
   const googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
