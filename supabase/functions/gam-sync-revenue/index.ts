@@ -892,24 +892,38 @@ async function collectUtmAttribution(args: {
       { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
     ];
     for (const group of metricGroups) {
-      try {
-        const groupRows = (await Promise.all(ranges.map((range) =>
-          runReport({
-            networkCode, accessToken, range,
-            dimensions: ["DATE", "KEY_VALUES_NAME"],
-            metrics: group.metrics,
-            debug,
-            deadlineAt,
-          })
-        ))).flat();
+      // `expandedCompatibility` faz o GAM aceitar combinações dimensão×métrica que
+      // normalmente dão REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY (era o caso de
+      // AD_SERVER_* + KEY_VALUES_NAME → a receita AD_SERVER, que é a maior fatia
+      // de sites offerwall/AdSense, nunca era buscada por campanha).
+      // Tenta primeiro COM o flag; se ainda falhar, tenta SEM (comportamento antigo).
+      let groupRows: ReportRow[] = [];
+      let ok = false;
+      for (const expanded of [true, false]) {
+        try {
+          groupRows = (await Promise.all(ranges.map((range) =>
+            runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE", "KEY_VALUES_NAME"],
+              metrics: group.metrics,
+              expandedCompatibility: expanded,
+              debug,
+              deadlineAt,
+            })
+          ))).flat();
+          ok = true;
+          break;
+        } catch (e) {
+          const line = `[${networkCode}/${label}/${group.label}] erro (expanded=${expanded})=${String(e).slice(0, 800)}`;
+          debug.push(line);
+          console.log(`[ATTR] ${line}`);
+        }
+      }
+      if (ok) {
         const line = `[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`;
         debug.push(line);
         console.log(`[ATTR] ${line}`);
         reportRows.push(...groupRows);
-      } catch (e) {
-        const line = `[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 1500)}`;
-        debug.push(line);
-        console.log(`[ATTR] ${line}`);
       }
     }
   } catch (e) {
