@@ -995,6 +995,54 @@ async function collectUtmAttribution(args: {
       };
     });
 
+  // === CAMINHO ALTERNATIVO: CUSTOM_DIMENSION_0_VALUE (receita TOTAL por utm_campaign) ===
+  // KEY_VALUES_NAME não combina com AD_SERVER_*/ADSENSE_* → os campaignRows acima só têm
+  // receita AdX. Passando dimensionKeyIds=[<id da key utm_campaign>], o GAM expõe a key
+  // como CUSTOM_DIMENSION_0_VALUE (ou EKV_DIMENSION_0_VALUE), que ACEITA as 6 métricas
+  // (AdX + Ad Server + AdSense). Isso recupera a receita real por campanha em sites de
+  // offerwall/AdSense (Ligado, Universo). Se o network não suportar, cai no fallback AdX.
+  let fullCampaignRows: AttributedRow[] = [];
+  try {
+    const keyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
+    const campKeyId = keyIds.utm_campaign;
+    if (campKeyId) {
+      for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
+        const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
+        try {
+          const rawRows = (await Promise.all(ranges.map((range) =>
+            runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE", dimName],
+              dimensionKeyIdsField: dimField,
+              dimensionKeyIds: [campKeyId],
+              expandedCompatibility: true,
+              debug, deadlineAt,
+            })
+          ))).flat();
+          const mapped = rawRows
+            .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
+            .filter(({ cid }) => !!cid)
+            .map(({ r, cid }) => ({
+              date: r.date, impressions: r.impressions, revenue: r.revenue,
+              source: "google", cid, placement: null,
+              raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
+            } as AttributedRow));
+          const rev = mapped.reduce((s, r) => s + r.revenue, 0);
+          const line = `[${networkCode}/${dimName}/utm_campaign] rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
+          debug.push(line); console.log(`[ATTR] ${line}`);
+          if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break; }
+        } catch (e) {
+          const line = `[${networkCode}/${dimName}/utm_campaign] erro=${String(e).slice(0, 500)}`;
+          debug.push(line); console.log(`[ATTR] ${line}`);
+        }
+      }
+    } else {
+      debug.push(`[${networkCode}] custom key 'utm_campaign' não encontrada`);
+    }
+  } catch (e) {
+    debug.push(`[${networkCode}/CUSTOM_DIMENSION] erro=${String(e).slice(0, 500)}`);
+  }
+
   // Debug agregado por source
   const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; cidOk: number }>, r) => {
     const s = acc[r.source] ?? { rows: 0, rev: 0, cidOk: 0 };
@@ -1018,7 +1066,11 @@ async function collectUtmAttribution(args: {
   // para evitar dupla contagem.
   const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
   const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const googleCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
+  // Se o CUSTOM_DIMENSION trouxe receita TOTAL por campanha (todas as fontes), usa ela —
+  // é a receita real. Senão, cai no AdX-only de KEY_VALUES_NAME (comportamento antigo).
+  const googleCampaignRows = fullCampaignRows.length > 0
+    ? fullCampaignRows
+    : [...campaignRows, ...placementCampaignFallbackRows];
   const googlePlacementRows = placementRows.filter((r) => r.placement);
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
