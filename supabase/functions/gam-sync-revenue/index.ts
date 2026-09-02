@@ -1006,35 +1006,42 @@ async function collectUtmAttribution(args: {
     const keyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
     const campKeyId = keyIds.utm_campaign;
     if (campKeyId) {
-      for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
-        const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
-        try {
-          const rawRows = (await Promise.all(ranges.map((range) =>
-            runReport({
-              networkCode, accessToken, range,
-              dimensions: ["DATE", dimName],
-              dimensionKeyIdsField: dimField,
-              dimensionKeyIds: [campKeyId],
-              expandedCompatibility: true,
-              debug, deadlineAt,
-            })
-          ))).flat();
-          const mapped = rawRows
-            .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
-            .filter(({ cid }) => !!cid)
-            .map(({ r, cid }) => ({
-              date: r.date, impressions: r.impressions, revenue: r.revenue,
-              source: "google", cid, placement: null,
-              raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
-            } as AttributedRow));
-          const rev = mapped.reduce((s, r) => s + r.revenue, 0);
-          const line = `[${networkCode}/${dimName}/utm_campaign] rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
-          debug.push(line); console.log(`[ATTR] ${line}`);
-          if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break; }
-        } catch (e) {
-          const line = `[${networkCode}/${dimName}/utm_campaign] erro=${String(e).slice(0, 500)}`;
-          debug.push(line); console.log(`[ATTR] ${line}`);
+      // 2 dimensões possíveis × até 2 tentativas cada (o GAM às vezes devolve 5xx/500
+      // transitório na criação do report). Só desiste da campanha quando as 2 dimensões
+      // falharem de vez — assim um erro passageiro não joga tudo pro fallback AdX-only.
+      outer:
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
+          const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
+          try {
+            const rawRows = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", dimName],
+                dimensionKeyIdsField: dimField,
+                dimensionKeyIds: [campKeyId],
+                expandedCompatibility: true,
+                debug, deadlineAt,
+              })
+            ))).flat();
+            const mapped = rawRows
+              .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
+              .filter(({ cid }) => !!cid)
+              .map(({ r, cid }) => ({
+                date: r.date, impressions: r.impressions, revenue: r.revenue,
+                source: "google", cid, placement: null,
+                raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
+              } as AttributedRow));
+            const rev = mapped.reduce((s, r) => s + r.revenue, 0);
+            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
+            debug.push(line); console.log(`[ATTR] ${line}`);
+            if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break outer; }
+          } catch (e) {
+            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) erro=${String(e).slice(0, 500)}`;
+            debug.push(line); console.log(`[ATTR] ${line}`);
+          }
         }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
       }
     } else {
       debug.push(`[${networkCode}] custom key 'utm_campaign' não encontrada`);
@@ -1669,20 +1676,35 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,revenue_usd,impressions")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
+  const existingRevByKey = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (existingRequests ?? []) as any[]) {
+    const k = `${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`;
     const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
+    if (req > 0) requestsByKey.set(k, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
+    existingRevByKey.set(k, { revenue_usd: Number(r.revenue_usd ?? 0), impressions: Number(r.impressions ?? 0) });
   }
+  let preservedCount = 0;
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
     if (req && req.total_requests > 0) {
       b.total_requests = req.total_requests;
       b.match_rate_pct = req.match_rate_pct;
     }
+    // Proteção contra sync parcial: se este pull traz uma receita DRASTICAMENTE menor
+    // (< 50%) que a já gravada para o mesmo (campanha, dia, source), quase certo que
+    // o relatório do GAM veio incompleto (ex.: CUSTOM_DIMENSION falhou e sobrou só AdX).
+    // Mantém o valor anterior — receita de dia passado no GAM não cai pela metade.
+    const prev = existingRevByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
+    if (prev && prev.revenue_usd > 0.5 && b.revenue_usd < prev.revenue_usd * 0.5) {
+      b.revenue_usd = prev.revenue_usd;
+      b.impressions = Math.max(b.impressions, prev.impressions);
+      preservedCount++;
+    }
   }
+  if (preservedCount > 0) debug.push(`[gam_campaign_source_revenue] ${preservedCount} linha(s) preservadas (pull parcial — receita nova << gravada)`);
   const arr = [...buckets.values()];
   if (arr.length === 0) {
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
@@ -1848,58 +1870,6 @@ async function applyGoogleUtmRevenue(
       }
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
-
-    // ===== RATEIO POR GASTO (sites de arbitragem) =====
-    // A receita AD_SERVER / AdSense / offerwall NÃO pode ser quebrada por utm_campaign
-    // na API REST v1 do GAM (REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY — confirmado no log).
-    // Em site de arbitragem (~100% do tráfego vem das campanhas do usuário) estimamos:
-    //   pool = receita_real_do_site − push/direct/organic (já atribuídos) − o que casou por campanha
-    //   pool é distribuído entre as campanhas com gasto, proporcional ao gasto.
-    // TRAVA: só roda quando a atribuição real cobre < 25% da receita "de campanha" esperada.
-    // Sites que atribuem bem (AdX puro, ex.: Diário Vagas) têm coverage alto → NÃO são tocados.
-    // Limitação conhecida: conta Ads compartilhada entre 2 sites → a campanha entra com o
-    // gasto cheio no pool de cada site (o último sync grava). Aceitável: sites de arbitragem
-    // usam conta dedicada, e a trava dos 25% já exclui os setups saudáveis.
-    try {
-      const attributedGoogleUsd = (metrics as any[]).reduce(
-        (s, m) => s + (aggregatedByCid.get(String(m.campaign_id)) ?? 0), 0,
-      );
-      const { data: siteRev } = await admin
-        .from("site_metrics_daily")
-        .select("revenue_native")
-        .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
-        .maybeSingle();
-      const siteTotalUsd = Number((siteRev as any)?.revenue_native ?? 0) / (ingestionDivisor || 1);
-
-      const { data: nonGoogleRows } = await admin
-        .from("gam_campaign_source_revenue")
-        .select("revenue_usd")
-        .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
-        .neq("utm_source", "google");
-      const nonGoogleUsd = ((nonGoogleRows ?? []) as any[]).reduce((s, r) => s + Number(r.revenue_usd ?? 0), 0);
-
-      const campaignExpectedUsd = Math.max(0, siteTotalUsd - nonGoogleUsd);
-      const poolUsd = Math.max(0, campaignExpectedUsd - attributedGoogleUsd);
-      const coverage = campaignExpectedUsd > 0 ? attributedGoogleUsd / campaignExpectedUsd : 1;
-
-      const spenders = (metrics as any[]).filter((m) => Number(m.spend ?? 0) > 0);
-      const totalSpend = spenders.reduce((s, m) => s + Number(m.spend ?? 0), 0);
-
-      if (coverage < 0.25 && poolUsd > 0 && totalSpend > 0) {
-        for (const m of spenders) {
-          const cid = String(m.campaign_id);
-          const add = poolUsd * (Number(m.spend ?? 0) / totalSpend);
-          if (add > 0) aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + add);
-        }
-        const line = `[daily_metrics] ${date}: RATEIO(arbitragem) site=${siteId} site_total=${siteTotalUsd.toFixed(2)} nao_google=${nonGoogleUsd.toFixed(2)} ja_casado=${attributedGoogleUsd.toFixed(2)} pool=${poolUsd.toFixed(2)} entre ${spenders.length} campanha(s)`;
-        debug.push(line);
-        console.log(`[ATTR] ${line}`);
-      } else {
-        console.log(`[ATTR] [daily_metrics] ${date}: rateio NAO aplicado (coverage=${(coverage * 100).toFixed(0)}% pool=${poolUsd.toFixed(2)} site_total=${siteTotalUsd.toFixed(2)})`);
-      }
-    } catch (e) {
-      debug.push(`[daily_metrics] ${date}: rateio erro=${String(e).slice(0, 300)}`);
-    }
 
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
