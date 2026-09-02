@@ -853,12 +853,17 @@ async function fetchUtmKeyIds(
     let json: any;
     try { json = JSON.parse(text); } catch { throw new Error(`customTargetingKeys retorno não-JSON: ${text.slice(0, 200)}`); }
     if (!res.ok) throw new Error(`customTargetingKeys failed (${res.status}): ${text.slice(0, 300)}`);
-    const keys = (json.customTargetingKeys ?? []) as Array<{ name?: string; adTagName?: string; customTargetingKeyId?: string }>;
+    const keys = (json.customTargetingKeys ?? []) as Array<{ name?: string; adTagName?: string; customTargetingKeyId?: string; reportableType?: string; type?: string }>;
     for (const k of keys) {
       const name = (k.adTagName ?? "").toLowerCase();
       const id = String(k.customTargetingKeyId ?? (k.name ?? "").split("/").pop() ?? "");
       if (!id) continue;
-      if (name in wanted && !wanted[name]) wanted[name] = id;
+      if (name in wanted && !wanted[name]) {
+        wanted[name] = id;
+        const rep = `[customTargetingKeys] ${networkCode} ${name}: id=${id} reportableType=${k.reportableType ?? "?"} type=${k.type ?? "?"}`;
+        debug.push(rep);
+        console.log(`[ATTR] ${rep}`);
+      }
     }
     pageToken = json.nextPageToken;
     pages++;
