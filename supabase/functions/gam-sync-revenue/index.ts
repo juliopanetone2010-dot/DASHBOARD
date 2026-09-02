@@ -1797,6 +1797,58 @@ async function applyGoogleUtmRevenue(
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
 
+    // ===== RATEIO POR GASTO (sites de arbitragem) =====
+    // A receita AD_SERVER / AdSense / offerwall NÃO pode ser quebrada por utm_campaign
+    // na API REST v1 do GAM (REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY — confirmado no log).
+    // Em site de arbitragem (~100% do tráfego vem das campanhas do usuário) estimamos:
+    //   pool = receita_real_do_site − push/direct/organic (já atribuídos) − o que casou por campanha
+    //   pool é distribuído entre as campanhas com gasto, proporcional ao gasto.
+    // TRAVA: só roda quando a atribuição real cobre < 25% da receita "de campanha" esperada.
+    // Sites que atribuem bem (AdX puro, ex.: Diário Vagas) têm coverage alto → NÃO são tocados.
+    // Limitação conhecida: conta Ads compartilhada entre 2 sites → a campanha entra com o
+    // gasto cheio no pool de cada site (o último sync grava). Aceitável: sites de arbitragem
+    // usam conta dedicada, e a trava dos 25% já exclui os setups saudáveis.
+    try {
+      const attributedGoogleUsd = (metrics as any[]).reduce(
+        (s, m) => s + (aggregatedByCid.get(String(m.campaign_id)) ?? 0), 0,
+      );
+      const { data: siteRev } = await admin
+        .from("site_metrics_daily")
+        .select("revenue_native")
+        .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
+        .maybeSingle();
+      const siteTotalUsd = Number((siteRev as any)?.revenue_native ?? 0) / (ingestionDivisor || 1);
+
+      const { data: nonGoogleRows } = await admin
+        .from("gam_campaign_source_revenue")
+        .select("revenue_usd")
+        .eq("user_id", userId).eq("site_id", siteId).eq("date", date)
+        .neq("utm_source", "google");
+      const nonGoogleUsd = ((nonGoogleRows ?? []) as any[]).reduce((s, r) => s + Number(r.revenue_usd ?? 0), 0);
+
+      const campaignExpectedUsd = Math.max(0, siteTotalUsd - nonGoogleUsd);
+      const poolUsd = Math.max(0, campaignExpectedUsd - attributedGoogleUsd);
+      const coverage = campaignExpectedUsd > 0 ? attributedGoogleUsd / campaignExpectedUsd : 1;
+
+      const spenders = (metrics as any[]).filter((m) => Number(m.spend ?? 0) > 0);
+      const totalSpend = spenders.reduce((s, m) => s + Number(m.spend ?? 0), 0);
+
+      if (coverage < 0.25 && poolUsd > 0 && totalSpend > 0) {
+        for (const m of spenders) {
+          const cid = String(m.campaign_id);
+          const add = poolUsd * (Number(m.spend ?? 0) / totalSpend);
+          if (add > 0) aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + add);
+        }
+        const line = `[daily_metrics] ${date}: RATEIO(arbitragem) site=${siteId} site_total=${siteTotalUsd.toFixed(2)} nao_google=${nonGoogleUsd.toFixed(2)} ja_casado=${attributedGoogleUsd.toFixed(2)} pool=${poolUsd.toFixed(2)} entre ${spenders.length} campanha(s)`;
+        debug.push(line);
+        console.log(`[ATTR] ${line}`);
+      } else {
+        console.log(`[ATTR] [daily_metrics] ${date}: rateio NAO aplicado (coverage=${(coverage * 100).toFixed(0)}% pool=${poolUsd.toFixed(2)} site_total=${siteTotalUsd.toFixed(2)})`);
+      }
+    } catch (e) {
+      debug.push(`[daily_metrics] ${date}: rateio erro=${String(e).slice(0, 300)}`);
+    }
+
     const directMap = directByDateCid.get(date) ?? new Map();
     const matchedIds = new Set<string>();
     const totalGoogle = googleTotalByDate.get(date) ?? { revenue: 0, impressions: 0 };
