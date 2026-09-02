@@ -1038,14 +1038,36 @@ async function collectUtmAttribution(args: {
   );
   debug.push(`[${networkCode}/${label}/sample] ${JSON.stringify(samples)}`);
 
-  // Separa: utm_source=google → ROI/ROAS; demais → retenção
-  // Linha oficial por campanha: primeiro usa utm_campaign. Quando o GAM só
-  // trouxe utm_placement no formato "{campaign_id}_{placement}", usamos esse
-  // ID como fallback por (data,campanha), sem somar por cima de utm_campaign
-  // para evitar dupla contagem.
-  const campaignCovered = new Set(campaignRows.filter((r) => r.cid).map((r) => `${r.date}|${r.cid}`));
-  const placementCampaignFallbackRows = placementRows.filter((r) => r.cid && !campaignCovered.has(`${r.date}|${r.cid}`));
-  const adxCampaignRows = [...campaignRows, ...placementCampaignFallbackRows];
+  // Separa: utm_source=google → ROI/ROAS; demais → retenção.
+  // utm_campaign e utm_placement DA MESMA IMPRESSÃO são linhas separadas no
+  // KEY_VALUES_NAME (mesma receita, chaves diferentes) — não podem SOMAR.
+  // Mas em sites de offerwall o slot marca utm_placement e NÃO utm_campaign,
+  // então a linha utm_campaign cobre poucas impressões e a utm_placement cobre
+  // a maioria. Regra: por (data, cid) pegamos o MAIOR dos dois — nunca "campaign
+  // sempre vence" (que jogava fora 90% da receita quando havia um utm_campaign
+  // minúsculo).
+  const byDateCid = new Map<string, { date: string; cid: string; campRev: number; placeRev: number; campImpr: number; placeImpr: number }>();
+  for (const r of campaignRows) {
+    if (!r.cid || !r.date) continue;
+    const k = `${r.date}|${r.cid}`;
+    const e = byDateCid.get(k) ?? { date: r.date, cid: r.cid, campRev: 0, placeRev: 0, campImpr: 0, placeImpr: 0 };
+    e.campRev += r.revenue; e.campImpr += r.impressions; byDateCid.set(k, e);
+  }
+  for (const r of placementRows) {
+    if (!r.cid || !r.date) continue;
+    const k = `${r.date}|${r.cid}`;
+    const e = byDateCid.get(k) ?? { date: r.date, cid: r.cid, campRev: 0, placeRev: 0, campImpr: 0, placeImpr: 0 };
+    e.placeRev += r.revenue; e.placeImpr += r.impressions; byDateCid.set(k, e);
+  }
+  const adxCampaignRows: AttributedRow[] = [...byDateCid.values()].map((e) => {
+    const usePlace = e.placeRev > e.campRev;
+    return {
+      date: e.date, cid: e.cid, source: "google", placement: null,
+      revenue: usePlace ? e.placeRev : e.campRev,
+      impressions: usePlace ? e.placeImpr : e.campImpr,
+      raw: `merge campaign=${e.campRev.toFixed(2)}/${e.campImpr}i placement=${e.placeRev.toFixed(2)}/${e.placeImpr}i → ${usePlace ? "placement" : "campaign"}`,
+    } as AttributedRow;
+  });
   // Só usa o CUSTOM_DIMENSION se ele trouxe MAIS receita que o AdX confiável (é
   // upgrade — todas as fontes). Nunca troca um valor bom por um menor/vazio.
   const adxRev = adxCampaignRows.reduce((s, r) => s + r.revenue, 0);
@@ -1649,35 +1671,20 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,revenue_usd,impressions")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
     .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
   const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
-  const existingRevByKey = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (existingRequests ?? []) as any[]) {
-    const k = `${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`;
     const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(k, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
-    existingRevByKey.set(k, { revenue_usd: Number(r.revenue_usd ?? 0), impressions: Number(r.impressions ?? 0) });
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
   }
-  let preservedCount = 0;
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
     if (req && req.total_requests > 0) {
       b.total_requests = req.total_requests;
       b.match_rate_pct = req.match_rate_pct;
     }
-    // Proteção contra sync parcial: se este pull traz uma receita DRASTICAMENTE menor
-    // (< 50%) que a já gravada para o mesmo (campanha, dia, source), quase certo que
-    // o relatório do GAM veio incompleto (ex.: CUSTOM_DIMENSION falhou e sobrou só AdX).
-    // Mantém o valor anterior — receita de dia passado no GAM não cai pela metade.
-    const prev = existingRevByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
-    if (prev && prev.revenue_usd > 0.5 && b.revenue_usd < prev.revenue_usd * 0.5) {
-      b.revenue_usd = prev.revenue_usd;
-      b.impressions = Math.max(b.impressions, prev.impressions);
-      preservedCount++;
-    }
   }
-  if (preservedCount > 0) debug.push(`[gam_campaign_source_revenue] ${preservedCount} linha(s) preservadas (pull parcial — receita nova << gravada)`);
   const arr = [...buckets.values()];
   if (arr.length === 0) {
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
@@ -1855,18 +1862,9 @@ async function applyGoogleUtmRevenue(
 
     const updates: any[] = [];
     const matchDebug: string[] = [];
-    let preservedDaily = 0;
     for (const m of metrics as any[]) {
       const cid = String(m.campaign_id);
-      let revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
-      // Proteção: se o valor novo é DRÁSTICAMENTE menor (< 50%) que o já gravado em
-      // daily_metrics e há gasto, quase certo que o report do GAM veio incompleto neste
-      // sync. Mantém a receita anterior — não zera o dashboard por causa de um pull ruim.
-      const prevRevenueUsd = Number(m.revenue ?? 0);
-      if (prevRevenueUsd > 0.5 && revenueUsd < prevRevenueUsd * 0.5 && Number(m.spend ?? 0) > 0) {
-        revenueUsd = prevRevenueUsd;
-        preservedDaily++;
-      }
+      const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
       if (revenueUsd > 0) matchedIds.add(cid);
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
@@ -1893,9 +1891,9 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size}${preservedDaily > 0 ? `, ${preservedDaily} preservadas de pull parcial` : ""})`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size})`);
     const updRev = updates.reduce((s, u) => s + Number(u.revenue || 0), 0);
-    console.log(`[ATTR] [daily_metrics] ${date}: site=${siteId} ${matchedIds.size}/${metrics.length} campanhas com receita; total_gravado_usd=${updRev.toFixed(2)}; agg_rows=${aggregatedByCid.size}${preservedDaily > 0 ? `; ${preservedDaily} preservadas` : ""}`);
+    console.log(`[ATTR] [daily_metrics] ${date}: site=${siteId} ${matchedIds.size}/${metrics.length} campanhas com receita; total_gravado_usd=${updRev.toFixed(2)}; agg_rows=${aggregatedByCid.size}`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
