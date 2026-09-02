@@ -879,12 +879,17 @@ async function collectUtmAttribution(args: {
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
   let reportRows: ReportRow[] = [];
   try {
-    // KEY_VALUES_NAME é INCOMPATÍVEL com ADSENSE_* (e às vezes com o AD_EXCHANGE_* +
-    // AD_SERVER_* juntos) no GAM: retorna REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY.
-    // Rodamos cada família de métrica em um relatório separado e somamos.
+    // O conjunto MISTO (AD_EXCHANGE_* + AD_SERVER_* + ADSENSE_* juntos) + KEY_VALUES_NAME
+    // dá REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY no GAM. Solução: cada família roda em
+    // relatório SEPARADO, com try/catch próprio. São fontes de demanda distintas (sem
+    // sobreposição), então somar as 3 = receita total, sem dupla contagem.
+    // ADSENSE_* é obrigatório p/ sites de offerwall/interstitial (Ligado, Universo) —
+    // sem ele a receita dessas campanhas fica sempre $0. Se essa família for incompatível
+    // nesse network, o try/catch loga e ignora (não piora nada).
     const metricGroups = [
       { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
       { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
+      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
     ];
     for (const group of metricGroups) {
       try {
