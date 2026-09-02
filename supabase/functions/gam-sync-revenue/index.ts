@@ -1695,6 +1695,7 @@ async function persistCampaignSourceRevenueFromUtm(
   const aggregated = arr.filter((b) => b.campaign_id === "__aggregate__").length;
   const byCampaign = arr.filter((b) => b.campaign_id !== "__aggregate__").length;
   debug.push(`[gam_campaign_source_revenue] ${arr.length} linha(s) (${byCampaign} por campanha, ${aggregated} agregadas sem cid); divisor=${ingestionDivisor}; receita por source=${JSON.stringify(sources)}`);
+  console.log(`[ATTR] [gam_campaign_source_revenue] site=${siteId} ${arr.length} linhas (${byCampaign} por campanha); divisor=${ingestionDivisor}; por_source=${JSON.stringify(sources)}`);
 }
 
 async function applyGoogleUtmRevenue(
@@ -1797,8 +1798,10 @@ async function applyGoogleUtmRevenue(
   const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
     debug.push(`[daily_metrics] sem vínculo Ads↔site`);
+    console.log(`[ATTR] [daily_metrics] site=${siteId} SEM vinculo Ads<->site (account_site_links vazio) — daily_metrics NAO atualizado`);
     return;
   }
+  console.log(`[ATTR] [daily_metrics] site=${siteId} accountIds=${accountIds.length} googleCampaignRows=${googleCampaignRows.length} (rev=${googleCampaignRows.reduce((s, r) => s + r.revenue, 0).toFixed(2)})`);
 
   const allDates = new Set<string>([...syncDates, ...directByDateCid.keys(), ...googleTotalByDate.keys()]);
   for (const date of allDates) {
@@ -1891,7 +1894,8 @@ async function applyGoogleUtmRevenue(
       );
     }
     debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size}${preservedDaily > 0 ? `, ${preservedDaily} preservadas de pull parcial` : ""})`);
-    if (preservedDaily > 0) console.log(`[ATTR] [daily_metrics] ${date}: ${preservedDaily} campanha(s) com receita PRESERVADA (pull do GAM veio incompleto)`);
+    const updRev = updates.reduce((s, u) => s + Number(u.revenue || 0), 0);
+    console.log(`[ATTR] [daily_metrics] ${date}: site=${siteId} ${matchedIds.size}/${metrics.length} campanhas com receita; total_gravado_usd=${updRev.toFixed(2)}; agg_rows=${aggregatedByCid.size}${preservedDaily > 0 ? `; ${preservedDaily} preservadas` : ""}`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
