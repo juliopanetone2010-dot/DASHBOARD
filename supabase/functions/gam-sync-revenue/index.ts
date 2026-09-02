@@ -902,10 +902,14 @@ async function collectUtmAttribution(args: {
             deadlineAt,
           })
         ))).flat();
-        debug.push(`[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`);
+        const line = `[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`;
+        debug.push(line);
+        console.log(`[ATTR] ${line}`);
         reportRows.push(...groupRows);
       } catch (e) {
-        debug.push(`[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 1500)}`);
+        const line = `[${networkCode}/${label}/${group.label}] erro=${String(e).slice(0, 1500)}`;
+        debug.push(line);
+        console.log(`[ATTR] ${line}`);
       }
     }
   } catch (e) {
@@ -984,6 +988,8 @@ async function collectUtmAttribution(args: {
     acc[r.source] = s; return acc;
   }, {});
   debug.push(`[${networkCode}/${label}] total_rows=${rows.length}; por_source=${JSON.stringify(sourceStats)}`);
+  console.log(`[ATTR] [${networkCode}] total_rows=${rows.length}; por_source=${JSON.stringify(sourceStats)}`);
+  console.log(`[ATTR] [${networkCode}/sample] ${JSON.stringify([...campaignRows, ...placementRows, ...sourceRows].filter((r) => r.revenue > 0).slice(0, 10).map((r) => `${r.date}|src=${r.source}|cid=${r.cid ?? "-"}|rev=${r.revenue.toFixed(4)}`))}`);
 
   // Debug linha-a-linha (até 20 amostras com receita > 0)
   const samples = [...campaignRows, ...placementRows, ...sourceRows].filter((r) => r.revenue > 0).slice(0, 20).map((r) =>
@@ -1003,6 +1009,7 @@ async function collectUtmAttribution(args: {
   const retentionRows = sourceRows; // Retenção/Push usa apenas linhas da key utm_source para não duplicar receita
 
   debug.push(`[${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length}; google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
+  console.log(`[ATTR] [${networkCode}/ATTRIBUTION] google_campaign_rows=${googleCampaignRows.length} (rev=${googleCampaignRows.reduce((s, r) => s + r.revenue, 0).toFixed(2)}); google_placement_rows=${googlePlacementRows.length}; retention_rows=${retentionRows.length}`);
 
   return {
     retentionRows,
