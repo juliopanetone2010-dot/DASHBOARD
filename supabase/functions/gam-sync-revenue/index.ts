@@ -873,6 +873,34 @@ async function fetchUtmKeyIds(
   return wanted as any;
 }
 
+// Lista os IDs de TODOS os valores de uma custom targeting key cujo nome parece
+// campaign id (>= 6 dígitos). Usado pra montar o filtro CUSTOM_DIMENSION_0_VALUE_ID IN [...]
+// que dá semântica de "OVERLAP" (= o que o usuário faz na UI do GAM).
+async function listCampaignValueIds(networkCode: string, accessToken: string, keyId: string, debug: string[]): Promise<string[]> {
+  const keyResourceName = `networks/${networkCode}/customTargetingKeys/${keyId}`;
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 40; page++) {
+    const url = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingValues`);
+    url.searchParams.set("pageSize", "1000");
+    url.searchParams.set("filter", `customTargetingKey = "${keyResourceName}"`);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await gamFetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const text = await res.text();
+    if (!res.ok) { debug.push(`[customTargetingValues] err ${res.status}: ${text.slice(0, 200)}`); break; }
+    const json = JSON.parse(text);
+    for (const v of (json.customTargetingValues ?? [])) {
+      const nm = String(v.adTagName ?? v.displayName ?? "");
+      const id = String(v.name ?? "").split("/").pop();
+      if (id && /\d{6,}/.test(nm)) ids.push(id);
+    }
+    pageToken = json.nextPageToken;
+    if (!pageToken) break;
+  }
+  debug.push(`[customTargetingValues] ${networkCode} utm_campaign: ${ids.length} valores`);
+  return ids;
+}
+
 async function collectUtmAttribution(args: {
   networkCode: string; accessToken: string; ranges: GamRange[]; utmKeyIds: UtmKeyIds; debug: string[]; deadlineAt?: number; fastMode?: boolean;
 }): Promise<AttributionResult> {
@@ -917,41 +945,60 @@ async function collectUtmAttribution(args: {
   //    tentativa, sem EKV. Se voltar vazio/erro, seguimos com o AD_EXCHANGE
   //    acima. Nunca gasta o tempo do relatório confiável.
   // ========================================================================
+  // Replica o modo OVERLAP da UI do GAM: dimensiona por CUSTOM_DIMENSION_0_VALUE
+  // (o valor da key utm_campaign) E filtra por CUSTOM_DIMENSION_0_VALUE_ID IN [todos
+  // os value ids]. Cada linha = TODAS as impressões que tinham aquele utm_campaign,
+  // com a receita Ad Exchange cheia — que é o número que o usuário puxa na mão.
+  // (Sem o filtro, CUSTOM_DIMENSION_0_VALUE volta rows=0.)
   let fullCampaignRows: AttributedRow[] = [];
-  const budgetOk = !deadlineAt || (Date.now() + 40_000 < deadlineAt);
+  const budgetOk = !deadlineAt || (Date.now() + 45_000 < deadlineAt);
   if (budgetOk) {
     try {
       const campKeyId = (await fetchUtmKeyIds(networkCode, accessToken, debug)).utm_campaign;
       if (campKeyId) {
-        const rawRows = (await Promise.all(ranges.map((range) =>
-          runReport({
-            networkCode, accessToken, range,
-            dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
-            dimensionKeyIdsField: "customDimensionKeyIds",
-            dimensionKeyIds: [campKeyId],
-            expandedCompatibility: true,
-            debug, deadlineAt,
-          })
-        ))).flat();
-        const mapped = rawRows
-          .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
-          .filter(({ cid }) => !!cid)
-          .map(({ r, cid }) => ({
-            date: r.date, impressions: r.impressions, revenue: r.revenue,
-            source: "google", cid, placement: null,
-            raw: `CUSTOM_DIMENSION_0_VALUE|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
-          } as AttributedRow));
-        const rev = mapped.reduce((s, r) => s + r.revenue, 0);
-        const line = `[${networkCode}/CUSTOM_DIMENSION_0_VALUE/utm_campaign] rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
-        debug.push(line); console.log(`[ATTR] ${line}`);
-        if (mapped.length > 0 && rev > 0) fullCampaignRows = mapped;
+        const valueIds = await listCampaignValueIds(networkCode, accessToken, campKeyId, debug);
+        if (valueIds.length > 0) {
+          const filters = [{
+            fieldFilter: {
+              field: { dimension: "CUSTOM_DIMENSION_0_VALUE_ID" },
+              operation: "IN",
+              values: valueIds.map((id) => ({ intValue: id })),
+            },
+          }];
+          const rawRows = (await Promise.all(ranges.map((range) =>
+            runReport({
+              networkCode, accessToken, range,
+              dimensions: ["DATE", "CUSTOM_DIMENSION_0_VALUE"],
+              dimensionKeyIdsField: "customDimensionKeyIds",
+              dimensionKeyIds: [campKeyId],
+              metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+              expandedCompatibility: true,
+              filters,
+              debug, deadlineAt,
+            })
+          ))).flat();
+          const mapped = rawRows
+            .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
+            .filter(({ cid }) => !!cid)
+            .map(({ r, cid }) => ({
+              date: r.date, impressions: r.impressions, revenue: r.revenue,
+              source: "google", cid, placement: null,
+              raw: `OVERLAP CUSTOM_DIMENSION_0_VALUE|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
+            } as AttributedRow));
+          const rev = mapped.reduce((s, r) => s + r.revenue, 0);
+          const line = `[${networkCode}/OVERLAP/utm_campaign] value_ids=${valueIds.length}; rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
+          debug.push(line); console.log(`[ATTR] ${line}`);
+          if (mapped.length > 0 && rev > 0) fullCampaignRows = mapped;
+        } else {
+          debug.push(`[${networkCode}/OVERLAP] 0 value ids p/ utm_campaign`);
+        }
       }
     } catch (e) {
-      const line = `[${networkCode}/CUSTOM_DIMENSION_0_VALUE/utm_campaign] erro=${String(e).slice(0, 400)}`;
+      const line = `[${networkCode}/OVERLAP/utm_campaign] erro=${String(e).slice(0, 500)}`;
       debug.push(line); console.log(`[ATTR] ${line}`);
     }
   } else {
-    console.log(`[ATTR] [${networkCode}/CUSTOM_DIMENSION] pulado (orçamento de tempo baixo)`);
+    console.log(`[ATTR] [${networkCode}/OVERLAP] pulado (orçamento de tempo baixo)`);
   }
 
   if (fullCampaignRows.length === 0 && reportRows.length === 0) {
@@ -1907,12 +1954,13 @@ interface RunReportArgs {
   dimensionKeyIds?: string[];
   dimensionKeyIdsField?: "customDimensionKeyIds" | "ekvDimensionKeyIds";
   expandedCompatibility?: boolean;
+  filters?: any[];
   debug: string[];
   deadlineAt?: number;
 }
 
 async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
-  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, expandedCompatibility, debug, deadlineAt } = args;
+  const { networkCode, accessToken, range, dimensions, metrics, dimensionKeyIds, dimensionKeyIdsField, expandedCompatibility, filters, debug, deadlineAt } = args;
   const tag = `${networkCode}/${dimensions.join("+")}`;
   const ensureBudget = (minimumMs = 8_000) => {
     if (deadlineAt && Date.now() + minimumMs >= deadlineAt) {
@@ -1936,6 +1984,7 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
   };
   if (expandedCompatibility) reportDefinition.expandedCompatibility = true;
   if (dimensionKeyIds?.length) reportDefinition[dimensionKeyIdsField ?? "customDimensionKeyIds"] = dimensionKeyIds;
+  if (filters?.length) reportDefinition.filters = filters;
 
   // Não usar visibility: "DRAFT" — a API atual restringe dimensões (PAGE_PATH/URL) e
   // pode limitar receita/impressões retornadas. Report criado sem visibility usa o padrão
