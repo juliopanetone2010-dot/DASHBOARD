@@ -877,57 +877,87 @@ async function collectUtmAttribution(args: {
   // Na API REST v1 do GAM, a dimensão aceitada para os key-values da requisição é KEY_VALUES_NAME
   // (formato "utm_campaign=123", "utm_source=google", etc.). CUSTOM_CRITERIA é o conceito/UI,
   // mas não é um enum válido do endpoint v1 e por isso zerava a atribuição.
+  // === PRIORIDADE: CUSTOM_DIMENSION_0_VALUE (receita TOTAL por utm_campaign) ===
+  // KEY_VALUES_NAME não combina com AD_SERVER_*/ADSENSE_* na REST v1 (só AdX). Passando
+  // dimensionKeyIds=[<id da key utm_campaign>], o GAM expõe a key como CUSTOM_DIMENSION_0_VALUE
+  // (ou EKV_DIMENSION_0_VALUE), que ACEITA as 6 métricas (AdX + Ad Server + AdSense) com
+  // expandedCompatibility. É a receita real por campanha em sites de offerwall/AdSense.
+  // RODA PRIMEIRO — antes tava no fim e o orçamento de tempo do Edge acabava antes dela.
+  let fullCampaignRows: AttributedRow[] = [];
+  try {
+    const keyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
+    const campKeyId = keyIds.utm_campaign;
+    if (campKeyId) {
+      outer:
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
+          const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
+          try {
+            const rawRows = (await Promise.all(ranges.map((range) =>
+              runReport({
+                networkCode, accessToken, range,
+                dimensions: ["DATE", dimName],
+                dimensionKeyIdsField: dimField,
+                dimensionKeyIds: [campKeyId],
+                expandedCompatibility: true,
+                debug, deadlineAt,
+              })
+            ))).flat();
+            const mapped = rawRows
+              .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
+              .filter(({ cid }) => !!cid)
+              .map(({ r, cid }) => ({
+                date: r.date, impressions: r.impressions, revenue: r.revenue,
+                source: "google", cid, placement: null,
+                raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
+              } as AttributedRow));
+            const rev = mapped.reduce((s, r) => s + r.revenue, 0);
+            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
+            debug.push(line); console.log(`[ATTR] ${line}`);
+            if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break outer; }
+          } catch (e) {
+            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) erro=${String(e).slice(0, 500)}`;
+            debug.push(line); console.log(`[ATTR] ${line}`);
+          }
+        }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
+      }
+    } else {
+      debug.push(`[${networkCode}] custom key 'utm_campaign' não encontrada`);
+    }
+  } catch (e) {
+    debug.push(`[${networkCode}/CUSTOM_DIMENSION] erro=${String(e).slice(0, 500)}`);
+  }
+
+  // KEY_VALUES_NAME (só AD_EXCHANGE — é o único compatível): usado p/ separar
+  // utm_source (retenção/push) e utm_placement. A receita por campanha vem do
+  // CUSTOM_DIMENSION acima; aqui é só o breakdown por source/placement.
   let reportRows: ReportRow[] = [];
   try {
-    // O conjunto MISTO (AD_EXCHANGE_* + AD_SERVER_* + ADSENSE_* juntos) + KEY_VALUES_NAME
-    // dá REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY no GAM. Solução: cada família roda em
-    // relatório SEPARADO, com try/catch próprio. São fontes de demanda distintas (sem
-    // sobreposição), então somar as 3 = receita total, sem dupla contagem.
-    // ADSENSE_* é obrigatório p/ sites de offerwall/interstitial (Ligado, Universo) —
-    // sem ele a receita dessas campanhas fica sempre $0. Se essa família for incompatível
-    // nesse network, o try/catch loga e ignora (não piora nada).
-    const metricGroups = [
-      { label: "AD_EXCHANGE", metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"] },
-      { label: "AD_SERVER", metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_REVENUE"] },
-      { label: "ADSENSE", metrics: ["ADSENSE_IMPRESSIONS", "ADSENSE_REVENUE"] },
-    ];
-    for (const group of metricGroups) {
-      // `expandedCompatibility` faz o GAM aceitar combinações dimensão×métrica que
-      // normalmente dão REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY (era o caso de
-      // AD_SERVER_* + KEY_VALUES_NAME → a receita AD_SERVER, que é a maior fatia
-      // de sites offerwall/AdSense, nunca era buscada por campanha).
-      // Tenta primeiro COM o flag; se ainda falhar, tenta SEM (comportamento antigo).
-      let groupRows: ReportRow[] = [];
-      let ok = false;
-      for (const expanded of [true, false]) {
-        try {
-          groupRows = (await Promise.all(ranges.map((range) =>
-            runReport({
-              networkCode, accessToken, range,
-              dimensions: ["DATE", "KEY_VALUES_NAME"],
-              metrics: group.metrics,
-              expandedCompatibility: expanded,
-              debug,
-              deadlineAt,
-            })
-          ))).flat();
-          ok = true;
-          break;
-        } catch (e) {
-          const line = `[${networkCode}/${label}/${group.label}] erro (expanded=${expanded})=${String(e).slice(0, 800)}`;
-          debug.push(line);
-          console.log(`[ATTR] ${line}`);
-        }
-      }
-      if (ok) {
-        const line = `[${networkCode}/${label}/${group.label}] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`;
-        debug.push(line);
-        console.log(`[ATTR] ${line}`);
+    for (const expanded of [false, true]) {
+      try {
+        const groupRows = (await Promise.all(ranges.map((range) =>
+          runReport({
+            networkCode, accessToken, range,
+            dimensions: ["DATE", "KEY_VALUES_NAME"],
+            metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+            expandedCompatibility: expanded,
+            debug, deadlineAt,
+          })
+        ))).flat();
+        const line = `[${networkCode}/${label}/AD_EXCHANGE] rows=${groupRows.length}; revenue=${groupRows.reduce((sum, r) => sum + r.revenue, 0).toFixed(4)}`;
+        debug.push(line); console.log(`[ATTR] ${line}`);
         reportRows.push(...groupRows);
+        break;
+      } catch (e) {
+        const line = `[${networkCode}/${label}/AD_EXCHANGE] erro (expanded=${expanded})=${String(e).slice(0, 500)}`;
+        debug.push(line); console.log(`[ATTR] ${line}`);
       }
     }
   } catch (e) {
     debug.push(`[${networkCode}/${label}] erro=${String(e).slice(0, 1500)}`);
+  }
+  if (fullCampaignRows.length === 0 && reportRows.length === 0) {
     return { retentionRows: [], googleCampaignRows: [], googlePlacementRows: [], campaignSource: "none", placementSource: "none" };
   }
 
@@ -994,61 +1024,6 @@ async function collectUtmAttribution(args: {
         raw: `utm_source=google|utm_placement=${placementRaw}|raw=${rawKv.slice(0, 200)}`,
       };
     });
-
-  // === CAMINHO ALTERNATIVO: CUSTOM_DIMENSION_0_VALUE (receita TOTAL por utm_campaign) ===
-  // KEY_VALUES_NAME não combina com AD_SERVER_*/ADSENSE_* → os campaignRows acima só têm
-  // receita AdX. Passando dimensionKeyIds=[<id da key utm_campaign>], o GAM expõe a key
-  // como CUSTOM_DIMENSION_0_VALUE (ou EKV_DIMENSION_0_VALUE), que ACEITA as 6 métricas
-  // (AdX + Ad Server + AdSense). Isso recupera a receita real por campanha em sites de
-  // offerwall/AdSense (Ligado, Universo). Se o network não suportar, cai no fallback AdX.
-  let fullCampaignRows: AttributedRow[] = [];
-  try {
-    const keyIds = await fetchUtmKeyIds(networkCode, accessToken, debug);
-    const campKeyId = keyIds.utm_campaign;
-    if (campKeyId) {
-      // 2 dimensões possíveis × até 2 tentativas cada (o GAM às vezes devolve 5xx/500
-      // transitório na criação do report). Só desiste da campanha quando as 2 dimensões
-      // falharem de vez — assim um erro passageiro não joga tudo pro fallback AdX-only.
-      outer:
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        for (const dimField of ["customDimensionKeyIds", "ekvDimensionKeyIds"] as const) {
-          const dimName = dimField === "customDimensionKeyIds" ? "CUSTOM_DIMENSION_0_VALUE" : "EKV_DIMENSION_0_VALUE";
-          try {
-            const rawRows = (await Promise.all(ranges.map((range) =>
-              runReport({
-                networkCode, accessToken, range,
-                dimensions: ["DATE", dimName],
-                dimensionKeyIdsField: dimField,
-                dimensionKeyIds: [campKeyId],
-                expandedCompatibility: true,
-                debug, deadlineAt,
-              })
-            ))).flat();
-            const mapped = rawRows
-              .map((r) => ({ r, cid: extractCampaignId(r.dims[1] ?? "") }))
-              .filter(({ cid }) => !!cid)
-              .map(({ r, cid }) => ({
-                date: r.date, impressions: r.impressions, revenue: r.revenue,
-                source: "google", cid, placement: null,
-                raw: `${dimName}|utm_campaign=${(r.dims[1] ?? "").slice(0, 60)}`,
-              } as AttributedRow));
-            const rev = mapped.reduce((s, r) => s + r.revenue, 0);
-            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) rows=${mapped.length}; revenue=${rev.toFixed(4)}`;
-            debug.push(line); console.log(`[ATTR] ${line}`);
-            if (mapped.length > 0 && rev > 0) { fullCampaignRows = mapped; break outer; }
-          } catch (e) {
-            const line = `[${networkCode}/${dimName}/utm_campaign] (tentativa ${attempt}) erro=${String(e).slice(0, 500)}`;
-            debug.push(line); console.log(`[ATTR] ${line}`);
-          }
-        }
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
-      }
-    } else {
-      debug.push(`[${networkCode}] custom key 'utm_campaign' não encontrada`);
-    }
-  } catch (e) {
-    debug.push(`[${networkCode}/CUSTOM_DIMENSION] erro=${String(e).slice(0, 500)}`);
-  }
 
   // Debug agregado por source
   const sourceStats = rows.reduce((acc: Record<string, { rows: number; rev: number; cidOk: number }>, r) => {
@@ -1831,7 +1806,7 @@ async function applyGoogleUtmRevenue(
   for (const date of allDates) {
     const { data: metrics } = await admin
       .from("daily_metrics")
-      .select("id, campaign_id, spend, impressions")
+      .select("id, campaign_id, spend, impressions, revenue")
       .eq("user_id", userId)
       .eq("date", date)
       .in("google_account_id", accountIds);
@@ -1879,9 +1854,18 @@ async function applyGoogleUtmRevenue(
 
     const updates: any[] = [];
     const matchDebug: string[] = [];
+    let preservedDaily = 0;
     for (const m of metrics as any[]) {
       const cid = String(m.campaign_id);
-      const revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
+      let revenueUsd = aggregatedByCid.get(cid) ?? 0; // soma de todos os sites
+      // Proteção: se o valor novo é DRÁSTICAMENTE menor (< 50%) que o já gravado em
+      // daily_metrics e há gasto, quase certo que o report do GAM veio incompleto neste
+      // sync. Mantém a receita anterior — não zera o dashboard por causa de um pull ruim.
+      const prevRevenueUsd = Number(m.revenue ?? 0);
+      if (prevRevenueUsd > 0.5 && revenueUsd < prevRevenueUsd * 0.5 && Number(m.spend ?? 0) > 0) {
+        revenueUsd = prevRevenueUsd;
+        preservedDaily++;
+      }
       if (revenueUsd > 0) matchedIds.add(cid);
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
@@ -1908,7 +1892,8 @@ async function applyGoogleUtmRevenue(
         ),
       );
     }
-    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size})`);
+    debug.push(`[daily_metrics] ${date}: ${matchedIds.size}/${metrics.length} campanhas com receita agregada (placements=${placementByCid.size}, fallback_utm_campaign=${aggregatedByCid.size - placementByCid.size}${preservedDaily > 0 ? `, ${preservedDaily} preservadas de pull parcial` : ""})`);
+    if (preservedDaily > 0) console.log(`[ATTR] [daily_metrics] ${date}: ${preservedDaily} campanha(s) com receita PRESERVADA (pull do GAM veio incompleto)`);
     debug.push(`[daily_metrics/${date}/match] ${JSON.stringify(matchDebug.slice(0, 30))}`);
   }
 }
