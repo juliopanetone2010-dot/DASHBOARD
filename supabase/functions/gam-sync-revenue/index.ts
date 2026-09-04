@@ -1798,6 +1798,31 @@ async function applyGoogleUtmRevenue(
     placementBuckets.set(key, pb);
   }
 
+  // ESCALA os placements pra somarem o total CORRETO da campanha (OVERLAP).
+  // googlePlacementRows vem do relatório break-out (fragmentado, subnotifica).
+  // googleCampaignRows já é OVERLAP (número real). Sem isso, o placements-evaluate
+  // veria ROI muito pior que o real e bloquearia placement BOM.
+  {
+    const sumPlByCidDate = new Map<string, number>();
+    for (const b of placementBuckets.values()) {
+      const k = `${b.campaign_id}|${b.date}`;
+      sumPlByCidDate.set(k, (sumPlByCidDate.get(k) ?? 0) + b.revenue_usd);
+    }
+    let scaled = 0;
+    for (const b of placementBuckets.values()) {
+      const overlapCamp = directByDateCid.get(b.date)?.get(b.campaign_id)?.revenue ?? 0;
+      const sumPl = sumPlByCidDate.get(`${b.campaign_id}|${b.date}`) ?? 0;
+      if (overlapCamp > 0 && sumPl > 0) {
+        const factor = Math.min(25, overlapCamp / sumPl);
+        if (Math.abs(factor - 1) > 0.02) { b.revenue_usd *= factor; scaled++; }
+      }
+    }
+    if (scaled > 0) {
+      const line = `[gam_placement_revenue] ${scaled} placement(s) escalados p/ bater com o total OVERLAP da campanha`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+    }
+  }
+
   // CRÍTICO: só deleta+reinsere se temos dados novos. Se o GAM falhou (429/quota/timeout)
   // e não retornou linhas, NÃO apaga — preserva o último bom snapshot na tabela.
   const arr = [...placementBuckets.values()];
