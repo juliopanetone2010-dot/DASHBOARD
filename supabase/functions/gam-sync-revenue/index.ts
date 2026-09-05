@@ -522,7 +522,7 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
   }
 }
 
-interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; _raw_measurable?: number; _raw_viewable?: number; }
+interface ReportRow { date: string | null; dims: string[]; impressions: number; revenue: number; _raw_measurable?: number; _raw_viewable?: number; rawMetrics?: number[]; }
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
@@ -1389,6 +1389,46 @@ async function debugKeyValuesName(networkCode: string, accessToken: string, rang
   }
 }
 
+// "Taxa de Correspondência" de verdade = métrica nativa do GAM AD_EXCHANGE_MATCH_RATE
+// (taxa de leilões em que o Ad Exchange conseguiu casar um lance — NÃO é fill rate,
+// fica perto do teto e é praticamente a mesma pro site inteiro, não por campanha).
+// É isso que a ferramenta de referência do usuário mostra (~98-100%), bem diferente
+// da conta antiga (impressões ÷ cliques do Ads, que dava 2%-100% espalhado e sem
+// relação com a métrica real do GAM). Roda por DATE (nível de site) — compatível,
+// ao contrário de KEY_VALUES_NAME + AD_EXCHANGE_MATCH_RATE, que dá CONSTRAINTS_INCOMPATIBILITY.
+async function fetchSiteMatchRatePct(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+  deadlineAt?: number,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  try {
+    const rows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE"],
+        metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_MATCH_RATE"],
+        debug, deadlineAt,
+      })
+    ))).flat();
+    for (const r of rows) {
+      if (!r.date) continue;
+      const raw = Number(r.rawMetrics?.[1] ?? 0);
+      if (raw <= 0) continue;
+      const pct = raw > 1 ? raw : raw * 100; // GAM pode devolver fração (0-1) ou já em %
+      out.set(r.date, Math.min(100, pct));
+    }
+    const line = `[${networkCode}/AD_EXCHANGE_MATCH_RATE] rows=${rows.length}; datas_com_taxa=${out.size}; sample=${JSON.stringify([...out.entries()].slice(0, 5))}`;
+    debug.push(line); console.log(`[ATTR] ${line}`);
+  } catch (e) {
+    const line = `[${networkCode}/AD_EXCHANGE_MATCH_RATE] erro=${String(e).slice(0, 500)}`;
+    debug.push(line); console.log(`[ATTR] ${line}`);
+  }
+  return out;
+}
+
 async function persistCampaignTotalRequests(args: {
   admin: any;
   userId: string;
@@ -1401,7 +1441,12 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
   if (!siteId) return;
-  
+
+  // Taxa de correspondência REAL (AD_EXCHANGE_MATCH_RATE do GAM) — busca uma vez,
+  // é usada como fonte primária de match_rate_pct abaixo (substitui a conta antiga
+  // de impressões/cliques quando disponível).
+  const siteMatchRateByDate = await fetchSiteMatchRatePct(networkCode, accessToken, ranges, debug, deadlineAt);
+
   // Otimização: Agrupar AD_REQUESTS e AD_EXCHANGE_MATCH_RATE em um único relatório se possível,
   // ou pelo menos reduzir as chamadas paralelas excessivas.
   let reportRows: ReportRow[] = [];
@@ -1525,7 +1570,7 @@ async function persistCampaignTotalRequests(args: {
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
-    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode });
+    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate });
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1582,13 +1627,15 @@ async function persistCampaignTotalRequests(args: {
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
-    // Denominador = cliques do Google Ads. NÃO caímos mais no AD_EXCHANGE_TOTAL_REQUESTS
-    // (inflado: várias chamadas de leilão por slot → taxa irrealista de 10-40% que ficava
-    // "presa" quando o sync do Ads ainda não tinha trazido os cliques). Sem cliques ainda,
-    // preservamos o valor anterior; recomputeCampaignMatchRateFromClicks corrige no próximo ciclo.
-    const rate = adsClicks > 0 && prev.impressions > 0
-      ? Math.min(100, (prev.impressions / adsClicks) * 100)
-      : (prev.match_rate_pct ?? null);
+    // Taxa de correspondência = AD_EXCHANGE_MATCH_RATE real do GAM quando disponível
+    // (é a métrica nativa, praticamente igual pro site inteiro — não "impressões/cliques",
+    // que não é fill rate nem match rate de verdade). Fallback: impressões/cliques do Ads.
+    const siteRate = siteMatchRateByDate.get(b.date);
+    const rate = siteRate != null
+      ? siteRate
+      : (adsClicks > 0 && prev.impressions > 0
+        ? Math.min(100, (prev.impressions / adsClicks) * 100)
+        : (prev.match_rate_pct ?? null));
     return {
       user_id: userId,
       site_id: siteId,
@@ -1616,7 +1663,7 @@ async function persistCampaignTotalRequests(args: {
   // retornou (inventário servido só via Ad Server / AdSense, ou relatório parcial/timeout).
   // Sem isto elas ficavam com o match rate ANTIGO (denominador AdX inflado, pré-mudança
   // "impressões / cliques").
-  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode });
+  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate });
 }
 
 // Match rate no modelo de arbitragem = impressões monetizadas no GAM / cliques comprados
@@ -1630,8 +1677,9 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   dates: string[];
   debug: string[];
   networkCode?: string;
+  siteMatchRateByDate?: Map<string, number>;
 }) {
-  const { admin, userId, siteId, dates, debug } = args;
+  const { admin, userId, siteId, dates, debug, siteMatchRateByDate } = args;
   const tag = args.networkCode ? `${args.networkCode}/match_rate_clicks` : "match_rate_clicks";
   if (!siteId || !dates || dates.length === 0) return;
 
@@ -1669,12 +1717,24 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     const impressions = Number(r.impressions || 0);
     if (impressions <= 0) continue;
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
-    if (clicks <= 0) continue; // sem cliques do Ads não há denominador — preserva o valor atual
-    const rate = Math.min(100, (impressions / clicks) * 100);
+    const siteRate = siteMatchRateByDate?.get(r.date);
+    // Prioriza a métrica real do GAM (AD_EXCHANGE_MATCH_RATE). Sem ela, cai no
+    // fallback antigo (impressões/cliques) — mas só se tiver cliques, senão preserva.
+    let rate: number;
+    let denom: number;
+    if (siteRate != null) {
+      rate = siteRate;
+      denom = clicks > 0 ? clicks : Number(r.total_requests || 0);
+    } else if (clicks > 0) {
+      rate = Math.min(100, (impressions / clicks) * 100);
+      denom = clicks;
+    } else {
+      continue; // sem taxa real nem cliques — preserva o valor atual
+    }
     const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
     const prevDenom = Number(r.total_requests || 0);
-    if (prevRate != null && Math.abs(prevRate - rate) < 0.01 && prevDenom === clicks) continue;
-    updates.push({ id: r.id, match_rate_pct: rate, total_requests: clicks });
+    if (prevRate != null && Math.abs(prevRate - rate) < 0.01 && prevDenom === denom) continue;
+    updates.push({ id: r.id, match_rate_pct: rate, total_requests: denom });
   }
   if (updates.length === 0) {
     debug.push(`[${tag}] ${rows.length} linha(s) verificadas, nada a recalcular`);
@@ -2104,7 +2164,10 @@ async function runReport(args: RunReportArgs): Promise<ReportRow[]> {
         impressions = num(m[0]) + num(m[2]) + num(m[4]);
         revenue = numRevenue(m[1]) + numRevenue(m[3]) + numRevenue(m[5]);
       }
-      allRows.push({ date, dims: dimStrings, impressions, revenue, _raw_measurable, _raw_viewable });
+      // Valores crus (sem escala de dinheiro/1e6) — necessário pra métricas tipo
+      // AD_EXCHANGE_MATCH_RATE, que são percentuais, não dinheiro.
+      const rawMetrics = m.map((v: any) => Number(v?.doubleValue ?? (v?.intValue != null ? Number(v.intValue) : 0)));
+      allRows.push({ date, dims: dimStrings, impressions, revenue, _raw_measurable, _raw_viewable, rawMetrics });
     }
     pageToken = rowsJson.nextPageToken;
   } while (pageToken);
