@@ -1960,14 +1960,16 @@ async function applyGoogleUtmRevenue(
 
     const { data: allSourceRows } = await admin
       .from("gam_campaign_source_revenue")
-      .select("campaign_id, revenue_usd")
+      .select("campaign_id, revenue_usd, impressions")
       .eq("user_id", userId)
       .eq("date", date)
       .in("campaign_id", cids);
     const aggregatedByCid = new Map<string, number>();
+    const gamImpressionsByCid = new Map<string, number>();
     for (const r of (allSourceRows ?? []) as any[]) {
       const cid = String(r.campaign_id);
       aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+      gamImpressionsByCid.set(cid, (gamImpressionsByCid.get(cid) ?? 0) + Number(r.impressions ?? 0));
     }
 
     // Fallback: se uma campanha não aparecer em source_revenue, tenta placement_revenue.
@@ -1975,13 +1977,14 @@ async function applyGoogleUtmRevenue(
     if (missingCids.length > 0) {
       const { data: allPlacementRevenueRows } = await admin
         .from("gam_placement_revenue")
-        .select("campaign_id, revenue_usd")
+        .select("campaign_id, revenue_usd, impressions")
         .eq("user_id", userId)
         .eq("date", date)
         .in("campaign_id", missingCids);
       for (const r of (allPlacementRevenueRows ?? []) as any[]) {
         const cid = String(r.campaign_id);
         aggregatedByCid.set(cid, (aggregatedByCid.get(cid) ?? 0) + Number(r.revenue_usd ?? 0));
+        gamImpressionsByCid.set(cid, (gamImpressionsByCid.get(cid) ?? 0) + Number(r.impressions ?? 0));
       }
     }
     const placementByCid = new Map<string, number>(); // mantido apenas para o log abaixo
@@ -2000,16 +2003,20 @@ async function applyGoogleUtmRevenue(
       if (revenueUsd > 0) matchedIds.add(cid);
       const spendBrl = Number(m.spend ?? 0);
       const revenueBrl = revenueUsd * fx.usdBrl;
-      const impressions = Number(m.impressions ?? 0);
       const profit = revenueBrl - spendBrl;
-      
+
       // Se receita é zero e há gasto, o ROI deve ser -100%, não -6.5% (RevShare).
       // O revshare só deve incidir sobre a receita bruta.
-      const roi = spendBrl > 0 
+      const roi = spendBrl > 0
         ? (revenueUsd > 0 ? (profit / spendBrl) * 100 : -100)
         : 0;
       const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
-      const ecpm = impressions > 0 ? (revenueBrl / impressions) * 1000 : 0;
+      // eCPM = receita ÷ impressões do GAM (a página monetizando), NUNCA impressões do
+      // Google Ads (quantas vezes o anúncio apareceu no Google — métrica de compra, não
+      // de monetização). Usar impressões do Ads aqui inflava o eCPM pra valores absurdos
+      // (ex.: campanha com poucas impressões de Ads e alguma receita → eCPM de $150+).
+      const gamImpressions = gamImpressionsByCid.get(cid) ?? 0;
+      const ecpm = gamImpressions > 0 ? (revenueBrl / gamImpressions) * 1000 : 0;
       updates.push({ id: m.id, revenue: revenueUsd, profit, roi, roas, ecpm });
       matchDebug.push(`cid=${cid}|rev_usd_agg=${revenueUsd.toFixed(4)}|spend_brl=${spendBrl.toFixed(2)}`);
     }
