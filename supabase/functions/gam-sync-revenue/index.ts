@@ -1429,6 +1429,64 @@ async function fetchSiteMatchRatePct(
   return out;
 }
 
+// Versão por URL/página do AD_EXCHANGE_MATCH_RATE — como o usuário pediu ("buscar por
+// URL"), tenta quebrar a taxa por página em vez de só por site. Tenta PAGE_PATH e URL
+// (uma delas costuma ser compatível com AD_EXCHANGE_TOTAL_REQUESTS/MATCH_RATE — a outra
+// dá CONSTRAINTS_INCOMPATIBILITY dependendo do network). Chave = path normalizado
+// (sem host/protocolo/query), pra casar com campaign_final_urls independente de host.
+async function fetchUrlMatchRatePct(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+  deadlineAt?: number,
+): Promise<Map<string, Map<string, number>>> {
+  const out = new Map<string, Map<string, number>>();
+  for (const dimName of ["PAGE_PATH", "URL"] as const) {
+    try {
+      const rows = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE", dimName],
+          metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_MATCH_RATE"],
+          debug, deadlineAt,
+        })
+      ))).flat();
+      let matched = 0;
+      for (const r of rows) {
+        if (!r.date) continue;
+        const raw = Number(r.rawMetrics?.[1] ?? 0);
+        if (raw <= 0) continue;
+        const pathKey = urlPathOnly(r.dims[1] ?? "");
+        if (!pathKey) continue;
+        const pct = Math.min(100, raw > 1 ? raw : raw * 100);
+        const inner = out.get(pathKey) ?? new Map<string, number>();
+        inner.set(r.date, pct);
+        out.set(pathKey, inner);
+        matched++;
+      }
+      const line = `[${networkCode}/${dimName}/MATCH_RATE_URL] rows=${rows.length}; urls_com_taxa=${out.size}; linhas_validas=${matched}`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+      if (out.size > 0) break; // essa dimensão funcionou, não precisa tentar a outra
+    } catch (e) {
+      const line = `[${networkCode}/${dimName}/MATCH_RATE_URL] erro=${String(e).slice(0, 400)}`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+    }
+  }
+  return out;
+}
+
+// Extrai só o path (sem host/protocolo/query/hash), pra casar PAGE_PATH (que já vem só
+// path) com a final_url completa da campanha (que tem host).
+function urlPathOnly(raw: string): string {
+  if (!raw) return "";
+  let t = safeDecode(String(raw)).toLowerCase().trim();
+  t = t.replace(/^https?:\/\/[^/]+/, ""); // remove protocolo+host se vier URL completa
+  t = t.split("?")[0].split("#")[0];
+  t = t.replace(/\/+$/, "");
+  return t;
+}
+
 async function persistCampaignTotalRequests(args: {
   admin: any;
   userId: string;
@@ -1444,7 +1502,10 @@ async function persistCampaignTotalRequests(args: {
 
   // Taxa de correspondência REAL (AD_EXCHANGE_MATCH_RATE do GAM) — busca uma vez,
   // é usada como fonte primária de match_rate_pct abaixo (substitui a conta antiga
-  // de impressões/cliques quando disponível).
+  // de impressões/cliques quando disponível). Tenta por URL/página primeiro (mais
+  // preciso, é o que a ferramenta de referência do usuário mostra); usa por SITE
+  // como fallback quando a quebra por URL não está disponível pro campaign/dia.
+  const urlMatchRateByDate = await fetchUrlMatchRatePct(networkCode, accessToken, ranges, debug, deadlineAt);
   const siteMatchRateByDate = await fetchSiteMatchRatePct(networkCode, accessToken, ranges, debug, deadlineAt);
 
   // Otimização: Agrupar AD_REQUESTS e AD_EXCHANGE_MATCH_RATE em um único relatório se possível,
@@ -1570,7 +1631,7 @@ async function persistCampaignTotalRequests(args: {
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
-    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate });
+    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate });
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1593,6 +1654,29 @@ async function persistCampaignTotalRequests(args: {
     .eq("site_id", siteId)
     .in("campaign_id", cids)
     .in("date", dates);
+
+  // Mapa campanha → path da landing page, pra casar com urlMatchRateByDate.
+  const cidToPath = new Map<string, string>();
+  if (cids.length > 0) {
+    const { data: finalUrlRows } = await admin
+      .from("campaign_final_urls")
+      .select("campaign_id, final_url")
+      .eq("user_id", userId)
+      .in("campaign_id", cids)
+      .not("final_url", "is", null);
+    for (const r of (finalUrlRows ?? []) as any[]) {
+      const cid = String(r.campaign_id ?? "");
+      if (!cid || cidToPath.has(cid)) continue;
+      const path = urlPathOnly(String(r.final_url ?? ""));
+      if (path) cidToPath.set(cid, path);
+    }
+  }
+  const pickMatchRate = (cid: string, date: string): number | null => {
+    const path = cidToPath.get(cid);
+    const urlRate = path ? urlMatchRateByDate.get(path)?.get(date) : undefined;
+    if (urlRate != null) return urlRate;
+    return siteMatchRateByDate.get(date) ?? null;
+  };
 
   // "Taxa de correspondência" no modelo de arbitragem = impressões monetizadas no
   // GAM / cliques comprados no Google Ads. O AD_EXCHANGE_TOTAL_REQUESTS infla
@@ -1627,12 +1711,12 @@ async function persistCampaignTotalRequests(args: {
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
-    // Taxa de correspondência = AD_EXCHANGE_MATCH_RATE real do GAM quando disponível
-    // (é a métrica nativa, praticamente igual pro site inteiro — não "impressões/cliques",
-    // que não é fill rate nem match rate de verdade). Fallback: impressões/cliques do Ads.
-    const siteRate = siteMatchRateByDate.get(b.date);
-    const rate = siteRate != null
-      ? siteRate
+    // Taxa de correspondência = AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing
+    // page quando disponível, senão por site) — não "impressões/cliques", que não é
+    // fill rate nem match rate de verdade. Fallback final: impressões/cliques do Ads.
+    const realRate = pickMatchRate(b.cid, b.date);
+    const rate = realRate != null
+      ? realRate
       : (adsClicks > 0 && prev.impressions > 0
         ? Math.min(100, (prev.impressions / adsClicks) * 100)
         : (prev.match_rate_pct ?? null));
@@ -1663,7 +1747,7 @@ async function persistCampaignTotalRequests(args: {
   // retornou (inventário servido só via Ad Server / AdSense, ou relatório parcial/timeout).
   // Sem isto elas ficavam com o match rate ANTIGO (denominador AdX inflado, pré-mudança
   // "impressões / cliques").
-  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate });
+  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate });
 }
 
 // Match rate no modelo de arbitragem = impressões monetizadas no GAM / cliques comprados
@@ -1678,8 +1762,9 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   debug: string[];
   networkCode?: string;
   siteMatchRateByDate?: Map<string, number>;
+  urlMatchRateByDate?: Map<string, Map<string, number>>;
 }) {
-  const { admin, userId, siteId, dates, debug, siteMatchRateByDate } = args;
+  const { admin, userId, siteId, dates, debug, siteMatchRateByDate, urlMatchRateByDate } = args;
   const tag = args.networkCode ? `${args.networkCode}/match_rate_clicks` : "match_rate_clicks";
   if (!siteId || !dates || dates.length === 0) return;
 
@@ -1710,6 +1795,22 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     clicksByKey.set(k, (clicksByKey.get(k) ?? 0) + Number(r.clicks || 0));
   }
 
+  const cidToPath = new Map<string, string>();
+  if (urlMatchRateByDate && urlMatchRateByDate.size > 0) {
+    const { data: finalUrlRows } = await admin
+      .from("campaign_final_urls")
+      .select("campaign_id, final_url")
+      .eq("user_id", userId)
+      .in("campaign_id", cids)
+      .not("final_url", "is", null);
+    for (const r of (finalUrlRows ?? []) as any[]) {
+      const cid = String(r.campaign_id ?? "");
+      if (!cid || cidToPath.has(cid)) continue;
+      const path = urlPathOnly(String(r.final_url ?? ""));
+      if (path) cidToPath.set(cid, path);
+    }
+  }
+
   const updates: Array<{ id: any; match_rate_pct: number; total_requests: number }> = [];
   for (const r of rows as any[]) {
     const cid = String(r.campaign_id);
@@ -1717,9 +1818,11 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     const impressions = Number(r.impressions || 0);
     if (impressions <= 0) continue;
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
-    const siteRate = siteMatchRateByDate?.get(r.date);
-    // Prioriza a métrica real do GAM (AD_EXCHANGE_MATCH_RATE). Sem ela, cai no
-    // fallback antigo (impressões/cliques) — mas só se tiver cliques, senão preserva.
+    const path = cidToPath.get(cid);
+    const siteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
+    // Prioriza a métrica real do GAM (AD_EXCHANGE_MATCH_RATE, por URL senão por site).
+    // Sem ela, cai no fallback antigo (impressões/cliques) — mas só se tiver cliques,
+    // senão preserva.
     let rate: number;
     let denom: number;
     if (siteRate != null) {
