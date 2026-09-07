@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     const isService = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "___");
     const body = await req.json().catch(() => ({}));
     const mode: "preview" | "apply" | "notify" = body?.mode ?? "preview";
-    const minDays = Math.max(1, Number(body?.min_days ?? 15));
+    const minDays = Math.max(1, Number(body?.min_days ?? 7));
     const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 20));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const disableSafetyRecheck: boolean = body?.disable_safety_recheck === true;
@@ -150,7 +150,36 @@ Deno.serve(async (req) => {
     const campIds = [...campMap.keys()];
     if (campIds.length === 0) return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } } });
 
+    // ELEGIBILIDADE — 2 regras (OR):
+    //  A) regra antiga: campanha tem histórico anterior ao cutoff (>= minDays de idade).
+    //  B) regra nova: campanha tem >= effMinDays DIAS DE GASTO dentro da janela analisada.
+    //     Isso deixa uma campanha nova mas com dado denso (ex.: 5 dias, 5 dias de gasto,
+    //     janela de 7) ser avaliada — antes só a idade contava e sites 100% de campanhas
+    //     recentes ficavam com a limpeza vazia (nada aparecia).
+    const effMinDays = Math.min(minDays, analysisWindowDays);
+    const spendDaysByCampaign = new Map<string, Set<string>>();
+    for (const chunk of chunkArr(campIds, 200)) {
+      const { data, error } = await admin
+        .from("daily_metrics")
+        .select("campaign_id, date, spend")
+        .eq("user_id", userId)
+        .in("campaign_id", chunk)
+        .gte("date", from)
+        .lte("date", to)
+        .gt("spend", 0)
+        .limit(50000);
+      if (error) return json({ error: error.message });
+      for (const r of data ?? []) {
+        const cid = String(r.campaign_id);
+        const s = spendDaysByCampaign.get(cid) ?? new Set<string>();
+        s.add(String(r.date));
+        spendDaysByCampaign.set(cid, s);
+      }
+    }
     const eligible = new Set<string>();
+    for (const [cid, days] of spendDaysByCampaign) {
+      if (days.size >= effMinDays) eligible.add(cid);
+    }
     for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -162,8 +191,16 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message });
       for (const r of data ?? []) eligible.add(String(r.campaign_id));
     }
+    console.log(`[placements-cleanup] elegíveis=${eligible.size}/${campIds.length} (effMinDays=${effMinDays}, minDays=${minDays}, janela=${analysisWindowDays}d)`);
     if (eligible.size === 0) {
-      return json({ ok: true, items: [], stats: { eligible: 0, total: campIds.length, period: { from, to } } });
+      return json({
+        ok: true,
+        items: [],
+        stats: {
+          eligible: 0, total: campIds.length, period: { from, to },
+          reason: `Nenhuma campanha elegível: precisam de ${effMinDays}+ dias de gasto na janela OU ${minDays}+ dias de idade. Baixe "Dias mín." se as campanhas forem recentes.`,
+        },
+      });
     }
     const eligibleIds = [...eligible];
 

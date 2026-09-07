@@ -100,7 +100,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
-  const [minDays, setMinDays] = useState(15);
+  const [minDays, setMinDays] = useState(7);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -125,7 +125,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         .maybeSingle();
       if (data) {
         setAutoEnabled(!!data.placement_auto_cleanup_enabled);
-        setMinDays(Number(data.placement_cleanup_min_days ?? 20));
+        setMinDays(Number(data.placement_cleanup_min_days ?? 7));
         setMaxRoi(Number(data.placement_cleanup_max_roi_pct ?? -10));
         setMinCost(Number(data.placement_cleanup_min_cost_brl ?? 20));
         setLastRun(data.placement_cleanup_last_run_at ?? null);
