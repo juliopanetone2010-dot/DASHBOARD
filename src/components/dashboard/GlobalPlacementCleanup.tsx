@@ -124,6 +124,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [bulkRoi, setBulkRoi] = useState(-80);
   const [bulkMaxRevUsd, setBulkMaxRevUsd] = useState(0.05);
   const [bulkMinClicks, setBulkMinClicks] = useState(1);
+  const [allExpanded, setAllExpanded] = useState<Set<string>>(new Set());
   const [minDays, setMinDays] = useState(7);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
@@ -406,6 +407,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     });
   const warningByCid = (cid: string) =>
     items.find((i) => i.campaigns[0]?.campaign_id === cid && i.data_ok === false)?.data_warning ?? null;
+  const toggleAllExpand = (cid: string) =>
+    setAllExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   const toggleAllInCampaign = (cid: string, on: boolean) => {
     const keys = allPlacements.filter((p) => p.campaign_id === cid && p.type === "WEBSITE").map((p) => p.key);
     setSelected((s) => {
@@ -593,6 +596,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 Marcar os que batem ({allPlacements.filter(bulkMatches).length})
               </Button>
               <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setSelected(new Set())}>Limpar seleção</Button>
+              <span className="mx-1 text-border">|</span>
+              <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setAllExpanded(new Set(allPlacements.map((p) => p.campaign_id)))}>Expandir todas</Button>
+              <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setAllExpanded(new Set())}>Recolher todas</Button>
               <span className="ml-auto text-muted-foreground">
                 Selecionados: <b>{selectionTotals.n}</b> · custo <b>{fmtBRL(selectionTotals.cost)}</b> · receita <b>{fmtPlacementRevenue(selectionTotals.revUsd)}</b>
               </span>
@@ -628,16 +634,20 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                       const warn = warningByCid(cid);
                       const websiteKeys = pls.filter((p) => p.type === "WEBSITE").map((p) => p.key);
                       const allChecked = websiteKeys.length > 0 && websiteKeys.every((k) => selected.has(k));
+                      const selCount = pls.reduce((a, p) => a + (selected.has(p.key) ? 1 : 0), 0);
+                      const isOpen = allExpanded.has(cid);
                       return (
                         <Fragment key={cid}>
-                          <TableRow className="bg-muted/30">
+                          <TableRow className="bg-muted/30 cursor-pointer hover:bg-muted/50" onClick={() => toggleAllExpand(cid)}>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               {websiteKeys.length > 0 && (
                                 <Checkbox checked={allChecked} onCheckedChange={(v) => toggleAllInCampaign(cid, !!v)} />
                               )}
                             </TableCell>
                             <TableCell colSpan={7} className="text-xs">
+                              <span className="mr-1 text-muted-foreground">{isOpen ? "▼" : "▶"}</span>
                               <span className="font-semibold text-sm">{ct?.name ?? cid}</span>
+                              {selCount > 0 && <Badge variant="destructive" className="ml-2 text-[9px]">{selCount} marcado{selCount > 1 ? "s" : ""}</Badge>}
                               <span className="ml-2 text-muted-foreground">
                                 {pls.length} placements · Σ custo {fmtBRL(sumCost)} · Σ receita GAM {fmtPlacementRevenue(sumRevUsd)} (≈ {fmtBRL(sumRevBrl)})
                                 {ct && ` · campanha: ${fmtBRL(ct.cost_brl)} custo / ${fmtBRL(ct.revenue_brl)} receita`}
@@ -648,7 +658,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               {warn && <div className="text-warning mt-0.5">⚠️ {warn}</div>}
                             </TableCell>
                           </TableRow>
-                          {sortPls(pls).map((p) => (
+                          {isOpen && sortPls(pls).map((p) => (
                             <TableRow key={p.key} className={cn(p.in_bad_list && "bg-danger/5", !p.data_ok && "bg-warning/5")}>
                               <TableCell onClick={(e) => e.stopPropagation()}>
                                 {p.type === "WEBSITE" && (
