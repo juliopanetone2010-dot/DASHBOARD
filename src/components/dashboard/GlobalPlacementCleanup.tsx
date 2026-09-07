@@ -121,6 +121,9 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [allPlacements, setAllPlacements] = useState<AllPlacement[]>([]);
   const [allSort, setAllSort] = useState<{ col: "cost_brl" | "revenue_usd" | "roi_pct" | "clicks"; dir: "asc" | "desc" }>({ col: "cost_brl", dir: "desc" });
   const [forceDataIncomplete, setForceDataIncomplete] = useState(false);
+  const [bulkRoi, setBulkRoi] = useState(-80);
+  const [bulkMaxRevUsd, setBulkMaxRevUsd] = useState(0.05);
+  const [bulkMinClicks, setBulkMinClicks] = useState(1);
   const [minDays, setMinDays] = useState(7);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
@@ -411,6 +414,28 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       return n;
     });
   };
+  // "Ver todos": marca de uma vez todo placement WEBSITE que bate os 3 critérios.
+  const bulkMatches = (p: AllPlacement) =>
+    p.type === "WEBSITE" && p.roi_pct <= bulkRoi && p.revenue_usd <= bulkMaxRevUsd && p.clicks >= bulkMinClicks;
+  const bulkSelect = () => {
+    const gaidOk = (cid: string) =>
+      accountFilter === "all" || (campaignTotals.find((c) => c.campaign_id === cid)?.google_account_id ?? "") === accountFilter;
+    const keys = allPlacements.filter((p) => bulkMatches(p) && gaidOk(p.campaign_id)).map((p) => p.key);
+    setSelected((s) => new Set([...s, ...keys]));
+  };
+  // Totais do que está selecionado agora (aba "Ver todos" + lista de ruins).
+  const selectionTotals = (() => {
+    const seen = new Set<string>();
+    let cost = 0, revUsd = 0, n = 0;
+    for (const p of allPlacements) {
+      if (selected.has(p.key) && !seen.has(p.key)) { seen.add(p.key); cost += p.cost_brl; revUsd += p.revenue_usd; n++; }
+    }
+    for (const i of items) {
+      const k = itemKey(i);
+      if (selected.has(k) && !seen.has(k)) { seen.add(k); cost += i.cost_brl; revUsd += i.revenue_usd; n++; }
+    }
+    return { cost, revUsd, n };
+  })();
   const toggleCampaignSelection = (cid: string, on: boolean) => {
     const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
     setSelected((s) => {
@@ -556,6 +581,21 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                     .map((i) => `${i.campaigns[0]?.name ?? "campanha"} — ${i.data_warning}${typeof i.coverage_pct === "number" ? ` (cobertura ${i.coverage_pct}%)` : ""}`),
                 )].map((t) => <li key={t}>{t}</li>)}
               </ul>
+            </div>
+          )}
+          {showAll && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px]">
+              <span className="font-medium">Marcar em massa:</span>
+              <label className="flex items-center gap-1">ROI ≤ <Input type="number" value={bulkRoi} onChange={(e) => setBulkRoi(+e.target.value)} className="h-6 w-16 text-xs" />%</label>
+              <label className="flex items-center gap-1">receita ≤ $<Input type="number" step="0.01" value={bulkMaxRevUsd} onChange={(e) => setBulkMaxRevUsd(+e.target.value)} className="h-6 w-16 text-xs" /></label>
+              <label className="flex items-center gap-1">cliques ≥ <Input type="number" value={bulkMinClicks} onChange={(e) => setBulkMinClicks(+e.target.value)} className="h-6 w-14 text-xs" /></label>
+              <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={bulkSelect}>
+                Marcar os que batem ({allPlacements.filter(bulkMatches).length})
+              </Button>
+              <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setSelected(new Set())}>Limpar seleção</Button>
+              <span className="ml-auto text-muted-foreground">
+                Selecionados: <b>{selectionTotals.n}</b> · custo <b>{fmtBRL(selectionTotals.cost)}</b> · receita <b>{fmtPlacementRevenue(selectionTotals.revUsd)}</b>
+              </span>
             </div>
           )}
           {showAll && (

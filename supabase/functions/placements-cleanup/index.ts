@@ -229,6 +229,8 @@ Deno.serve(async (req) => {
     // ============================================================
     const costDaysByCampaign = new Map<string, Set<string>>();
     const dmRevenueUsdByCampaign = new Map<string, number>();
+    const dmSpendByCampaign = new Map<string, number>();
+    const dmSpendByDayByCampaign = new Map<string, Map<string, number>>();
     for (const chunk of chunkArr(eligibleIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -241,10 +243,15 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message });
       for (const r of data ?? []) {
         const cid = String(r.campaign_id);
-        if ((Number(r.spend) || 0) > 0) {
+        const spend = Number(r.spend) || 0;
+        if (spend > 0) {
           const set = costDaysByCampaign.get(cid) ?? new Set<string>();
           set.add(String(r.date));
           costDaysByCampaign.set(cid, set);
+          dmSpendByCampaign.set(cid, (dmSpendByCampaign.get(cid) ?? 0) + spend);
+          const byDay = dmSpendByDayByCampaign.get(cid) ?? new Map<string, number>();
+          byDay.set(String(r.date), (byDay.get(String(r.date)) ?? 0) + spend);
+          dmSpendByDayByCampaign.set(cid, byDay);
         }
         dmRevenueUsdByCampaign.set(cid, (dmRevenueUsdByCampaign.get(cid) ?? 0) + (Number(r.revenue) || 0));
       }
@@ -446,20 +453,38 @@ Deno.serve(async (req) => {
       const placementUsd = campaignRevenueTotals.get(cid) ?? 0;
       const campaignUsd = dmRevenueUsdByCampaign.get(cid) ?? 0;
       const coverage = campaignUsd > 0 ? (placementUsd / campaignUsd) * 100 : (placementUsd > 0 ? 100 : 0);
-      const reasons: string[] = [];
+
+      // Quanto do gasto do período caiu em dias SEM nenhuma linha de receita GAM.
+      // Um dia isolado na borda da janela (campanha nova / lag de sync) quase sempre
+      // significa "esse dia rendeu ~nada", não "o sync falhou" — só é problema real
+      // quando concentra parte relevante do gasto.
+      const totalSpend = dmSpendByCampaign.get(cid) ?? 0;
+      const spendByDay = dmSpendByDayByCampaign.get(cid);
+      const missingSpend = spendByDay ? missing.reduce((a, d) => a + (spendByDay.get(d) ?? 0), 0) : 0;
+      const missingSpendPct = totalSpend > 0 ? (missingSpend / totalSpend) * 100 : 0;
+      const MAX_MISSING_SPEND_PCT = 25;
+
+      // blockers => data_ok=false (bloqueia exclusão sem "forçar"); notes => só informa.
+      const blockers: string[] = [];
+      const notes: string[] = [];
       if (costDays.size > 0 && gamDays.size === 0) {
-        reasons.push("nenhum dado de receita GAM por placement no período");
+        blockers.push("nenhum dado de receita GAM por placement no período inteiro");
       } else if (missing.length > 0) {
-        reasons.push(`${missing.length} dia(s) com gasto e sem receita GAM (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""})`);
+        const label = `${missing.length} dia(s) com gasto e sem receita GAM (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""})`;
+        if (missingSpendPct > MAX_MISSING_SPEND_PCT) {
+          blockers.push(`${label} — ${round(missingSpendPct)}% do gasto`);
+        } else {
+          notes.push(`${label} — só ${round(missingSpendPct)}% do gasto, não bloqueia`);
+        }
       }
       if (campaignUsd > 0 && coverage < MIN_COVERAGE_PCT) {
-        reasons.push(`só ${round(coverage)}% da receita da campanha está atribuída a placements`);
+        blockers.push(`só ${round(coverage)}% da receita da campanha está atribuída a placements`);
       }
       qualityByCampaign.set(cid, {
-        data_ok: reasons.length === 0,
+        data_ok: blockers.length === 0,
         missing_gam_days: missing,
         coverage_pct: round(coverage),
-        warning: reasons.length ? reasons.join(" · ") : null,
+        warning: blockers.length ? blockers.join(" · ") : (notes.length ? notes.join(" · ") : null),
       });
     }
     const unsafeCampaigns = eligibleIds.filter((cid) => qualityByCampaign.get(cid)?.data_ok === false);
@@ -543,6 +568,7 @@ Deno.serve(async (req) => {
       for (const v of cpAgg.values()) {
         const meta = campMap.get(v.campaign_id);
         if (!meta) continue;
+        if (v.cost <= 0) continue; // só placements que gastaram dinheiro
         const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
         const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
         const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
@@ -701,9 +727,12 @@ Deno.serve(async (req) => {
         }));
 
       // ============================================================
-      // TRAVA DE DADOS INCOMPLETOS (bloqueio duro, não desligável)
-      // Nunca negativa placement de campanha cujo período está sem
-      // receita GAM completa — o ROI negativo pode ser só falta de sync.
+      // TRAVA DE DADOS INCOMPLETOS
+      // Não negativa placement de campanha cujo período está sem receita
+      // GAM completa (cobertura < 70% ou > 25% do gasto em dias sem GAM) —
+      // o ROI negativo pode ser só falta de sync. Só é ignorada quando o
+      // usuário marca "forçar" no preview (force_data_incomplete); o cron
+      // nunca envia essa flag.
       // ============================================================
       const dataRejected: any[] = [];
       const selected: ApplyItem[] = [];
