@@ -54,6 +54,9 @@ Deno.serve(async (req) => {
     const minCostBrl = Math.max(0, Number(body?.min_cost_brl ?? 20));
     const maxRoiPct = Number(body?.max_roi_pct ?? -10);
     const disableSafetyRecheck: boolean = body?.disable_safety_recheck === true;
+    // show_all: no preview, devolve TODOS os placements analisados (não só os que passam
+    // o corte de custo/ROI) para o usuário auditar se as somas batem com a campanha.
+    const showAll: boolean = body?.show_all === true;
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
@@ -525,6 +528,47 @@ Deno.serve(async (req) => {
     }
     items.sort((x, y) => x.roi_pct - y.roi_pct || y.cost_brl - x.cost_brl);
 
+    // ============================================================
+    // AUDITORIA — todos os placements analisados (show_all no preview).
+    // Sem filtro de custo/ROI: o usuário confere que Σ receita_usd por
+    // campanha bate com o total GAM da campanha e vê o método de match.
+    // ============================================================
+    let all_placements: any[] | undefined;
+    if (mode === "preview" && showAll) {
+      const badKeys = new Set(items.map((it) => it.key));
+      const rows = [];
+      for (const v of cpAgg.values()) {
+        const meta = campMap.get(v.campaign_id);
+        if (!meta) continue;
+        const revenueUsd = revenueUsdByCp.get(cpKey(v.campaign_id, v.placement)) ?? 0;
+        const directUsd = revByCampaign.get(v.campaign_id)?.get(v.placement) ?? 0;
+        const rootUsd = revByCampaign.get(v.campaign_id)?.get(rootDomain(v.placement)) ?? 0;
+        const matchKind = directUsd > 0 ? "exato" : rootUsd > 0 ? "root" : revenueUsd > 0 ? "rateio" : "nenhum";
+        const revenueBrl = revenueUsd * NET_FACTOR * fxUsdBrl;
+        const roi = v.cost > 0 ? ((revenueBrl - v.cost) / v.cost) * 100 : 0;
+        rows.push({
+          key: `${v.campaign_id}|${v.placement}`,
+          campaign_id: v.campaign_id,
+          campaign_name: meta.name,
+          placement: v.placement,
+          type: v.type,
+          clicks: v.clicks,
+          impressions: v.impressions,
+          cost_brl: round(v.cost),
+          revenue_usd: round4(revenueUsd),
+          revenue_brl: round4(revenueBrl),
+          roi_pct: round(roi),
+          match_kind: matchKind,
+          data_ok: qualityByCampaign.get(v.campaign_id)?.data_ok ?? true,
+          in_bad_list: badKeys.has(`${v.campaign_id}|${v.placement}`),
+          below_min_cost: v.cost < minCostBrl,
+        });
+      }
+      rows.sort((a, b) => b.cost_brl - a.cost_brl);
+      all_placements = rows.slice(0, 5000);
+      console.log(`[placements-cleanup] show_all: ${rows.length} placements (devolvendo ${all_placements.length})`);
+    }
+
     type CampTotal = { campaign_id: string; name: string; google_account_id: string; cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number; bad_count: number; eligible: boolean };
     const totalsMap = new Map<string, CampTotal>();
     // IMPORTANTE: somar custo/receita de TODAS as campanhas ENABLED (campIds),
@@ -614,7 +658,7 @@ Deno.serve(async (req) => {
     };
 
 
-    if (mode === "preview") return json({ ok: true, items, stats, campaign_totals });
+    if (mode === "preview") return json({ ok: true, items, stats, campaign_totals, all_placements });
 
     if (mode === "notify") {
       if (items.length > 0) {

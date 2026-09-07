@@ -51,6 +51,23 @@ interface CampaignTotal {
   cost_brl: number; revenue_brl: number; profit_brl: number; roi_pct: number;
   bad_count: number; eligible?: boolean;
 }
+interface AllPlacement {
+  key: string;
+  campaign_id: string;
+  campaign_name: string;
+  placement: string;
+  type: string;
+  clicks: number;
+  impressions: number;
+  cost_brl: number;
+  revenue_usd: number;
+  revenue_brl: number;
+  roi_pct: number;
+  match_kind: "exato" | "root" | "rateio" | "nenhum";
+  data_ok: boolean;
+  in_bad_list: boolean;
+  below_min_cost: boolean;
+}
 interface PreviewStats {
   eligible: number; total: number; bad?: number; grouped?: number;
   review_only?: number; deletable?: number; unsafe_campaigns?: number;
@@ -61,7 +78,7 @@ interface PreviewStats {
   grand_cost_brl?: number; grand_revenue_brl?: number; grand_profit_brl?: number;
 }
 
-interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; }
+interface PreviewResp { ok?: boolean; error?: string; items?: PreviewItem[]; stats?: PreviewStats; campaign_totals?: CampaignTotal[]; all_placements?: AllPlacement[]; }
 interface GamSyncResp {
   ok?: boolean;
   error?: string;
@@ -100,6 +117,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [stats, setStats] = useState<PreviewStats>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDebug, setShowDebug] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  const [allPlacements, setAllPlacements] = useState<AllPlacement[]>([]);
   const [minDays, setMinDays] = useState(7);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
@@ -179,7 +198,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     toast({ title: on ? "Limpeza automática ativada (a cada 15 dias)" : "Limpeza automática desativada" });
   };
 
-  const runPreview = async () => {
+  const runPreview = async (showAllArg: boolean = showAll) => {
     if (!filters.siteId || filters.siteId === "all") {
       toast({ title: "Selecione um site", description: "A limpeza global precisa de um site para evitar mexer em campanhas de outros sites.", variant: "destructive" });
       return;
@@ -200,6 +219,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           fx_usd_brl: fxUsdBrl,
           site_id: filters.siteId,
           google_account_ids: filters.googleAccountIds,
+          show_all: showAllArg,
         },
       });
       if (error || data?.error) {
@@ -209,6 +229,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const list = data?.items ?? [];
       setItems(list);
       setCampaignTotals(data?.campaign_totals ?? []);
+      setAllPlacements(data?.all_placements ?? []);
       setStats(data?.stats);
       setSelected(new Set(list.filter(canExclude).map(itemKey)));
       setExpanded(new Set());
@@ -222,6 +243,13 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Liga/desliga a auditoria "todos os placements" — precisa re-consultar porque o
+  // backend só devolve all_placements quando show_all=true.
+  const toggleShowAll = async (on: boolean) => {
+    setShowAll(on);
+    if (open) await runPreview(on);
   };
 
   const [resyncing, setResyncing] = useState(false);
@@ -372,7 +400,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             <div className="text-muted-foreground text-[10px]">{lastRun ? `último: ${new Date(lastRun).toLocaleString("pt-BR")}` : "nunca executado"}</div>
           </div>
         </div>
-        <Button onClick={runPreview} disabled={loading} variant="destructive">
+        <Button onClick={() => runPreview()} disabled={loading} variant="destructive">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
           Executar limpeza agora
         </Button>
@@ -475,6 +503,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                   {resyncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
                   Ressincronizar receita & rechecar
                 </Button>
+                <span className="flex items-center gap-2">Ver todos <Switch checked={showAll} onCheckedChange={toggleShowAll} /></span>
                 <span className="flex items-center gap-2">Debug <Switch checked={showDebug} onCheckedChange={setShowDebug} /></span>
               </span>
             </DialogDescription>
@@ -485,7 +514,75 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” antes de decidir.
             </div>
           )}
-          <div className="overflow-auto flex-1 border border-border rounded-lg">
+          {showAll && (
+            <div className="overflow-auto flex-1 border border-border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Placement</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead className="text-right">Cliques</TableHead>
+                    <TableHead className="text-right">Custo</TableHead>
+                    <TableHead className="text-right">Receita GAM</TableHead>
+                    <TableHead className="text-right">ROI</TableHead>
+                    <TableHead>Match</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allPlacements.length === 0 && (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Sem placements com gasto no período.</TableCell></TableRow>
+                  )}
+                  {[...new Set(allPlacements.map((p) => p.campaign_id))]
+                    .map((cid) => ({ cid, pls: allPlacements.filter((p) => p.campaign_id === cid), ct: campaignTotals.find((c) => c.campaign_id === cid) }))
+                    .sort((a, b) => (a.ct?.roi_pct ?? 0) - (b.ct?.roi_pct ?? 0))
+                    .map(({ cid, pls, ct }) => {
+                      const sumCost = pls.reduce((a, p) => a + p.cost_brl, 0);
+                      const sumRevUsd = pls.reduce((a, p) => a + p.revenue_usd, 0);
+                      const sumRevBrl = sumRevUsd * 0.935 * fxUsdBrl;
+                      const coverage = ct && ct.revenue_brl > 0 ? (sumRevBrl / ct.revenue_brl) * 100 : (sumRevBrl > 0 ? 100 : 0);
+                      return (
+                        <Fragment key={cid}>
+                          <TableRow className="bg-muted/30">
+                            <TableCell colSpan={7} className="text-xs">
+                              <span className="font-semibold text-sm">{ct?.name ?? cid}</span>
+                              <span className="ml-2 text-muted-foreground">
+                                {pls.length} placements · Σ custo {fmtBRL(sumCost)} · Σ receita GAM {fmtPlacementRevenue(sumRevUsd)} (≈ {fmtBRL(sumRevBrl)})
+                                {ct && ` · campanha: ${fmtBRL(ct.cost_brl)} custo / ${fmtBRL(ct.revenue_brl)} receita`}
+                              </span>
+                              <span className={cn("ml-2 font-medium", coverage >= 80 ? "text-success" : coverage >= 50 ? "text-warning" : "text-danger")}>
+                                cobertura {Math.round(coverage)}%
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          {pls.map((p) => (
+                            <TableRow key={p.key} className={cn(p.in_bad_list && "bg-danger/5", !p.data_ok && "bg-warning/5")}>
+                              <TableCell className="font-mono text-xs max-w-[340px] truncate" title={p.placement}>{p.placement}</TableCell>
+                              <TableCell className="text-xs">{p.type}</TableCell>
+                              <TableCell className="text-right tabular-nums text-xs">{fmtNumber(p.clicks)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-xs">{fmtBRL(p.cost_brl)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-xs">{fmtPlacementRevenue(p.revenue_usd)}</TableCell>
+                              <TableCell className={cn("text-right tabular-nums text-xs font-semibold", p.roi_pct < 0 ? "text-danger" : "text-success")}>{fmtPercent(p.roi_pct)}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={cn("text-[9px]", p.match_kind === "exato" ? "border-success text-success" : p.match_kind === "nenhum" ? "border-warning text-warning" : "")}
+                                  title={p.match_kind === "exato" ? "casou utm_placement={campaignid}_{placement} no GAM" : p.match_kind === "root" ? "casou pelo domínio raiz" : p.match_kind === "rateio" ? "sem match exato — receita rateada por custo" : "sem receita GAM atribuída"}
+                                >
+                                  {p.match_kind}
+                                </Badge>
+                                {p.in_bad_list && <Badge variant="destructive" className="ml-1 text-[9px]">ruim</Badge>}
+                                {p.below_min_cost && <Badge variant="secondary" className="ml-1 text-[9px]">&lt; custo mín</Badge>}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </Fragment>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <div className={cn("overflow-auto flex-1 border border-border rounded-lg", showAll && "hidden")}>
 
             <Table>
               <TableHeader>
