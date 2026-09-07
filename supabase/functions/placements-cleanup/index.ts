@@ -150,14 +150,16 @@ Deno.serve(async (req) => {
     const campIds = [...campMap.keys()];
     if (campIds.length === 0) return json({ ok: true, items: [], stats: { eligible: 0, total: 0, period: { from, to } } });
 
-    // ELEGIBILIDADE — 2 regras (OR):
-    //  A) regra antiga: campanha tem histórico anterior ao cutoff (>= minDays de idade).
-    //  B) regra nova: campanha tem >= effMinDays DIAS DE GASTO dentro da janela analisada.
-    //     Isso deixa uma campanha nova mas com dado denso (ex.: 5 dias, 5 dias de gasto,
-    //     janela de 7) ser avaliada — antes só a idade contava e sites 100% de campanhas
-    //     recentes ficavam com a limpeza vazia (nada aparecia).
+    // ELEGIBILIDADE
+    //  - preview (revisão manual, humano decide antes de aplicar): basta a campanha ter
+    //    gasto relevante na janela — >= 2 dias de gasto OU gasto total >= minCostBrl.
+    //    Não exige idade/maturidade; sites 100% de campanhas novas continuavam com a
+    //    limpeza vazia por causa desse gate.
+    //  - apply/notify (exclusão automática): mantém a trava de maturidade —
+    //    >= effMinDays DIAS DE GASTO na janela OU >= minDays de idade (cutoff).
     const effMinDays = Math.min(minDays, analysisWindowDays);
     const spendDaysByCampaign = new Map<string, Set<string>>();
+    const spendTotalByCampaign = new Map<string, number>();
     for (const chunk of chunkArr(campIds, 200)) {
       const { data, error } = await admin
         .from("daily_metrics")
@@ -174,32 +176,39 @@ Deno.serve(async (req) => {
         const s = spendDaysByCampaign.get(cid) ?? new Set<string>();
         s.add(String(r.date));
         spendDaysByCampaign.set(cid, s);
+        spendTotalByCampaign.set(cid, (spendTotalByCampaign.get(cid) ?? 0) + (Number(r.spend) || 0));
       }
     }
     const eligible = new Set<string>();
-    for (const [cid, days] of spendDaysByCampaign) {
-      if (days.size >= effMinDays) eligible.add(cid);
+    if (mode === "preview") {
+      for (const [cid, days] of spendDaysByCampaign) {
+        if (days.size >= 2 || (spendTotalByCampaign.get(cid) ?? 0) >= minCostBrl) eligible.add(cid);
+      }
+    } else {
+      for (const [cid, days] of spendDaysByCampaign) {
+        if (days.size >= effMinDays) eligible.add(cid);
+      }
+      for (const chunk of chunkArr(campIds, 200)) {
+        const { data, error } = await admin
+          .from("daily_metrics")
+          .select("campaign_id, date")
+          .eq("user_id", userId)
+          .in("campaign_id", chunk)
+          .lte("date", cutoff)
+          .limit(50000);
+        if (error) return json({ error: error.message });
+        for (const r of data ?? []) eligible.add(String(r.campaign_id));
+      }
     }
-    for (const chunk of chunkArr(campIds, 200)) {
-      const { data, error } = await admin
-        .from("daily_metrics")
-        .select("campaign_id, date")
-        .eq("user_id", userId)
-        .in("campaign_id", chunk)
-        .lte("date", cutoff)
-        .limit(50000);
-      if (error) return json({ error: error.message });
-      for (const r of data ?? []) eligible.add(String(r.campaign_id));
-    }
-    console.log(`[placements-cleanup] elegíveis=${eligible.size}/${campIds.length} (effMinDays=${effMinDays}, minDays=${minDays}, janela=${analysisWindowDays}d)`);
+    console.log(`[placements-cleanup] elegíveis=${eligible.size}/${campIds.length} (mode=${mode}, effMinDays=${effMinDays}, minDays=${minDays}, janela=${analysisWindowDays}d)`);
     if (eligible.size === 0) {
+      const reason = mode === "preview"
+        ? `Nenhuma das ${campIds.length} campanhas ENABLED teve gasto >= 2 dias ou >= R$ ${minCostBrl} na janela ${from}..${to}. Confira se o site selecionado é o certo e se o período tem gasto.`
+        : `Nenhuma campanha elegível para exclusão automática: precisam de ${effMinDays}+ dias de gasto na janela OU ${minDays}+ dias de idade.`;
       return json({
         ok: true,
         items: [],
-        stats: {
-          eligible: 0, total: campIds.length, period: { from, to },
-          reason: `Nenhuma campanha elegível: precisam de ${effMinDays}+ dias de gasto na janela OU ${minDays}+ dias de idade. Baixe "Dias mín." se as campanhas forem recentes.`,
-        },
+        stats: { eligible: 0, total: campIds.length, period: { from, to }, reason },
       });
     }
     const eligibleIds = [...eligible];
