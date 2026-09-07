@@ -1714,12 +1714,20 @@ async function persistCampaignTotalRequests(args: {
     // Taxa de correspondência = AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing
     // page quando disponível, senão por site) — não "impressões/cliques", que não é
     // fill rate nem match rate de verdade. Fallback final: impressões/cliques do Ads.
+    // Denominador POR CAMPANHA: nº de requests AdX da campanha (AD_EXCHANGE_TOTAL_REQUESTS
+    // por utm_campaign) quando o relatório retornou; senão cliques comprados no Ads.
+    const gamRequests = Number(b.total_requests || 0);
+    const denom = gamRequests > 0 ? gamRequests : (adsClicks > 0 ? adsClicks : 0);
+    // Taxa de correspondência REAL por campanha = impressões monetizadas / denominador.
+    // Isso varia campanha a campanha (é o que o usuário confere na ferramenta de
+    // referência). Só cai na taxa do GAM por URL/site quando não há denominador nenhum.
+    const perCampaignRate = denom > 0 && prev.impressions > 0
+      ? Math.min(100, (prev.impressions / denom) * 100)
+      : null;
     const realRate = pickMatchRate(b.cid, b.date);
-    const rate = realRate != null
-      ? realRate
-      : (adsClicks > 0 && prev.impressions > 0
-        ? Math.min(100, (prev.impressions / adsClicks) * 100)
-        : (prev.match_rate_pct ?? null));
+    const rate = perCampaignRate != null
+      ? perCampaignRate
+      : (realRate != null ? realRate : (prev.match_rate_pct ?? null));
     return {
       user_id: userId,
       site_id: siteId,
@@ -1728,7 +1736,7 @@ async function persistCampaignTotalRequests(args: {
       utm_source: "google",
       revenue_usd: prev.revenue_usd,
       impressions: prev.impressions,
-      total_requests: adsClicks > 0 ? adsClicks : 0,
+      total_requests: denom,
       match_rate_pct: rate,
     };
   });
@@ -1819,20 +1827,24 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     if (impressions <= 0) continue;
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
     const path = cidToPath.get(cid);
-    const siteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
-    // Prioriza a métrica real do GAM (AD_EXCHANGE_MATCH_RATE, por URL senão por site).
-    // Sem ela, cai no fallback antigo (impressões/cliques) — mas só se tiver cliques,
-    // senão preserva.
+    const urlOrSiteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
+    // Taxa de correspondência POR CAMPANHA primeiro: impressões monetizadas /
+    // (requests AdX da campanha, senão cliques comprados). Varia campanha a campanha.
+    // A taxa do GAM por URL/site só entra quando a campanha não tem denominador
+    // próprio — sem isso TODAS as campanhas ficavam com o mesmo número do site.
+    const perCampaignDenom = Number(r.total_requests || 0) > 0
+      ? Number(r.total_requests)
+      : (clicks > 0 ? clicks : 0);
     let rate: number;
     let denom: number;
-    if (siteRate != null) {
-      rate = siteRate;
-      denom = clicks > 0 ? clicks : Number(r.total_requests || 0);
-    } else if (clicks > 0) {
-      rate = Math.min(100, (impressions / clicks) * 100);
-      denom = clicks;
+    if (perCampaignDenom > 0) {
+      rate = Math.min(100, (impressions / perCampaignDenom) * 100);
+      denom = perCampaignDenom;
+    } else if (urlOrSiteRate != null) {
+      rate = urlOrSiteRate;
+      denom = Number(r.total_requests || 0);
     } else {
-      continue; // sem taxa real nem cliques — preserva o valor atual
+      continue; // sem denominador próprio nem taxa real — preserva o valor atual
     }
     const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
     const prevDenom = Number(r.total_requests || 0);
