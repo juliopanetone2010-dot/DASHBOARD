@@ -57,6 +57,9 @@ Deno.serve(async (req) => {
     // show_all: no preview, devolve TODOS os placements analisados (não só os que passam
     // o corte de custo/ROI) para o usuário auditar se as somas batem com a campanha.
     const showAll: boolean = body?.show_all === true;
+    // force_data_incomplete: só no apply manual — o usuário revisou na aba "Ver todos"
+    // e quer excluir mesmo com cobertura GAM baixa. Nunca vem do cron.
+    const forceDataIncomplete: boolean = body?.force_data_incomplete === true;
     const fxUsdBrl = Number(body?.fx_usd_brl ?? 5);
     const lookbackDays = Math.max(1, Number(body?.lookback_days ?? 15));
     const fromOverride: string | null = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null;
@@ -706,11 +709,15 @@ Deno.serve(async (req) => {
       const selected: ApplyItem[] = [];
       for (const it of selectedRaw) {
         const bad = it.campaigns.filter((c) => qualityByCampaign.get(String(c.campaign_id))?.data_ok === false);
-        if (bad.length > 0) {
+        if (bad.length > 0 && !forceDataIncomplete) {
           const q = qualityByCampaign.get(String(bad[0].campaign_id));
           dataRejected.push({ placement: it.placement, reason: "dados_incompletos", detail: q?.warning ?? null, coverage_pct: q?.coverage_pct ?? null });
           console.warn(`[data-guard] BLOQUEIO REJEITADO: ${it.placement} — ${q?.warning}`);
           continue;
+        }
+        if (bad.length > 0 && forceDataIncomplete) {
+          const q = qualityByCampaign.get(String(bad[0].campaign_id));
+          console.warn(`[data-guard] FORÇADO pelo usuário: ${it.placement} — ${q?.warning}`);
         }
         selected.push(it);
       }

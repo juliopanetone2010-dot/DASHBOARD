@@ -119,6 +119,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [showDebug, setShowDebug] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [allPlacements, setAllPlacements] = useState<AllPlacement[]>([]);
+  const [allSort, setAllSort] = useState<{ col: "cost_brl" | "revenue_usd" | "roi_pct" | "clicks"; dir: "asc" | "desc" }>({ col: "cost_brl", dir: "desc" });
+  const [forceDataIncomplete, setForceDataIncomplete] = useState(false);
   const [minDays, setMinDays] = useState(7);
   const [maxRoi, setMaxRoi] = useState(-10);
   const [minCost, setMinCost] = useState(20);
@@ -308,19 +310,35 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     if (!confirm(`Aplicar exclusão (negative placement) em ${selected.size} placement(s)?`)) return;
     setApplying(true);
     try {
-      const payload = items
-        .filter((i) => selected.has(itemKey(i)) && matchesAccount(i))
-        .map((i) => ({
+      const byKey = new Map<string, any>();
+      for (const i of items) {
+        if (!selected.has(itemKey(i)) || !matchesAccount(i)) continue;
+        const campaigns = i.campaigns
+          .filter((c) => accountFilter === "all" || c.google_account_id === accountFilter)
+          .map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct }));
+        if (campaigns.length === 0) continue;
+        byKey.set(itemKey(i), {
           key: itemKey(i), placement: i.placement, type: i.type, app_id: i.app_id ?? null,
           cost_brl: i.cost_brl, revenue_brl: i.revenue_brl, revenue_usd: i.revenue_usd, roi_pct: i.roi_pct, reason: i.reason,
-          campaigns: i.campaigns
-            .filter((c) => accountFilter === "all" || c.google_account_id === accountFilter)
-            .map((c) => ({ campaign_id: c.campaign_id, google_account_id: c.google_account_id, cost_brl: c.cost_brl, revenue_usd: c.revenue_usd, roi_pct: i.roi_pct })),
-        }))
-        .filter((p) => p.campaigns.length > 0);
+          campaigns,
+        });
+      }
+      // Seleções feitas na aba "Ver todos" que não estão na lista de "ruins".
+      for (const p of allPlacements) {
+        if (!selected.has(p.key) || byKey.has(p.key) || p.type !== "WEBSITE") continue;
+        const gaid = campaignTotals.find((c) => c.campaign_id === p.campaign_id)?.google_account_id ?? "";
+        if (accountFilter !== "all" && gaid !== accountFilter) continue;
+        byKey.set(p.key, {
+          key: p.key, placement: p.placement, type: "WEBSITE", app_id: null,
+          cost_brl: p.cost_brl, revenue_brl: p.revenue_brl, revenue_usd: p.revenue_usd, roi_pct: p.roi_pct,
+          reason: p.in_bad_list ? "roi_critico" : "manual",
+          campaigns: [{ campaign_id: p.campaign_id, google_account_id: gaid, cost_brl: p.cost_brl, revenue_usd: p.revenue_usd, roi_pct: p.roi_pct }],
+        });
+      }
+      const payload = [...byKey.values()].filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; safety_rejected?: any[] }>(
         "placements-cleanup",
-        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds, disable_safety_recheck: !safetyEnabled } },
+        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds, disable_safety_recheck: !safetyEnabled, force_data_incomplete: forceDataIncomplete } },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
@@ -373,6 +391,25 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
 
   const toggleExpand = (cid: string) => {
     setExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+  };
+  // Ordenação da aba "Ver todos"
+  const applyAllSort = (col: typeof allSort.col) =>
+    setAllSort((s) => ({ col, dir: s.col === col && s.dir === "desc" ? "asc" : "desc" }));
+  const sortArrow = (col: typeof allSort.col) => (allSort.col === col ? (allSort.dir === "desc" ? " ↓" : " ↑") : "");
+  const sortPls = (arr: AllPlacement[]) =>
+    [...arr].sort((a, b) => {
+      const d = (a[allSort.col] as number) - (b[allSort.col] as number);
+      return allSort.dir === "desc" ? -d : d;
+    });
+  const warningByCid = (cid: string) =>
+    items.find((i) => i.campaigns[0]?.campaign_id === cid && i.data_ok === false)?.data_warning ?? null;
+  const toggleAllInCampaign = (cid: string, on: boolean) => {
+    const keys = allPlacements.filter((p) => p.campaign_id === cid && p.type === "WEBSITE").map((p) => p.key);
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const k of keys) on ? n.add(k) : n.delete(k);
+      return n;
+    });
   };
   const toggleCampaignSelection = (cid: string, on: boolean) => {
     const placements = (itemsByCampaign.get(cid) ?? []).filter(canExclude).map(itemKey);
@@ -510,8 +547,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
           </DialogHeader>
           {!!stats?.review_only && (
             <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
-              <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) estão com receita do Ad Manager incompleta neste período (falta de sync ou atribuição parcial).
-              O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” antes de decidir.
+              <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) com receita do Ad Manager incompleta neste período.
+              O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” — se continuar incompleto e você tiver certeza, marque “forçar” no rodapé.
+              <ul className="mt-1 list-disc pl-4">
+                {[...new Set(
+                  items
+                    .filter((i) => i.data_ok === false && i.data_warning)
+                    .map((i) => `${i.campaigns[0]?.name ?? "campanha"} — ${i.data_warning}${typeof i.coverage_pct === "number" ? ` (cobertura ${i.coverage_pct}%)` : ""}`),
+                )].map((t) => <li key={t}>{t}</li>)}
+              </ul>
             </div>
           )}
           {showAll && (
@@ -519,18 +563,19 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40">
+                    <TableHead className="w-10"></TableHead>
                     <TableHead>Placement</TableHead>
                     <TableHead>Tipo</TableHead>
-                    <TableHead className="text-right">Cliques</TableHead>
-                    <TableHead className="text-right">Custo</TableHead>
-                    <TableHead className="text-right">Receita GAM</TableHead>
-                    <TableHead className="text-right">ROI</TableHead>
+                    <TableHead className="text-right cursor-pointer select-none" onClick={() => applyAllSort("clicks")}>Cliques{sortArrow("clicks")}</TableHead>
+                    <TableHead className="text-right cursor-pointer select-none" onClick={() => applyAllSort("cost_brl")}>Custo{sortArrow("cost_brl")}</TableHead>
+                    <TableHead className="text-right cursor-pointer select-none" onClick={() => applyAllSort("revenue_usd")}>Receita GAM{sortArrow("revenue_usd")}</TableHead>
+                    <TableHead className="text-right cursor-pointer select-none" onClick={() => applyAllSort("roi_pct")}>ROI{sortArrow("roi_pct")}</TableHead>
                     <TableHead>Match</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {allPlacements.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Sem placements com gasto no período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Sem placements com gasto no período.</TableCell></TableRow>
                   )}
                   {[...new Set(allPlacements.map((p) => p.campaign_id))]
                     .map((cid) => ({ cid, pls: allPlacements.filter((p) => p.campaign_id === cid), ct: campaignTotals.find((c) => c.campaign_id === cid) }))
@@ -540,9 +585,17 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                       const sumRevUsd = pls.reduce((a, p) => a + p.revenue_usd, 0);
                       const sumRevBrl = sumRevUsd * 0.935 * fxUsdBrl;
                       const coverage = ct && ct.revenue_brl > 0 ? (sumRevBrl / ct.revenue_brl) * 100 : (sumRevBrl > 0 ? 100 : 0);
+                      const warn = warningByCid(cid);
+                      const websiteKeys = pls.filter((p) => p.type === "WEBSITE").map((p) => p.key);
+                      const allChecked = websiteKeys.length > 0 && websiteKeys.every((k) => selected.has(k));
                       return (
                         <Fragment key={cid}>
                           <TableRow className="bg-muted/30">
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              {websiteKeys.length > 0 && (
+                                <Checkbox checked={allChecked} onCheckedChange={(v) => toggleAllInCampaign(cid, !!v)} />
+                              )}
+                            </TableCell>
                             <TableCell colSpan={7} className="text-xs">
                               <span className="font-semibold text-sm">{ct?.name ?? cid}</span>
                               <span className="ml-2 text-muted-foreground">
@@ -552,10 +605,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                               <span className={cn("ml-2 font-medium", coverage >= 80 ? "text-success" : coverage >= 50 ? "text-warning" : "text-danger")}>
                                 cobertura {Math.round(coverage)}%
                               </span>
+                              {warn && <div className="text-warning mt-0.5">⚠️ {warn}</div>}
                             </TableCell>
                           </TableRow>
-                          {pls.map((p) => (
+                          {sortPls(pls).map((p) => (
                             <TableRow key={p.key} className={cn(p.in_bad_list && "bg-danger/5", !p.data_ok && "bg-warning/5")}>
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                {p.type === "WEBSITE" && (
+                                  <Checkbox checked={selected.has(p.key)} onCheckedChange={() => toggle(p.key)} />
+                                )}
+                              </TableCell>
                               <TableCell className="font-mono text-xs max-w-[340px] truncate" title={p.placement}>{p.placement}</TableCell>
                               <TableCell className="text-xs">{p.type}</TableCell>
                               <TableCell className="text-right tabular-nums text-xs">{fmtNumber(p.clicks)}</TableCell>
@@ -674,7 +733,17 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                             : <Badge variant="outline" className="text-[9px] border-warning text-warning">false</Badge>}
                                         </TableCell>
                                       )}
-                                      {showDebug && <TableCell className="text-[10px] font-mono">{i.reason}</TableCell>}
+                                      {showDebug && (
+                                        <TableCell className="text-[10px] font-mono max-w-[260px] whitespace-normal">
+                                          {i.reason}
+                                          {dataUnsafe && i.data_warning && (
+                                            <div className="font-sans text-warning mt-0.5">
+                                              {i.data_warning}
+                                              {typeof i.coverage_pct === "number" && ` · cobertura ${i.coverage_pct}%`}
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                      )}
                                     </TableRow>
                                   );
                                 })}
@@ -689,12 +758,18 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </TableBody>
             </Table>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" disabled={applying || selected.size === 0} onClick={runApply}>
-              {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Aplicar exclusão ({selected.size})
-            </Button>
+          <DialogFooter className="gap-2 sm:justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground" title="Exclui mesmo os placements de campanhas com cobertura GAM baixa. Use só depois de revisar na aba 'Ver todos'.">
+              <Checkbox checked={forceDataIncomplete} onCheckedChange={(v) => setForceDataIncomplete(!!v)} />
+              Forçar exclusão mesmo com dados incompletos
+            </label>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+              <Button variant="destructive" disabled={applying || selected.size === 0} onClick={runApply}>
+                {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Aplicar exclusão ({selected.size})
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
