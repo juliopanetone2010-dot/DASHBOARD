@@ -34,7 +34,7 @@ import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
 import { type BestMatchInfo, matchRateColor, formatBrDate } from "@/lib/bestMatch";
 import { normalizePushUrl } from "@/lib/normalizePushUrl";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "score";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "roiDay" | "score";
 type SortDir = "desc" | "asc";
 type TrendPeriod = "today" | "yesterday" | "7d" | "15d" | "30d";
 const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = [
@@ -123,7 +123,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey =
     | "score" | "startDate" | "age" | "lastAction"
-    | "spend" | "revenue" | "profit" | "roi" | "trend" | "roas"
+    | "spend" | "revenue" | "profit" | "roi" | "roiDay" | "trend" | "roas"
     | "ecpm" | "matchRate" | "bestMatch" | "deltaMatch" | "impressions" | "clicks" | "ctr"
     | "conversions" | "convRate" | "cpa" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
@@ -139,6 +139,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     { key: "revenue", label: "Receita", width: 110 },
     { key: "profit", label: "Lucro", width: 110 },
     { key: "roi", label: "ROI", width: 110 },
+    { key: "roiDay", label: "ROI vs ontem", width: 110 },
     { key: "ecpm", label: "eCPM", width: 100 },
     { key: "matchRate", label: "Taxa Corresp.", width: 110 },
     { key: "act_pause", label: "Ação · Pause", width: 56 },
@@ -192,6 +193,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     revenue: { label: isIntraday ? "Receita ESTIMADA" : "Receita", sortKey: "revenue", align: "right" },
     profit: { label: isIntraday ? "Lucro ESTIMADO" : "Lucro", sortKey: "profit", align: "right" },
     roi: { label: isIntraday ? "ROI ESTIMADO" : "ROI", sortKey: "roi", align: "right" },
+    roiDay: { label: "ROI vs ontem", sortKey: "roiDay", align: "right" },
     trend: { label: "Tendência", sortKey: "trend", align: "right" },
     roas: { label: "ROAS", sortKey: "roas", align: "right" },
     ecpm: { label: "eCPM", sortKey: "ecpm", align: "right" },
@@ -448,6 +450,50 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     enabled: campaignIds.length > 0,
   });
 
+  // === ROI vs ontem: último dia fechado com gasto vs o dia fechado anterior ===
+  type RoiDayData = { lastDate: string; prevDate: string; lastRoi: number; prevRoi: number; diff: number };
+  const roiDayQuery = useQuery({
+    queryKey: ["campaign-roi-day", campaignIds.join("|")],
+    queryFn: async () => {
+      const out = new Map<string, RoiDayData>();
+      if (campaignIds.length === 0) return out;
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const end = new Date(today.getTime() - 86400000); // ontem — hoje ainda é parcial
+      const start = new Date(end.getTime() - 8 * 86400000);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("daily_metrics")
+        .select("campaign_id, date, spend, revenue")
+        .in("campaign_id", campaignIds)
+        .gte("date", fmt(start))
+        .lte("date", fmt(end))
+        .limit(50000);
+      const byCid = new Map<string, Map<string, { s: number; r: number }>>();
+      for (const row of (data ?? []) as Array<{ campaign_id: string; date: string; spend: number; revenue: number }>) {
+        const m = byCid.get(row.campaign_id) ?? new Map<string, { s: number; r: number }>();
+        const cur = m.get(row.date) ?? { s: 0, r: 0 };
+        cur.s += Number(row.spend) || 0;
+        cur.r += Number(row.revenue) || 0;
+        m.set(row.date, cur);
+        byCid.set(row.campaign_id, m);
+      }
+      for (const [cid, m] of byCid) {
+        const dates = [...m.keys()].filter((dt) => (m.get(dt)!.s > 0)).sort().reverse();
+        if (dates.length < 2) continue;
+        const [lastDate, prevDate] = dates;
+        const a = m.get(lastDate)!;
+        const b = m.get(prevDate)!;
+        const lastRoi = a.s > 0 ? ((a.r - a.s) / a.s) * 100 : 0;
+        const prevRoi = b.s > 0 ? ((b.r - b.s) / b.s) * 100 : 0;
+        out.set(cid, { lastDate, prevDate, lastRoi, prevRoi, diff: lastRoi - prevRoi });
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    enabled: campaignIds.length > 0,
+  });
+
   // Health score: 🟢 saudável, 🟡 atenção, 🔴 crítico
   const computeScore = (c: CampaignAggregate, d: { ctr: number; convRate: number; cpa: number } | undefined, trend?: TrendData) => {
     const roi = Number(c.roi) || 0;
@@ -517,6 +563,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
         case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
         case "age": return ageInDays(firstSpendQuery.data?.get(c.campaign_id)) ?? -1;
         case "trend": return trendQuery.data?.get(c.campaign_id)?.diff ?? 0;
+        case "roiDay": return roiDayQuery.data?.get(c.campaign_id)?.diff ?? 0;
         case "score": {
           const t = trendQuery.data?.get(c.campaign_id);
           const s = computeScore(c, d, t);
@@ -531,7 +578,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
       return av < bv ? -1 * mult : 1 * mult;
     });
     return arr;
-  }, [filteredCampaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data]);
+  }, [filteredCampaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data, roiDayQuery.data]);
 
 
   const copyToClipboard = async (url: string) => {
@@ -970,6 +1017,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
               const ecpmDebug = calculateCampaignEcpm(gamMetric?.revenueUsd ?? 0, gamMetric?.impressions ?? 0, "gam_campaign_source_revenue (utm_source=google)");
               const trend = trendQuery.data?.get(c.campaign_id);
+              const roiDay = roiDayQuery.data?.get(c.campaign_id);
               const score = computeScore(c, d, trend);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20", selected.has(c.campaign_id) && "bg-primary/5")}>
@@ -1171,6 +1219,39 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                             </span>
                           </TableCell>
                         );
+                      case "roiDay": {
+                        const isFlat = roiDay ? Math.abs(roiDay.diff) < 2 : false;
+                        return (
+                          <TableCell key={k} style={ws} className="text-right">
+                            {roiDayQuery.isLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin inline text-muted-foreground" />
+                            ) : !roiDay ? (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
+                                    isFlat ? "bg-muted text-muted-foreground" :
+                                    roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                                  )}>
+                                    {isFlat ? <Minus className="h-3 w-3" /> :
+                                      roiDay.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                    {roiDay.diff >= 0 ? "+" : ""}{roiDay.diff.toFixed(1)}pp
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="left" className="text-xs">
+                                  <b>ROI dia a dia</b><br />
+                                  {roiDay.lastDate}: {roiDay.lastRoi.toFixed(1)}%<br />
+                                  {roiDay.prevDate}: {roiDay.prevRoi.toFixed(1)}%<br />
+                                  Diferença: {roiDay.diff >= 0 ? "+" : ""}{roiDay.diff.toFixed(1)} pontos<br />
+                                  <span className="text-muted-foreground">Compara os 2 últimos dias fechados com gasto.</span>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </TableCell>
+                        );
+                      }
                       case "trend":
                         return (
                           <TableCell key={k} style={ws} className="text-right">
