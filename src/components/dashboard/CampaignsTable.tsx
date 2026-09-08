@@ -1245,17 +1245,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
                                     )}>
                                       {isFlat ? <Minus className="h-3.5 w-3.5" /> :
                                         roiDay.diff > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
-                                      {roiDay.prevRoi.toFixed(0)}%
+                                      {roiDay.lastRoi.toFixed(0)}%
                                     </span>
-                                    <span className="text-[10px] text-muted-foreground tabular-nums">hoje {roiDay.lastRoi.toFixed(0)}%</span>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">ontem {roiDay.prevRoi.toFixed(0)}%</span>
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
-                                  <b>ROI vs ontem</b><br />
-                                  Ontem ({roiDay.prevDate}): {roiDay.prevRoi.toFixed(1)}%<br />
+                                  <b>ROI: hoje vs ontem</b><br />
                                   Hoje ({roiDay.lastDate}): {roiDay.lastRoi.toFixed(1)}%<br />
-                                  {roiDay.diff > 0 ? "Melhorou" : roiDay.diff < 0 ? "Piorou" : "Igual"} vs ontem<br />
-                                  <span className="text-muted-foreground">Compara os 2 últimos dias com gasto.</span>
+                                  Ontem ({roiDay.prevDate}): {roiDay.prevRoi.toFixed(1)}%<br />
+                                  {roiDay.diff > 0 ? `Melhorou ${roiDay.diff.toFixed(0)} pontos` : roiDay.diff < 0 ? `Piorou ${Math.abs(roiDay.diff).toFixed(0)} pontos` : "Igual"} vs ontem<br />
+                                  <span className="text-muted-foreground">Hoje ainda é parcial. Compara os 2 últimos dias com gasto.</span>
                                 </TooltipContent>
                               </Tooltip>
                             )}
