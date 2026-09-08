@@ -92,6 +92,8 @@ type PendingPauseAction = {
 interface Props {
   campaigns: CampaignAggregate[];
   campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
+  /** eCPM geral do site (USD) — fallback quando o da campanha não é confiável */
+  siteEcpmUsd?: number;
   campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
   campaignBestMatches?: Map<string, BestMatchInfo>;
   downAccountIds?: Set<string>;
@@ -103,7 +105,7 @@ interface Props {
   isIntraday?: boolean;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1010,7 +1012,13 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
               const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
               const d = derived.get(c.campaign_id);
               const gamMetric = campaignGamMetrics?.get(c.campaign_id);
-              const gamEcpm = gamMetric?.ecpm ?? (Number(c.ecpm) || 0);
+              // eCPM próprio só é confiável com impressões GAM suficientes e valor plausível.
+              // Senão usa o eCPM GERAL do site (Σ receita GAM / Σ impressões GAM).
+              const ownEcpm = gamMetric?.ecpm ?? 0;
+              const ownEcpmImpr = gamMetric?.impressions ?? 0;
+              const ownEcpmReliable = ownEcpmImpr >= 30 && ownEcpm >= 1;
+              const ecpmIsGeral = !ownEcpmReliable && siteEcpmUsd > 0;
+              const gamEcpm = ownEcpmReliable ? ownEcpm : (siteEcpmUsd > 0 ? siteEcpmUsd : (ownEcpm || Number(c.ecpm) || 0));
               const firstSpend = firstSpendQuery.data?.get(c.campaign_id);
               const age = ageInDays(firstSpend);
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
@@ -1229,21 +1237,24 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                             ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <span className={cn(
-                                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums cursor-help",
-                                    isFlat ? "bg-muted text-muted-foreground" :
-                                    roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
-                                  )}>
-                                    {isFlat ? <Minus className="h-3.5 w-3.5" /> :
-                                      roiDay.diff > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
-                                    {roiDay.lastRoi.toFixed(0)}%
-                                  </span>
+                                  <div className="inline-flex flex-col items-end cursor-help">
+                                    <span className={cn(
+                                      "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                                      isFlat ? "bg-muted text-muted-foreground" :
+                                      roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                                    )}>
+                                      {isFlat ? <Minus className="h-3.5 w-3.5" /> :
+                                        roiDay.diff > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                                      {roiDay.prevRoi.toFixed(0)}%
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">hoje {roiDay.lastRoi.toFixed(0)}%</span>
+                                  </div>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
                                   <b>ROI vs ontem</b><br />
-                                  {roiDay.lastDate}: {roiDay.lastRoi.toFixed(1)}%<br />
-                                  {roiDay.prevDate}: {roiDay.prevRoi.toFixed(1)}%<br />
-                                  {roiDay.diff > 0 ? "Melhorou" : roiDay.diff < 0 ? "Piorou" : "Igual"} vs o dia anterior<br />
+                                  Ontem ({roiDay.prevDate}): {roiDay.prevRoi.toFixed(1)}%<br />
+                                  Hoje ({roiDay.lastDate}): {roiDay.lastRoi.toFixed(1)}%<br />
+                                  {roiDay.diff > 0 ? "Melhorou" : roiDay.diff < 0 ? "Piorou" : "Igual"} vs ontem<br />
                                   <span className="text-muted-foreground">Compara os 2 últimos dias com gasto.</span>
                                 </TooltipContent>
                               </Tooltip>
@@ -1291,13 +1302,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                               <TooltipTrigger asChild>
                                 <div className="cursor-help inline-block text-right">
                                   <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
-                                  {gamMetric && (
+                                  {ecpmIsGeral ? (
+                                    <div className="text-[10px] text-warning">geral do site</div>
+                                  ) : gamMetric && (
                                     <div className="text-[10px] text-muted-foreground">GAM · {fmtNumber(gamMetric.impressions)} impr.</div>
                                   )}
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                                {`Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
+                                {ecpmIsGeral
+                                  ? `eCPM da campanha não confiável (${ecpmDebug.impressions.toLocaleString()} impr. GAM, $${ownEcpm.toFixed(2)}).\nMostrando o eCPM GERAL do site: $${siteEcpmUsd.toFixed(2)}\n(Σ receita GAM / Σ impressões GAM de todas as campanhas do período)`
+                                  : `Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>

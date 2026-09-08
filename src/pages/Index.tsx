@@ -370,6 +370,17 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
+  // eCPM "geral" do site (USD): Σ receita GAM / Σ impressões GAM de TODAS as campanhas
+  // do período. Fallback quando o eCPM próprio da campanha não é confiável (poucas
+  // impressões atribuídas ou atribuição de receita incompleta).
+  const gamSiteEcpmUsd = useMemo(() => {
+    const m = campaignGamMetricsQuery.data;
+    if (!m) return 0;
+    let rev = 0, impr = 0;
+    for (const v of m.values()) { rev += v.revenueUsd; impr += v.impressions; }
+    return impr > 0 ? (rev / impr) * 1000 : 0;
+  }, [campaignGamMetricsQuery.data]);
+
   // Taxa de correspondência (Match Rate) por campanha:
   //   AD_SERVER_IMPRESSIONS / AD_SERVER_TOTAL_REQUESTS, ambos filtrados por utm_campaign=cid.
   // Fonte: gam_campaign_source_revenue (linhas utm_source='google') no período exato.
@@ -1251,6 +1262,7 @@ const IndexInner = () => {
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
                 campaignGamMetrics={campaignGamMetricsQuery.data}
+                siteEcpmUsd={gamSiteEcpmUsd}
                 campaignMatchRates={campaignMatchRateQuery.data}
                 campaignBestMatches={campaignBestMatchQuery.data}
                 downAccountIds={new Set(
