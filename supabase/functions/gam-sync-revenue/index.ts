@@ -526,7 +526,7 @@ interface ReportRow { date: string | null; dims: string[]; impressions: number; 
 interface AttributedRow { date: string | null; impressions: number; revenue: number; source: string; cid: string | null; placement: string | null; raw: string; }
 interface FxRates { usdBrl: number; }
 interface UtmKeyIds { utm_source: string | null; utm_campaign: string | null; utm_placement: string | null; }
-type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "site_match_rate"; impressions?: number; revenue_usd?: number; match_rate_pct?: number };
+type MatchRateRow = { cid: string; date: string; total_requests: number; source: "ad_requests" | "match_rate" | "site_match_rate"; impressions?: number; revenue_usd?: number; match_rate_pct?: number; rate_is_proxy?: boolean };
 interface AttributionResult {
   retentionRows: AttributedRow[];
   googleCampaignRows: AttributedRow[];
@@ -800,9 +800,13 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
 }
 
 function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests"): MatchRateRow[] {
-  // Acc interno: total de requests + soma de "matched" (= total * AD_EXCHANGE_MATCH_RATE),
-  // para no fim calcular match_rate_pct = matched / total ponderado.
-  type Acc = MatchRateRow & { _matched?: number; _hasRate?: boolean };
+  // Por (cid, date): total de requests AdX (m[0]), impressões AdX (m[1]) e, quando o
+  // network devolve, AD_EXCHANGE_MATCH_RATE (m[2]).
+  //  - Se m[2] vier: match_rate_pct = Σ(total*taxa) / Σtotal  (taxa real por campanha).
+  //  - Se não vier: proxy = Σimpressões / Σrequests, marcado rate_is_proxy=true — o
+  //    persist recalibra esse proxy pelo match rate REAL do site (mantém a variação
+  //    entre campanhas, corrige o nível absoluto).
+  type Acc = MatchRateRow & { _matched?: number; _hasRate?: boolean; _adxImpr?: number };
   const campaignAgg = new Map<string, Acc>();
   const placementAgg = new Map<string, Acc>();
   for (const r of reportRows) {
@@ -816,10 +820,11 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
     const key = `${cid}|${date}`;
     const target = campaignCid ? campaignAgg : placementAgg;
     const cur = target.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
-    const totReq = Number(r.impressions || 0); // m[0] = AD_EXCHANGE_TOTAL_REQUESTS
+    const totReq = Number(r.rawMetrics?.[0] ?? r.impressions ?? 0); // m[0] = AD_EXCHANGE_TOTAL_REQUESTS
+    const adxImpr = Number(r.rawMetrics?.[1] ?? 0);                  // m[1] = AD_EXCHANGE_IMPRESSIONS
     cur.total_requests += totReq;
-    // m[2] = AD_EXCHANGE_MATCH_RATE (pode vir 0-1 ou 0-100). matched = total * taxa.
-    const rawRate = Number(r.rawMetrics?.[2] ?? 0);
+    cur._adxImpr = (cur._adxImpr ?? 0) + adxImpr;
+    const rawRate = Number(r.rawMetrics?.[2] ?? 0);                  // m[2] = AD_EXCHANGE_MATCH_RATE
     if (rawRate > 0 && totReq > 0) {
       const rate01 = rawRate > 1 ? rawRate / 100 : rawRate;
       cur._matched = (cur._matched ?? 0) + totReq * rate01;
@@ -834,9 +839,13 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
   for (const row of campaignAgg.values()) {
     if (row._hasRate && row.total_requests > 0) {
       row.match_rate_pct = Math.min(100, (row._matched! / row.total_requests) * 100);
+    } else if ((row._adxImpr ?? 0) > 0 && row.total_requests > 0) {
+      row.match_rate_pct = Math.min(100, (row._adxImpr! / row.total_requests) * 100);
+      row.rate_is_proxy = true;
     }
     delete row._matched;
     delete row._hasRate;
+    delete row._adxImpr;
     out.push(row);
   }
   return out;
@@ -1667,7 +1676,7 @@ async function persistCampaignTotalRequests(args: {
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
-    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate });
+    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate, overwriteStale: true });
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1744,27 +1753,35 @@ async function persistCampaignTotalRequests(args: {
   for (const [key, placement] of placementTotalsForExisting) {
     if (placement.impressions > 0) existingMap.set(key, { ...placement, match_rate_pct: existingMap.get(key)?.match_rate_pct ?? null });
   }
-  const rows = [...agg.values()].map((b) => {
+  // 1ª passada: monta as linhas. Para o match rate:
+  //   a) taxa REAL por campanha (b.match_rate_pct sem rate_is_proxy) — usa direto;
+  //   b) proxy impressões/requests por campanha (b.rate_is_proxy) — guarda p/ calibrar;
+  //   c) sem nada disso → taxa por URL/site; senão impressões/cliques; senão preserva.
+  const proxyByDate = new Map<string, { sumReq: number; sumMatchedProxy: number }>();
+  const draft = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
-    // "Taxa de Correspondência" = AD_EXCHANGE_MATCH_RATE nativo do GAM (matched /
-    // total requests, ~98-100% quando saudável — a MESMA métrica da ferramenta de
-    // referência). Prioridade:
-    //   1) por campanha, do relatório KEY_VALUES_NAME (b.match_rate_pct);
-    //   2) senão por URL da landing page / por site (pickMatchRate);
-    //   3) só então proxy impressões/cliques do Ads; por último preserva o valor anterior.
-    // NÃO é impressões/requests (isso é fill rate) nem impressões/cliques.
     const gamRequests = Number(b.total_requests || 0);
     const denom = gamRequests > 0 ? gamRequests : (adsClicks > 0 ? adsClicks : 0);
-    const perCampaignRate = Number(b.match_rate_pct || 0) > 0 ? Number(b.match_rate_pct) : null;
-    const realRate = pickMatchRate(b.cid, b.date);
-    const rate = perCampaignRate != null
-      ? perCampaignRate
-      : realRate != null
+    const bRate = Number(b.match_rate_pct || 0) > 0 ? Number(b.match_rate_pct) : null;
+    const isProxy = b.rate_is_proxy === true && bRate != null;
+    let rate: number | null;
+    if (bRate != null && !isProxy) {
+      rate = bRate; // taxa real por campanha (AD_EXCHANGE_MATCH_RATE)
+    } else if (isProxy) {
+      rate = bRate; // provisório — será recalibrado abaixo
+      const acc = proxyByDate.get(b.date) ?? { sumReq: 0, sumMatchedProxy: 0 };
+      acc.sumReq += gamRequests;
+      acc.sumMatchedProxy += gamRequests * (bRate! / 100);
+      proxyByDate.set(b.date, acc);
+    } else {
+      const realRate = pickMatchRate(b.cid, b.date);
+      rate = realRate != null
         ? realRate
         : (adsClicks > 0 && prev.impressions > 0
           ? Math.min(100, (prev.impressions / adsClicks) * 100)
           : (prev.match_rate_pct ?? null));
+    }
     return {
       user_id: userId,
       site_id: siteId,
@@ -1775,8 +1792,24 @@ async function persistCampaignTotalRequests(args: {
       impressions: prev.impressions,
       total_requests: denom,
       match_rate_pct: rate,
+      _isProxy: isProxy,
+      _proxyRate: isProxy ? bRate! : 0,
     };
   });
+  // 2ª passada: calibra os proxies pelo match rate REAL do site naquele dia, mantendo
+  // a variação relativa entre campanhas. factor = siteRate / médiaPonderadaProxy.
+  for (const row of draft) {
+    if (!row._isProxy) continue;
+    const siteRate01 = siteMatchRateByDate.get(row.date);
+    const acc = proxyByDate.get(row.date);
+    if (siteRate01 != null && acc && acc.sumReq > 0) {
+      const avgProxy = (acc.sumMatchedProxy / acc.sumReq) * 100;
+      const siteRatePct = siteRate01 > 1 ? siteRate01 : siteRate01 * 100;
+      const factor = avgProxy > 0 ? siteRatePct / avgProxy : 1;
+      row.match_rate_pct = Math.min(100, row._proxyRate * factor);
+    }
+  }
+  const rows = draft.map(({ _isProxy, _proxyRate, ...r }) => r);
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
@@ -1808,8 +1841,10 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   networkCode?: string;
   siteMatchRateByDate?: Map<string, number>;
   urlMatchRateByDate?: Map<string, Map<string, number>>;
+  /** true = pode sobrescrever taxas antigas > 0 (quando não houve breakdown por campanha) */
+  overwriteStale?: boolean;
 }) {
-  const { admin, userId, siteId, dates, debug, siteMatchRateByDate, urlMatchRateByDate } = args;
+  const { admin, userId, siteId, dates, debug, siteMatchRateByDate, urlMatchRateByDate, overwriteStale = false } = args;
   const tag = args.networkCode ? `${args.networkCode}/match_rate_clicks` : "match_rate_clicks";
   if (!siteId || !dates || dates.length === 0) return;
 
@@ -1862,6 +1897,10 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     if (!cid || cid === "__aggregate__") continue;
     const impressions = Number(r.impressions || 0);
     if (impressions <= 0) continue;
+    // Se persistCampaignTotalRequests já pôs uma taxa por campanha (> 0), NÃO sobrescreve
+    // com o número do site — era isso que deixava todas as campanhas iguais.
+    const already = r.match_rate_pct == null ? 0 : Number(r.match_rate_pct);
+    if (already > 0 && !overwriteStale) continue;
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
     const path = cidToPath.get(cid);
     const urlOrSiteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
