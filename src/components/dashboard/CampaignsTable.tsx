@@ -450,17 +450,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
     enabled: campaignIds.length > 0,
   });
 
-  // === ROI vs ontem: último dia fechado com gasto vs o dia fechado anterior ===
+  // === ROI vs ontem: ROI do dia mais recente com gasto vs o do dia anterior ===
   type RoiDayData = { lastDate: string; prevDate: string; lastRoi: number; prevRoi: number; diff: number };
   const roiDayQuery = useQuery({
     queryKey: ["campaign-roi-day", campaignIds.join("|")],
     queryFn: async () => {
       const out = new Map<string, RoiDayData>();
       if (campaignIds.length === 0) return out;
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
-      const end = new Date(today.getTime() - 86400000); // ontem — hoje ainda é parcial
-      const start = new Date(end.getTime() - 8 * 86400000);
+      const end = new Date();
+      end.setUTCHours(0, 0, 0, 0);
+      const start = new Date(end.getTime() - 9 * 86400000);
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
       const { data } = await supabase
         .from("daily_metrics")
@@ -1220,7 +1219,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                           </TableCell>
                         );
                       case "roiDay": {
-                        const isFlat = roiDay ? Math.abs(roiDay.diff) < 2 : false;
+                        const isFlat = roiDay ? Math.abs(roiDay.diff) < 1 : false;
                         return (
                           <TableCell key={k} style={ws} className="text-right">
                             {roiDayQuery.isLoading ? (
@@ -1235,17 +1234,17 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                                     isFlat ? "bg-muted text-muted-foreground" :
                                     roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
                                   )}>
-                                    {isFlat ? <Minus className="h-3 w-3" /> :
-                                      roiDay.diff > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                                    {roiDay.diff >= 0 ? "+" : ""}{roiDay.diff.toFixed(1)}pp
+                                    {isFlat ? <Minus className="h-3.5 w-3.5" /> :
+                                      roiDay.diff > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                                    {roiDay.lastRoi.toFixed(0)}%
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
-                                  <b>ROI dia a dia</b><br />
+                                  <b>ROI vs ontem</b><br />
                                   {roiDay.lastDate}: {roiDay.lastRoi.toFixed(1)}%<br />
                                   {roiDay.prevDate}: {roiDay.prevRoi.toFixed(1)}%<br />
-                                  Diferença: {roiDay.diff >= 0 ? "+" : ""}{roiDay.diff.toFixed(1)} pontos<br />
-                                  <span className="text-muted-foreground">Compara os 2 últimos dias fechados com gasto.</span>
+                                  {roiDay.diff > 0 ? "Melhorou" : roiDay.diff < 0 ? "Piorou" : "Igual"} vs o dia anterior<br />
+                                  <span className="text-muted-foreground">Compara os 2 últimos dias com gasto.</span>
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -1307,7 +1306,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                         const mr = campaignMatchRates?.get(c.campaign_id);
                         const has = !!mr && (mr.totalRequests > 0 || mr.matchRate > 0);
                         const pct = mr?.matchRate ?? 0;
-                        const color = !has ? "text-muted-foreground" : pct >= 70 ? "text-success" : pct >= 40 ? "text-warning" : "text-danger";
+                        const color = !has ? "text-muted-foreground" : pct >= 90 ? "text-success" : pct >= 75 ? "text-warning" : "text-danger";
                         return (
                           <TableCell key={k} style={ws} className="text-right tabular-nums">
                             <Tooltip>
@@ -1322,14 +1321,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, campaignMatchRat
                                   </div>
                                   {has && mr!.totalRequests > 0 && (
                                     <div className="text-[10px] text-muted-foreground">
-                                      {fmtNumber(mr!.impressions)} / {fmtNumber(mr!.totalRequests)}
+                                      {fmtNumber(Math.round(mr!.totalRequests * pct / 100))} / {fmtNumber(mr!.totalRequests)}
                                     </div>
                                   )}
                                 </button>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
-                                  ? `Match Rate (média ponderada por impressões): ${pct.toFixed(2)}%\nImpressões: ${mr!.impressions.toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nFonte: gam_campaign_source_revenue (match_rate_pct do GAM)\n\nClique para abrir debug detalhado`
+                                  ? `Taxa de Correspondência (AD_EXCHANGE_MATCH_RATE do GAM): ${pct.toFixed(2)}%\nMatched requests ≈ ${Math.round(mr!.totalRequests * pct / 100).toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nImpressões GAM: ${mr!.impressions.toLocaleString()}\nFonte: gam_campaign_source_revenue.match_rate_pct\n\nClique para abrir debug detalhado`
                                   : "Sem dados de requests para esta campanha no período. Clique para abrir debug."}
                               </TooltipContent>
                             </Tooltip>

@@ -800,8 +800,11 @@ function parseKeyValueDimension(raw: string | null | undefined): Record<string, 
 }
 
 function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "ad_requests"): MatchRateRow[] {
-  const campaignAgg = new Map<string, MatchRateRow>();
-  const placementAgg = new Map<string, MatchRateRow>();
+  // Acc interno: total de requests + soma de "matched" (= total * AD_EXCHANGE_MATCH_RATE),
+  // para no fim calcular match_rate_pct = matched / total ponderado.
+  type Acc = MatchRateRow & { _matched?: number; _hasRate?: boolean };
+  const campaignAgg = new Map<string, Acc>();
+  const placementAgg = new Map<string, Acc>();
   for (const r of reportRows) {
     const date = r.date;
     if (!date) continue;
@@ -813,13 +816,30 @@ function buildRequestRowsFromReportRows(reportRows: ReportRow[], metricSource: "
     const key = `${cid}|${date}`;
     const target = campaignCid ? campaignAgg : placementAgg;
     const cur = target.get(key) ?? { cid, date, total_requests: 0, source: metricSource };
-    cur.total_requests += Number(r.impressions || 0);
+    const totReq = Number(r.impressions || 0); // m[0] = AD_EXCHANGE_TOTAL_REQUESTS
+    cur.total_requests += totReq;
+    // m[2] = AD_EXCHANGE_MATCH_RATE (pode vir 0-1 ou 0-100). matched = total * taxa.
+    const rawRate = Number(r.rawMetrics?.[2] ?? 0);
+    if (rawRate > 0 && totReq > 0) {
+      const rate01 = rawRate > 1 ? rawRate / 100 : rawRate;
+      cur._matched = (cur._matched ?? 0) + totReq * rate01;
+      cur._hasRate = true;
+    }
     target.set(key, cur);
   }
   for (const [key, row] of placementAgg) {
     if (!campaignAgg.has(key)) campaignAgg.set(key, row);
   }
-  return [...campaignAgg.values()];
+  const out: MatchRateRow[] = [];
+  for (const row of campaignAgg.values()) {
+    if (row._hasRate && row.total_requests > 0) {
+      row.match_rate_pct = Math.min(100, (row._matched! / row.total_requests) * 100);
+    }
+    delete row._matched;
+    delete row._hasRate;
+    out.push(row);
+  }
+  return out;
 }
 
 function parseUrlParams(raw: string | null | undefined): Record<string, string> {
@@ -1515,21 +1535,36 @@ async function persistCampaignTotalRequests(args: {
   let siteMatchRateRows: ReportRow[] = [];
   
   try {
-    // KEY_VALUES_NAME só é compatível com a família AD_EXCHANGE_* neste network
-    // (AD_REQUESTS / AD_EXCHANGE_MATCH_RATE davam REPORT_ERROR_CONSTRAINTS_INCOMPATIBILITY).
-    // m[0] = total de requests AdX; m[1] = impressões AdX (matched). O match rate
-    // é calculado no cliente como impressions / total_requests.
-    const combined = (await Promise.all(ranges.map((range) =>
-      runReport({
-        networkCode, accessToken, range,
-        dimensions: ["DATE", "KEY_VALUES_NAME"],
-        metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS"],
-        debug, deadlineAt,
-      })
-    ))).flat();
+    // KEY_VALUES_NAME é compatível com a família AD_EXCHANGE_* neste network.
+    // m[0] = total de requests AdX; m[1] = impressões AdX; m[2] = AD_EXCHANGE_MATCH_RATE
+    // (a "Taxa de Correspondência" nativa do GAM — matched requests / total requests,
+    // ~98-100% quando saudável). É essa que a ferramenta de referência mostra.
+    // Se o network rejeitar os 3 juntos, tenta de novo só com requests+impressões.
+    let combined: ReportRow[];
+    try {
+      combined = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE", "KEY_VALUES_NAME"],
+          metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_MATCH_RATE"],
+          debug, deadlineAt,
+        })
+      ))).flat();
+      console.log(`[${networkCode}/total_requests_optimized] 3-metric rows=${combined.length}`);
+    } catch (e3) {
+      debug.push(`[${networkCode}/total_requests_optimized] 3-metric falhou (${String(e3).slice(0, 200)}); retry 2-metric`);
+      combined = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE", "KEY_VALUES_NAME"],
+          metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS"],
+          debug, deadlineAt,
+        })
+      ))).flat();
+      console.log(`[${networkCode}/total_requests_optimized] 2-metric rows=${combined.length}`);
+    }
     reportRows = combined;
     matchRateRows = combined;
-    console.log(`[${networkCode}/total_requests_optimized] rows=${combined.length}`);
   } catch (e) {
     debug.push(`[${networkCode}/total_requests_optimized] combined report failed: ${String(e).slice(0, 400)}`);
   }
@@ -1551,7 +1586,8 @@ async function persistCampaignTotalRequests(args: {
       const campaignCid = extractCampaignId(kv.utm_campaign);
       const placementCid = extractCampaignId(kv.utm_placement);
       const cid = campaignCid ?? placementCid;
-      const rawRate = Number(r.impressions || 0);
+      // m[2] = AD_EXCHANGE_MATCH_RATE (0-1 ou 0-100); usa isso, não m[0] (que é requests).
+      const rawRate = Number(r.rawMetrics?.[2] ?? 0);
       const rate = rawRate > 1 ? rawRate / 100 : rawRate;
       if (!cid || rate <= 0) continue;
       const target = campaignCid ? campaignRateByKey : placementRateByKey;
@@ -1711,23 +1747,24 @@ async function persistCampaignTotalRequests(args: {
   const rows = [...agg.values()].map((b) => {
     const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
     const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
-    // Taxa de correspondência = AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing
-    // page quando disponível, senão por site) — não "impressões/cliques", que não é
-    // fill rate nem match rate de verdade. Fallback final: impressões/cliques do Ads.
-    // Denominador POR CAMPANHA: nº de requests AdX da campanha (AD_EXCHANGE_TOTAL_REQUESTS
-    // por utm_campaign) quando o relatório retornou; senão cliques comprados no Ads.
+    // "Taxa de Correspondência" = AD_EXCHANGE_MATCH_RATE nativo do GAM (matched /
+    // total requests, ~98-100% quando saudável — a MESMA métrica da ferramenta de
+    // referência). Prioridade:
+    //   1) por campanha, do relatório KEY_VALUES_NAME (b.match_rate_pct);
+    //   2) senão por URL da landing page / por site (pickMatchRate);
+    //   3) só então proxy impressões/cliques do Ads; por último preserva o valor anterior.
+    // NÃO é impressões/requests (isso é fill rate) nem impressões/cliques.
     const gamRequests = Number(b.total_requests || 0);
     const denom = gamRequests > 0 ? gamRequests : (adsClicks > 0 ? adsClicks : 0);
-    // Taxa de correspondência REAL por campanha = impressões monetizadas / denominador.
-    // Isso varia campanha a campanha (é o que o usuário confere na ferramenta de
-    // referência). Só cai na taxa do GAM por URL/site quando não há denominador nenhum.
-    const perCampaignRate = denom > 0 && prev.impressions > 0
-      ? Math.min(100, (prev.impressions / denom) * 100)
-      : null;
+    const perCampaignRate = Number(b.match_rate_pct || 0) > 0 ? Number(b.match_rate_pct) : null;
     const realRate = pickMatchRate(b.cid, b.date);
     const rate = perCampaignRate != null
       ? perCampaignRate
-      : (realRate != null ? realRate : (prev.match_rate_pct ?? null));
+      : realRate != null
+        ? realRate
+        : (adsClicks > 0 && prev.impressions > 0
+          ? Math.min(100, (prev.impressions / adsClicks) * 100)
+          : (prev.match_rate_pct ?? null));
     return {
       user_id: userId,
       site_id: siteId,
@@ -1828,23 +1865,19 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
     const path = cidToPath.get(cid);
     const urlOrSiteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
-    // Taxa de correspondência POR CAMPANHA primeiro: impressões monetizadas /
-    // (requests AdX da campanha, senão cliques comprados). Varia campanha a campanha.
-    // A taxa do GAM por URL/site só entra quando a campanha não tem denominador
-    // próprio — sem isso TODAS as campanhas ficavam com o mesmo número do site.
-    const perCampaignDenom = Number(r.total_requests || 0) > 0
-      ? Number(r.total_requests)
-      : (clicks > 0 ? clicks : 0);
+    // Prioriza o AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing, senão por
+    // site). Só sem ele cai no proxy impressões/cliques — e só se tiver cliques,
+    // senão preserva o valor atual. NUNCA usa impressões/requests (é fill rate).
     let rate: number;
     let denom: number;
-    if (perCampaignDenom > 0) {
-      rate = Math.min(100, (impressions / perCampaignDenom) * 100);
-      denom = perCampaignDenom;
-    } else if (urlOrSiteRate != null) {
+    if (urlOrSiteRate != null) {
       rate = urlOrSiteRate;
-      denom = Number(r.total_requests || 0);
+      denom = clicks > 0 ? clicks : Number(r.total_requests || 0);
+    } else if (clicks > 0) {
+      rate = Math.min(100, (impressions / clicks) * 100);
+      denom = clicks;
     } else {
-      continue; // sem denominador próprio nem taxa real — preserva o valor atual
+      continue; // sem taxa real nem cliques — preserva o valor atual
     }
     const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
     const prevDenom = Number(r.total_requests || 0);
