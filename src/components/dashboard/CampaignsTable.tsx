@@ -1237,18 +1237,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
                             ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="inline-flex flex-col items-end cursor-help">
-                                    <span className={cn(
-                                      "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-                                      isFlat ? "bg-muted text-muted-foreground" :
-                                      roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
-                                    )}>
-                                      {isFlat ? <Minus className="h-3.5 w-3.5" /> :
-                                        roiDay.diff > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
-                                      {roiDay.lastRoi.toFixed(0)}%
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground tabular-nums">ontem {roiDay.prevRoi.toFixed(0)}%</span>
-                                  </div>
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold cursor-help",
+                                    isFlat ? "bg-muted text-muted-foreground" :
+                                    roiDay.diff > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                                  )}>
+                                    {isFlat ? <><Minus className="h-3.5 w-3.5" />Estável</> :
+                                      roiDay.diff > 0 ? <><ArrowUp className="h-3.5 w-3.5" />Melhorou</> : <><ArrowDown className="h-3.5 w-3.5" />Piorou</>}
+                                  </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
                                   <b>ROI: hoje vs ontem</b><br />
