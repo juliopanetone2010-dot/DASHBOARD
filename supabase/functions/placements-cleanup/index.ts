@@ -979,7 +979,12 @@ async function fetchLiveAdsPlacements(
 
   // Paraleliza por conta E por chunk de campanhas (cada chunk = 1 GAQL call).
   // Antes era 100% serial — em sites com muitas campanhas/contas estourava o timeout de 150s.
+  // IMPORTANTE: cada conta é isolada em try/catch — uma conta com problema de acesso no
+  // Google Ads (token revogado, desvinculada da MCC etc.) não pode derrubar a análise/
+  // exclusão das outras contas saudáveis. Antes um erro em QUALQUER conta (ex.: "The caller
+  // does not have permission") propagava e cancelava a operação inteira.
   await Promise.all([...byAccount.entries()].map(async ([accountId, campaignIds]) => {
+    try {
     const acc = accMap.get(accountId);
     if (!acc?.refresh_token || !acc?.customer_id) return;
     const token = await getGoogleToken(acc.refresh_token, tokenCache, (acc as any).api_set ?? 1);
@@ -1042,6 +1047,9 @@ async function fetchLiveAdsPlacements(
         pageToken = data.nextPageToken || undefined;
       } while (pageToken);
     }));
+    } catch (e) {
+      console.error(`[placements-cleanup] conta ${accountId} falhou ao buscar placements no Google Ads — ignorando só essa conta`, e);
+    }
   }));
 
   return out;
