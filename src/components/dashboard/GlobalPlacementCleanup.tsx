@@ -457,26 +457,31 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   // Bloqueia um domínio em TODAS as contas Google Ads do usuário de uma vez (exclusão
   // em nível de CONTA — CustomerNegativeCriterion), não só nas campanhas visíveis aqui.
   // Vale pra campanha atual e futura de cada conta.
-  const blockDomainEverywhere = async (domainRaw: string) => {
+  const blockDomainEverywhere = async (domainRaw: string, mode: "block" | "unblock" = "block") => {
     const domain = domainRaw.trim();
     if (!domain) return;
-    if (!confirm(`Bloquear "${domain}" em TODAS as contas Google Ads (todas as campanhas, atuais e futuras)?`)) return;
+    const confirmMsg = mode === "block"
+      ? `Bloquear "${domain}" em TODAS as contas Google Ads (todas as campanhas, atuais e futuras)?`
+      : `Remover o bloqueio de "${domain}" de TODAS as contas Google Ads?`;
+    if (!confirm(confirmMsg)) return;
     setBlockingDomain(true);
     try {
       const { data, error } = await supabase.functions.invoke<{
         ok?: boolean; error?: string; domain?: string; total_accounts?: number;
-        blocked?: number; already_blocked?: number; failed?: number;
+        blocked?: number; already_blocked?: number; removed?: number; not_blocked?: number; failed?: number;
         details?: Array<{ label: string; ok: boolean; already_blocked?: boolean; error?: string }>;
-      }>("block-domain-everywhere", { body: { domain } });
+      }>("block-domain-everywhere", { body: { domain, mode } });
       if (error || data?.error) {
-        toast({ title: "Erro ao bloquear", description: error?.message ?? data?.error, variant: "destructive" });
+        toast({ title: mode === "block" ? "Erro ao bloquear" : "Erro ao desbloquear", description: error?.message ?? data?.error, variant: "destructive" });
         return;
       }
       const failedAccounts = (data?.details ?? []).filter((d) => !d.ok);
+      const description = mode === "block"
+        ? `${data?.blocked ?? 0} conta(s) nova(s) · ${data?.already_blocked ?? 0} já bloqueado · ${data?.failed ?? 0} falha(s) de ${data?.total_accounts ?? 0} contas.`
+        : `${data?.removed ?? 0} exclusão(ões) removida(s) · ${data?.not_blocked ?? 0} conta(s) sem bloqueio · ${data?.failed ?? 0} falha(s) de ${data?.total_accounts ?? 0} contas.`;
       toast({
-        title: `"${data?.domain}" bloqueado`,
-        description: `${data?.blocked ?? 0} conta(s) nova(s) · ${data?.already_blocked ?? 0} já bloqueado · ${data?.failed ?? 0} falha(s) de ${data?.total_accounts ?? 0} contas.`
-          + (failedAccounts.length ? ` Falharam: ${failedAccounts.map((d) => d.label).join(", ")}.` : ""),
+        title: `"${data?.domain}" ${mode === "block" ? "bloqueado" : "desbloqueado"}`,
+        description: description + (failedAccounts.length ? ` Falharam: ${failedAccounts.map((d) => d.label).join(", ")}.` : ""),
         variant: failedAccounts.length === data?.total_accounts ? "destructive" : "default",
       });
       setBlockDomainInput("");
@@ -660,10 +665,20 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               variant="destructive"
               className="h-7 text-[11px]"
               disabled={!blockDomainInput.trim() || blockingDomain}
-              onClick={() => blockDomainEverywhere(blockDomainInput)}
+              onClick={() => blockDomainEverywhere(blockDomainInput, "block")}
             >
               {blockingDomain ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
               Bloquear em todas as contas
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              disabled={!blockDomainInput.trim() || blockingDomain}
+              onClick={() => blockDomainEverywhere(blockDomainInput, "unblock")}
+              title="Remove a exclusão desse domínio de todas as contas"
+            >
+              Desbloquear em todas as contas
             </Button>
             <span className="text-muted-foreground">Exclusão em nível de conta — vale pra toda campanha atual e futura, em todos os sites.</span>
           </div>

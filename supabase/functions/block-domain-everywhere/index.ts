@@ -1,5 +1,7 @@
-// Bloqueia um domínio/placement em TODAS as contas Google Ads do usuário de uma vez,
-// via CustomerNegativeCriterion (exclusão em nível de CONTA — não de campanha).
+// Bloqueia (ou desbloqueia) um domínio/placement em TODAS as contas Google Ads do
+// usuário de uma vez, via CustomerNegativeCriterion (exclusão em nível de CONTA —
+// não de campanha). body.mode: "block" (padrão) cria a exclusão; "unblock" acha e
+// remove a exclusão existente daquele domínio em cada conta.
 // Diferença pro fluxo de placements-cleanup: lá cada exclusão é por campanha
 // (CampaignCriterion); aqui é uma exclusão só, que vale pra toda campanha ATUAL e
 // FUTURA daquela conta. É o equivalente ao "Content exclusions" / exclusão de conta
@@ -30,6 +32,7 @@ Deno.serve(async (req) => {
     if (!rawDomain) return json({ error: "domain obrigatório" });
     const domain = normalizeDomain(rawDomain);
     if (!domain || !domain.includes(".")) return json({ error: `domain inválido: "${rawDomain}"` });
+    const mode: "block" | "unblock" = (body as any)?.mode === "unblock" ? "unblock" : "block";
 
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
@@ -57,6 +60,49 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         };
         if (acc.login_customer_id) headers["login-customer-id"] = acc.login_customer_id;
+
+        if (mode === "unblock") {
+          // Acha o(s) resourceName(s) da exclusão desse domínio nessa conta (pode ter
+          // sido criado com/sem "https://"/"www." em algum momento — busca tudo do
+          // tipo placement e filtra pelo domínio no cliente pra pegar qualquer variante).
+          const searchRes = await fetch(
+            `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/googleAds:search`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                query: `SELECT customer_negative_criterion.resource_name, customer_negative_criterion.placement.url
+                        FROM customer_negative_criterion
+                        WHERE customer_negative_criterion.type = 'PLACEMENT'`,
+              }),
+            },
+          );
+          const sj = await searchRes.json();
+          if (!searchRes.ok) return { account_id: acc.id, customer_id: acc.customer_id, label, ok: false, error: sj?.error?.message ?? JSON.stringify(sj).slice(0, 300) };
+          const matches = (sj.results ?? []).filter((row: any) => {
+            const url = String(row?.customerNegativeCriterion?.placement?.url ?? "");
+            return normalizeDomain(url) === domain;
+          });
+          if (matches.length === 0) return { account_id: acc.id, customer_id: acc.customer_id, label, ok: true, not_blocked: true };
+
+          const r2 = await fetch(
+            `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/customerNegativeCriteria:mutate`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                operations: matches.map((row: any) => ({ remove: row.customerNegativeCriterion.resourceName })),
+                partialFailure: true,
+              }),
+            },
+          );
+          const j2 = await r2.json();
+          if (!r2.ok) return { account_id: acc.id, customer_id: acc.customer_id, label, ok: false, error: j2?.error?.message ?? JSON.stringify(j2).slice(0, 300) };
+          if (j2?.partialFailureError) {
+            return { account_id: acc.id, customer_id: acc.customer_id, label, ok: false, error: j2.partialFailureError?.message ?? JSON.stringify(j2.partialFailureError).slice(0, 300) };
+          }
+          return { account_id: acc.id, customer_id: acc.customer_id, label, ok: true, removed: matches.length };
+        }
 
         const r = await fetch(
           `https://googleads.googleapis.com/v24/customers/${acc.customer_id}/customerNegativeCriteria:mutate`,
@@ -90,19 +136,21 @@ Deno.serve(async (req) => {
       }
     }));
 
-    const blocked = results.filter((r) => r.ok && !r.already_blocked).length;
-    const alreadyBlocked = results.filter((r) => r.ok && r.already_blocked).length;
+    const blocked = mode === "block" ? results.filter((r: any) => r.ok && !r.already_blocked).length : 0;
+    const alreadyBlocked = mode === "block" ? results.filter((r: any) => r.ok && r.already_blocked).length : 0;
+    const removed = mode === "unblock" ? results.filter((r: any) => r.ok && r.removed).reduce((a: number, r: any) => a + r.removed, 0) : 0;
+    const notBlocked = mode === "unblock" ? results.filter((r: any) => r.ok && r.not_blocked).length : 0;
     const failed = results.filter((r) => !r.ok);
 
     // Log de auditoria — não trava a resposta se falhar.
     try {
       await admin.from("automation_actions").insert(
-        results.map((r) => ({
+        results.map((r: any) => ({
           user_id: userId,
           campaign_id: "__account__",
-          action_type: "negative_placement_account_wide",
-          payload: { domain, google_account_id: r.account_id, customer_id: r.customer_id, label: r.label, already_blocked: !!r.already_blocked },
-          status: r.ok ? (r.already_blocked ? "already_blocked" : "executed") : "failed",
+          action_type: mode === "unblock" ? "negative_placement_account_wide_removed" : "negative_placement_account_wide",
+          payload: { domain, mode, google_account_id: r.account_id, customer_id: r.customer_id, label: r.label, already_blocked: !!r.already_blocked, removed: r.removed ?? 0, not_blocked: !!r.not_blocked },
+          status: r.ok ? (r.already_blocked || r.not_blocked ? "no_op" : "executed") : "failed",
           error: r.ok ? null : (r.error ?? null),
           executed_at: new Date().toISOString(),
         })),
@@ -111,10 +159,13 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
+      mode,
       domain,
       total_accounts: withToken.length,
       blocked,
       already_blocked: alreadyBlocked,
+      removed,
+      not_blocked: notBlocked,
       failed: failed.length,
       details: results,
     });
