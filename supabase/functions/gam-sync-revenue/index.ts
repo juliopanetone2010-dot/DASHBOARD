@@ -33,7 +33,9 @@ async function gamFetch(input: string | URL, init?: RequestInit, attempt = 0): P
 }
 async function gamFetchRaw(input: string | URL, init?: RequestInit, attempt = 0): Promise<Response> {
   const res = await fetch(input, init);
-  if ((res.status === 429 || res.status === 503) && attempt < 4) {
+  // 429/503 = rate limit / indisponível; 502/504 = gateway do Google demorou pra
+  // responder (relatório grande, pico de carga) — transiente, tenta de novo.
+  if ((res.status === 429 || res.status === 503 || res.status === 502 || res.status === 504) && attempt < 4) {
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
     const backoff = retryAfter > 0 ? retryAfter * 1000 : [3000, 8000, 20000, 45000][attempt];
     console.warn(`[gam-sync-revenue] ${res.status} — backoff ${backoff}ms (attempt ${attempt + 1})`);
