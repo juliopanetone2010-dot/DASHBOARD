@@ -16,12 +16,13 @@ Deno.serve(async (req) => {
     const action = String((body as any)?.action ?? "");
     const campaignId = String((body as any)?.campaign_id ?? "");
     const newStatus = String((body as any)?.status ?? "").toUpperCase(); // ENABLED|PAUSED
+    const newName = typeof (body as any)?.name === "string" ? (body as any).name.trim() : "";
     const deltaPct = Number((body as any)?.delta_pct ?? 0); // e.g. +10 / -10
     const requestedSiteId = typeof (body as any)?.site_id === "string" ? String((body as any).site_id) : null;
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute"].includes(action)) {
+    if (!["set_status", "rename", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -150,6 +151,34 @@ Deno.serve(async (req) => {
         .eq("id", camp.id);
       await logAction("executed", mutateBody);
       return json({ ok: true, action, new_status: newStatus });
+    }
+
+    // rename: muda o nome da campanha no Google Ads e espelha na nossa tabela local.
+    if (action === "rename") {
+      if (!newName) return json({ error: "name obrigatório e não pode ser vazio" });
+      if (newName.length > 255) return json({ error: "Nome muito longo (máx 255 caracteres)" });
+      const mutateBody = {
+        operations: [{
+          update: {
+            resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}`,
+            name: newName,
+          },
+          updateMask: "name",
+        }],
+      };
+      const r = await fetch(`${apiBase}/campaigns:mutate`, {
+        method: "POST", headers, body: JSON.stringify(mutateBody),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", mutateBody, JSON.stringify(j));
+        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+      }
+      await admin.from("campaigns")
+        .update({ name: newName })
+        .eq("id", camp.id);
+      await logAction("executed", { ...mutateBody, previous_name: camp.name });
+      return json({ ok: true, action, new_name: newName });
     }
 
     // adjust_cpa: busca ad_groups com target_cpa_micros definido e atualiza

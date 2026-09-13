@@ -117,6 +117,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
   const [matchRateDebug, setMatchRateDebug] = useState<{ campaignId: string; campaignName?: string | null } | null>(null);
   const [compactNameUrl, setCompactNameUrl] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const NAME_W = compactNameUrl ? 220 : 560;
   const URL_W = compactNameUrl ? 220 : 560;
   const NAME_LEFT = 172;
@@ -581,6 +584,36 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
     return arr;
   }, [filteredCampaigns, sort, derived, campaignGamMetrics, firstSpendQuery.data, trendQuery.data, roiDayQuery.data]);
 
+
+  const startRename = (c: CampaignAggregate) => {
+    setRenamingId(c.campaign_id);
+    setRenameValue(c.name);
+  };
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue("");
+  };
+  // Renomeia no Google Ads (campaigns:mutate) e espelha na nossa tabela local.
+  const saveRename = async (campaignId: string) => {
+    const name = renameValue.trim();
+    if (!name) { toast({ title: "Nome não pode ser vazio", variant: "destructive" }); return; }
+    setRenaming(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; new_name?: string }>(
+        "google-ads-mutate",
+        { body: { action: "rename", campaign_id: campaignId, name } },
+      );
+      if (error || data?.error) {
+        toast({ title: "Erro ao renomear no Google Ads", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Campanha renomeada", description: name });
+      setRenamingId(null);
+      await onRefresh?.();
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   const copyToClipboard = async (url: string) => {
     try {
@@ -1062,18 +1095,50 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
                         accountDown ? "bg-danger" :
                         c.status === "enabled" ? "bg-success" : isPaused ? "bg-warning" : "bg-muted-foreground"
                       )} />
-                      {finalUrl ? (
-                        <a
-                          href={finalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={cn("min-w-0 flex-1 leading-snug text-primary hover:underline", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")}
-                          title={finalUrl}
-                        >
-                          {c.name}
-                        </a>
+                      {renamingId === c.campaign_id ? (
+                        <div className="flex items-center gap-1 min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
+                          <Input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveRename(c.campaign_id);
+                              if (e.key === "Escape") cancelRename();
+                            }}
+                            className="h-6 text-xs"
+                            disabled={renaming}
+                          />
+                          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" disabled={renaming} onClick={() => saveRename(c.campaign_id)} title="Salvar (renomeia no Google Ads)">
+                            {renaming ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 text-success" />}
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" disabled={renaming} onClick={cancelRename} title="Cancelar">
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
                       ) : (
-                        <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
+                        <>
+                          {finalUrl ? (
+                            <a
+                              href={finalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn("min-w-0 flex-1 leading-snug text-primary hover:underline", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")}
+                              title={finalUrl}
+                            >
+                              {c.name}
+                            </a>
+                          ) : (
+                            <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
+                          )}
+                          <button
+                            type="button"
+                            title="Editar nome no Google Ads"
+                            className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                            onClick={(e) => { e.stopPropagation(); startRename(c); }}
+                          >
+                            <Pencil className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        </>
                       )}
                       {accountDown && (
                         <Badge variant="destructive" className="text-[10px] gap-1">
