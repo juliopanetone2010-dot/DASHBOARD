@@ -787,10 +787,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             </span>
           </div>
           {!!stats?.review_only && (
-            <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
-              <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) com receita do Ad Manager incompleta neste período.
-              O ROI deles pode estar negativo só por falta de dado. Rode “Ressincronizar receita & rechecar” — se continuar incompleto e você tiver certeza, marque “forçar” no rodapé.
-              <ul className="mt-1 list-disc pl-4">
+            <div className="rounded-lg border-2 border-warning/60 bg-warning/15 px-4 py-3 text-sm leading-relaxed text-foreground">
+              <p>
+                <strong className="text-warning">{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) com receita do Ad Manager <strong>incompleta</strong> neste período.
+                O ROI negativo delas pode ser real, ou pode ser só falta de sincronização do GAM nesses dias — por segurança, a dash não deixa excluir enquanto não tiver certeza.
+              </p>
+              <p className="mt-1.5">
+                👉 Clica em <strong>"Ressincronizar receita &amp; rechecar"</strong> pra tentar buscar o dado que falta. Se continuar incompleto depois disso e você tiver certeza que o placement é ruim mesmo assim, marca <strong>"Forçar exclusão"</strong> no rodapé.
+              </p>
+              <p className="mt-2 font-medium">Detalhe por campanha (dias sem dado do GAM · % do gasto do período que caiu nesses dias):</p>
+              <ul className="mt-1 list-disc pl-5 space-y-1">
                 {[...new Set(
                   items
                     .filter((i) => i.data_ok === false && i.data_warning)

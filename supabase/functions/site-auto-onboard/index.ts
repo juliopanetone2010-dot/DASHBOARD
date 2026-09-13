@@ -126,8 +126,40 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     const validDate = (d: unknown) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
     const requestedFrom = validDate(requestedRange?.from) ? requestedRange!.from! : null;
     const requestedTo = validDate(requestedRange?.to) ? requestedRange!.to! : null;
-    const from = requestedFrom ?? await detectFromDate();
+    let from = requestedFrom ?? await detectFromDate();
     const effectiveTo = requestedTo ?? to;
+
+    // Detecta "buracos": dias dentro dos últimos 30 com gasto no Ads mas ZERO linha
+    // de gam_placement_revenue pra este site. O sync incremental normal só olha os
+    // últimos 7 dias — se uma falha transitória (ex.: 429/504 do GAM) deixou um dia
+    // mais antigo sem dado, ele nunca mais era re-tentado sozinho. Se achar um
+    // buraco anterior ao `from` calculado, estende a janela pra cobrir ele também.
+    if (!requestedFrom && accountIds.length > 0) {
+      try {
+        const gapCap = isoDaysAgo(30);
+        const { data: campRows } = await admin
+          .from("campaigns")
+          .select("campaign_id")
+          .in("google_account_id", accountIds);
+        const campIds = [...new Set((campRows ?? []).map((c: { campaign_id: string }) => c.campaign_id))];
+        if (campIds.length > 0) {
+          const [{ data: spendRows }, { data: gamRows }] = await Promise.all([
+            admin.from("daily_metrics").select("date").in("campaign_id", campIds).gte("date", gapCap).lte("date", to).gt("spend", 0).limit(5000),
+            admin.from("gam_placement_revenue").select("date").eq("site_id", siteId).gte("date", gapCap).lte("date", to).limit(5000),
+          ]);
+          const gamDates = new Set((gamRows ?? []).map((r: { date: string }) => r.date));
+          const gapDates = [...new Set((spendRows ?? []).map((r: { date: string }) => r.date))].filter((d) => !gamDates.has(d)).sort();
+          const earliestGap = gapDates[0];
+          if (earliestGap && earliestGap < from) {
+            console.log("[auto-onboard] buraco detectado, estendendo janela", { siteId, earliestGap, from, gaps: gapDates.length });
+            from = earliestGap;
+          }
+        }
+      } catch (e) {
+        console.warn("[auto-onboard] falha ao checar buracos (não bloqueia o sync)", siteId, e);
+      }
+    }
+
     console.log("[auto-onboard] window", { siteId, from, to: effectiveTo });
 
     // Atualização rápida da receita do card/calendário antes dos relatórios pesados.
