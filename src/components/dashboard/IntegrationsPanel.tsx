@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Plug, RefreshCw, CheckCircle2, XCircle, KeyRound, Link2, Building2, AlertTriangle,
+  Plug, RefreshCw, CheckCircle2, XCircle, KeyRound, Link2, Building2, AlertTriangle, ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +69,10 @@ export const IntegrationsPanel = ({
   const [connecting, setConnecting] = useState(false);
   const [syncingAds, setSyncingAds] = useState(false);
   const [syncingGam, setSyncingGam] = useState(false);
+  const [exclusionsSourceId, setExclusionsSourceId] = useState<string>(() => {
+    try { return localStorage.getItem("exclusions_source_account_id") ?? ""; } catch { return ""; }
+  });
+  const [syncingExclusions, setSyncingExclusions] = useState(false);
   const refresh = async () => { await onRefresh?.(); };
 
   useEffect(() => {
@@ -166,6 +170,39 @@ export const IntegrationsPanel = ({
       toast({ title: "Erro no sync do GAM", description: String(e), variant: "destructive" });
     } finally {
       setSyncingGam(false);
+    }
+  };
+
+  const handleChooseExclusionsSource = (id: string) => {
+    setExclusionsSourceId(id);
+    try { localStorage.setItem("exclusions_source_account_id", id); } catch { /* ignore */ }
+  };
+
+  const handleSyncExclusions = async () => {
+    if (!exclusionsSourceId) {
+      toast({ title: "Escolha a conta de referência", description: "Selecione a conta que já tem os sites/categorias excluídos.", variant: "destructive" });
+      return;
+    }
+    setSyncingExclusions(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; operations?: number; total_targets?: number;
+        succeeded_accounts?: number; failed_accounts?: number;
+        details?: Array<{ label: string; ok: boolean; created?: number; already?: number; error?: string }>;
+      }>("sync-account-exclusions", { body: { source_account_id: exclusionsSourceId } });
+      if (error || data?.error) {
+        toast({ title: "Erro ao copiar exclusões", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      const failed = (data?.details ?? []).filter((d) => !d.ok);
+      toast({
+        title: `${data?.operations ?? 0} exclusão(ões) replicada(s)`,
+        description: `${data?.succeeded_accounts ?? 0}/${data?.total_targets ?? 0} conta(s) atualizadas.`
+          + (failed.length ? ` Falharam: ${failed.map((f) => f.label).join(", ")}.` : ""),
+        variant: failed.length && failed.length === data?.total_targets ? "destructive" : "default",
+      });
+    } finally {
+      setSyncingExclusions(false);
     }
   };
 
@@ -267,6 +304,49 @@ export const IntegrationsPanel = ({
             ))}
           </div>
         )}
+      </section>
+
+      {/* 1.5 — Exclusões de conta (sites próprios + categorias de app) */}
+      <section className="rounded-xl border border-border bg-card p-5 shadow-elegant space-y-3">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2">
+            <ShieldOff className="h-4 w-4" /> Exclusões de conta (sites próprios + apps)
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Copia o que já está em <strong>Ferramentas → Exclusões de conteúdo</strong> de UMA conta
+            (seus próprios sites, categorias de app da Play Store/App Store etc.) pra <strong>todas as
+            outras contas</strong>. Não inventa categoria nenhuma — só replica o que a conta de
+            referência já tem configurado.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Conta de referência</label>
+            <Select value={exclusionsSourceId} onValueChange={handleChooseExclusionsSource}>
+              <SelectTrigger className="h-9 w-64"><SelectValue placeholder="Escolha a conta já configurada" /></SelectTrigger>
+              <SelectContent>
+                {googleAccounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.account_name ?? a.descriptive_name ?? a.customer_id} ({formatCid(a.customer_id)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            onClick={handleSyncExclusions}
+            disabled={syncingExclusions || !exclusionsSourceId || googleAccounts.length < 2}
+            className="gap-1.5"
+          >
+            <RefreshCw className={syncingExclusions ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            Copiar pra todas as outras contas
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          A conta escolhida aqui fica salva neste navegador — quando você conectar uma conta nova, a
+          dash vai perguntar se quer aplicar essas exclusões nela também.
+        </p>
       </section>
 
       {/* 2 — Google Ad Manager */}

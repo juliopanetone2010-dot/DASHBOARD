@@ -10,6 +10,24 @@ export default function OAuthCallback() {
   const [state, setState] = useState<"working" | "ok" | "error">("working");
   const [message, setMessage] = useState("Trocando código por tokens…");
   const ran = useRef(false);
+  // Novas contas conectadas nessa chamada — se o usuário já tem uma "conta de
+  // referência" salva (Integrações → Exclusões de conta), oferece aplicar nelas.
+  const [newCustomerIds, setNewCustomerIds] = useState<string[]>([]);
+  const [exclusionsChoice, setExclusionsChoice] = useState<"idle" | "applying" | "done" | "skipped">("idle");
+  const exclusionsSourceId = (() => {
+    try { return localStorage.getItem("exclusions_source_account_id") ?? ""; } catch { return ""; }
+  })();
+
+  const applyExclusionsToNewAccounts = async () => {
+    setExclusionsChoice("applying");
+    try {
+      await supabase.functions.invoke("sync-account-exclusions", {
+        body: { source_account_id: exclusionsSourceId, target_customer_ids: newCustomerIds },
+      });
+    } finally {
+      setExclusionsChoice("done");
+    }
+  };
 
   useEffect(() => {
     // The auth code is single-use — never let this run twice.
@@ -26,7 +44,10 @@ export default function OAuthCallback() {
     sessionStorage.removeItem("oauth_pending");
 
     (async () => {
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; message?: string; error?: string; requires_login?: boolean }>(
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; message?: string; error?: string; requires_login?: boolean;
+        accessible_customers?: Array<{ cid: string; isMcc?: boolean }>;
+      }>(
         "google-ads-oauth-callback",
         {
           body: {
@@ -73,8 +94,16 @@ export default function OAuthCallback() {
 
       setState("ok");
       setMessage(data?.message ?? "Conta conectada");
+      const operationalIds = (data?.accessible_customers ?? []).filter((c) => !c.isMcc).map((c) => c.cid);
+      if (operationalIds.length > 0 && exclusionsSourceId) {
+        // Tem conta de referência salva e conta(s) operacional(is) nova(s) — pergunta
+        // antes de sumir da tela, em vez de navegar direto.
+        setNewCustomerIds(operationalIds);
+        return;
+      }
       setTimeout(() => navigate("/", { replace: true }), 1500);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, navigate]);
 
   return (
@@ -87,7 +116,30 @@ export default function OAuthCallback() {
           {state === "working" ? "Conectando…" : state === "ok" ? "Conectado" : "Erro"}
         </h1>
         <p className="text-sm text-muted-foreground mb-4 break-words whitespace-pre-wrap">{message}</p>
-        {state !== "working" && (
+
+        {state === "ok" && newCustomerIds.length > 0 && exclusionsChoice === "idle" && (
+          <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 text-left text-sm">
+            <p className="mb-2">
+              {newCustomerIds.length === 1 ? "Essa conta é nova" : `Essas ${newCustomerIds.length} contas são novas`}.
+              Quer aplicar as <strong>exclusões de sites/apps</strong> que você já configurou noutra
+              conta (sites próprios, categorias de app) nela também?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={() => setExclusionsChoice("skipped")}>Agora não</Button>
+              <Button size="sm" onClick={applyExclusionsToNewAccounts}>Aplicar agora</Button>
+            </div>
+          </div>
+        )}
+        {exclusionsChoice === "applying" && (
+          <p className="mb-4 text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Aplicando exclusões…
+          </p>
+        )}
+        {exclusionsChoice === "done" && (
+          <p className="mb-4 text-xs text-success">Exclusões aplicadas.</p>
+        )}
+
+        {state !== "working" && (exclusionsChoice === "idle" ? newCustomerIds.length === 0 : true) && (
           <Button asChild size="sm"><Link to="/">Voltar ao dashboard</Link></Button>
         )}
       </div>
