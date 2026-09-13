@@ -123,6 +123,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [forceDataIncomplete, setForceDataIncomplete] = useState(false);
   const [blockDomainInput, setBlockDomainInput] = useState("");
   const [blockingDomain, setBlockingDomain] = useState(false);
+  const [exclusionsSourceId, setExclusionsSourceId] = useState<string>(() => {
+    try { return localStorage.getItem("exclusions_source_account_id") ?? ""; } catch { return ""; }
+  });
+  const [syncingExclusions, setSyncingExclusions] = useState(false);
   const [bulkRoi, setBulkRoi] = useState(-80);
   const [bulkMaxRevUsd, setBulkMaxRevUsd] = useState(0.05);
   const [bulkMinClicks, setBulkMinClicks] = useState(1);
@@ -481,6 +485,42 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
+  const handleChooseExclusionsSource = (id: string) => {
+    setExclusionsSourceId(id);
+    try { localStorage.setItem("exclusions_source_account_id", id); } catch { /* ignore */ }
+  };
+
+  // Copia as exclusões de conta (sites próprios + categorias de app) já configuradas
+  // numa conta de referência (Google Ads → Ferramentas → Exclusões de conteúdo) pra
+  // todas as outras contas. Diferente do bloqueio de domínio acima: aqui é o pacote
+  // inteiro (sites + categorias de app) de uma vez, não um domínio isolado.
+  const syncAccountExclusions = async () => {
+    if (!exclusionsSourceId) return;
+    const accName = accounts.find((a) => a.id === exclusionsSourceId)?.name ?? "essa conta";
+    if (!confirm(`Copiar as exclusões (sites + apps) de "${accName}" pra TODAS as outras contas Google Ads?`)) return;
+    setSyncingExclusions(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; operations?: number; total_targets?: number;
+        succeeded_accounts?: number; failed_accounts?: number;
+        details?: Array<{ label: string; ok: boolean; error?: string }>;
+      }>("sync-account-exclusions", { body: { source_account_id: exclusionsSourceId } });
+      if (error || data?.error) {
+        toast({ title: "Erro ao copiar exclusões", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      const failed = (data?.details ?? []).filter((d) => !d.ok);
+      toast({
+        title: `${data?.operations ?? 0} exclusão(ões) replicada(s)`,
+        description: `${data?.succeeded_accounts ?? 0}/${data?.total_targets ?? 0} conta(s) atualizadas.`
+          + (failed.length ? ` Falharam: ${failed.map((f) => f.label).join(", ")}.` : ""),
+        variant: failed.length && failed.length === data?.total_targets ? "destructive" : "default",
+      });
+    } finally {
+      setSyncingExclusions(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -626,6 +666,28 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               Bloquear em todas as contas
             </Button>
             <span className="text-muted-foreground">Exclusão em nível de conta — vale pra toda campanha atual e futura, em todos os sites.</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px]">
+            <span className="font-medium whitespace-nowrap">📋 Copiar exclusões (sites + apps) de:</span>
+            <select
+              className="h-7 text-xs rounded border border-border bg-background px-2 max-w-[220px]"
+              value={exclusionsSourceId}
+              onChange={(e) => handleChooseExclusionsSource(e.target.value)}
+            >
+              <option value="">Escolha a conta já configurada</option>
+              {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              disabled={!exclusionsSourceId || syncingExclusions}
+              onClick={syncAccountExclusions}
+            >
+              {syncingExclusions ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+              Copiar pra todas as outras contas
+            </Button>
+            <span className="text-muted-foreground">Replica o que já está em Ferramentas → Exclusões de conteúdo dessa conta (sites próprios, categorias de app) — não é um domínio isolado.</span>
           </div>
           {!!stats?.review_only && (
             <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
