@@ -1012,11 +1012,15 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
               const finalUrl = finalUrlsQuery.data?.get(c.campaign_id);
               const d = derived.get(c.campaign_id);
               const gamMetric = campaignGamMetrics?.get(c.campaign_id);
-              // eCPM próprio só é confiável com impressões GAM suficientes e valor plausível.
-              // Senão usa o eCPM GERAL do site (Σ receita GAM / Σ impressões GAM).
+              // eCPM próprio só é confiável com impressões GAM suficientes, valor plausível
+              // E não muito abaixo do eCPM geral do site — um eCPM tipo $0,60-$2,50 num site
+              // que ganha $20-70 não é "essa campanha monetiza pior", é atribuição por
+              // utm_campaign capturando só um pedaço da receita (revenue baixa pras
+              // impressões que pegou). Nesse caso usa o eCPM GERAL do site.
               const ownEcpm = gamMetric?.ecpm ?? 0;
               const ownEcpmImpr = gamMetric?.impressions ?? 0;
-              const ownEcpmReliable = ownEcpmImpr >= 30 && ownEcpm >= 1;
+              const notSuspiciouslyLow = siteEcpmUsd <= 0 || ownEcpm >= siteEcpmUsd * 0.25;
+              const ownEcpmReliable = ownEcpmImpr >= 30 && ownEcpm >= 1 && notSuspiciouslyLow;
               const ecpmIsGeral = !ownEcpmReliable && siteEcpmUsd > 0;
               const gamEcpm = ownEcpmReliable ? ownEcpm : (siteEcpmUsd > 0 ? siteEcpmUsd : (ownEcpm || Number(c.ecpm) || 0));
               const firstSpend = firstSpendQuery.data?.get(c.campaign_id);

@@ -370,16 +370,26 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
-  // eCPM "geral" do site (USD): Σ receita GAM / Σ impressões GAM de TODAS as campanhas
-  // do período. Fallback quando o eCPM próprio da campanha não é confiável (poucas
-  // impressões atribuídas ou atribuição de receita incompleta).
+  // eCPM "geral" do site (USD). Fallback quando o eCPM próprio da campanha não é
+  // confiável (poucas impressões atribuídas ou atribuição por utm_campaign incompleta).
+  // Fonte primária: site_metrics_daily — vem direto do GAM em nível de rede, então
+  // continua correto mesmo quando o breakdown por utm_campaign falha pro site INTEIRO
+  // (nesse caso Σ gam_campaign_source_revenue também estaria zerada/errada e não serviria
+  // de fallback — foi o que aconteceu no Universo dos Cartões).
   const gamSiteEcpmUsd = useMemo(() => {
+    const sm = siteMetricsQuery.data;
+    if (sm && sm.impressions > 0 && sm.ecpmNative > 0) {
+      const usd = sm.currency === "BRL" ? sm.ecpmNative / (fxQuery.data?.rate ?? 5) : sm.ecpmNative;
+      if (usd > 0) return usd;
+    }
+    // Sem site_metrics_daily: cai pro agregado por campanha (pode ter o mesmo problema
+    // se a atribuição por utm_campaign estiver quebrada pro site inteiro).
     const m = campaignGamMetricsQuery.data;
     if (!m) return 0;
     let rev = 0, impr = 0;
     for (const v of m.values()) { rev += v.revenueUsd; impr += v.impressions; }
     return impr > 0 ? (rev / impr) * 1000 : 0;
-  }, [campaignGamMetricsQuery.data]);
+  }, [siteMetricsQuery.data, campaignGamMetricsQuery.data, fxQuery.data?.rate]);
 
   // Taxa de correspondência (Match Rate) por campanha:
   //   AD_SERVER_IMPRESSIONS / AD_SERVER_TOTAL_REQUESTS, ambos filtrados por utm_campaign=cid.
