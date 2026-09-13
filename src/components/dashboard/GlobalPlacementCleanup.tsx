@@ -127,6 +127,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     try { return localStorage.getItem("exclusions_source_account_id") ?? ""; } catch { return ""; }
   });
   const [syncingExclusions, setSyncingExclusions] = useState(false);
+  const [applyingMcc, setApplyingMcc] = useState(false);
   const [bulkRoi, setBulkRoi] = useState(-80);
   const [bulkMaxRevUsd, setBulkMaxRevUsd] = useState(0.05);
   const [bulkMinClicks, setBulkMinClicks] = useState(1);
@@ -526,6 +527,38 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
   };
 
+  // Botão único: bloqueia todos os SITES próprios (tabela sites) + tudo que já
+  // estiver configurado na conta de referência (normalmente categorias de app) em
+  // TODAS as contas Google Ads da MCC de uma vez.
+  const applyMccExclusions = async () => {
+    const srcName = exclusionsSourceId ? (accounts.find((a) => a.id === exclusionsSourceId)?.name ?? "a conta escolhida") : null;
+    const confirmMsg = srcName
+      ? `Bloquear todos os seus sites próprios + as exclusões já configuradas em "${srcName}" (apps/categorias) em TODAS as contas da MCC?`
+      : `Bloquear todos os seus sites próprios em TODAS as contas da MCC? (Escolha uma "conta de referência" acima também pra incluir categorias de app.)`;
+    if (!confirm(confirmMsg)) return;
+    setApplyingMcc(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; site_domains?: string[]; source_account?: string | null;
+        operations?: number; total_accounts?: number; succeeded_accounts?: number; failed_accounts?: number;
+        details?: Array<{ label: string; ok: boolean; error?: string }>;
+      }>("apply-mcc-exclusions", { body: exclusionsSourceId ? { source_account_id: exclusionsSourceId } : {} });
+      if (error || data?.error) {
+        toast({ title: "Erro ao aplicar exclusões da MCC", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      const failed = (data?.details ?? []).filter((d) => !d.ok);
+      toast({
+        title: `${data?.operations ?? 0} exclusão(ões) aplicada(s) (${(data?.site_domains ?? []).length} site(s) próprios${data?.source_account ? ` + apps de "${data.source_account}"` : ""})`,
+        description: `${data?.succeeded_accounts ?? 0}/${data?.total_accounts ?? 0} conta(s) da MCC atualizadas.`
+          + (failed.length ? ` Falharam: ${failed.map((f) => f.label).join(", ")}.` : ""),
+        variant: failed.length && failed.length === data?.total_accounts ? "destructive" : "default",
+      });
+    } finally {
+      setApplyingMcc(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -703,6 +736,22 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               Copiar pra todas as outras contas
             </Button>
             <span className="text-muted-foreground">Replica o que já está em Ferramentas → Exclusões de conteúdo dessa conta (sites próprios, categorias de app) — não é um domínio isolado.</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px]">
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 text-[11px]"
+              disabled={applyingMcc}
+              onClick={applyMccExclusions}
+            >
+              {applyingMcc ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+              🛡️ Bloquear meus sites + apps em TODAS as contas da MCC
+            </Button>
+            <span className="text-muted-foreground">
+              Um clique: exclui todos os seus sites próprios (tabela Sites) e, se você escolheu uma "conta de
+              referência" acima, também as categorias de app já configuradas nela — tudo isso em toda conta da MCC.
+            </span>
           </div>
           {!!stats?.review_only && (
             <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
