@@ -121,6 +121,8 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [allPlacements, setAllPlacements] = useState<AllPlacement[]>([]);
   const [allSort, setAllSort] = useState<{ col: "cost_brl" | "revenue_usd" | "roi_pct" | "clicks"; dir: "asc" | "desc" }>({ col: "cost_brl", dir: "desc" });
   const [forceDataIncomplete, setForceDataIncomplete] = useState(false);
+  const [blockDomainInput, setBlockDomainInput] = useState("");
+  const [blockingDomain, setBlockingDomain] = useState(false);
   const [bulkRoi, setBulkRoi] = useState(-80);
   const [bulkMaxRevUsd, setBulkMaxRevUsd] = useState(0.05);
   const [bulkMinClicks, setBulkMinClicks] = useState(1);
@@ -448,6 +450,37 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     });
   };
 
+  // Bloqueia um domínio em TODAS as contas Google Ads do usuário de uma vez (exclusão
+  // em nível de CONTA — CustomerNegativeCriterion), não só nas campanhas visíveis aqui.
+  // Vale pra campanha atual e futura de cada conta.
+  const blockDomainEverywhere = async (domainRaw: string) => {
+    const domain = domainRaw.trim();
+    if (!domain) return;
+    if (!confirm(`Bloquear "${domain}" em TODAS as contas Google Ads (todas as campanhas, atuais e futuras)?`)) return;
+    setBlockingDomain(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; domain?: string; total_accounts?: number;
+        blocked?: number; already_blocked?: number; failed?: number;
+        details?: Array<{ label: string; ok: boolean; already_blocked?: boolean; error?: string }>;
+      }>("block-domain-everywhere", { body: { domain } });
+      if (error || data?.error) {
+        toast({ title: "Erro ao bloquear", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      const failedAccounts = (data?.details ?? []).filter((d) => !d.ok);
+      toast({
+        title: `"${data?.domain}" bloqueado`,
+        description: `${data?.blocked ?? 0} conta(s) nova(s) · ${data?.already_blocked ?? 0} já bloqueado · ${data?.failed ?? 0} falha(s) de ${data?.total_accounts ?? 0} contas.`
+          + (failedAccounts.length ? ` Falharam: ${failedAccounts.map((d) => d.label).join(", ")}.` : ""),
+        variant: failedAccounts.length === data?.total_accounts ? "destructive" : "default",
+      });
+      setBlockDomainInput("");
+    } finally {
+      setBlockingDomain(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/5 p-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -573,6 +606,27 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </span>
             </DialogDescription>
           </DialogHeader>
+          <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-[11px]">
+            <span className="font-medium whitespace-nowrap">🚫 Bloquear domínio em TODAS as contas:</span>
+            <Input
+              value={blockDomainInput}
+              onChange={(e) => setBlockDomainInput(e.target.value)}
+              placeholder="ex: hocviral.com"
+              className="h-7 text-xs max-w-[220px]"
+              onKeyDown={(e) => { if (e.key === "Enter" && blockDomainInput.trim() && !blockingDomain) blockDomainEverywhere(blockDomainInput); }}
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-7 text-[11px]"
+              disabled={!blockDomainInput.trim() || blockingDomain}
+              onClick={() => blockDomainEverywhere(blockDomainInput)}
+            >
+              {blockingDomain ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+              Bloquear em todas as contas
+            </Button>
+            <span className="text-muted-foreground">Exclusão em nível de conta — vale pra toda campanha atual e futura, em todos os sites.</span>
+          </div>
           {!!stats?.review_only && (
             <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
               <strong>{stats.review_only} placement(s) bloqueados para exclusão</strong> — {stats.unsafe_campaigns} campanha(s) com receita do Ad Manager incompleta neste período.
@@ -665,7 +719,17 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                   <Checkbox checked={selected.has(p.key)} onCheckedChange={() => toggle(p.key)} />
                                 )}
                               </TableCell>
-                              <TableCell className="font-mono text-xs max-w-[340px] truncate" title={p.placement}>{p.placement}</TableCell>
+                              <TableCell className="font-mono text-xs max-w-[340px] truncate">
+                                <span title={p.placement}>{p.placement}</span>
+                                {p.type === "WEBSITE" && (
+                                  <button
+                                    type="button"
+                                    title="Bloquear esse domínio em TODAS as contas Ads"
+                                    className="ml-1 opacity-50 hover:opacity-100"
+                                    onClick={() => blockDomainEverywhere(p.placement)}
+                                  >🚫</button>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs">{p.type}</TableCell>
                               <TableCell className="text-right tabular-nums text-xs">{fmtNumber(p.clicks)}</TableCell>
                               <TableCell className="text-right tabular-nums text-xs">{fmtBRL(p.cost_brl)}</TableCell>
@@ -763,7 +827,17 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                                       <TableCell>
                                         <Checkbox checked={selected.has(itemKey(i))} disabled={disabled} onCheckedChange={() => toggle(itemKey(i))} />
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs max-w-[300px] truncate" title={i.placement}>{i.placement}</TableCell>
+                                      <TableCell className="font-mono text-xs max-w-[300px] truncate">
+                                        <span title={i.placement}>{i.placement}</span>
+                                        {i.type === "WEBSITE" && (
+                                          <button
+                                            type="button"
+                                            title="Bloquear esse domínio em TODAS as contas Ads"
+                                            className="ml-1 opacity-50 hover:opacity-100"
+                                            onClick={() => blockDomainEverywhere(i.placement)}
+                                          >🚫</button>
+                                        )}
+                                      </TableCell>
                                       <TableCell className="text-xs">
                                         {i.type}
                                         {isApp && !disabled && <Badge variant="outline" className="ml-1 text-[9px]">app id</Badge>}
