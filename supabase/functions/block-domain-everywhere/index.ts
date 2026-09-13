@@ -43,11 +43,13 @@ Deno.serve(async (req) => {
 
     const { data: accounts, error: accErr } = await admin
       .from("google_accounts")
-      .select("id, customer_id, refresh_token, login_customer_id, api_set, account_name, descriptive_name")
+      .select("id, customer_id, refresh_token, login_customer_id, api_set, account_name, descriptive_name, is_mcc")
       .eq("user_id", userId);
     if (accErr) return json({ error: accErr.message });
-    const withToken = (accounts ?? []).filter((a: any) => a.refresh_token && a.customer_id);
-    if (withToken.length === 0) return json({ error: "Nenhuma conta Ads conectada" });
+    // MCC/sub-MCC (contas gerenciadoras) não rodam campanha e rejeitam
+    // CustomerNegativeCriterion — só conta operacional entra.
+    const withToken = (accounts ?? []).filter((a: any) => a.refresh_token && a.customer_id && !a.is_mcc);
+    if (withToken.length === 0) return json({ error: "Nenhuma conta Ads operacional (não-MCC) conectada" });
 
     const results = await Promise.all(withToken.map(async (acc: any) => {
       const label = acc.account_name || acc.descriptive_name || acc.customer_id;

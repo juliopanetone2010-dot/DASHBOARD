@@ -73,6 +73,7 @@ export const IntegrationsPanel = ({
     try { return localStorage.getItem("exclusions_source_account_id") ?? ""; } catch { return ""; }
   });
   const [syncingExclusions, setSyncingExclusions] = useState(false);
+  const [settingUtmSuffix, setSettingUtmSuffix] = useState(false);
   const refresh = async () => { await onRefresh?.(); };
 
   useEffect(() => {
@@ -206,6 +207,34 @@ export const IntegrationsPanel = ({
     }
   };
 
+  // Sufixo do URL final A NÍVEL DE CONTA: uma vez configurado, toda campanha NOVA
+  // já nasce com o UTM certo (sem precisar preencher aquele campo manualmente).
+  // Campanha que já tem sufixo próprio preenchido não é afetada.
+  const UTM_SUFFIX_DEFAULT = "utm_source=google&utm_campaign={campaignid}&utm_adgroup={adgroupid}&utm_content={creative}&utm_placement={campaignid}_{placement}";
+  const handleSetUtmSuffix = async () => {
+    if (!confirm(`Definir o sufixo de URL padrão em TODAS as contas operacionais?\n\n${UTM_SUFFIX_DEFAULT}\n\nToda campanha nova vai herdar isso automaticamente.`)) return;
+    setSettingUtmSuffix(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; total_accounts?: number; succeeded_accounts?: number; failed_accounts?: number;
+        details?: Array<{ label: string; ok: boolean; error?: string }>;
+      }>("set-account-utm-suffix", { body: {} });
+      if (error || data?.error) {
+        toast({ title: "Erro ao definir sufixo", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      const failed = (data?.details ?? []).filter((d) => !d.ok);
+      toast({
+        title: "Sufixo de URL definido a nível de conta",
+        description: `${data?.succeeded_accounts ?? 0}/${data?.total_accounts ?? 0} conta(s) atualizadas.`
+          + (failed.length ? ` Falharam: ${failed.map((f) => f.label).join(", ")}.` : ""),
+        variant: failed.length && failed.length === data?.total_accounts ? "destructive" : "default",
+      });
+    } finally {
+      setSettingUtmSuffix(false);
+    }
+  };
+
   const redirectHint = typeof window !== "undefined"
     ? `${window.location.origin}/oauth/google-ads/callback`
     : "";
@@ -277,6 +306,16 @@ export const IntegrationsPanel = ({
           >
             <RefreshCw className={syncingAds ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
             Sincronizar contas e campanhas
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSetUtmSuffix}
+            disabled={settingUtmSuffix || googleAccounts.length === 0}
+            className="gap-1.5"
+            title="Define o sufixo de UTM padrão a nível de CONTA em todas as contas — campanha nova já nasce com ele, sem preencher na mão"
+          >
+            <Link2 className={settingUtmSuffix ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            Aplicar UTM padrão em todas as contas (automático p/ campanhas novas)
           </Button>
         </div>
 

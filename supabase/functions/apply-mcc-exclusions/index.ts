@@ -79,15 +79,17 @@ Deno.serve(async (req) => {
     const [{ data: sites, error: sitesErr }, { data: allAccounts, error: accErr }] = await Promise.all([
       admin.from("sites").select("domain").eq("user_id", userId),
       admin.from("google_accounts")
-        .select("id, customer_id, refresh_token, login_customer_id, api_set, account_name, descriptive_name")
+        .select("id, customer_id, refresh_token, login_customer_id, api_set, account_name, descriptive_name, is_mcc")
         .eq("user_id", userId),
     ]);
     if (sitesErr) return json({ error: sitesErr.message });
     if (accErr) return json({ error: accErr.message });
 
     const siteDomains = [...new Set((sites ?? []).map((s: any) => normalizeDomain(String(s.domain ?? ""))).filter((d) => d && d.includes(".")))];
-    const targets = (allAccounts ?? []).filter((a: AccRow) => a.refresh_token && a.customer_id) as AccRow[];
-    if (targets.length === 0) return json({ error: "Nenhuma conta Ads conectada" });
+    // MCC e sub-MCC (contas gerenciadoras, is_mcc=true) não rodam campanha e rejeitam
+    // CustomerNegativeCriterion — só contas operacionais (folha da hierarquia) entram.
+    const targets = (allAccounts ?? []).filter((a: any) => a.refresh_token && a.customer_id && !a.is_mcc) as AccRow[];
+    if (targets.length === 0) return json({ error: "Nenhuma conta Ads operacional (não-MCC) conectada" });
 
     // Operações base: um "create" de placement por site próprio.
     const operations: Array<{ create: Record<string, unknown> }> = siteDomains.map((d) => ({
