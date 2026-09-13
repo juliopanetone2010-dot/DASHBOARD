@@ -630,6 +630,39 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
         </label>
       </div>
 
+      {/* Exclusões de conta — sempre visíveis aqui, sem precisar abrir o preview */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px]">
+        <span className="font-medium whitespace-nowrap">📋 Copiar exclusões (sites + apps) de:</span>
+        <select
+          className="h-7 text-xs rounded border border-border bg-background px-2 max-w-[220px]"
+          value={exclusionsSourceId}
+          onChange={(e) => handleChooseExclusionsSource(e.target.value)}
+        >
+          <option value="">Escolha a conta já configurada</option>
+          {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-[11px]"
+          disabled={!exclusionsSourceId || syncingExclusions}
+          onClick={syncAccountExclusions}
+        >
+          {syncingExclusions ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+          Copiar pra todas as outras contas
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          className="h-7 text-[11px]"
+          disabled={applyingMcc}
+          onClick={applyMccExclusions}
+        >
+          {applyingMcc ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+          🛡️ Bloquear meus sites + apps em TODAS as contas da MCC
+        </Button>
+      </div>
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
