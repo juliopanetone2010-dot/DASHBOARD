@@ -93,7 +93,8 @@ interface Props {
   campaigns: CampaignAggregate[];
   campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number; ecpmUrl?: number }>;
   /** eCPM geral do site (USD) — fallback quando o da campanha não é confiável */
-  siteEcpmUsd?: number;
+  /** eCPM geral por CONTA (chave = google_account_id), já resolvido pelo site de cada conta */
+  siteEcpmByAccount?: Map<string, number>;
   campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
   campaignBestMatches?: Map<string, BestMatchInfo>;
   downAccountIds?: Set<string>;
@@ -105,7 +106,7 @@ interface Props {
   isIntraday?: boolean;
 }
 
-export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
+export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccount, campaignMatchRates, campaignBestMatches, downAccountIds, onPause, onBoost, onRefresh, dateRange, siteId, isIntraday = false }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1055,6 +1056,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
               //   2) eCPM GERAL do site (Σ receita GAM / Σ impressões GAM de tudo).
               const ownEcpm = gamMetric?.ecpm ?? 0;
               const ownEcpmImpr = gamMetric?.impressions ?? 0;
+              // eCPM geral DO SITE DESSA CAMPANHA especificamente (resolvido por
+              // google_account_id) — nunca uma média misturando outros sites, mesmo
+              // com "Todos os sites" selecionado no filtro.
+              const siteEcpmUsd = siteEcpmByAccount?.get(c.google_account_id ?? "") ?? 0;
               const notSuspiciouslyLow = siteEcpmUsd <= 0 || ownEcpm >= siteEcpmUsd * 0.25;
               const ownEcpmReliable = ownEcpmImpr >= 30 && ownEcpm >= 1 && notSuspiciouslyLow;
               const urlEcpm = gamMetric?.ecpmUrl ?? 0;

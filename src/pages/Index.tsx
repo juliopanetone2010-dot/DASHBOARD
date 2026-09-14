@@ -375,26 +375,55 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
-  // eCPM "geral" do site (USD). Fallback quando o eCPM próprio da campanha não é
-  // confiável (poucas impressões atribuídas ou atribuição por utm_campaign incompleta).
-  // Fonte primária: site_metrics_daily — vem direto do GAM em nível de rede, então
-  // continua correto mesmo quando o breakdown por utm_campaign falha pro site INTEIRO
-  // (nesse caso Σ gam_campaign_source_revenue também estaria zerada/errada e não serviria
-  // de fallback — foi o que aconteceu no Universo dos Cartões).
-  const gamSiteEcpmUsd = useMemo(() => {
-    const sm = siteMetricsQuery.data;
-    if (sm && sm.impressions > 0 && sm.ecpmNative > 0) {
-      const usd = sm.currency === "BRL" ? sm.ecpmNative / (fxQuery.data?.rate ?? 5) : sm.ecpmNative;
-      if (usd > 0) return usd;
+  // eCPM "geral" — mas DE CADA SITE, não um número só misturando todos. Fallback
+  // quando o eCPM próprio da campanha não é confiável (poucas impressões atribuídas
+  // ou atribuição por utm_campaign incompleta). Fonte: site_metrics_daily — vem
+  // direto do GAM em nível de rede, então continua correto mesmo quando o breakdown
+  // por utm_campaign falha pro site INTEIRO (foi o que aconteceu no Universo dos
+  // Cartões). IMPORTANTE: agrupado por site_id — com "Todos os sites" selecionado,
+  // cada campanha usa o eCPM do SEU PRÓPRIO site, não uma média de todos misturados.
+  const siteEcpmMapQuery = useQuery({
+    queryKey: ["site-ecpm-map", range.from, range.to],
+    queryFn: async () => {
+      const rows = await fetchAllRows<any>(() => supabase
+        .from("site_metrics_daily")
+        .select("site_id, impressions, revenue_native, currency")
+        .gte("date", range.from).lte("date", range.to)
+        .order("id", { ascending: true }));
+      const bySite = new Map<string, { rev: number; impr: number; currency: string }>();
+      for (const r of rows) {
+        const sid = String((r as any).site_id ?? "");
+        if (!sid) continue;
+        const cur = bySite.get(sid) ?? { rev: 0, impr: 0, currency: String((r as any).currency ?? "USD").toUpperCase() };
+        cur.rev += Number((r as any).revenue_native ?? 0);
+        cur.impr += Number((r as any).impressions ?? 0);
+        bySite.set(sid, cur);
+      }
+      const fx = fxQuery.data?.rate ?? 5;
+      const out = new Map<string, number>();
+      for (const [sid, v] of bySite) {
+        if (v.impr <= 0) continue;
+        const ecpmNative = (v.rev / v.impr) * 1000;
+        const usd = v.currency === "BRL" ? ecpmNative / fx : ecpmNative;
+        if (usd > 0) out.set(sid, usd);
+      }
+      return out;
+    },
+    staleTime: 30_000,
+  });
+
+  // Resolve o eCPM "geral" pelo google_account_id de cada campanha (via account_site_links),
+  // pra passar como fallback já correto por conta/site pro CampaignsTable.
+  const siteEcpmByAccount = useMemo(() => {
+    const ecpmBySite = siteEcpmMapQuery.data;
+    const out = new Map<string, number>();
+    if (!ecpmBySite) return out;
+    for (const l of data.links) {
+      const ecpm = ecpmBySite.get(l.site_id);
+      if (ecpm != null && !out.has(l.google_account_id)) out.set(l.google_account_id, ecpm);
     }
-    // Sem site_metrics_daily: cai pro agregado por campanha (pode ter o mesmo problema
-    // se a atribuição por utm_campaign estiver quebrada pro site inteiro).
-    const m = campaignGamMetricsQuery.data;
-    if (!m) return 0;
-    let rev = 0, impr = 0;
-    for (const v of m.values()) { rev += v.revenueUsd; impr += v.impressions; }
-    return impr > 0 ? (rev / impr) * 1000 : 0;
-  }, [siteMetricsQuery.data, campaignGamMetricsQuery.data, fxQuery.data?.rate]);
+    return out;
+  }, [siteEcpmMapQuery.data, data.links]);
 
   // Taxa de correspondência (Match Rate) por campanha:
   //   AD_SERVER_IMPRESSIONS / AD_SERVER_TOTAL_REQUESTS, ambos filtrados por utm_campaign=cid.
@@ -1277,7 +1306,7 @@ const IndexInner = () => {
               <CampaignsTable
                 campaigns={engine?.aggregates ?? []}
                 campaignGamMetrics={campaignGamMetricsQuery.data}
-                siteEcpmUsd={gamSiteEcpmUsd}
+                siteEcpmByAccount={siteEcpmByAccount}
                 campaignMatchRates={campaignMatchRateQuery.data}
                 campaignBestMatches={campaignBestMatchQuery.data}
                 downAccountIds={new Set(
