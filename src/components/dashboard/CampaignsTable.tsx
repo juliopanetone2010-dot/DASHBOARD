@@ -95,7 +95,7 @@ interface Props {
   /** eCPM geral do site (USD) — fallback quando o da campanha não é confiável */
   /** eCPM geral por CONTA (chave = google_account_id), já resolvido pelo site de cada conta */
   siteEcpmByAccount?: Map<string, number>;
-  campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
+  campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number; matchRateSource?: string | null }>;
   campaignBestMatches?: Map<string, BestMatchInfo>;
   downAccountIds?: Set<string>;
   onPause?: (campaignId: string) => void;
@@ -1401,6 +1401,19 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                         const has = !!mr && (mr.totalRequests > 0 || mr.matchRate > 0);
                         const pct = mr?.matchRate ?? 0;
                         const color = !has ? "text-muted-foreground" : pct >= 90 ? "text-success" : pct >= 75 ? "text-warning" : "text-danger";
+                        // Origem do valor — pra saber na hora se é a taxa REAL do GAM por
+                        // campanha ou um dos fallbacks, sem precisar olhar log de sync.
+                        const sourceLabel: Record<string, string> = {
+                          campaign_real: "real da campanha",
+                          campaign_proxy: "proxy calibrado",
+                          url: "da URL/página",
+                          site: "geral do site",
+                          clicks: "impr./cliques",
+                          preserved: "valor anterior",
+                        };
+                        const src = mr?.matchRateSource ?? null;
+                        const srcText = src ? (sourceLabel[src] ?? src) : null;
+                        const srcIsReal = src === "campaign_real";
                         return (
                           <TableCell key={k} style={ws} className="text-right tabular-nums">
                             <Tooltip>
@@ -1418,11 +1431,16 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                                       {fmtNumber(Math.round(mr!.totalRequests * pct / 100))} / {fmtNumber(mr!.totalRequests)}
                                     </div>
                                   )}
+                                  {has && srcText && (
+                                    <div className={cn("text-[9px]", srcIsReal ? "text-success" : "text-warning")}>
+                                      {srcText}
+                                    </div>
+                                  )}
                                 </button>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
-                                  ? `Taxa de Correspondência (AD_EXCHANGE_MATCH_RATE do GAM): ${pct.toFixed(2)}%\nMatched requests ≈ ${Math.round(mr!.totalRequests * pct / 100).toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nImpressões GAM: ${mr!.impressions.toLocaleString()}\nFonte: gam_campaign_source_revenue.match_rate_pct\n\nClique para abrir debug detalhado`
+                                  ? `Taxa de Correspondência: ${pct.toFixed(2)}%\nMatched requests ≈ ${Math.round(mr!.totalRequests * pct / 100).toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nImpressões GAM: ${mr!.impressions.toLocaleString()}\nOrigem: ${srcText ?? "?"} (${src ?? "sem info"})\n\nClique para abrir debug detalhado`
                                   : "Sem dados de requests para esta campanha no período. Clique para abrir debug."}
                               </TooltipContent>
                             </Tooltip>

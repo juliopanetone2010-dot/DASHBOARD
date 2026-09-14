@@ -477,7 +477,7 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("id, campaign_id, impressions, total_requests, match_rate_pct, site_id, date")
+          .select("id, campaign_id, impressions, total_requests, match_rate_pct, match_rate_source, site_id, date")
           .eq("utm_source", "google")
           .gte("date", range.from)
           .lte("date", range.to);
@@ -498,6 +498,7 @@ const IndexInner = () => {
         totalRequests: number;
         ratedImpressions: number;
         weightedRateSum: number;
+        sourceCounts: Map<string, number>;
       }>();
       for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
@@ -505,16 +506,26 @@ const IndexInner = () => {
         const impressions = Number((r as any).impressions ?? 0);
         const totalRequests = Number((r as any).total_requests ?? 0);
         const exactRatePct = Number((r as any).match_rate_pct ?? 0);
-        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0 };
+        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0, sourceCounts: new Map<string, number>() };
         cur.impressions += impressions;
         cur.totalRequests += totalRequests;
         if (impressions > 0 && exactRatePct > 0) {
           cur.ratedImpressions += impressions;
           cur.weightedRateSum += exactRatePct * impressions;
+          const src = String((r as any).match_rate_source ?? "");
+          if (src) cur.sourceCounts.set(src, (cur.sourceCounts.get(src) ?? 0) + 1);
         }
         map.set(cid, cur);
       }
-      const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number }>();
+      // Fonte predominante do período (a que apareceu em mais dias) — exibida como
+      // badge no CampaignsTable pra dizer se é a taxa REAL do GAM por campanha ou
+      // um dos fallbacks, sem precisar olhar log.
+      const dominantSource = (counts: Map<string, number>): string | null => {
+        let best: string | null = null, bestN = 0;
+        for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+        return best;
+      };
+      const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number; matchRateSource: string | null }>();
       for (const [cid, v] of map) {
         if (v.ratedImpressions > 0) {
           const rate = v.weightedRateSum / v.ratedImpressions;
@@ -522,15 +533,17 @@ const IndexInner = () => {
             matchRate: rate,
             impressions: v.impressions,
             totalRequests: v.totalRequests > 0 ? v.totalRequests : Math.round(v.ratedImpressions / (rate / 100)),
+            matchRateSource: dominantSource(v.sourceCounts),
           });
         } else if (v.totalRequests > 0) {
           out.set(cid, {
             matchRate: (v.impressions / v.totalRequests) * 100,
             impressions: v.impressions,
             totalRequests: v.totalRequests,
+            matchRateSource: null,
           });
         } else {
-          out.set(cid, { matchRate: 0, impressions: v.impressions, totalRequests: 0 });
+          out.set(cid, { matchRate: 0, impressions: v.impressions, totalRequests: 0, matchRateSource: null });
         }
       }
       return out;

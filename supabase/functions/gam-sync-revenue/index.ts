@@ -1836,21 +1836,33 @@ async function persistCampaignTotalRequests(args: {
     const bRate = Number(b.match_rate_pct || 0) > 0 ? Number(b.match_rate_pct) : null;
     const isProxy = b.rate_is_proxy === true && bRate != null;
     let rate: number | null;
+    // Fonte do valor — exposta na UI (badge no CampaignsTable) pra dar pra ver na
+    // hora se é a taxa real do GAM por campanha ou um dos fallbacks, sem log.
+    let source: string;
     if (bRate != null && !isProxy) {
       rate = bRate; // taxa real por campanha (AD_EXCHANGE_MATCH_RATE)
+      source = "campaign_real";
     } else if (isProxy) {
       rate = bRate; // provisório — será recalibrado abaixo
+      source = "campaign_proxy";
       const acc = proxyByDate.get(b.date) ?? { sumReq: 0, sumMatchedProxy: 0 };
       acc.sumReq += gamRequests;
       acc.sumMatchedProxy += gamRequests * (bRate! / 100);
       proxyByDate.set(b.date, acc);
     } else {
-      const realRate = pickMatchRate(b.cid, b.date);
-      rate = realRate != null
-        ? realRate
-        : (adsClicks > 0 && prev.impressions > 0
-          ? Math.min(100, (prev.impressions / adsClicks) * 100)
-          : (prev.match_rate_pct ?? null));
+      const path = cidToPath.get(b.cid);
+      const urlRate = path ? urlMatchRateByDate.get(path)?.get(b.date) : undefined;
+      const realRate = urlRate ?? siteMatchRateByDate.get(b.date) ?? null;
+      if (realRate != null) {
+        rate = realRate;
+        source = urlRate != null ? "url" : "site";
+      } else if (adsClicks > 0 && prev.impressions > 0) {
+        rate = Math.min(100, (prev.impressions / adsClicks) * 100);
+        source = "clicks";
+      } else {
+        rate = prev.match_rate_pct ?? null;
+        source = "preserved";
+      }
     }
     return {
       user_id: userId,
@@ -1862,6 +1874,7 @@ async function persistCampaignTotalRequests(args: {
       impressions: prev.impressions,
       total_requests: denom,
       match_rate_pct: rate,
+      match_rate_source: source,
       ecpm_url_usd: pickUrlEcpm(b.cid, b.date),
       _isProxy: isProxy,
       _proxyRate: isProxy ? bRate! : 0,
@@ -1962,7 +1975,7 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     }
   }
 
-  const updates: Array<{ id: any; match_rate_pct: number; total_requests: number }> = [];
+  const updates: Array<{ id: any; match_rate_pct: number; total_requests: number; match_rate_source: string }> = [];
   for (const r of rows as any[]) {
     const cid = String(r.campaign_id);
     if (!cid || cid === "__aggregate__") continue;
@@ -1974,25 +1987,29 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     if (already > 0 && !overwriteStale) continue;
     const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
     const path = cidToPath.get(cid);
-    const urlOrSiteRate = (path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined) ?? siteMatchRateByDate?.get(r.date);
+    const urlRate = path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined;
+    const urlOrSiteRate = urlRate ?? siteMatchRateByDate?.get(r.date);
     // Prioriza o AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing, senão por
     // site). Só sem ele cai no proxy impressões/cliques — e só se tiver cliques,
     // senão preserva o valor atual. NUNCA usa impressões/requests (é fill rate).
     let rate: number;
     let denom: number;
+    let source: string;
     if (urlOrSiteRate != null) {
       rate = urlOrSiteRate;
       denom = clicks > 0 ? clicks : Number(r.total_requests || 0);
+      source = urlRate != null ? "url" : "site";
     } else if (clicks > 0) {
       rate = Math.min(100, (impressions / clicks) * 100);
       denom = clicks;
+      source = "clicks";
     } else {
       continue; // sem taxa real nem cliques — preserva o valor atual
     }
     const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
     const prevDenom = Number(r.total_requests || 0);
     if (prevRate != null && Math.abs(prevRate - rate) < 0.01 && prevDenom === denom) continue;
-    updates.push({ id: r.id, match_rate_pct: rate, total_requests: denom });
+    updates.push({ id: r.id, match_rate_pct: rate, total_requests: denom, match_rate_source: source });
   }
   if (updates.length === 0) {
     debug.push(`[${tag}] ${rows.length} linha(s) verificadas, nada a recalcular`);
@@ -2002,7 +2019,7 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   for (let i = 0; i < updates.length; i += CHUNK) {
     await Promise.all(updates.slice(i, i + CHUNK).map((u) =>
       admin.from("gam_campaign_source_revenue")
-        .update({ match_rate_pct: u.match_rate_pct, total_requests: u.total_requests })
+        .update({ match_rate_pct: u.match_rate_pct, total_requests: u.total_requests, match_rate_source: u.match_rate_source })
         .eq("id", u.id)
     ));
   }
