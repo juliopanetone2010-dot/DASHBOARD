@@ -278,6 +278,26 @@ const IndexInner = () => {
     refetchInterval: 5 * 60_000,
   });
 
+  // Mesma coisa, mas do lado do GOOGLE ADS — "Visão geral > Dia e hora" da própria UI
+  // do Ads, agregado pras contas vinculadas ao site.
+  const adsLastHourQuery = useQuery<{
+    ok?: boolean; lastHour?: number | null; totalImpressions?: number; label?: string; date?: string;
+  }>({
+    queryKey: ["ads-last-hour", filters.siteId],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: res, error } = await supabase.functions.invoke<any>("ads-last-hour", {
+        body: { site_id: filters.siteId, date: today },
+      });
+      if (error) throw error;
+      if (res?.error) throw new Error(String(res.error));
+      return res ?? {};
+    },
+    enabled: filters.siteId !== "all",
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
   const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
@@ -1166,6 +1186,22 @@ const IndexInner = () => {
                   </Badge>
                 ) : (
                   <Badge variant="secondary" title={JSON.stringify(gamLastHourQuery.data ?? {})}>🕐 Sem resposta do gam-last-hour</Badge>
+                )
+              )}
+              {filters.siteId !== "all" && (
+                adsLastHourQuery.isLoading ? (
+                  <Badge variant="outline" className="gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Checando última hora do Ads…</Badge>
+                ) : adsLastHourQuery.isError ? (
+                  <Badge variant="destructive" title={String((adsLastHourQuery.error as any)?.message ?? adsLastHourQuery.error)}>
+                    ⚠️ Erro ao checar última hora do Ads
+                  </Badge>
+                ) : adsLastHourQuery.data?.label ? (
+                  <Badge variant="outline" title="Direto do Google Ads, segments.hour — mesma info de 'Visão geral > Dia e hora' na UI do Ads">
+                    📊 {adsLastHourQuery.data.label}
+                    {typeof adsLastHourQuery.data.totalImpressions === "number" && ` · ${adsLastHourQuery.data.totalImpressions.toLocaleString("pt-BR")} impr. hoje`}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" title={JSON.stringify(adsLastHourQuery.data ?? {})}>📊 Sem resposta do ads-last-hour</Badge>
                 )
               )}
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
