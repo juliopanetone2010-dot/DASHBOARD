@@ -255,6 +255,27 @@ const IndexInner = () => {
     refetchInterval: 2 * 60_000,
   });
 
+  // "Última hora atualizada" do GAM pro site selecionado — mesma info que a tela
+  // "Interactive reports" do próprio GAM mostra quebrada por Hour: até que hora do
+  // dia de hoje já tem dado, e quantas impressões teve nessa janela. Só faz sentido
+  // com um site específico selecionado (o report é por network code).
+  const gamLastHourQuery = useQuery<{
+    ok?: boolean; lastHour?: number | null; totalImpressions?: number; label?: string; date?: string;
+  }>({
+    queryKey: ["gam-last-hour", filters.siteId],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: res, error } = await supabase.functions.invoke("gam-last-hour", {
+        body: { site_id: filters.siteId, date: today },
+      });
+      if (error) throw error;
+      return res ?? {};
+    },
+    enabled: filters.siteId !== "all",
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
   const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
@@ -1129,6 +1150,16 @@ const IndexInner = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="text-[10px] sm:text-xs">GAM Líquido (−{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
+              {filters.siteId !== "all" && (
+                gamLastHourQuery.isLoading ? (
+                  <Badge variant="outline" className="gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Checando última hora do GAM…</Badge>
+                ) : gamLastHourQuery.data?.label ? (
+                  <Badge variant="outline" title="Direto do GAM, quebrado por Hour — mesma info da tela 'Interactive reports' do Ad Manager">
+                    🕐 {gamLastHourQuery.data.label}
+                    {typeof gamLastHourQuery.data.totalImpressions === "number" && ` · ${gamLastHourQuery.data.totalImpressions.toLocaleString("pt-BR")} impr. hoje`}
+                  </Badge>
+                ) : null
+              )}
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
               )}
