@@ -265,10 +265,12 @@ const IndexInner = () => {
     queryKey: ["gam-last-hour", filters.siteId],
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
-      const { data: res, error } = await supabase.functions.invoke("gam-last-hour", {
+      const { data: res, error } = await supabase.functions.invoke<any>("gam-last-hour", {
         body: { site_id: filters.siteId, date: today },
       });
       if (error) throw error;
+      // A função sempre responde 200, mesmo em erro lógico — o erro vem dentro do body.
+      if (res?.error) throw new Error(String(res.error));
       return res ?? {};
     },
     enabled: filters.siteId !== "all",
@@ -1153,12 +1155,18 @@ const IndexInner = () => {
               {filters.siteId !== "all" && (
                 gamLastHourQuery.isLoading ? (
                   <Badge variant="outline" className="gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Checando última hora do GAM…</Badge>
+                ) : gamLastHourQuery.isError ? (
+                  <Badge variant="destructive" title={String((gamLastHourQuery.error as any)?.message ?? gamLastHourQuery.error)}>
+                    ⚠️ Erro ao checar última hora do GAM
+                  </Badge>
                 ) : gamLastHourQuery.data?.label ? (
                   <Badge variant="outline" title="Direto do GAM, quebrado por Hour — mesma info da tela 'Interactive reports' do Ad Manager">
                     🕐 {gamLastHourQuery.data.label}
                     {typeof gamLastHourQuery.data.totalImpressions === "number" && ` · ${gamLastHourQuery.data.totalImpressions.toLocaleString("pt-BR")} impr. hoje`}
                   </Badge>
-                ) : null
+                ) : (
+                  <Badge variant="secondary" title={JSON.stringify(gamLastHourQuery.data ?? {})}>🕐 Sem resposta do gam-last-hour</Badge>
+                )
               )}
               {presetFromRange(filters.fromDate, filters.toDate) === "today" && (
                 <Badge variant="secondary">Hoje: GAM pode atrasar — exibindo último dado disponível</Badge>
