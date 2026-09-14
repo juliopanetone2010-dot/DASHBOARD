@@ -91,7 +91,7 @@ type PendingPauseAction = {
 
 interface Props {
   campaigns: CampaignAggregate[];
-  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number }>;
+  campaignGamMetrics?: Map<string, { ecpm: number; impressions: number; revenueUsd?: number; ecpmUrl?: number }>;
   /** eCPM geral do site (USD) — fallback quando o da campanha não é confiável */
   siteEcpmUsd?: number;
   campaignMatchRates?: Map<string, { matchRate: number; impressions: number; totalRequests: number }>;
@@ -1049,13 +1049,18 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
               // E não muito abaixo do eCPM geral do site — um eCPM tipo $0,60-$2,50 num site
               // que ganha $20-70 não é "essa campanha monetiza pior", é atribuição por
               // utm_campaign capturando só um pedaço da receita (revenue baixa pras
-              // impressões que pegou). Nesse caso usa o eCPM GERAL do site.
+              // impressões que pegou). Nesse caso, prioridade de fallback:
+              //   1) eCPM da URL/página que a campanha usa (páginas diferentes do mesmo
+              //      site monetizam diferente — mais preciso que um número só pro site);
+              //   2) eCPM GERAL do site (Σ receita GAM / Σ impressões GAM de tudo).
               const ownEcpm = gamMetric?.ecpm ?? 0;
               const ownEcpmImpr = gamMetric?.impressions ?? 0;
               const notSuspiciouslyLow = siteEcpmUsd <= 0 || ownEcpm >= siteEcpmUsd * 0.25;
               const ownEcpmReliable = ownEcpmImpr >= 30 && ownEcpm >= 1 && notSuspiciouslyLow;
-              const ecpmIsGeral = !ownEcpmReliable && siteEcpmUsd > 0;
-              const gamEcpm = ownEcpmReliable ? ownEcpm : (siteEcpmUsd > 0 ? siteEcpmUsd : (ownEcpm || Number(c.ecpm) || 0));
+              const urlEcpm = gamMetric?.ecpmUrl ?? 0;
+              const ecpmIsUrl = !ownEcpmReliable && urlEcpm > 0;
+              const ecpmIsGeral = !ownEcpmReliable && !ecpmIsUrl && siteEcpmUsd > 0;
+              const gamEcpm = ownEcpmReliable ? ownEcpm : ecpmIsUrl ? urlEcpm : (siteEcpmUsd > 0 ? siteEcpmUsd : (ownEcpm || Number(c.ecpm) || 0));
               const firstSpend = firstSpendQuery.data?.get(c.campaign_id);
               const age = ageInDays(firstSpend);
               const lastAction = lastActionQuery.data?.get(c.campaign_id);
@@ -1367,7 +1372,9 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
                               <TooltipTrigger asChild>
                                 <div className="cursor-help inline-block text-right">
                                   <div className="underline decoration-dotted decoration-muted-foreground/50">{fmtUSD(gamEcpm)}</div>
-                                  {ecpmIsGeral ? (
+                                  {ecpmIsUrl ? (
+                                    <div className="text-[10px] text-warning">da URL/página</div>
+                                  ) : ecpmIsGeral ? (
                                     <div className="text-[10px] text-warning">geral do site</div>
                                   ) : gamMetric && (
                                     <div className="text-[10px] text-muted-foreground">GAM · {fmtNumber(gamMetric.impressions)} impr.</div>
@@ -1375,8 +1382,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmUsd = 0,
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
-                                {ecpmIsGeral
-                                  ? `eCPM da campanha não confiável (${ecpmDebug.impressions.toLocaleString()} impr. GAM, $${ownEcpm.toFixed(2)}).\nMostrando o eCPM GERAL do site: $${siteEcpmUsd.toFixed(2)}\n(Σ receita GAM / Σ impressões GAM de todas as campanhas do período)`
+                                {ecpmIsUrl
+                                  ? `eCPM da campanha não confiável (${ecpmDebug.impressions.toLocaleString()} impr. GAM, $${ownEcpm.toFixed(2)}).\nMostrando o eCPM da URL/página que essa campanha usa: $${urlEcpm.toFixed(2)}\n(receita GAM / impressões GAM dessa página especificamente, não do site inteiro)`
+                                  : ecpmIsGeral
+                                  ? `eCPM da campanha não confiável (${ecpmDebug.impressions.toLocaleString()} impr. GAM, $${ownEcpm.toFixed(2)}) e sem dado suficiente por URL.\nMostrando o eCPM GERAL do site: $${siteEcpmUsd.toFixed(2)}\n(Σ receita GAM / Σ impressões GAM de todas as campanhas do período)`
                                   : `Receita GAM: $${ecpmDebug.revenueUsd.toFixed(2)}\nImpressões GAM: ${ecpmDebug.impressions.toLocaleString()}\n${ecpmDebug.formula}\neCPM = $${ecpmDebug.ecpm.toFixed(2)}\nFonte: ${ecpmDebug.source}`}
                               </TooltipContent>
                             </Tooltip>

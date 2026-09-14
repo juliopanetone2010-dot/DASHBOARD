@@ -265,7 +265,7 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
         if (!testMode && hasBudget(25_000)) {
           try {
             console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests (early)`);
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
             console.log(`[${networkCode}/total_requests] completed (early)`);
           } catch (e) {
             console.error(`[${networkCode}/total_requests] erro (early)`, e);
@@ -436,7 +436,7 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
           await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
           await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
           if (hasBudget(25_000)) {
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt });
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
@@ -1507,6 +1507,60 @@ async function fetchUrlMatchRatePct(
   return out;
 }
 
+// eCPM REAL por URL/página (receita GAM / impressões GAM daquela página) — mesmo
+// princípio do match rate por URL acima, só que pra eCPM. Usado como fallback
+// quando o eCPM PRÓPRIO da campanha não é confiável (atribuição por utm_campaign
+// capturou só um pedaço), em vez de cair direto pro eCPM do site inteiro — páginas
+// diferentes do mesmo site podem monetizar bem diferente uma da outra.
+async function fetchUrlEcpm(
+  networkCode: string,
+  accessToken: string,
+  ranges: GamRange[],
+  debug: string[],
+  ingestionDivisor: number,
+  deadlineAt?: number,
+): Promise<Map<string, Map<string, { revenueUsd: number; impressions: number }>>> {
+  const out = new Map<string, Map<string, { revenueUsd: number; impressions: number }>>();
+  for (const dimName of ["PAGE_PATH", "URL"] as const) {
+    try {
+      const rows = (await Promise.all(ranges.map((range) =>
+        runReport({
+          networkCode, accessToken, range,
+          dimensions: ["DATE", dimName],
+          metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+          debug, deadlineAt,
+        })
+      ))).flat();
+      let valid = 0;
+      for (const r of rows) {
+        if (!r.date) continue;
+        // m[0]=AD_EXCHANGE_IMPRESSIONS, m[1]=AD_EXCHANGE_REVENUE — runReport já entrega
+        // isso pronto em r.impressions/r.revenue (mesma escala usada em toda parte do
+        // arquivo, ex.: persistCampaignSourceRevenueFromUtm), sem precisar de rawMetrics.
+        const impr = Number(r.impressions ?? 0);
+        const revUsd = Number(r.revenue ?? 0) / ingestionDivisor;
+        if (impr <= 0) continue;
+        const pathKey = urlPathOnly(r.dims[1] ?? "");
+        if (!pathKey) continue;
+        const inner = out.get(pathKey) ?? new Map<string, { revenueUsd: number; impressions: number }>();
+        const cur = inner.get(r.date) ?? { revenueUsd: 0, impressions: 0 };
+        cur.revenueUsd += revUsd;
+        cur.impressions += impr;
+        inner.set(r.date, cur);
+        out.set(pathKey, inner);
+        valid++;
+      }
+      const line = `[${networkCode}/${dimName}/ECPM_URL] rows=${rows.length}; urls=${out.size}; linhas_validas=${valid}`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+      if (out.size > 0) break;
+    } catch (e) {
+      const line = `[${networkCode}/${dimName}/ECPM_URL] erro=${String(e).slice(0, 400)}`;
+      debug.push(line); console.log(`[ATTR] ${line}`);
+    }
+  }
+  return out;
+}
+
 // Extrai só o path (sem host/protocolo/query/hash), pra casar PAGE_PATH (que já vem só
 // path) com a final_url completa da campanha (que tem host).
 function urlPathOnly(raw: string): string {
@@ -1527,8 +1581,9 @@ async function persistCampaignTotalRequests(args: {
   ranges: GamRange[];
   debug: string[];
   deadlineAt?: number;
+  ingestionDivisor?: number;
 }) {
-  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt } = args;
+  const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor = 1 } = args;
   if (!siteId) return;
 
   // Taxa de correspondência REAL (AD_EXCHANGE_MATCH_RATE do GAM) — busca uma vez,
@@ -1538,6 +1593,9 @@ async function persistCampaignTotalRequests(args: {
   // como fallback quando a quebra por URL não está disponível pro campaign/dia.
   const urlMatchRateByDate = await fetchUrlMatchRatePct(networkCode, accessToken, ranges, debug, deadlineAt);
   const siteMatchRateByDate = await fetchSiteMatchRatePct(networkCode, accessToken, ranges, debug, deadlineAt);
+  // eCPM REAL por URL/página — mesmo raciocínio, usado como fallback do eCPM da
+  // campanha quando a atribuição por utm_campaign não é confiável (ver CampaignsTable).
+  const urlEcpmByDate = await fetchUrlEcpm(networkCode, accessToken, ranges, debug, ingestionDivisor, deadlineAt);
 
   // Otimização: Agrupar AD_REQUESTS e AD_EXCHANGE_MATCH_RATE em um único relatório se possível,
   // ou pelo menos reduzir as chamadas paralelas excessivas.
@@ -1724,6 +1782,16 @@ async function persistCampaignTotalRequests(args: {
     if (urlRate != null) return urlRate;
     return siteMatchRateByDate.get(date) ?? null;
   };
+  // eCPM da URL/página que essa campanha usa como landing (revenue/impressões da
+  // página, não da campanha) — null se a página não tiver impressões suficientes.
+  const MIN_URL_ECPM_IMPRESSIONS = 20;
+  const pickUrlEcpm = (cid: string, date: string): number | null => {
+    const path = cidToPath.get(cid);
+    if (!path) return null;
+    const v = urlEcpmByDate.get(path)?.get(date);
+    if (!v || v.impressions < MIN_URL_ECPM_IMPRESSIONS) return null;
+    return (v.revenueUsd / v.impressions) * 1000;
+  };
 
   // "Taxa de correspondência" no modelo de arbitragem = impressões monetizadas no
   // GAM / cliques comprados no Google Ads. O AD_EXCHANGE_TOTAL_REQUESTS infla
@@ -1794,6 +1862,7 @@ async function persistCampaignTotalRequests(args: {
       impressions: prev.impressions,
       total_requests: denom,
       match_rate_pct: rate,
+      ecpm_url_usd: pickUrlEcpm(b.cid, b.date),
       _isProxy: isProxy,
       _proxyRate: isProxy ? bRate! : 0,
     };

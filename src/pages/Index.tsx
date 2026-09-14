@@ -331,7 +331,7 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("id, campaign_id, revenue_usd, impressions, site_id, date")
+          .select("id, campaign_id, revenue_usd, impressions, site_id, date, ecpm_url_usd")
           .eq("utm_source", "google")
           .gte("date", range.from)
           .lte("date", range.to);
@@ -346,22 +346,27 @@ const IndexInner = () => {
           .map((c) => c.campaign_id))
         : null;
 
-      const map = new Map<string, { revenueUsd: number; impressions: number }>();
+      const map = new Map<string, { revenueUsd: number; impressions: number; ecpmUrlSum: number; ecpmUrlCount: number }>();
       for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || cid === "__aggregate__") continue;
         if (allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        const cur = map.get(cid) ?? { revenueUsd: 0, impressions: 0 };
+        const cur = map.get(cid) ?? { revenueUsd: 0, impressions: 0, ecpmUrlSum: 0, ecpmUrlCount: 0 };
         cur.revenueUsd += Number((r as any).revenue_usd ?? 0);
         cur.impressions += Number((r as any).impressions ?? 0);
+        const ecpmUrl = (r as any).ecpm_url_usd;
+        if (ecpmUrl != null && Number(ecpmUrl) > 0) { cur.ecpmUrlSum += Number(ecpmUrl); cur.ecpmUrlCount++; }
         map.set(cid, cur);
       }
-      const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number }>();
+      const out = new Map<string, { ecpm: number; impressions: number; revenueUsd: number; ecpmUrl: number }>();
       for (const [cid, v] of map) {
         out.set(cid, {
           ecpm: v.impressions > 0 ? (v.revenueUsd / v.impressions) * 1000 : 0,
           impressions: v.impressions,
           revenueUsd: v.revenueUsd,
+          // eCPM da URL/página da campanha (média do período) — fallback melhor que o
+          // eCPM geral do site quando o da própria campanha não é confiável.
+          ecpmUrl: v.ecpmUrlCount > 0 ? v.ecpmUrlSum / v.ecpmUrlCount : 0,
         });
       }
       return out;
