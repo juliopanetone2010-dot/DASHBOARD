@@ -1182,7 +1182,7 @@ const IndexInner = () => {
                 ) : gamLastHourQuery.data?.label ? (
                   <Badge variant="outline" title="Direto do GAM, quebrado por Hour — mesma info da tela 'Interactive reports' do Ad Manager">
                     🕐 {gamLastHourQuery.data.label}
-                    {typeof gamLastHourQuery.data.totalImpressions === "number" && ` · ${gamLastHourQuery.data.totalImpressions.toLocaleString("pt-BR")} impr. hoje`}
+                    {typeof (gamLastHourQuery.data as any).lastHourImpressions === "number" && ` · ${(gamLastHourQuery.data as any).lastHourImpressions.toLocaleString("pt-BR")} impr. nessa hora`}
                   </Badge>
                 ) : (
                   <Badge variant="secondary" title={JSON.stringify(gamLastHourQuery.data ?? {})}>🕐 Sem resposta do gam-last-hour</Badge>
@@ -1198,7 +1198,7 @@ const IndexInner = () => {
                 ) : adsLastHourQuery.data?.label ? (
                   <Badge variant="outline" title="Direto do Google Ads, segments.hour — mesma info de 'Visão geral > Dia e hora' na UI do Ads">
                     📊 {adsLastHourQuery.data.label}
-                    {typeof adsLastHourQuery.data.totalImpressions === "number" && ` · ${adsLastHourQuery.data.totalImpressions.toLocaleString("pt-BR")} impr. hoje`}
+                    {typeof (adsLastHourQuery.data as any).lastHourImpressions === "number" && ` · ${(adsLastHourQuery.data as any).lastHourImpressions.toLocaleString("pt-BR")} impr. nessa hora`}
                   </Badge>
                 ) : (
                   <Badge variant="secondary" title={JSON.stringify(adsLastHourQuery.data ?? {})}>📊 Sem resposta do ads-last-hour</Badge>

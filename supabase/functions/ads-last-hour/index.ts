@@ -98,6 +98,8 @@ Deno.serve(async (req) => {
     const hoursWithData = hours.filter((h) => h.impressions > 0);
     const maxHour = hoursWithData.length > 0 ? Math.max(...hoursWithData.map((h) => h.hour)) : -1;
     const totalImpr = hours.reduce((s, h) => s + h.impressions, 0);
+    // Só da última hora com dado — o total do dia já aparece em outro lugar da dash.
+    const lastHourImpr = maxHour >= 0 ? (hourMap.get(maxHour) ?? 0) : 0;
 
     const label = maxHour < 0
       ? "Sem impressões do Google Ads ainda hoje"
@@ -107,6 +109,7 @@ Deno.serve(async (req) => {
       ok: true,
       date,
       lastHour: maxHour >= 0 ? maxHour : null,
+      lastHourImpressions: lastHourImpr,
       totalImpressions: totalImpr,
       hours,
       label,

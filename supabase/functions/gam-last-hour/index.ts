@@ -102,6 +102,9 @@ Deno.serve(async (req) => {
       .sort((a, b) => a.hour - b.hour);
     const maxHour = hours.length > 0 ? Math.max(...hours.map((h) => h.hour)) : -1;
     const totalImpr = hours.reduce((s, h) => s + h.impressions, 0);
+    // Impressões SÓ da última hora com dado (não o dia inteiro) — é o que diz se o
+    // GAM está fluindo AGORA, o total do dia já aparece em outro lugar da dash.
+    const lastHourImpr = maxHour >= 0 ? (hourMap.get(maxHour) ?? 0) : 0;
 
     const today = new Date().toISOString().slice(0, 10);
     const isToday = date === today;
@@ -123,6 +126,7 @@ Deno.serve(async (req) => {
       ok: true,
       date,
       lastHour: maxHour >= 0 ? maxHour : null,
+      lastHourImpressions: lastHourImpr,
       totalImpressions: totalImpr,
       hours,
       label,
