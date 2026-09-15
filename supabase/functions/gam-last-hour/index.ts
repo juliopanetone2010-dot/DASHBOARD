@@ -106,10 +106,13 @@ Deno.serve(async (req) => {
     // GAM está fluindo AGORA, o total do dia já aparece em outro lugar da dash.
     const lastHourImpr = maxHour >= 0 ? (hourMap.get(maxHour) ?? 0) : 0;
 
-    const today = new Date().toISOString().slice(0, 10);
+    // BRT (UTC-3), não UTC — senão à noite (depois das 21h BRT) "hoje" calculado
+    // aqui já seria amanhã em UTC, e a data pedida (correta, em BRT) bateria como
+    // "ontem" por engano, trocando o texto do label.
+    const today = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
     const isToday = date === today;
     const isYesterday = (() => {
-      const y = new Date(); y.setDate(y.getDate() - 1);
+      const y = new Date(Date.now() - 3 * 3600_000 - 86_400_000);
       return y.toISOString().slice(0, 10) === date;
     })();
 

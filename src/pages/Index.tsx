@@ -264,7 +264,10 @@ const IndexInner = () => {
   }>({
     queryKey: ["gam-last-hour", filters.siteId],
     queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      // Ancorado em BRT (UTC-3), não UTC puro — depois das 21h BRT já é o dia seguinte
+      // em UTC, então "hoje" em UTC pedia pro GAM/Ads um dia que ainda não começou
+      // no fuso deles, e vinha tudo zerado ("sem dados ainda").
+      const today = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
       const { data: res, error } = await supabase.functions.invoke<any>("gam-last-hour", {
         body: { site_id: filters.siteId, date: today },
       });
@@ -285,7 +288,10 @@ const IndexInner = () => {
   }>({
     queryKey: ["ads-last-hour", filters.siteId],
     queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      // Ancorado em BRT (UTC-3), não UTC puro — depois das 21h BRT já é o dia seguinte
+      // em UTC, então "hoje" em UTC pedia pro GAM/Ads um dia que ainda não começou
+      // no fuso deles, e vinha tudo zerado ("sem dados ainda").
+      const today = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
       const { data: res, error } = await supabase.functions.invoke<any>("ads-last-hour", {
         body: { site_id: filters.siteId, date: today },
       });
