@@ -96,6 +96,40 @@ export function CreativesTab({ fxUsdBrl }: Props) {
   const [acting, setActing] = useState(false);
   const [rows, setRows] = useState<CreativeRow[]>([]);
 
+  // Geração de imagem por IA (Demand Gen) — gera + já sobe como asset na conta
+  // escolhida, nos 3 formatos que o Demand Gen exige. Não anexa em nenhum anúncio.
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiAccountId, setAiAccountId] = useState<string>("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiResults, setAiResults] = useState<Array<{
+    key: string; label: string; ok: boolean; error?: string;
+    asset_resource_name?: string; preview_base64?: string;
+  }>>([]);
+  const generateAiImages = async () => {
+    if (!aiPrompt.trim()) { toast({ title: "Descreve a imagem primeiro", variant: "destructive" }); return; }
+    if (!aiAccountId) { toast({ title: "Escolhe a conta Google Ads", variant: "destructive" }); return; }
+    setAiGenerating(true);
+    setAiResults([]);
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean; error?: string; succeeded?: number; failed?: number;
+        results?: Array<{ key: string; label: string; ok: boolean; error?: string; asset_resource_name?: string; preview_base64?: string }>;
+      }>("generate-demand-gen-images", { body: { prompt: aiPrompt.trim(), google_account_id: aiAccountId } });
+      if (error || data?.error) {
+        toast({ title: "Erro ao gerar imagens", description: error?.message ?? data?.error, variant: "destructive" });
+        return;
+      }
+      setAiResults(data?.results ?? []);
+      toast({
+        title: `${data?.succeeded ?? 0}/${(data?.results ?? []).length} imagem(ns) geradas e enviadas`,
+        description: (data?.failed ?? 0) > 0 ? "Alguma variante falhou — vê o detalhe embaixo." : "Prontas na conta Google Ads como asset — ainda não anexadas a nenhum anúncio.",
+        variant: (data?.failed ?? 0) > 0 ? "destructive" : "default",
+      });
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   // Regras
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [minCost, setMinCost] = useState(200);
@@ -368,6 +402,55 @@ export function CreativesTab({ fxUsdBrl }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Geração de imagem por IA — Demand Gen */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <div className="text-sm font-semibold">Gerar imagens com IA (Demand Gen)</div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Descreve a imagem que quer. Gera 3 variantes (1.91:1, 1:1, 4:5 — os formatos que o Demand Gen exige)
+          e já sobe como asset na conta escolhida. Não anexa em nenhum anúncio sozinho — você revisa antes de usar.
+        </p>
+        <div className="flex flex-wrap gap-2 items-start">
+          <textarea
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="ex: banner estilo recuperação de mensagens do WhatsApp, tema urgência, sem texto, cores azul e branco"
+            className="flex-1 min-w-[280px] h-16 text-xs rounded border border-border bg-background px-2 py-1.5 resize-none"
+          />
+          <div className="flex flex-col gap-2">
+            <Select value={aiAccountId} onValueChange={setAiAccountId}>
+              <SelectTrigger className="w-[220px] h-9"><SelectValue placeholder="Conta Google Ads" /></SelectTrigger>
+              <SelectContent>
+                {dash.googleAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{(a as any).descriptive_name ?? (a as any).account_name ?? a.customer_id}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button size="sm" disabled={aiGenerating} onClick={generateAiImages} className="gap-1.5">
+              {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Gerar e subir
+            </Button>
+          </div>
+        </div>
+        {aiResults.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            {aiResults.map((r) => (
+              <div key={r.key} className={cn("rounded-lg border p-2 text-xs space-y-1", r.ok ? "border-success/40" : "border-danger/40 bg-danger/5")}>
+                <div className="font-medium">{r.label}</div>
+                {r.ok && r.preview_base64 ? (
+                  <img src={`data:image/png;base64,${r.preview_base64}`} alt={r.label} className="w-full rounded border border-border" />
+                ) : (
+                  <div className="text-danger text-[11px]">{r.error ?? "falhou"}</div>
+                )}
+                {r.ok && r.asset_resource_name && (
+                  <div className="text-[10px] text-muted-foreground font-mono truncate" title={r.asset_resource_name}>{r.asset_resource_name}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-2">
         <Select value={preset} onValueChange={(v) => setPreset(v as DatePresetKey)}>
