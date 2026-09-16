@@ -66,12 +66,23 @@ Deno.serve(async (req) => {
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openaiKey) return json({ error: "OPENAI_API_KEY não configurada (Supabase → Edge Functions → Secrets)" });
 
-    const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: claims } = await userClient.auth.getClaims(authHeader.replace("Bearer ", ""));
-    const userId = claims?.claims?.sub;
+    // Modo sistema: chamada direta (fora do navegador, ex.: script/terminal) com
+    // service_role + header x-system-user-id — mesmo padrão que google-ads-mutate
+    // já usa pro cron. Sem isso, exige token de sessão normal do usuário logado.
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const token = authHeader.replace("Bearer ", "");
+    const systemUserId = req.headers.get("x-system-user-id");
+    let userId: string | undefined;
+    if (token === serviceRoleKey && systemUserId) {
+      userId = systemUserId;
+    } else {
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = await userClient.auth.getClaims(token);
+      userId = claims?.claims?.sub;
+    }
     if (!userId) return json({ error: "Token inválido" });
 
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
     const { data: acc, error: accErr } = await admin
       .from("google_accounts")
       .select("id, customer_id, refresh_token, login_customer_id, api_set")
