@@ -43,7 +43,9 @@ import { SiteSyncBanner } from "@/components/dashboard/SiteSyncBanner";
 
 import { useAllSitesOnboarding } from "@/hooks/useAllSitesOnboarding";
 import type { Campaign, DailyMetric, Placement } from "@/types/domain";
-import { NET_FACTOR, REV_SHARE_PCT } from "@/engine/rules";
+import { netFactorFor } from "@/engine/rules";
+import { DEFAULT_REV_SHARE_PCT } from "@/lib/revshare";
+import { SiteRevShareEditor } from "@/components/dashboard/SiteRevShareEditor";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabasePagination";
 
@@ -67,6 +69,28 @@ const IndexInner = () => {
   const selectedSite = filters.siteId !== "all"
     ? data.sites.find((s) => s.id === filters.siteId)
     : null;
+  // Revshare do publisher: cada site pode ter um valor próprio (sites.revenue_share_pct);
+  // sem override, cai no padrão global (Regras → "Rev share do publisher", padrão 6.5%).
+  const defaultRevSharePct = Number.isFinite(data.rules?.revenue_share_pct as number)
+    ? (data.rules!.revenue_share_pct as number)
+    : DEFAULT_REV_SHARE_PCT;
+  const revSharePctBySite = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of data.sites) {
+      const v = (s as any).revenue_share_pct;
+      m.set(s.id, Number.isFinite(v) && v >= 0 && v < 100 ? v : defaultRevSharePct);
+    }
+    return m;
+  }, [data.sites, defaultRevSharePct]);
+  const revSharePctByAccount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of data.links) {
+      if (m.has(l.google_account_id)) continue;
+      const pct = revSharePctBySite.get(l.site_id);
+      if (pct != null) m.set(l.google_account_id, pct);
+    }
+    return m;
+  }, [data.links, revSharePctBySite]);
   const linkedAccountIdsForSelectedSite = useMemo(
     () => filters.siteId === "all"
       ? []
@@ -157,20 +181,29 @@ const IndexInner = () => {
       const rows = await fetchAllRows<any>(() => {
         let q = supabase
           .from("gam_campaign_source_revenue")
-          .select("id, utm_source, revenue_usd, date")
+          .select("id, utm_source, revenue_usd, date, site_id")
           .gte("date", range.from)
           .lte("date", range.to);
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
       let push = 0, other = 0;
+      const pushBySite = new Map<string, number>();
+      const otherBySite = new Map<string, number>();
       for (const r of rows ?? []) {
         const usd = Number((r as any).revenue_usd) || 0;
         const src = String((r as any).utm_source ?? "").toLowerCase();
         if (src === "google") continue;
-        if (src === "push") push += usd; else other += usd;
+        const sid = String((r as any).site_id ?? "");
+        if (src === "push") {
+          push += usd;
+          if (sid) pushBySite.set(sid, (pushBySite.get(sid) ?? 0) + usd);
+        } else {
+          other += usd;
+          if (sid) otherBySite.set(sid, (otherBySite.get(sid) ?? 0) + usd);
+        }
       }
-      return { push, other };
+      return { push, other, pushBySite, otherBySite };
     },
     staleTime: 30_000,
   });
@@ -306,7 +339,11 @@ const IndexInner = () => {
 
   // Receita REAL do GAM no range exato (sem ampliar lookback). Usado pra mostrar o total verdadeiro
   // do Ad Manager no card "Receita", mesmo quando parte das impressões não foi atribuída via UTM.
-  const siteRealRevenueQuery = useQuery<{ byCurrency: Record<string, number>; impressions: number }>({
+  const siteRealRevenueQuery = useQuery<{
+    byCurrency: Record<string, number>;
+    impressions: number;
+    bySite: Map<string, { currency: string; revenue: number }>;
+  }>({
     queryKey: ["site-real-revenue", filters.siteId, filters.googleAccountIds.join("|"), filters.campaignId, range.from, range.to],
     queryFn: async () => {
       const rows = await fetchAllRows<any>(() => {
@@ -316,13 +353,23 @@ const IndexInner = () => {
         if (filters.siteId !== "all") q = q.eq("site_id", filters.siteId);
         return q.order("date", { ascending: true }).order("id", { ascending: true });
       });
-      const totals = rows.reduce((a, r: any) => {
+      const byCurrency: Record<string, number> = {};
+      const bySite = new Map<string, { currency: string; revenue: number }>();
+      let impressions = 0;
+      for (const r of rows as any[]) {
         const cur = String(r.currency || "USD").toUpperCase();
-        a.byCurrency[cur] = (a.byCurrency[cur] ?? 0) + Number(r.revenue_native ?? 0);
-        a.impressions += Number(r.impressions ?? 0);
-        return a;
-      }, { byCurrency: {} as Record<string, number>, impressions: 0 });
-      return totals;
+        const rev = Number(r.revenue_native ?? 0);
+        byCurrency[cur] = (byCurrency[cur] ?? 0) + rev;
+        impressions += Number(r.impressions ?? 0);
+        const sid = String(r.site_id ?? "");
+        if (sid) {
+          const acc = bySite.get(sid) ?? { currency: cur, revenue: 0 };
+          acc.revenue += rev;
+          acc.currency = cur;
+          bySite.set(sid, acc);
+        }
+      }
+      return { byCurrency, impressions, bySite };
     },
     enabled: canUseRealGamTotals,
     staleTime: 30_000,
@@ -727,8 +774,10 @@ const IndexInner = () => {
       placements: filtered.placements,
       rules: data.rules,
       dataReadiness: data.dataReadiness,
+      revSharePctByAccount,
+      revSharePctBySite,
     });
-  }, [filtered, data.rules, data.dataReadiness]);
+  }, [filtered, data.rules, data.dataReadiness, revSharePctByAccount, revSharePctBySite]);
 
   // Persiste alertas gerados pela engine (só os novos, sem duplicar por título)
   useEffect(() => {
@@ -836,12 +885,28 @@ const IndexInner = () => {
   const extraPushUsd = extraRevQuery.data?.push ?? 0;
   const extraOtherUsd = extraRevQuery.data?.other ?? 0;
   // O valor do GAM/API vem bruto. Para a dashboard usamos o líquido do publisher,
-  // aplicando uma única vez o desconto fixo de 6,5%.
-  const extraNetUsd = (extraPushUsd + extraOtherUsd) * NET_FACTOR;
+  // aplicando o revshare de CADA site (padrão 6,5%, ou o valor configurado nele).
+  const extraNetUsd = (() => {
+    const pushBySite = extraRevQuery.data?.pushBySite;
+    const otherBySite = extraRevQuery.data?.otherBySite;
+    if ((pushBySite && pushBySite.size > 0) || (otherBySite && otherBySite.size > 0)) {
+      let total = 0;
+      for (const [sid, v] of pushBySite ?? []) total += v * netFactorFor(revSharePctBySite.get(sid));
+      for (const [sid, v] of otherBySite ?? []) total += v * netFactorFor(revSharePctBySite.get(sid));
+      return total;
+    }
+    return (extraPushUsd + extraOtherUsd) * netFactorFor(filters.siteId !== "all" ? revSharePctBySite.get(filters.siteId) : undefined);
+  })();
   const extraNetBrl = extraNetUsd * usdBrl;
 
   // Receita REAL bruta do GAM em BRL (independe do display). Inclui impressões SEM UTM.
   const realGamRevenueGrossBrl = (() => {
+    const bySite = siteRealRevenueQuery.data?.bySite;
+    if (bySite && bySite.size > 0) {
+      let total = 0;
+      for (const [, v] of bySite) total += v.currency === "BRL" ? v.revenue : v.revenue * usdBrl;
+      return total;
+    }
     const byCur = siteRealRevenueQuery.data?.byCurrency ?? {};
     let total = 0;
     for (const [cur, val] of Object.entries(byCur)) {
@@ -850,7 +915,20 @@ const IndexInner = () => {
     }
     return total;
   })();
-  const realGamRevenueNetBrl = realGamRevenueGrossBrl * NET_FACTOR;
+  // Receita REAL líquida do GAM em BRL — revshare aplicado POR SITE (antes de somar),
+  // já que cada site pode ter um % diferente configurado.
+  const realGamRevenueNetBrl = (() => {
+    const bySite = siteRealRevenueQuery.data?.bySite;
+    if (bySite && bySite.size > 0) {
+      let total = 0;
+      for (const [sid, v] of bySite) {
+        const grossBrl = v.currency === "BRL" ? v.revenue : v.revenue * usdBrl;
+        total += grossBrl * netFactorFor(revSharePctBySite.get(sid));
+      }
+      return total;
+    }
+    return realGamRevenueGrossBrl * netFactorFor(filters.siteId !== "all" ? revSharePctBySite.get(filters.siteId) : undefined);
+  })();
   const hasRealGam = realGamRevenueGrossBrl > 0;
   // Se temos receita real do GAM, usamos ela como base do ROI/lucro após aplicar -6,5%.
   // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
@@ -873,20 +951,28 @@ const IndexInner = () => {
   // Site selecionado: se o GAM do site é em BRL, exibimos a receita em BRL nativo
   // (o valor armazenado é USD-equivalent: dividido por FX na ingestão; multiplicar por FX devolve o BRL original)
   const isBrlSite = String(selectedSite?.gam_currency ?? "USD").toUpperCase() === "BRL";
-  const extraPushDisplay = isBrlSite ? (extraPushUsd * NET_FACTOR) * usdBrl : extraPushUsd * NET_FACTOR;
-  const extraOtherDisplay = isBrlSite ? (extraOtherUsd * NET_FACTOR) * usdBrl : extraOtherUsd * NET_FACTOR;
+  // Revshare aplicável ao contexto atual: do site selecionado, ou o padrão quando
+  // "Todos os sites" está selecionado (aqui é só usado em números de exibição/debug —
+  // os totais "reais" acima já aplicam o % de CADA site antes de somar).
+  const selectedRevSharePct = filters.siteId !== "all" ? (revSharePctBySite.get(filters.siteId) ?? defaultRevSharePct) : defaultRevSharePct;
+  const selectedNetFactor = netFactorFor(selectedRevSharePct);
+  // Rótulo pro badge/debug: % exato do site selecionado, ou "por site" quando
+  // "Todos os sites" está selecionado (cada um pode ter um % diferente).
+  const revSharePctLabel = filters.siteId !== "all" ? `${selectedRevSharePct.toFixed(1)}%` : "por site";
+  const extraPushDisplay = isBrlSite ? (extraPushUsd * selectedNetFactor) * usdBrl : extraPushUsd * selectedNetFactor;
+  const extraOtherDisplay = isBrlSite ? (extraOtherUsd * selectedNetFactor) * usdBrl : extraOtherUsd * selectedNetFactor;
   const fmtRevenue = (v: number) => isBrlSite ? fmtCurrency(v) : fmtUSD(v);
   // Debug: receita bruta a partir das métricas filtradas (antes do rev share)
   const grossRevenueUsd = filtered.metrics.reduce((acc, m) => acc + Number(m.revenue ?? 0), 0);
   const grossProfitBrl = filtered.metrics.reduce((acc, m) => acc + Number(m.profit ?? 0), 0);
 
-  // Receita REAL do GAM líquida (com -6,5%), somando todas as moedas convertidas
-  // para a moeda de exibição do site. Ex.: GAM total 1.871,97 → dashboard ~1.750.
+  // Receita REAL do GAM líquida (revshare por site já aplicado acima), somando todas
+  // as moedas convertidas para a moeda de exibição do site. Ex.: GAM total 1.871,97 → dashboard ~1.750.
   const realGamRevenueGrossDisplay = isBrlSite ? realGamRevenueGrossBrl : realGamRevenueGrossBrl / usdBrl;
   const realGamRevenueNetDisplay = isBrlSite ? realGamRevenueNetBrl : realGamRevenueNetBrl / usdBrl;
   // Receita atribuída = Google UTM + push/outras (sem impressões sem tag), líquida.
   const attributedRevenueUsd = grossRevenueUsd + extraPushUsd + extraOtherUsd;
-  const attributedRevenueNetDisplay = isBrlSite ? (attributedRevenueUsd * NET_FACTOR) * usdBrl : attributedRevenueUsd * NET_FACTOR;
+  const attributedRevenueNetDisplay = isBrlSite ? (attributedRevenueUsd * selectedNetFactor) * usdBrl : attributedRevenueUsd * selectedNetFactor;
   const attributionPct = realGamRevenueNetDisplay > 0
     ? (attributedRevenueNetDisplay / realGamRevenueNetDisplay) * 100
     : 0;
@@ -1188,8 +1274,10 @@ const IndexInner = () => {
               );
             })()}
 
+            <SiteRevShareEditor sites={data.sites} defaultPct={defaultRevSharePct} onSaved={data.refresh} />
+
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="text-[10px] sm:text-xs">GAM Líquido (−{(REV_SHARE_PCT * 100).toFixed(1)}%)</Badge>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">GAM Líquido (−{revSharePctLabel})</Badge>
               <Badge variant="outline">{isBrlSite ? "BRL nativo (GAM)" : "USD nativo (GAM)"}</Badge>
               {filters.siteId !== "all" && (
                 gamLastHourQuery.isLoading ? (
@@ -1238,7 +1326,7 @@ const IndexInner = () => {
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs font-mono space-y-1">
                 <div>gross_revenue_usd: <b>{grossRevenueUsd.toFixed(6)}</b></div>
                 <div>real_gam_gross : <b>{realGamRevenueGrossDisplay.toFixed(6)}</b></div>
-                <div>real_gam_net   : <b>{realGamRevenueNetDisplay.toFixed(6)}</b> (bruto −{(REV_SHARE_PCT * 100).toFixed(1)}%)</div>
+                <div>real_gam_net   : <b>{realGamRevenueNetDisplay.toFixed(6)}</b> (bruto −{revSharePctLabel})</div>
                 <div>net_revenue_usd  : <b>{totals.revenue.toFixed(6)}</b></div>
                 <div>gross_profit_brl : <b>{grossProfitBrl.toFixed(2)}</b></div>
                 <div>net_profit_brl   : <b>{totals.profit.toFixed(2)}</b></div>
@@ -1253,16 +1341,6 @@ const IndexInner = () => {
               <SiteSyncBanner siteId={filters.siteId} siteName={selectedSite?.name} />
             )}
 
-            {filters.siteId === "all" ? (
-              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-12 text-center">
-                <MapPin className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
-                <p className="text-sm font-medium">Selecione um site para ver os dados</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Use o seletor de site acima. Os totais só são exibidos por site.
-                </p>
-              </div>
-            ) : (
-            <>
             {/* Métricas */}
             <section className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -1281,7 +1359,7 @@ const IndexInner = () => {
                     realGamRevenueNetDisplay === 0 && attributedRevenueNetDisplay === 0
                       ? `${isBrlSite ? "BRL" : "USD"} nativo · Sem dados ainda do GAM (pode levar algumas horas)`
                       : realGamRevenueNetDisplay > 0
-                        ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${(REV_SHARE_PCT * 100).toFixed(1)}%) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
+                        ? `GAM líquido (bruto ${fmtRevenue(realGamRevenueGrossDisplay)} −${revSharePctLabel}) · atribuído: ${fmtRevenue(attributedRevenueNetDisplay)} (${attributionPct.toFixed(0)}%) · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                         : `Google + Push + Outras · push ${fmtRevenue(extraPushDisplay)} · outras ${fmtRevenue(extraOtherDisplay)}`
                   }
                 />
@@ -1416,8 +1494,6 @@ const IndexInner = () => {
                 isIntraday={false}
               />
             </section>
-            </>
-            )}
             </DashboardErrorBoundary>
           </TabsContent>
 

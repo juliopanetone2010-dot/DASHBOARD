@@ -131,6 +131,8 @@ export interface Site {
   status: string;
   /** Moeda do GAM deste site. 'USD' (padrão) ou 'BRL' (não converter). */
   gam_currency?: string | null;
+  /** Revshare do publisher pra esse site (%). null = usa o padrão global (6.5%). */
+  revenue_share_pct?: number | null;
 }
 
 export interface AccountSiteLink {

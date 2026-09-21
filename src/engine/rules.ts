@@ -32,6 +32,9 @@ export interface EngineInput {
   // When provided and isReady=false, suppress ROI-driven alerts (false -100% guards).
   // Placement and opportunity alerts continue, since they don't depend on GAM revenue.
   dataReadiness?: DataReadiness;
+  // pct (0-100) por google_account_id / site_id — sites com revshare diferente do padrão de 6.5%.
+  revSharePctByAccount?: Map<string, number>;
+  revSharePctBySite?: Map<string, number>;
 }
 
 export interface EngineSuggestion {
@@ -78,10 +81,13 @@ export interface PlacementAggregate {
   ecpm: number;
 }
 
-// Rev share fixo do publisher (Google fica com 6.5%).
+// Rev share padrão do publisher (Google fica com 6.5%) — usado quando o site
+// não tem um valor próprio configurado (sites.revenue_share_pct).
 export const REV_SHARE_PCT = 0.065;
 export const NET_FACTOR = 1 - REV_SHARE_PCT;
 export const applyRevShare = (gross: number) => Number(gross || 0) * NET_FACTOR;
+export const netFactorFor = (pct: number | null | undefined) =>
+  1 - (Number.isFinite(pct as number) && (pct as number) >= 0 && (pct as number) < 100 ? (pct as number) : REV_SHARE_PCT * 100) / 100;
 
 const calcRoiFromProfit = (profit: number, spend: number) =>
   spend > 0 ? (profit / spend) * 100 : 0;
@@ -93,6 +99,8 @@ const calcEcpm = (revenue: number, impressions: number) =>
 export function aggregateByCampaign(
   campaigns: Campaign[],
   metrics: DailyMetric[],
+  // pct (0-100) por google_account_id — sites com revshare diferente do padrão.
+  revSharePctByAccount?: Map<string, number>,
 ): CampaignAggregate[] {
   const byId = new Map<string, CampaignAggregate>();
   for (const c of campaigns) {
@@ -137,17 +145,20 @@ export function aggregateByCampaign(
     dayCount.get(m.campaign_id)!.add(m.date);
   }
   for (const agg of byId.values()) {
-    // Rev share fixo (6.5%) — aplicado uma vez na agregação. Fonte única.
+    // Rev share (padrão 6.5%, ou o valor configurado pro site dessa campanha) —
+    // aplicado uma vez na agregação. Fonte única.
     // revenue (USD bruto) e profit (BRL bruto = rev_brl - spend_brl).
+    const netFactor = netFactorFor(agg.google_account_id ? revSharePctByAccount?.get(agg.google_account_id) : undefined);
+    const revSharePct = 1 - netFactor;
     const grossRevUsd = agg.revenue;
     const grossProfitBrl = agg.profit;
     const grossRevBrl = grossProfitBrl + agg.spend;
-    
+
     // Se a receita for 0, não há revshare a descontar e o lucro é exatamente -gasto.
     if (grossRevUsd > 0) {
-      const shareBrl = grossRevBrl * REV_SHARE_PCT;
-      agg.revenue = grossRevUsd * NET_FACTOR;
-      agg.revenue_brl = grossRevBrl * NET_FACTOR;
+      const shareBrl = grossRevBrl * revSharePct;
+      agg.revenue = grossRevUsd * netFactor;
+      agg.revenue_brl = grossRevBrl * netFactor;
       agg.profit = grossProfitBrl - shareBrl;
       agg.roi = calcRoiFromProfit(agg.profit, agg.spend);
     } else {
@@ -164,8 +175,12 @@ export function aggregateByCampaign(
   return [...byId.values()].filter((a) => a.spend > 0 || a.revenue > 0);
 }
 
-export function aggregateByPlacement(placements: Placement[]): PlacementAggregate[] {
-  const map = new Map<string, PlacementAggregate>();
+export function aggregateByPlacement(
+  placements: Placement[],
+  // pct (0-100) por site_id — sites com revshare diferente do padrão.
+  revSharePctBySite?: Map<string, number>,
+): PlacementAggregate[] {
+  const map = new Map<string, PlacementAggregate & { _siteId?: string | null }>();
   for (const p of placements) {
     let a = map.get(p.placement_key);
     if (!a) {
@@ -178,6 +193,7 @@ export function aggregateByPlacement(placements: Placement[]): PlacementAggregat
         gross_revenue: 0,
         impressions: 0,
         ecpm: 0,
+        _siteId: p.site_id ?? null,
       };
       map.set(p.placement_key, a);
     }
@@ -185,8 +201,10 @@ export function aggregateByPlacement(placements: Placement[]): PlacementAggregat
     a.impressions += Number(p.impressions);
   }
   for (const a of map.values()) {
-    a.revenue = a.gross_revenue * NET_FACTOR;
+    const netFactor = netFactorFor(a._siteId ? revSharePctBySite?.get(a._siteId) : undefined);
+    a.revenue = a.gross_revenue * netFactor;
     a.ecpm = calcEcpm(a.revenue, a.impressions);
+    delete a._siteId;
   }
   return [...map.values()];
 }
@@ -198,9 +216,9 @@ export function aggregateByPlacement(placements: Placement[]): PlacementAggregat
  * - auto_boost_enabled = false → aumento de orçamento sempre `auto: false`
  */
 export function evaluate(input: EngineInput): EngineOutput {
-  const { campaigns, metrics, placements, rules, dataReadiness } = input;
-  const aggregates = aggregateByCampaign(campaigns, metrics);
-  const placementAggregates = aggregateByPlacement(placements);
+  const { campaigns, metrics, placements, rules, dataReadiness, revSharePctByAccount, revSharePctBySite } = input;
+  const aggregates = aggregateByCampaign(campaigns, metrics, revSharePctByAccount);
+  const placementAggregates = aggregateByPlacement(placements, revSharePctBySite);
 
   const suggestions: EngineSuggestion[] = [];
   const alerts: EngineAlertDraft[] = [];
