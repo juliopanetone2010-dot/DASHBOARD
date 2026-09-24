@@ -320,8 +320,9 @@ Deno.serve(async (req) => {
       });
       const j = await r.json();
       if (!r.ok) {
+        console.error("[adjust_budget] google ads error", JSON.stringify(j));
         await logAction("failed", { meta: { budgetId, currentMicros, nextMicros }, body: mutateBody }, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("id", camp.id);
       await logAction("executed", { delta_pct: deltaPct, budget_id: budgetId, from: currentMicros, to: nextMicros });
@@ -515,8 +516,9 @@ Deno.serve(async (req) => {
       });
       const j = await r.json();
       if (!r.ok) {
+        console.error("[set_budget_absolute] google ads error", JSON.stringify(j));
         await logAction("failed", { meta: { budgetId, nextMicros }, body: mutateBody }, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await admin.from("campaigns").update({ budget_micros: nextMicros }).eq("id", camp.id);
       await logAction("executed", { budget_id: budgetId, to: nextMicros });
@@ -615,6 +617,20 @@ async function resolveCampaignSiteId(admin: any, userId: string, campaignId: str
   }
 
   return null;
+}
+
+// Erros do Google Ads (ex.: BUDGET_AMOUNT_TOO_SMALL) costumam vir com a mensagem
+// genérica em error.message e o motivo real (ex.: o mínimo exigido) num objeto
+// "details" aninhado dentro do erro específico — inclui esse objeto no texto pra
+// não esconder informação útil (ex.: o valor mínimo de orçamento aceito).
+function extractGoogleAdsErrorDetail(j: any): string {
+  const err = j?.error?.details?.[0]?.errors?.[0];
+  if (!err) return j?.error?.message ?? JSON.stringify(j);
+  const base = err.message ?? (err.errorCode ? JSON.stringify(err.errorCode) : JSON.stringify(j));
+  if (err.details && Object.keys(err.details).length > 0) {
+    return `${base} (detalhe: ${JSON.stringify(err.details)})`;
+  }
+  return base;
 }
 
 function json(payload: unknown) {
