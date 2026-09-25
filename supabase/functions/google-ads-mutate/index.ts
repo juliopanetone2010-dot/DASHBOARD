@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "rename", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute"].includes(action)) {
+    if (!["set_status", "rename", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute", "declare_not_eu_political"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -123,6 +123,61 @@ Deno.serve(async (req) => {
         error: error ?? null,
       });
     };
+
+    // declare_not_eu_political: declara TODAS as campanhas da conta (não só a
+    // campaign_id recebida — ela só serve pra resolver qual conta Ads usar) como
+    // "não é publicidade política da UE". Enquanto UMA campanha da conta ficar sem
+    // essa declaração, o Google Ads bloqueia QUALQUER mutação na conta inteira com
+    // "Mutates are generally not allowed if the customer contains non-exempt
+    // campaigns without the EU political advertising declaration." — chamado
+    // automaticamente pelo front quando esse erro aparece, antes de repetir a ação
+    // original.
+    if (action === "declare_not_eu_political") {
+      const query = `
+        SELECT campaign.id, campaign.contains_eu_political_advertising
+        FROM campaign
+        WHERE campaign.status != 'REMOVED'
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, {
+        method: "POST", headers, body: JSON.stringify({ query, pageSize: 10000 }),
+      });
+      const sJson = await sRes.json();
+      if (!sRes.ok) {
+        await logAction("failed", { query }, JSON.stringify(sJson));
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
+      }
+      const rows = sJson.results ?? [];
+      const pending = rows.filter((r: any) => {
+        const v = r?.campaign?.containsEuPoliticalAdvertising;
+        return v !== "CONTAINS_EU_POLITICAL_ADVERTISING" && v !== "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING";
+      });
+      if (pending.length === 0) {
+        return json({ ok: true, action, declared: 0 });
+      }
+      const operations = pending.map((r: any) => ({
+        update: {
+          resourceName: `customers/${acc.customer_id}/campaigns/${r.campaign.id}`,
+          containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
+        },
+        updateMask: "contains_eu_political_advertising",
+      }));
+      const chunkSize = 1000;
+      let declared = 0;
+      for (let i = 0; i < operations.length; i += chunkSize) {
+        const chunk = operations.slice(i, i + chunkSize);
+        const r = await fetch(`${apiBase}/campaigns:mutate`, {
+          method: "POST", headers, body: JSON.stringify({ operations: chunk }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          await logAction("failed", { meta: { declared, total: operations.length } }, JSON.stringify(j));
+          return json({ error: extractGoogleAdsErrorDetail(j), declared });
+        }
+        declared += chunk.length;
+      }
+      await logAction("executed", { declared, total: operations.length });
+      return json({ ok: true, action, declared });
+    }
 
     if (action === "set_status") {
       if (!["ENABLED", "PAUSED"].includes(newStatus)) {

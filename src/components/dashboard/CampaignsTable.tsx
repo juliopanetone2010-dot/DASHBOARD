@@ -660,17 +660,38 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     );
   };
 
-  const callMutate = async (label: string, body: Record<string, unknown>, key: string) => {
+  const callMutate = async (label: string, body: Record<string, unknown>, key: string, _retried = false) => {
     setBusy(key);
     const { data, error } = await supabase.functions.invoke<{
       ok?: boolean; error?: string; ad_groups_updated?: number; new_status?: string;
       budget_from?: number; budget_to?: number;
     }>("google-ads-mutate", { body });
+    const errMsg = data?.error ?? error?.message;
+    // Conta com pelo menos uma campanha sem a declaração de publicidade política da
+    // UE bloqueia TODA mutação na conta. Em vez de expor essa regra obscura pro
+    // usuário, declara automaticamente (nenhuma campanha nossa é política) e repete
+    // a ação original uma vez, de forma transparente.
+    if (!_retried && errMsg && /political advertising declaration/i.test(errMsg)) {
+      const { data: fixData, error: fixError } = await supabase.functions.invoke<{ ok?: boolean; error?: string; declared?: number }>(
+        "google-ads-mutate",
+        { body: { action: "declare_not_eu_political", campaign_id: body.campaign_id } },
+      );
+      if (!fixError && !fixData?.error) {
+        return callMutate(label, body, key, true);
+      }
+      setBusy(null);
+      toast({
+        title: `Erro: ${label}`,
+        description: `Bloqueio de declaração política (UE) da conta — tentativa de correção automática falhou: ${fixData?.error ?? fixError?.message ?? "erro desconhecido"}`,
+        variant: "destructive",
+      });
+      return;
+    }
     setBusy(null);
     if (error || data?.error) {
       toast({
         title: `Erro: ${label}`,
-        description: data?.error ?? error?.message ?? "Falha desconhecida",
+        description: errMsg ?? "Falha desconhecida",
         variant: "destructive",
       });
       return;
