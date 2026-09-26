@@ -121,6 +121,14 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [allPlacements, setAllPlacements] = useState<AllPlacement[]>([]);
   const [allSort, setAllSort] = useState<{ col: "cost_brl" | "revenue_usd" | "roi_pct" | "clicks"; dir: "asc" | "desc" }>({ col: "cost_brl", dir: "desc" });
   const [forceDataIncomplete, setForceDataIncomplete] = useState(false);
+  // Resultado da última tentativa de aplicar — inclui os placements que a TRAVA DE
+  // SEGURANÇA (reconferência de ROI real no banco) rejeitou mesmo depois de
+  // selecionados/confirmados. Antes isso só ia pro console.warn — o usuário confirmava
+  // a exclusão e nada acontecia, sem nenhuma pista visível do motivo.
+  const [lastApplyResult, setLastApplyResult] = useState<{
+    applied: number; failed: number;
+    rejected: Array<{ placement: string; reason: string; checks?: Array<{ campaign_id: string; cost_brl: number; cost_source: string; revenue_usd: number; roi_pct: number; ok: boolean }> }>;
+  } | null>(null);
   const [blockDomainInput, setBlockDomainInput] = useState("");
   const [blockingDomain, setBlockingDomain] = useState(false);
   const [exclusionsSourceId, setExclusionsSourceId] = useState<string>(() => {
@@ -219,6 +227,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
     setLoading(true);
     setItems([]);
     setSelected(new Set());
+    setLastApplyResult(null);
     try {
       const { data, error } = await supabase.functions.invoke<PreviewResp>("placements-cleanup", {
         body: {
@@ -349,22 +358,32 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       const payload = [...byKey.values()].filter((p) => p.campaigns.length > 0);
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string; applied?: number; failed?: number; safety_rejected?: any[] }>(
         "placements-cleanup",
-        { body: { mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds, disable_safety_recheck: !safetyEnabled, force_data_incomplete: forceDataIncomplete } },
+        {
+          body: {
+            mode: "apply", items: payload, fx_usd_brl: fxUsdBrl, site_id: filters.siteId, google_account_ids: filters.googleAccountIds,
+            // Mesmos limiares usados no preview — sem isso, a trava de segurança recai no
+            // padrão do backend (20/-10%) mesmo que o usuário tenha ajustado os campos acima,
+            // rejeitando placements que o próprio preview classificou como ruins.
+            min_cost_brl: minCost, max_roi_pct: -Math.abs(maxRoi),
+            disable_safety_recheck: !safetyEnabled, force_data_incomplete: forceDataIncomplete,
+          },
+        },
       );
       if (error || data?.error) {
         toast({ title: "Erro ao aplicar", description: error?.message ?? data?.error, variant: "destructive" });
         return;
       }
       const rejected = data?.safety_rejected ?? [];
+      setLastApplyResult({ applied: data?.applied ?? 0, failed: data?.failed ?? 0, rejected });
       toast({
         title: "Limpeza aplicada",
-        description: `${data?.applied ?? 0} excluído(s) · ${data?.failed ?? 0} falha(s)${rejected.length ? ` · 🛡️ ${rejected.length} bloqueado(s) pela trava de segurança (ROI real positivo)` : ""}.`,
+        description: `${data?.applied ?? 0} excluído(s) · ${data?.failed ?? 0} falha(s)${rejected.length ? ` · 🛡️ ${rejected.length} bloqueado(s) pela trava de segurança — veja o detalhe no topo do preview` : ""}.`,
       });
       if (rejected.length) {
         console.warn("[safety] placements rejeitados pela re-verificação:", rejected);
+      } else if ((data?.applied ?? 0) > 0) {
+        setOpen(false);
       }
-
-      setOpen(false);
     } finally {
       setApplying(false);
     }
@@ -664,7 +683,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-7xl max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Preview · placements ruins</DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
@@ -717,6 +736,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </span>
             </DialogDescription>
           </DialogHeader>
+          {/* Tudo entre o header e o rodapé rola junto, numa área só — antes só a tabela
+              tinha scroll próprio, então num Mac/tela menor o resto (banners de aviso,
+              bloqueio de domínio etc.) podia passar da altura do modal sem dar pra
+              descer até o botão "Aplicar exclusão". */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
           <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-[11px]">
             <span className="font-medium whitespace-nowrap">🚫 Bloquear domínio em TODAS as contas:</span>
             <Input
@@ -786,6 +810,32 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               referência" acima, também as categorias de app já configuradas nela — tudo isso em toda conta da MCC.
             </span>
           </div>
+          {!!lastApplyResult && lastApplyResult.rejected.length > 0 && (
+            <div className="rounded-lg border-2 border-danger/60 bg-danger/10 px-4 py-3 text-sm leading-relaxed text-foreground">
+              <p>
+                <strong className="text-danger">🛡️ {lastApplyResult.rejected.length} placement(s) rejeitado(s) pela trava de segurança</strong> ao aplicar
+                {lastApplyResult.applied > 0 && <> (mas {lastApplyResult.applied} outro(s) foram excluído(s) normalmente)</>}.
+                Antes de excluir, o sistema reconfere o custo/receita de cada placement direto no banco — se essa reconferência achar um ROI melhor (ou custo menor)
+                que o preview, ele recusa a exclusão pra não bloquear algo que na verdade está bom.
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {lastApplyResult.rejected.map((r, idx) => (
+                  <li key={idx} className="font-mono text-xs bg-background/60 rounded px-2 py-1.5">
+                    <span className="font-sans font-semibold">{r.placement}</span>
+                    {r.checks?.map((c, i) => (
+                      <div key={i} className="text-muted-foreground">
+                        campanha {c.campaign_id}: custo reconferido {fmtBRL(c.cost_brl)} ({c.cost_source}) · ROI reconferido {fmtPercent(c.roi_pct)}
+                        {c.ok ? "" : " — não bateu o critério (custo mín. ou ROI máx.)"}
+                      </div>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-muted-foreground">
+                Se você tem certeza que esses placements são ruins mesmo assim, desliga a <strong>🛡️ Trava de segurança (ROI real)</strong> no topo e aplica de novo.
+              </p>
+            </div>
+          )}
           {!!stats?.review_only && (
             <div className="rounded-lg border-2 border-warning/60 bg-warning/15 px-4 py-3 text-sm leading-relaxed text-foreground">
               <p>
@@ -824,7 +874,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
             </div>
           )}
           {showAll && (
-            <div className="overflow-auto flex-1 border border-border rounded-lg">
+            <div className="border border-border rounded-lg max-h-[60vh] overflow-y-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40">
@@ -920,7 +970,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
               </Table>
             </div>
           )}
-          <div className={cn("overflow-auto flex-1 border border-border rounded-lg", showAll && "hidden")}>
+          <div className={cn("border border-border rounded-lg max-h-[60vh] overflow-y-auto", showAll && "hidden")}>
 
             <Table>
               <TableHeader>
@@ -1046,6 +1096,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                 })}
               </TableBody>
             </Table>
+          </div>
           </div>
           <DialogFooter className="gap-2 sm:justify-between items-center">
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground" title="Exclui mesmo os placements de campanhas com cobertura GAM baixa. Use só depois de revisar na aba 'Ver todos'.">
