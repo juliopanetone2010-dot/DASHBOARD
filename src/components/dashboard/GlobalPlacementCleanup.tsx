@@ -57,6 +57,7 @@ interface AllPlacement {
   campaign_name: string;
   placement: string;
   type: string;
+  app_id?: string | null;
   clicks: number;
   impressions: number;
   cost_brl: number;
@@ -154,6 +155,10 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const typeSupported = (i: PreviewItem) => i.type === "WEBSITE" || (i.type === "MOBILE_APPLICATION" && !!i.app_id);
   // Só pode excluir se o tipo é suportado E os dados de receita do período são confiáveis.
   const canExclude = (i: PreviewItem) => typeSupported(i) && i.data_ok !== false;
+  // Mesma checagem de tipo, mas pra tabela "Ver todos" — que antes só liberava WEBSITE
+  // e escondia o checkbox de apps (Android/iOS) inteiramente, mesmo quando já temos o
+  // app_id válido pra excluir (a API de negative placement suporta os dois tipos).
+  const canExcludeAll = (p: AllPlacement) => p.type === "WEBSITE" || (p.type === "MOBILE_APPLICATION" && !!p.app_id);
 
 
   // carrega config persistida
@@ -345,11 +350,11 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
       }
       // Seleções feitas na aba "Ver todos" que não estão na lista de "ruins".
       for (const p of allPlacements) {
-        if (!selected.has(p.key) || byKey.has(p.key) || p.type !== "WEBSITE") continue;
+        if (!selected.has(p.key) || byKey.has(p.key) || !canExcludeAll(p)) continue;
         const gaid = campaignTotals.find((c) => c.campaign_id === p.campaign_id)?.google_account_id ?? "";
         if (accountFilter !== "all" && gaid !== accountFilter) continue;
         byKey.set(p.key, {
-          key: p.key, placement: p.placement, type: "WEBSITE", app_id: null,
+          key: p.key, placement: p.placement, type: p.type, app_id: p.app_id ?? null,
           cost_brl: p.cost_brl, revenue_brl: p.revenue_brl, revenue_usd: p.revenue_usd, roi_pct: p.roi_pct,
           reason: p.in_bad_list ? "roi_critico" : "manual",
           campaigns: [{ campaign_id: p.campaign_id, google_account_id: gaid, cost_brl: p.cost_brl, revenue_usd: p.revenue_usd, roi_pct: p.roi_pct }],
@@ -436,16 +441,16 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
   const toggleAllExpand = (cid: string) =>
     setAllExpanded((s) => { const n = new Set(s); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
   const toggleAllInCampaign = (cid: string, on: boolean) => {
-    const keys = allPlacements.filter((p) => p.campaign_id === cid && p.type === "WEBSITE").map((p) => p.key);
+    const keys = allPlacements.filter((p) => p.campaign_id === cid && canExcludeAll(p)).map((p) => p.key);
     setSelected((s) => {
       const n = new Set(s);
       for (const k of keys) on ? n.add(k) : n.delete(k);
       return n;
     });
   };
-  // "Ver todos": marca de uma vez todo placement WEBSITE que bate os 3 critérios.
+  // "Ver todos": marca de uma vez todo placement (site ou app) que bate os 3 critérios.
   const bulkMatches = (p: AllPlacement) =>
-    p.type === "WEBSITE" && p.roi_pct <= bulkRoi && p.revenue_usd <= bulkMaxRevUsd && p.clicks >= bulkMinClicks;
+    canExcludeAll(p) && p.roi_pct <= bulkRoi && p.revenue_usd <= bulkMaxRevUsd && p.clicks >= bulkMinClicks;
   const bulkSelect = () => {
     const gaidOk = (cid: string) =>
       accountFilter === "all" || (campaignTotals.find((c) => c.campaign_id === cid)?.google_account_id ?? "") === accountFilter;
@@ -901,15 +906,15 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                       const sumRevBrl = sumRevUsd * 0.935 * fxUsdBrl;
                       const coverage = ct && ct.revenue_brl > 0 ? (sumRevBrl / ct.revenue_brl) * 100 : (sumRevBrl > 0 ? 100 : 0);
                       const warn = warningByCid(cid);
-                      const websiteKeys = pls.filter((p) => p.type === "WEBSITE").map((p) => p.key);
-                      const allChecked = websiteKeys.length > 0 && websiteKeys.every((k) => selected.has(k));
+                      const checkableKeys = pls.filter(canExcludeAll).map((p) => p.key);
+                      const allChecked = checkableKeys.length > 0 && checkableKeys.every((k) => selected.has(k));
                       const selCount = pls.reduce((a, p) => a + (selected.has(p.key) ? 1 : 0), 0);
                       const isOpen = allExpanded.has(cid);
                       return (
                         <Fragment key={cid}>
                           <TableRow className="bg-muted/30 cursor-pointer hover:bg-muted/50" onClick={() => toggleAllExpand(cid)}>
                             <TableCell onClick={(e) => e.stopPropagation()}>
-                              {websiteKeys.length > 0 && (
+                              {checkableKeys.length > 0 && (
                                 <Checkbox checked={allChecked} onCheckedChange={(v) => toggleAllInCampaign(cid, !!v)} />
                               )}
                             </TableCell>
@@ -930,7 +935,7 @@ export function GlobalPlacementCleanup({ fxUsdBrl }: { fxUsdBrl: number }) {
                           {isOpen && sortPls(pls).map((p) => (
                             <TableRow key={p.key} className={cn(p.in_bad_list && "bg-danger/5", !p.data_ok && "bg-warning/5")}>
                               <TableCell onClick={(e) => e.stopPropagation()}>
-                                {p.type === "WEBSITE" && (
+                                {canExcludeAll(p) && (
                                   <Checkbox checked={selected.has(p.key)} onCheckedChange={() => toggle(p.key)} />
                                 )}
                               </TableCell>

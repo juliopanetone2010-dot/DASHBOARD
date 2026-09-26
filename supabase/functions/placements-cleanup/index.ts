@@ -581,6 +581,7 @@ Deno.serve(async (req) => {
           campaign_name: meta.name,
           placement: v.placement,
           type: v.type,
+          app_id: v.app_id ?? null,
           clicks: v.clicks,
           impressions: v.impressions,
           cost_brl: round(v.cost),
