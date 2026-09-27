@@ -229,6 +229,7 @@ Deno.serve(async (req) => {
     // ============================================================
     const costDaysByCampaign = new Map<string, Set<string>>();
     const dmRevenueUsdByCampaign = new Map<string, number>();
+    const dmRevenueUsdByDayByCampaign = new Map<string, Map<string, number>>();
     const dmSpendByCampaign = new Map<string, number>();
     const dmSpendByDayByCampaign = new Map<string, Map<string, number>>();
     for (const chunk of chunkArr(eligibleIds, 200)) {
@@ -253,7 +254,11 @@ Deno.serve(async (req) => {
           byDay.set(String(r.date), (byDay.get(String(r.date)) ?? 0) + spend);
           dmSpendByDayByCampaign.set(cid, byDay);
         }
-        dmRevenueUsdByCampaign.set(cid, (dmRevenueUsdByCampaign.get(cid) ?? 0) + (Number(r.revenue) || 0));
+        const rev = Number(r.revenue) || 0;
+        dmRevenueUsdByCampaign.set(cid, (dmRevenueUsdByCampaign.get(cid) ?? 0) + rev);
+        const revByDay = dmRevenueUsdByDayByCampaign.get(cid) ?? new Map<string, number>();
+        revByDay.set(String(r.date), (revByDay.get(String(r.date)) ?? 0) + rev);
+        dmRevenueUsdByDayByCampaign.set(cid, revByDay);
       }
     }
 
@@ -446,36 +451,55 @@ Deno.serve(async (req) => {
     type CampQuality = { data_ok: boolean; missing_gam_days: string[]; coverage_pct: number; warning: string | null };
     const qualityByCampaign = new Map<string, CampQuality>();
     const MIN_COVERAGE_PCT = 70;
+    // O GAM leva no máximo ~6h pra consolidar um dia — um dia "sem receita" com
+    // menos que isso de idade pode mesmo ainda estar chegando. Passado esse prazo
+    // com folga, não tem mais sentido segurar a exclusão esperando um dado que já
+    // devia ter chegado e não chegou (nunca vai chegar — normalmente é o GAM
+    // suprimindo a linha por volume baixo, não um sync atrasado). Nesse caso o dia
+    // é descontado do cálculo (não penaliza cobertura nem conta como "gasto sem
+    // receita"), em vez de bloquear a exclusão pra sempre.
+    const STALE_MISSING_MS = 48 * 3600_000;
+    const nowMs = Date.now();
+    const isStale = (dateStr: string) => nowMs - Date.parse(`${dateStr}T00:00:00Z`) > STALE_MISSING_MS;
     for (const cid of eligibleIds) {
       const costDays = costDaysByCampaign.get(cid) ?? new Set<string>();
       const gamDays = gamDaysByCampaign.get(cid) ?? new Set<string>();
       const missing = [...costDays].filter((d) => !gamDays.has(d)).sort();
+      const staleMissing = missing.filter(isStale);
+      const recentMissing = missing.filter((d) => !isStale(d));
+
+      const revByDay = dmRevenueUsdByDayByCampaign.get(cid);
+      const staleCampaignUsd = revByDay ? staleMissing.reduce((a, d) => a + (revByDay.get(d) ?? 0), 0) : 0;
       const placementUsd = campaignRevenueTotals.get(cid) ?? 0;
-      const campaignUsd = dmRevenueUsdByCampaign.get(cid) ?? 0;
+      const campaignUsd = Math.max(0, (dmRevenueUsdByCampaign.get(cid) ?? 0) - staleCampaignUsd);
       const coverage = campaignUsd > 0 ? (placementUsd / campaignUsd) * 100 : (placementUsd > 0 ? 100 : 0);
 
-      // Quanto do gasto do período caiu em dias SEM nenhuma linha de receita GAM.
+      // Quanto do gasto do período caiu em dias SEM nenhuma linha de receita GAM
+      // (só conta os RECENTES — os antigos já foram descontados acima).
       // Um dia isolado na borda da janela (campanha nova / lag de sync) quase sempre
       // significa "esse dia rendeu ~nada", não "o sync falhou" — só é problema real
       // quando concentra parte relevante do gasto.
       const totalSpend = dmSpendByCampaign.get(cid) ?? 0;
       const spendByDay = dmSpendByDayByCampaign.get(cid);
-      const missingSpend = spendByDay ? missing.reduce((a, d) => a + (spendByDay.get(d) ?? 0), 0) : 0;
+      const missingSpend = spendByDay ? recentMissing.reduce((a, d) => a + (spendByDay.get(d) ?? 0), 0) : 0;
       const missingSpendPct = totalSpend > 0 ? (missingSpend / totalSpend) * 100 : 0;
       const MAX_MISSING_SPEND_PCT = 25;
 
       // blockers => data_ok=false (bloqueia exclusão sem "forçar"); notes => só informa.
       const blockers: string[] = [];
       const notes: string[] = [];
-      if (costDays.size > 0 && gamDays.size === 0) {
+      if (costDays.size > 0 && gamDays.size === 0 && recentMissing.length > 0) {
         blockers.push("nenhum dado de receita GAM por placement no período inteiro");
-      } else if (missing.length > 0) {
-        const label = `${missing.length} dia(s) com gasto e sem receita GAM (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""})`;
+      } else if (recentMissing.length > 0) {
+        const label = `${recentMissing.length} dia(s) com gasto e sem receita GAM (${recentMissing.slice(0, 5).join(", ")}${recentMissing.length > 5 ? "…" : ""})`;
         if (missingSpendPct > MAX_MISSING_SPEND_PCT) {
           blockers.push(`${label} — ${round(missingSpendPct)}% do gasto`);
         } else {
           notes.push(`${label} — só ${round(missingSpendPct)}% do gasto, não bloqueia`);
         }
+      }
+      if (staleMissing.length > 0) {
+        notes.push(`${staleMissing.length} dia(s) sem receita GAM há mais de 48h (${staleMissing.slice(0, 5).join(", ")}${staleMissing.length > 5 ? "…" : ""}) — provavelmente não vai mais chegar, desconsiderado do cálculo de cobertura`);
       }
       if (campaignUsd > 0 && coverage < MIN_COVERAGE_PCT) {
         blockers.push(`só ${round(coverage)}% da receita da campanha está atribuída a placements`);
