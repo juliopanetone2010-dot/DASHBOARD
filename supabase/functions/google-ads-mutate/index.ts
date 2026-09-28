@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       if (!r.ok) {
         await logAction("failed", mutateBody, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       // Atualiza status no banco
       await admin.from("campaigns")
@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       if (!r.ok) {
         await logAction("failed", mutateBody, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await admin.from("campaigns")
         .update({ name: newName })
@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
       const sJson = await sRes.json();
       if (!sRes.ok) {
         await logAction("failed", { query }, JSON.stringify(sJson));
-        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
       }
       const rows = (sJson.results ?? []) as Array<{
         adGroup: { id: string; name: string; targetCpaMicros?: string };
@@ -291,7 +291,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       if (!r.ok) {
         await logAction("failed", { meta, body: mutateBody }, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await logAction("executed", { delta_pct: deltaPct, ad_groups: meta });
       return json({
@@ -326,7 +326,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       if (!r.ok) {
         await logAction("failed", mutateBody, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await logAction("executed", { suffix });
       return json({ ok: true, action, suffix });
@@ -349,7 +349,7 @@ Deno.serve(async (req) => {
       const sJson = await sRes.json();
       if (!sRes.ok) {
         await logAction("failed", { query }, JSON.stringify(sJson));
-        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
       }
       const row = (sJson.results ?? [])[0] as { campaignBudget?: { id?: string; amountMicros?: string } } | undefined;
       const budgetId = row?.campaignBudget?.id;
@@ -482,10 +482,7 @@ Deno.serve(async (req) => {
       if (!r.ok) {
         console.error("[set_ad_status] google ads error", JSON.stringify(j));
         await logAction("failed", { ads: cleaned, status: newStatus }, JSON.stringify(j));
-        const detail =
-          j?.error?.details?.[0]?.errors?.[0]?.message ??
-          j?.error?.message ?? JSON.stringify(j);
-        return json({ error: String(detail) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       // Atualiza ad_status localmente
       for (const a of cleaned) {
@@ -525,7 +522,7 @@ Deno.serve(async (req) => {
       const sJ = await sR.json();
       if (!sR.ok) {
         await logAction("failed", stratBody, JSON.stringify(sJ));
-        return json({ error: sJ?.error?.message ?? JSON.stringify(sJ) });
+        return json({ error: extractGoogleAdsErrorDetail(sJ) });
       }
       await logAction("executed", { target_cpa: targetCpa, target_micros: targetMicros });
       return json({ ok: true, action, target_cpa: targetCpa });
@@ -548,7 +545,7 @@ Deno.serve(async (req) => {
       const sJson = await sRes.json();
       if (!sRes.ok) {
         await logAction("failed", { query }, JSON.stringify(sJson));
-        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
       }
       const row = (sJson.results ?? [])[0] as { campaignBudget?: { id?: string; amountMicros?: string } } | undefined;
       const budgetId = row?.campaignBudget?.id;
@@ -602,7 +599,7 @@ Deno.serve(async (req) => {
       const sJson = await sRes.json();
       if (!sRes.ok) {
         await logAction("failed", { query }, JSON.stringify(sJson));
-        return json({ error: sJson?.error?.message ?? JSON.stringify(sJson) });
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
       }
       const rows = (sJson.results ?? []) as Array<{
         adGroup: { id: string; name: string; targetCpaMicros?: string };
@@ -627,7 +624,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       if (!r.ok) {
         await logAction("failed", { meta, body: mutateBody }, JSON.stringify(j));
-        return json({ error: j?.error?.message ?? JSON.stringify(j) });
+        return json({ error: extractGoogleAdsErrorDetail(j) });
       }
       await logAction("executed", { target_cpa: targetCpa, ad_groups: meta });
       return json({ ok: true, action, target_cpa: targetCpa, ad_groups_updated: meta.length, details: meta });
