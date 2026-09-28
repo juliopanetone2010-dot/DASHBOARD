@@ -17,6 +17,7 @@ import { fmtBRL, fmtPercent, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { DATE_PRESETS, type DatePresetKey } from "@/components/dashboard/FilterBar";
+import { PolicyIssuesPanel } from "@/components/dashboard/PolicyIssuesPanel";
 
 interface CreativeRow {
   campaign_id: string;
@@ -402,6 +403,8 @@ export function CreativesTab({ fxUsdBrl }: Props) {
 
   return (
     <div className="space-y-4">
+      <PolicyIssuesPanel siteId={siteId} />
+
       {/* Geração de imagem por IA — Demand Gen */}
       <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
         <div className="flex items-center gap-2">

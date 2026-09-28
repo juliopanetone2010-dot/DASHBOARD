@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const requestedAccountId = typeof (body as any)?.google_account_id === "string" ? String((body as any).google_account_id) : null;
 
     if (!campaignId) return json({ error: "campaign_id obrigatório" });
-    if (!["set_status", "rename", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute", "declare_not_eu_political"].includes(action)) {
+    if (!["set_status", "rename", "adjust_cpa", "apply_utm", "adjust_budget", "exclude_country", "set_ad_status", "set_target_cpa", "set_budget_absolute", "set_ad_group_cpa_absolute", "declare_not_eu_political", "remove_ad_image", "remove_disapproved_ad"].includes(action)) {
       return json({ error: "action inválida" });
     }
 
@@ -628,6 +628,88 @@ Deno.serve(async (req) => {
       }
       await logAction("executed", { target_cpa: targetCpa, ad_groups: meta });
       return json({ ok: true, action, target_cpa: targetCpa, ad_groups_updated: meta.length, details: meta });
+    }
+
+    // remove_ad_image: tira UMA imagem de um anúncio responsivo de Display ou
+    // Demand Gen (o anúncio e a campanha continuam rodando com as outras).
+    // body: { campaign_id, ad_id, asset_id }
+    if (action === "remove_ad_image") {
+      const adId = String((body as any)?.ad_id ?? "").replace(/\D/g, "");
+      const assetId = String((body as any)?.asset_id ?? "").replace(/\D/g, "");
+      if (!adId || !assetId) return json({ error: "ad_id e asset_id obrigatórios" });
+      const fields: Array<[string, string, string]> = [
+        ["responsiveDisplayAd", "marketingImages", "responsive_display_ad.marketing_images"],
+        ["responsiveDisplayAd", "squareMarketingImages", "responsive_display_ad.square_marketing_images"],
+        ["responsiveDisplayAd", "logoImages", "responsive_display_ad.logo_images"],
+        ["responsiveDisplayAd", "squareLogoImages", "responsive_display_ad.square_logo_images"],
+        ["demandGenMultiAssetAd", "marketingImages", "demand_gen_multi_asset_ad.marketing_images"],
+        ["demandGenMultiAssetAd", "squareMarketingImages", "demand_gen_multi_asset_ad.square_marketing_images"],
+        ["demandGenMultiAssetAd", "portraitMarketingImages", "demand_gen_multi_asset_ad.portrait_marketing_images"],
+        ["demandGenMultiAssetAd", "tallPortraitMarketingImages", "demand_gen_multi_asset_ad.tall_portrait_marketing_images"],
+        ["demandGenMultiAssetAd", "logoImages", "demand_gen_multi_asset_ad.logo_images"],
+      ];
+      const query = `
+        SELECT ad_group_ad.ad.id, ${fields.map(([, , m]) => `ad_group_ad.ad.${m}`).join(", ")}
+        FROM ad_group_ad
+        WHERE campaign.id = ${camp.campaign_id} AND ad_group_ad.ad.id = ${adId}
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, { method: "POST", headers, body: JSON.stringify({ query }) });
+      const sJson = await sRes.json();
+      if (!sRes.ok) {
+        await logAction("failed", { query }, JSON.stringify(sJson));
+        return json({ error: extractGoogleAdsErrorDetail(sJson) });
+      }
+      const ad = sJson.results?.[0]?.adGroupAd?.ad;
+      if (!ad) return json({ error: "Anúncio não encontrado nessa campanha" });
+      const rn = `customers/${acc.customer_id}/assets/${assetId}`;
+      const update: Record<string, any> = { resourceName: `customers/${acc.customer_id}/ads/${adId}` };
+      const masks: string[] = [];
+      for (const [group, key, mask] of fields) {
+        const list = (ad?.[group]?.[key] ?? []) as Array<{ asset: string }>;
+        if (!list.some((x) => x.asset === rn)) continue;
+        update[group] = { ...(update[group] ?? {}), [key]: list.filter((x) => x.asset !== rn).map((x) => ({ asset: x.asset })) };
+        masks.push(mask);
+      }
+      if (masks.length === 0) return json({ error: "Essa imagem não está no anúncio" });
+      const r = await fetch(`${apiBase}/ads:mutate`, {
+        method: "POST", headers, body: JSON.stringify({ operations: [{ update, updateMask: masks.join(",") }] }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", { ad_id: adId, asset_id: assetId }, JSON.stringify(j));
+        return json({ error: extractGoogleAdsErrorDetail(j) });
+      }
+      await logAction("executed", { ad_id: adId, asset_id: assetId, fields: masks });
+      return json({ ok: true, action, ad_id: adId, asset_id: assetId });
+    }
+
+    // remove_disapproved_ad: remove um anúncio — só se estiver REPROVADO
+    // (confere no Google Ads antes; anúncio limitado/aprovado não é removido).
+    // body: { campaign_id, ad_group_id, ad_id }
+    if (action === "remove_disapproved_ad") {
+      const adId = String((body as any)?.ad_id ?? "").replace(/\D/g, "");
+      const adGroupId = String((body as any)?.ad_group_id ?? "").replace(/\D/g, "");
+      if (!adId || !adGroupId) return json({ error: "ad_group_id e ad_id obrigatórios" });
+      const query = `
+        SELECT ad_group_ad.policy_summary.approval_status FROM ad_group_ad
+        WHERE campaign.id = ${camp.campaign_id} AND ad_group.id = ${adGroupId} AND ad_group_ad.ad.id = ${adId}
+      `;
+      const sRes = await fetch(`${apiBase}/googleAds:search`, { method: "POST", headers, body: JSON.stringify({ query }) });
+      const sJson = await sRes.json();
+      if (!sRes.ok) return json({ error: extractGoogleAdsErrorDetail(sJson) });
+      const approval = sJson.results?.[0]?.adGroupAd?.policySummary?.approvalStatus;
+      if (approval !== "DISAPPROVED") return json({ error: `Anúncio não está reprovado (${approval ?? "não encontrado"}) — não removido` });
+      const r = await fetch(`${apiBase}/adGroupAds:mutate`, {
+        method: "POST", headers,
+        body: JSON.stringify({ operations: [{ remove: `customers/${acc.customer_id}/adGroupAds/${adGroupId}~${adId}` }] }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", { ad_group_id: adGroupId, ad_id: adId }, JSON.stringify(j));
+        return json({ error: extractGoogleAdsErrorDetail(j) });
+      }
+      await logAction("executed", { ad_group_id: adGroupId, ad_id: adId, removed: true });
+      return json({ ok: true, action, ad_id: adId });
     }
 
     return json({ error: "unreachable" });
