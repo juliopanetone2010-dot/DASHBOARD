@@ -718,11 +718,16 @@ const IndexInner = () => {
     );
     const matchAccount = (accountId?: string | null) =>
       selectedAccountIds.length === 0 || (accountId ? selectedAccountIds.includes(accountId) : false);
-    const matchSiteAccount = (accountId?: string | null) =>
-      filters.siteId === "all" || (accountId ? linkedAccountIds.has(accountId) : false);
+    // Conta com vários sites: a campanha só entra no site do domínio da URL final.
+    const matchSiteAccount = (accountId?: string | null, cid?: string) => {
+      if (filters.siteId === "all") return true;
+      const routed = cid ? data.campaignSite[String(cid)] : undefined;
+      if (routed) return routed === filters.siteId;
+      return accountId ? linkedAccountIds.has(accountId) : false;
+    };
     const matchCampaign = (cid: string, accountId?: string | null) =>
       (filters.campaignId === "all" || filters.campaignId === cid) &&
-      matchAccount(accountId) && matchSiteAccount(accountId);
+      matchAccount(accountId) && matchSiteAccount(accountId, cid);
 
     const inDateRange = (date: string) =>
       (!filters.fromDate || date >= filters.fromDate) &&
@@ -764,7 +769,7 @@ const IndexInner = () => {
     });
 
     return { campaigns, metrics, placements };
-  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, filters, siteShareQuery.data]);
+  }, [data.campaigns, data.metrics, data.placements, data.links, data.sites, data.campaignSite, filters, siteShareQuery.data]);
 
   const engine = useMemo(() => {
     if (!data.rules) return null;
@@ -1462,6 +1467,7 @@ const IndexInner = () => {
                 googleAccounts={data.googleAccounts}
                 sites={data.sites}
                 links={data.links}
+                campaignSite={data.campaignSite}
               />
             </section>
 

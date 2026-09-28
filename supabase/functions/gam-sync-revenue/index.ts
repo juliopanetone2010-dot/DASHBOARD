@@ -4,6 +4,8 @@
 // - Faz upsert em `placements` e atualiza `revenue/impressions/ecpm`
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
+import { buildCampaignSiteMap, normalizeHost, primarySiteByAccount } from "../_shared/site_routing.ts";
+import { splitSiteMetricRowsByHost, type SiteMetricRow } from "../_shared/site_split.ts";
 
 const GAM_BASE = "https://admanager.googleapis.com/v1";
 const SCOPE = "https://www.googleapis.com/auth/admanager";
@@ -125,14 +127,22 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    const SITE_COLS = "id, name, domain, network_code, gam_currency, gam_currency_override, created_at";
     let sitesQuery = admin
       .from("sites")
-      .select("id, name, domain, network_code, gam_currency, gam_currency_override")
+      .select(SITE_COLS)
       .eq("user_id", userId);
     if (requestedSiteId) sitesQuery = sitesQuery.eq("id", requestedSiteId);
-    const { data: sites, error: sErr } = await sitesQuery;
+    let { data: sites, error: sErr } = await sitesQuery;
     if (sErr) return json({ error: sErr.message });
     if (!sites || sites.length === 0) return json({ error: "Nenhum site cadastrado" });
+    // Vários sites na mesma rede GAM: a rede é sincronizada inteira e a receita é
+    // repartida por domínio. Por isso, pedir um site traz junto os irmãos da rede.
+    if (requestedSiteId) {
+      const { data: siblings } = await admin.from("sites").select(SITE_COLS)
+        .eq("user_id", userId).eq("network_code", sites[0].network_code);
+      if (siblings && siblings.length > 1) sites = siblings;
+    }
 
     const accessToken = await getAccessToken(sa);
     debug.push("got access token");
@@ -147,6 +157,10 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
       const list = byNetwork.get(s.network_code) ?? [];
       list.push(s);
       byNetwork.set(s.network_code, list);
+    }
+    // O mais antigo da rede é o principal (recebe o que não casar com outro domínio).
+    for (const list of byNetwork.values()) {
+      list.sort((a: any, b: any) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
     }
 
 
@@ -227,7 +241,8 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
             viewable: v.view,
             revenue: v.rev,
           }));
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, metricRows, debug, ranges, {
+          await persistSiteMetricsForNetwork({
+            admin, userId, networkSites, networkCode, accessToken, ranges, siteCurrency, rows: metricRows, debug, deadlineAt,
             // Se uma das fontes do GAM falhar, o total retornado pode ficar parcial.
             // Nessa situação nunca reduzimos uma receita já salva e maior.
             preserveHigherExisting: siteMetricsVariantFailures > 0,
@@ -259,13 +274,16 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
           continue;
         }
 
+        // Rede com vários sites: cada campanha grava no site do domínio da URL final.
+        const siteScope = await buildSiteScope(admin, userId, networkSites, debug);
+
         // PRIORIDADE: roda persistCampaignTotalRequests primeiro, pois é o que
         // alimenta a coluna "Taxa de Correspondência" e era frequentemente cortado
         // pelo IDLE_TIMEOUT de 150s quando vinha depois do trabalho pesado abaixo.
         if (!testMode && hasBudget(25_000)) {
           try {
             console.log(`[${networkCode}/total_requests] starting persistCampaignTotalRequests (early)`);
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, scope: siteScope, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
             console.log(`[${networkCode}/total_requests] completed (early)`);
           } catch (e) {
             console.error(`[${networkCode}/total_requests] erro (early)`, e);
@@ -433,14 +451,15 @@ async function runSync(body: any, headers: Headers): Promise<Response> {
         if (!testMode) {
           await persistRows(adUnitRows, "ad_unit");
           await persistRows(placementRows, "placement");
-          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor);
-          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency);
+          await persistCampaignSourceRevenueFromUtm(admin, userId, networkSites[0]?.id, [...utmRows, ...googleCampaignRows], debug, expandFixedDates(ranges), ingestionDivisor, siteScope);
+          await applyGoogleUtmRevenue(admin, userId, networkSites[0]?.id, googleCampaignRows, googlePlacementRows, fxRates, debug, expandFixedDates(ranges), ingestionDivisor, siteCurrency, siteScope);
           if (hasBudget(25_000)) {
-            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
+            await persistCampaignTotalRequests({ admin, userId, siteId: networkSites[0]?.id, scope: siteScope, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor: siteCurrency === "BRL" ? (fxRates.usdBrl || 5.15) : 1 });
           } else {
             debug.push(`[${networkCode}/total_requests] final refresh skipped (budget low)`);
           }
-          await persistSiteMetricsDaily(admin, userId, networkSites[0]?.id, siteCurrency, viewabilityRows, debug, ranges, {
+          await persistSiteMetricsForNetwork({
+            admin, userId, networkSites, networkCode, accessToken, ranges, siteCurrency, rows: viewabilityRows, debug, deadlineAt,
             // Quando o report por DATE vem parcial ou cai no fallback por campanha,
             // não pode derrubar o total real do site salvo por uma sync rápida anterior.
             preserveHigherExisting: viewabilityVariantFailures > 0,
@@ -1561,6 +1580,134 @@ async function fetchUrlEcpm(
   return out;
 }
 
+// =========================================================================
+// Vários sites na mesma rede GAM (ex.: diariovagas.com + frjob.diariovagas.com).
+// - Receita por campanha: grava no site do domínio da URL final da campanha.
+// - Receita do site (site_metrics_daily): reparte o total do dia pelo host da
+//   dimensão URL do GAM; o principal (site mais antigo) fica com o resto.
+// Rede com um site só: nada muda (escopo de 1 site, sem report extra).
+// =========================================================================
+interface SiteScope {
+  primaryId: string;
+  siteIds: string[];
+  siteFor: (cid: string | null | undefined) => string;
+}
+
+async function fetchAllPaged(queryFactory: () => any, pageSize = 1000): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await queryFactory().range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
+async function buildSiteScope(admin: any, userId: string, networkSites: any[], debug: string[]): Promise<SiteScope | undefined> {
+  const primaryId = networkSites[0]?.id as string | undefined;
+  if (!primaryId) return undefined;
+  const siteIds = networkSites.map((s) => String(s.id));
+  if (siteIds.length <= 1) return { primaryId, siteIds, siteFor: () => primaryId };
+  try {
+    const { data: links } = await admin.from("account_site_links")
+      .select("google_account_id, site_id, is_primary").in("site_id", siteIds);
+    const netLinks = (links ?? []) as Array<{ google_account_id: string; site_id: string; is_primary?: boolean | null }>;
+    const accIds = [...new Set(netLinks.map((l) => l.google_account_id))];
+    if (accIds.length === 0) return { primaryId, siteIds, siteFor: () => primaryId };
+    const campaigns = await fetchAllPaged(() => admin.from("campaigns")
+      .select("campaign_id, google_account_id").in("google_account_id", accIds).order("id"));
+    const finalUrls = await fetchAllPaged(() => admin.from("campaign_final_urls")
+      .select("campaign_id, final_url").eq("user_id", userId).in("google_account_id", accIds).order("id"));
+    const routed = buildCampaignSiteMap({
+      links: netLinks,
+      sites: networkSites.map((s) => ({ id: String(s.id), domain: s.domain ?? null })),
+      campaigns: campaigns.map((c: any) => ({ campaign_id: String(c.campaign_id), google_account_id: c.google_account_id })),
+      finalUrls,
+    });
+    // Conta com um site só dentro da rede: todas as campanhas dela vão para esse site.
+    const accountSite = primarySiteByAccount(netLinks);
+    const accountOfCid = new Map(campaigns.map((c: any) => [String(c.campaign_id), String(c.google_account_id)]));
+    const siteFor = (cid: string | null | undefined): string => {
+      if (!cid) return primaryId;
+      const key = String(cid);
+      return routed.get(key) ?? accountSite.get(accountOfCid.get(key) ?? "") ?? primaryId;
+    };
+    const perSite: Record<string, number> = {};
+    for (const c of campaigns) { const s = siteFor(String(c.campaign_id)); perSite[s] = (perSite[s] ?? 0) + 1; }
+    debug.push(`[site_scope] sites=${siteIds.length} contas=${accIds.length} campanhas_por_site=${JSON.stringify(perSite)}`);
+    return { primaryId, siteIds, siteFor };
+  } catch (e) {
+    debug.push(`[site_scope] erro, tudo no principal: ${String(e).slice(0, 300)}`);
+    return { primaryId, siteIds, siteFor: () => primaryId };
+  }
+}
+
+// Receita/impressões AdX por (data, host) pela dimensão URL. null = report falhou.
+async function fetchHostTotalsByDate(
+  networkCode: string, accessToken: string, ranges: GamRange[], debug: string[], deadlineAt?: number,
+): Promise<Map<string, Map<string, { impr: number; rev: number }>> | null> {
+  try {
+    const rows = (await Promise.all(ranges.map((range) =>
+      runReport({
+        networkCode, accessToken, range,
+        dimensions: ["DATE", "URL"],
+        metrics: ["AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"],
+        debug, deadlineAt,
+      })
+    ))).flat();
+    const out = new Map<string, Map<string, { impr: number; rev: number }>>();
+    const sample: string[] = [];
+    for (const r of rows) {
+      if (!r.date) continue;
+      const host = normalizeHost(safeDecode(String(r.dims[1] ?? "")));
+      if (!host || !host.includes(".")) continue;
+      if (sample.length < 5) sample.push(host);
+      const inner = out.get(r.date) ?? new Map<string, { impr: number; rev: number }>();
+      const cur = inner.get(host) ?? { impr: 0, rev: 0 };
+      cur.impr += Number(r.impressions ?? 0);
+      cur.rev += Number(r.revenue ?? 0);
+      inner.set(host, cur);
+      out.set(r.date, inner);
+    }
+    debug.push(`[${networkCode}/URL_HOST_SPLIT] rows=${rows.length} datas=${out.size} hosts_sample=${JSON.stringify(sample)}`);
+    return out;
+  } catch (e) {
+    debug.push(`[${networkCode}/URL_HOST_SPLIT] erro=${String(e).slice(0, 300)}`);
+    return null;
+  }
+}
+
+
+async function persistSiteMetricsForNetwork(args: {
+  admin: any; userId: string; networkSites: any[]; networkCode: string; accessToken: string;
+  ranges: GamRange[]; siteCurrency: string; rows: SiteMetricRow[]; debug: string[]; deadlineAt?: number;
+  preserveHigherExisting: boolean;
+}) {
+  const { admin, userId, networkSites, networkCode, accessToken, ranges, siteCurrency, rows, debug, deadlineAt, preserveHigherExisting } = args;
+  const primaryId = networkSites[0]?.id;
+  if (networkSites.length <= 1) {
+    await persistSiteMetricsDaily(admin, userId, primaryId, siteCurrency, rows, debug, ranges, { preserveHigherExisting });
+    return;
+  }
+  const hostTotals = await fetchHostTotalsByDate(networkCode, accessToken, ranges, debug, deadlineAt);
+  if (!hostTotals) {
+    // Sem a quebra por URL não dá para repartir: não mexe nos sites extras e mantém
+    // o comportamento antigo (tudo no principal).
+    await persistSiteMetricsDaily(admin, userId, primaryId, siteCurrency, rows, debug, ranges, { preserveHigherExisting });
+    return;
+  }
+  const bySite = splitSiteMetricRowsByHost(
+    rows, networkSites.map((s) => ({ id: String(s.id), domain: s.domain ?? null })), hostTotals,
+  );
+  for (const s of networkSites) {
+    const siteRows = bySite.get(String(s.id)) ?? [];
+    const tot = siteRows.reduce((a, r) => a + r.revenue, 0);
+    debug.push(`[${networkCode}/URL_HOST_SPLIT] site=${s.name} receita=${tot.toFixed(2)}`);
+    await persistSiteMetricsDaily(admin, userId, s.id, siteCurrency, siteRows, debug, ranges, { preserveHigherExisting });
+  }
+}
+
 // Extrai só o path (sem host/protocolo/query/hash), pra casar PAGE_PATH (que já vem só
 // path) com a final_url completa da campanha (que tem host).
 function urlPathOnly(raw: string): string {
@@ -1576,6 +1723,7 @@ async function persistCampaignTotalRequests(args: {
   admin: any;
   userId: string;
   siteId: string | undefined;
+  scope?: SiteScope;
   networkCode: string;
   accessToken: string;
   ranges: GamRange[];
@@ -1585,6 +1733,8 @@ async function persistCampaignTotalRequests(args: {
 }) {
   const { admin, userId, siteId, networkCode, accessToken, ranges, debug, deadlineAt, ingestionDivisor = 1 } = args;
   if (!siteId) return;
+  const siteIds = args.scope?.siteIds ?? [siteId];
+  const siteFor = args.scope?.siteFor ?? (() => siteId);
 
   // Taxa de correspondência REAL (AD_EXCHANGE_MATCH_RATE do GAM) — busca uma vez,
   // é usada como fonte primária de match_rate_pct abaixo (substitui a conta antiga
@@ -1671,7 +1821,7 @@ async function persistCampaignTotalRequests(args: {
       .from("gam_campaign_source_revenue")
       .select("campaign_id,date,impressions")
       .eq("user_id", userId)
-      .eq("site_id", siteId)
+      .in("site_id", siteIds)
       .eq("utm_source", "google")
       .in("campaign_id", cidsForRate)
       .in("date", datesForRate) : { data: [] };
@@ -1679,7 +1829,7 @@ async function persistCampaignTotalRequests(args: {
       .from("gam_placement_revenue")
       .select("campaign_id,date,impressions")
       .eq("user_id", userId)
-      .eq("site_id", siteId)
+      .in("site_id", siteIds)
       .in("campaign_id", cidsForRate)
       .in("date", datesForRate) : { data: [] };
     const existingImpressionsByRateKey = new Map<string, number>();
@@ -1715,7 +1865,7 @@ async function persistCampaignTotalRequests(args: {
       .from("gam_placement_revenue")
       .select("campaign_id,date,revenue_usd,impressions")
       .eq("user_id", userId)
-      .eq("site_id", siteId)
+      .in("site_id", siteIds)
       .in("date", siteRateDates) : { data: [] };
     const placementTotals = new Map<string, { cid: string; date: string; impressions: number; revenue_usd: number }>();
     for (const r of (placementForRate ?? []) as any[]) {
@@ -1736,7 +1886,7 @@ async function persistCampaignTotalRequests(args: {
   }
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
-    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate, overwriteStale: true });
+    await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, siteIds, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate, overwriteStale: true });
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1748,7 +1898,7 @@ async function persistCampaignTotalRequests(args: {
     .from("gam_campaign_source_revenue")
     .select("campaign_id,date,revenue_usd,impressions,match_rate_pct")
     .eq("user_id", userId)
-    .eq("site_id", siteId)
+    .in("site_id", siteIds)
     .eq("utm_source", "google")
     .in("campaign_id", cids)
     .in("date", dates);
@@ -1756,7 +1906,7 @@ async function persistCampaignTotalRequests(args: {
     .from("gam_placement_revenue")
     .select("campaign_id,date,revenue_usd,impressions")
     .eq("user_id", userId)
-    .eq("site_id", siteId)
+    .in("site_id", siteIds)
     .in("campaign_id", cids)
     .in("date", dates);
 
@@ -1866,7 +2016,7 @@ async function persistCampaignTotalRequests(args: {
     }
     return {
       user_id: userId,
-      site_id: siteId,
+      site_id: siteFor(b.cid),
       campaign_id: b.cid,
       date: b.date,
       utm_source: "google",
@@ -1909,7 +2059,7 @@ async function persistCampaignTotalRequests(args: {
   // retornou (inventário servido só via Ad Server / AdSense, ou relatório parcial/timeout).
   // Sem isto elas ficavam com o match rate ANTIGO (denominador AdX inflado, pré-mudança
   // "impressões / cliques").
-  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate });
+  await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, siteIds, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate });
 }
 
 // Match rate no modelo de arbitragem = impressões monetizadas no GAM / cliques comprados
@@ -1920,6 +2070,8 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   admin: any;
   userId: string;
   siteId: string | undefined;
+  /** Todos os sites da rede (rede com vários sites); padrão: só siteId. */
+  siteIds?: string[];
   dates: string[];
   debug: string[];
   networkCode?: string;
@@ -1936,7 +2088,7 @@ async function recomputeCampaignMatchRateFromClicks(args: {
     .from("gam_campaign_source_revenue")
     .select("id,campaign_id,date,impressions,total_requests,match_rate_pct")
     .eq("user_id", userId)
-    .eq("site_id", siteId)
+    .in("site_id", args.siteIds ?? [siteId])
     .eq("utm_source", "google")
     .in("date", dates);
   if (rowsErr) { debug.push(`[${tag}] select err=${rowsErr.message}`); return; }
@@ -2034,8 +2186,11 @@ async function persistCampaignSourceRevenueFromUtm(
   debug: string[],
   syncDates: string[] = [],
   ingestionDivisor: number = 1,
+  scope?: SiteScope,
 ) {
   if (!siteId) return;
+  const siteIds = scope?.siteIds ?? [siteId];
+  const siteFor = scope?.siteFor ?? (() => siteId);
   const today = new Date().toISOString().slice(0, 10);
   const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
   for (const r of rows) {
@@ -2044,7 +2199,7 @@ async function persistCampaignSourceRevenueFromUtm(
     const cid = r.cid ?? "__aggregate__";
     const key = `${cid}|${date}|${source}`;
     const cur = buckets.get(key) ?? {
-      user_id: userId, site_id: siteId, campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
+      user_id: userId, site_id: siteFor(r.cid), campaign_id: cid, date, utm_source: source, revenue_usd: 0, impressions: 0,
     };
     cur.revenue_usd += r.revenue / ingestionDivisor;
     cur.impressions += r.impressions;
@@ -2054,7 +2209,7 @@ async function persistCampaignSourceRevenueFromUtm(
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
     .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
-    .eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    .eq("user_id", userId).in("site_id", siteIds).in("date", dates);
   const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
   for (const r of (existingRequests ?? []) as any[]) {
     const req = Number(r.total_requests ?? 0);
@@ -2073,7 +2228,7 @@ async function persistCampaignSourceRevenueFromUtm(
     return;
   }
   await admin.from("gam_campaign_source_revenue")
-    .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+    .delete().eq("user_id", userId).in("site_id", siteIds).in("date", dates);
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
     await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
@@ -2098,8 +2253,11 @@ async function applyGoogleUtmRevenue(
   syncDates: string[] = [],
   ingestionDivisor: number = 1,
   siteCurrency: string = "USD",
+  scope?: SiteScope,
 ) {
   if (!siteId) return;
+  const siteIds = scope?.siteIds ?? [siteId];
+  const siteFor = scope?.siteFor ?? (() => siteId);
   const today = new Date().toISOString().slice(0, 10);
 
   const placementBuckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; placement: string; date: string; revenue_usd: number; impressions: number; source: string; utm_source: string; raw_utm: string }>();
@@ -2125,7 +2283,7 @@ async function applyGoogleUtmRevenue(
     const date = r.date ?? today;
     const key = `${r.cid}|${r.placement}|${date}`;
     const pb = placementBuckets.get(key) ?? {
-      user_id: userId, site_id: siteId, campaign_id: r.cid, placement: r.placement,
+      user_id: userId, site_id: siteFor(r.cid), campaign_id: r.cid, placement: r.placement,
       date, revenue_usd: 0, impressions: 0, source: "utm_source_google", utm_source: "google", raw_utm: r.raw.slice(0, 500),
     };
     pb.revenue_usd += r.revenue / ingestionDivisor;
@@ -2166,7 +2324,7 @@ async function applyGoogleUtmRevenue(
   } else {
     const dates = [...new Set([...syncDates, ...arr.map((p) => p.date)])];
     await admin.from("gam_placement_revenue")
-      .delete().eq("user_id", userId).eq("site_id", siteId).in("date", dates);
+      .delete().eq("user_id", userId).in("site_id", siteIds).in("date", dates);
     const CHUNK = 500;
     for (let i = 0; i < arr.length; i += CHUNK) {
       await admin.from("gam_placement_revenue").insert(arr.slice(i, i + CHUNK));
@@ -2176,7 +2334,7 @@ async function applyGoogleUtmRevenue(
     const sourceByCampaign = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
     for (const p of arr) {
       const key = `${p.campaign_id}|${p.date}`;
-      const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteId, campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
+      const cur = sourceByCampaign.get(key) ?? { user_id: userId, site_id: siteFor(p.campaign_id), campaign_id: p.campaign_id, date: p.date, utm_source: "google", revenue_usd: 0, impressions: 0 };
       cur.revenue_usd += Number(p.revenue_usd || 0);
       cur.impressions += Number(p.impressions || 0);
       sourceByCampaign.set(key, cur);
@@ -2184,7 +2342,7 @@ async function applyGoogleUtmRevenue(
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
     const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
       .select("campaign_id,date,total_requests,match_rate_pct")
-      .eq("user_id", userId).eq("site_id", siteId).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
+      .eq("user_id", userId).in("site_id", siteIds).eq("utm_source", "google").in("date", dates).in("campaign_id", cids) : { data: [] };
     for (const r of (existingSourceRequests ?? []) as any[]) {
       const req = Number(r.total_requests ?? 0);
       if (req > 0) {
@@ -2208,7 +2366,7 @@ async function applyGoogleUtmRevenue(
     .select("google_account_id")
     // Removemos filtro por user_id aqui pois o site já pertence ao usuário
     // e o link pode ter sido criado com um user_id divergente em sessões anteriores.
-    .eq("site_id", siteId);
+    .in("site_id", siteIds);
   const accountIds = (links ?? []).map((l: any) => l.google_account_id).filter(Boolean);
   if (accountIds.length === 0) {
     debug.push(`[daily_metrics] sem vínculo Ads↔site`);

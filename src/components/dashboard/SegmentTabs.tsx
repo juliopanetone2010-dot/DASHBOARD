@@ -7,6 +7,7 @@ import type {
   DailyMetric, Placement, AccountSiteLink,
 } from "@/types/domain";
 import type { PlacementAggregate } from "@/engine/rules";
+import { campaignBelongsToSite } from "@/lib/siteRouting";
 
 interface Props {
   aggregates: CampaignAggregate[];
@@ -16,6 +17,8 @@ interface Props {
   googleAccounts: GoogleAccount[];
   sites: Site[];
   links: AccountSiteLink[];
+  // Conta com vários sites: campaign_id → site_id pelo domínio da URL final.
+  campaignSite?: Record<string, string>;
 }
 
 interface SegmentRow {
@@ -90,7 +93,7 @@ function SegmentTable({ rows, withImpressions }: { rows: SegmentRow[]; withImpre
 }
 
 export function SegmentTabs({
-  aggregates, placements, googleAccounts, sites, links,
+  aggregates, placements, googleAccounts, sites, links, campaignSite = {},
 }: Props) {
   // Por conta Ads — soma os aggregates já líquidos (profit em BRL, revenue em USD)
   const byAccount: SegmentRow[] = (() => {
@@ -123,8 +126,9 @@ export function SegmentTabs({
     }
     const rows = new Map<string, SegmentRow>();
     for (const s of sites) {
-      const linkedAccIds = links.filter((l) => l.site_id === s.id).map((l) => l.google_account_id);
-      const accAggs = aggregates.filter((a) => linkedAccIds.includes(a.google_account_id ?? ""));
+      const accAggs = aggregates.filter((a) => campaignBelongsToSite({
+        campaignId: a.campaign_id, accountId: a.google_account_id, siteId: s.id, links, campaignSite,
+      }));
       const spend = accAggs.reduce((acc, a) => acc + a.spend, 0);
       const profit = accAggs.reduce((acc, a) => acc + a.profit, 0);
       const placeData = placementBySite.get(s.id) ?? { rev: 0, imp: 0 };

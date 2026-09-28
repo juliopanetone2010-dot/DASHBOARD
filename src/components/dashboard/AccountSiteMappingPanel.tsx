@@ -4,6 +4,7 @@ import { AccountActions } from "./AccountActions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { AccountSiteLink, GoogleAccount, Site } from "@/types/domain";
@@ -13,7 +14,7 @@ interface Props {
   sites: Site[];
   links: AccountSiteLink[];
   isGuest: boolean;
-  onAddLink: (googleAccountId: string, siteId: string) => Promise<void>;
+  onAddLink: (googleAccountId: string, siteId: string, isPrimary?: boolean) => Promise<void>;
   onRemoveLink: (id: string) => Promise<void>;
   onArchiveAccount?: (id: string) => Promise<void>;
   onRemoveAccount?: (id: string) => Promise<void>;
@@ -25,17 +26,23 @@ const NONE = "__none__";
 export function AccountSiteMappingPanel({
   accounts, sites, links, isGuest, onAddLink, onRemoveLink, onArchiveAccount, onRemoveAccount, onRefresh,
 }: Props) {
-  // Mapeamento atual: account_id -> site_id (ou NONE)
+  // Mapeamento atual: account_id -> site principal (ou NONE) + sites extras.
+  // Conta com vários sites: cada campanha vai para o site do domínio da URL final;
+  // sem domínio casado, vai para o principal.
   const initial = useMemo(() => {
-    const m: Record<string, string> = {};
+    const m: Record<string, AccountDraft> = {};
     for (const a of accounts) {
-      const link = links.find((l) => l.google_account_id === a.id);
-      m[a.id] = link?.site_id ?? NONE;
+      const accLinks = links.filter((l) => l.google_account_id === a.id);
+      const primary = accLinks.find((l) => l.is_primary !== false) ?? accLinks[0];
+      m[a.id] = {
+        primary: primary?.site_id ?? NONE,
+        extras: accLinks.filter((l) => l !== primary).map((l) => l.site_id).sort(),
+      };
     }
     return m;
   }, [accounts, links]);
 
-  const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [draft, setDraft] = useState<Record<string, AccountDraft>>(initial);
   const [selectedApiSet, setSelectedApiSet] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -43,14 +50,14 @@ export function AccountSiteMappingPanel({
   useEffect(() => { setDraft(initial); }, [initial]);
 
   const dirty = useMemo(() => {
-    return Object.keys({ ...initial, ...draft }).some((k) => initial[k] !== draft[k]);
+    return Object.keys({ ...initial, ...draft }).some((k) => draftKey(initial[k]) !== draftKey(draft[k]));
   }, [initial, draft]);
 
   // N:1 permitido — várias contas Ads podem apontar para o mesmo site.
   const siteUsageCount = useMemo(() => {
     const m = new Map<string, number>();
-    for (const siteId of Object.values(draft)) {
-      if (siteId && siteId !== NONE) m.set(siteId, (m.get(siteId) ?? 0) + 1);
+    for (const d of Object.values(draft)) {
+      for (const siteId of draftSites(d)) m.set(siteId, (m.get(siteId) ?? 0) + 1);
     }
     return m;
   }, [draft]);
@@ -59,14 +66,22 @@ export function AccountSiteMappingPanel({
     setSaving(true);
     try {
       for (const a of accounts) {
-        const next = draft[a.id] ?? NONE;
-        const current = links.find((l) => l.google_account_id === a.id);
-        if (next === NONE && current) {
-          await onRemoveLink(current.id);
-        } else if (next !== NONE && (!current || current.site_id !== next)) {
-          if (current) await onRemoveLink(current.id);
-          await onAddLink(a.id, next);
+        const next = draft[a.id] ?? { primary: NONE, extras: [] };
+        if (draftKey(next) === draftKey(initial[a.id])) continue;
+        const wanted = new Map<string, boolean>(); // site_id -> is_primary
+        if (next.primary !== NONE) wanted.set(next.primary, true);
+        for (const sid of next.extras) if (!wanted.has(sid)) wanted.set(sid, false);
+        const current = links.filter((l) => l.google_account_id === a.id);
+        // 1) Remove o que saiu ou mudou de papel (antes de inserir: 1 principal por conta).
+        const keep = new Set<string>();
+        for (const l of current) {
+          const want = wanted.get(l.site_id);
+          if (want === undefined || want !== (l.is_primary !== false)) await onRemoveLink(l.id);
+          else keep.add(l.site_id);
         }
+        // 2) Insere o que falta, principal primeiro.
+        const toAdd = [...wanted.entries()].filter(([sid]) => !keep.has(sid)).sort((x, y) => Number(y[1]) - Number(x[1]));
+        for (const [sid, isPrimary] of toAdd) await onAddLink(a.id, sid, isPrimary);
       }
       toast({ title: "Mapeamento salvo", description: "Vínculos conta Ads ↔ site atualizados." });
     } catch (e) {
@@ -132,8 +147,8 @@ export function AccountSiteMappingPanel({
             <Briefcase className="h-4 w-4" /> Mapeamento Ads ↔ Site
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Cada conta Ads é vinculada a <strong>um único site (GAM)</strong>. O cruzamento de receita
-            usa este mapeamento + UTMs.
+            Cada conta Ads tem um <strong>site principal</strong> e pode ter outros sites. Com mais de um site,
+            cada campanha vai para o site do domínio da URL final (sem casamento → principal).
           </p>
           <p className="text-[11px] text-muted-foreground mt-1">
             {mccCount} MCC conectado(s) · {childAccounts.length} conta(s) operacional(is)
@@ -181,7 +196,8 @@ export function AccountSiteMappingPanel({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {childAccounts.map((acc) => {
-            const selected = draft[acc.id] ?? NONE;
+            const accDraft = draft[acc.id] ?? { primary: NONE, extras: [] };
+            const selected = accDraft.primary;
             const linked = selected !== NONE;
             const currentCount = selected !== NONE ? (siteUsageCount.get(selected) ?? 0) : 0;
             return (
@@ -229,7 +245,10 @@ export function AccountSiteMappingPanel({
                 </label>
                 <Select
                   value={selected}
-                  onValueChange={(v) => setDraft((p) => ({ ...p, [acc.id]: v }))}
+                  onValueChange={(v) => setDraft((p) => {
+                    const cur = p[acc.id] ?? { primary: NONE, extras: [] };
+                    return { ...p, [acc.id]: { primary: v, extras: v === NONE ? [] : cur.extras.filter((x) => x !== v) } };
+                  })}
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="Selecionar site" />
@@ -246,6 +265,35 @@ export function AccountSiteMappingPanel({
                     })}
                   </SelectContent>
                 </Select>
+                {linked && sites.length > 1 && (
+                  <div className="mt-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Outros sites nesta conta
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5">
+                      {sites.filter((s) => s.id !== selected).map((s) => (
+                        <label key={s.id} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                          <Checkbox
+                            checked={accDraft.extras.includes(s.id)}
+                            onCheckedChange={(v) => setDraft((p) => {
+                              const cur = p[acc.id] ?? { primary: NONE, extras: [] };
+                              const extras = v === true
+                                ? [...new Set([...cur.extras, s.id])].sort()
+                                : cur.extras.filter((x) => x !== s.id);
+                              return { ...p, [acc.id]: { ...cur, extras } };
+                            })}
+                          />
+                          {s.name}
+                        </label>
+                      ))}
+                    </div>
+                    {accDraft.extras.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground mt-1.5">
+                        Campanhas vão para o site do domínio da URL final. Sem casamento → {sites.find((s) => s.id === selected)?.name ?? "principal"}.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {currentCount > 1 && (
                   <p className="text-[11px] text-muted-foreground mt-1.5">
                     Compartilhado com outras {currentCount - 1} conta(s) — receita será atribuída via UTM.
@@ -264,6 +312,20 @@ export function AccountSiteMappingPanel({
       )}
     </section>
   );
+}
+
+interface AccountDraft {
+  primary: string;
+  extras: string[];
+}
+
+function draftSites(d: AccountDraft | undefined): string[] {
+  if (!d || d.primary === NONE) return [];
+  return [d.primary, ...d.extras.filter((x) => x !== d.primary)];
+}
+
+function draftKey(d: AccountDraft | undefined): string {
+  return draftSites(d).length === 0 ? NONE : `${draftSites(d)[0]}|${draftSites(d).slice(1).sort().join(",")}`;
 }
 
 function formatCid(cid: string) {

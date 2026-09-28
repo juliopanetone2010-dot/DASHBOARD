@@ -3,6 +3,7 @@
 // - Pode receber { date: "YYYY-MM-DD", site_id?: string, force?: boolean } para regenerar.
 // - Snapshots são imutáveis: se já existe e force!=true, não sobrescreve.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { buildCampaignSiteMap, multiSiteAccounts } from "../_shared/site_routing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +12,42 @@ const corsHeaders = {
 
 const REV_SHARE_PCT = 0.065;
 const NET_FACTOR = 1 - REV_SHARE_PCT;
+
+async function fetchAllPaged(queryFactory: () => any, pageSize = 1000): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await queryFactory().range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
+// campaign_id → site_id para campanhas de contas ligadas a mais de um site.
+async function campaignSiteMapFor(admin: any, userId: string, accIds: string[]): Promise<Map<string, string>> {
+  try {
+    const { data: links } = await admin.from("account_site_links")
+      .select("google_account_id, site_id, is_primary").in("google_account_id", accIds);
+    const multi = [...multiSiteAccounts(links ?? [])];
+    if (multi.length === 0) return new Map();
+    const siteIds = [...new Set((links ?? []).map((l: any) => l.site_id))];
+    const { data: sites } = await admin.from("sites").select("id, domain").in("id", siteIds);
+    const campaigns = await fetchAllPaged(() => admin.from("campaigns")
+      .select("campaign_id, google_account_id").in("google_account_id", multi).order("id"));
+    const finalUrls = await fetchAllPaged(() => admin.from("campaign_final_urls")
+      .select("campaign_id, final_url").eq("user_id", userId).in("google_account_id", multi).order("id"));
+    return buildCampaignSiteMap({
+      links: links ?? [],
+      sites: (sites ?? []).map((s: any) => ({ id: s.id, domain: s.domain ?? null })),
+      campaigns: campaigns.map((c: any) => ({ campaign_id: String(c.campaign_id), google_account_id: c.google_account_id })),
+      finalUrls,
+    });
+  } catch (e) {
+    console.warn("[snapshot] campaignSiteMapFor falhou, usa rateio por conta", String(e));
+    return new Map();
+  }
+}
 
 function ymd(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -123,16 +160,20 @@ Deno.serve(async (req) => {
           for (const l of allLinks ?? []) {
             sitesPerAcc.set(l.google_account_id, (sitesPerAcc.get(l.google_account_id) ?? 0) + 1);
           }
+          // Conta com vários sites: o gasto de cada campanha vai inteiro para o site
+          // do domínio da URL final (em vez de dividir a conta igualmente entre os sites).
+          const campaignSite = await campaignSiteMapFor(admin, site.user_id, accIds);
 
           const { data: dms } = await admin
             .from("daily_metrics")
-            .select("google_account_id, spend, clicks, conversions")
+            .select("google_account_id, campaign_id, spend, clicks, conversions")
             .eq("user_id", site.user_id)
             .in("google_account_id", accIds)
             .eq("date", targetDate);
 
           for (const r of dms ?? []) {
-            const share = 1 / (sitesPerAcc.get(r.google_account_id) ?? 1);
+            const routed = campaignSite.get(String(r.campaign_id));
+            const share = routed ? (routed === site.id ? 1 : 0) : 1 / (sitesPerAcc.get(r.google_account_id) ?? 1);
             googleAdsCost += (Number(r.spend) || 0) * share;
             clicks += Math.round((Number(r.clicks) || 0) * share);
             conversions += (Number(r.conversions) || 0) * share;

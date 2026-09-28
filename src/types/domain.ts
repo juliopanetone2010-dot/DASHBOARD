@@ -140,6 +140,8 @@ export interface AccountSiteLink {
   user_id: string;
   google_account_id: string;
   site_id: string;
+  // Conta com vários sites: o principal recebe as campanhas cujo domínio não casa com nenhum site.
+  is_primary?: boolean | null;
 }
 
 // Agregação por campanha (para tabela e rankings)

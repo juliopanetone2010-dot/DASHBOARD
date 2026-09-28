@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardFilters } from "@/contexts/FilterContext";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabasePagination";
+import { buildCampaignSiteMap, campaignBelongsToSite, multiSiteAccounts } from "@/lib/siteRouting";
 import type { DataReadiness, EngineAlertDraft } from "@/engine/rules";
 import type {
   AccountSiteLink,
@@ -28,6 +29,9 @@ export interface DashboardData {
   gamAccounts: GamAccount[];
   sites: Site[];
   links: AccountSiteLink[];
+  // Campanhas de contas com mais de um site: campaign_id (Google) → site_id,
+  // decidido pelo domínio da URL final. Vazio quando nenhuma conta tem 2+ sites.
+  campaignSite: Record<string, string>;
   loading: boolean;
   refresh: () => Promise<void>;
   lastSyncedAt: Date | null;
@@ -48,7 +52,7 @@ export interface DashboardData {
   removeGamAccount: (id: string) => Promise<void>;
   addSite: (input: Partial<Site>) => Promise<void>;
   removeSite: (id: string) => Promise<void>;
-  addLink: (googleAccountId: string, siteId: string) => Promise<void>;
+  addLink: (googleAccountId: string, siteId: string, isPrimary?: boolean) => Promise<void>;
   removeLink: (id: string) => Promise<void>;
 }
 
@@ -241,6 +245,7 @@ interface DashboardSnapshot {
   gamAccounts: GamAccount[];
   sites: Site[];
   links: AccountSiteLink[];
+  campaignSite: Record<string, string>;
   dataReadiness: DataReadiness;
   fetchedAt: number;
 }
@@ -334,6 +339,7 @@ const emptySnapshot = (): DashboardSnapshot => ({
   gamAccounts: [],
   sites: [],
   links: [],
+  campaignSite: {},
   dataReadiness: GUEST_READINESS,
   fetchedAt: 0,
 });
@@ -365,7 +371,7 @@ export function useDashboardData(): DashboardData {
     
     if (!user) {
       const store = loadGuestStore();
-      return { ...store, dataReadiness: GUEST_READINESS, fetchedAt: Date.now() };
+      return { ...store, campaignSite: {}, dataReadiness: GUEST_READINESS, fetchedAt: Date.now() };
     }
 
     // ISOLAMENTO POR SITE: quando há site selecionado, derivamos as contas Ads
@@ -450,17 +456,44 @@ export function useDashboardData(): DashboardData {
 
     const googleAccounts = (ga.data ?? []) as GoogleAccount[];
     const activeAccountIds = new Set(googleAccounts.map(a => a.id));
+    const allLinks = (l.data ?? []) as AccountSiteLink[];
+    const allSites = (s.data ?? []) as Site[];
+
+    // Contas com mais de um site: cada campanha vai para o site do domínio da URL final.
+    let campaignSiteMap = new Map<string, string>();
+    const multiAccs = [...multiSiteAccounts(allLinks)];
+    if (multiAccs.length > 0) {
+      const finalUrls = await fetchAllRows<{ campaign_id: string; final_url: string | null }>(() =>
+        (supabase as any).from("campaign_final_urls")
+          .select("campaign_id, final_url")
+          .in("google_account_id", multiAccs)
+          .order("id", { ascending: true }),
+      );
+      campaignSiteMap = buildCampaignSiteMap({
+        links: allLinks,
+        sites: allSites,
+        campaigns: (c as Campaign[]).map((x) => ({ campaign_id: String(x.campaign_id), google_account_id: x.google_account_id })),
+        finalUrls,
+      });
+    }
+    const inSelectedSite = (cid: string, accountId: string | null | undefined) =>
+      !siteFilterActive || campaignBelongsToSite({
+        campaignId: cid, accountId, siteId: filters.siteId, links: allLinks, campaignSite: campaignSiteMap,
+      });
 
     return {
-      campaigns: (c as Campaign[]).filter(cam => cam.google_account_id && activeAccountIds.has(cam.google_account_id)),
-      metrics: (m as DailyMetric[]).filter(met => met.google_account_id && activeAccountIds.has(met.google_account_id)),
+      campaigns: (c as Campaign[]).filter(cam => cam.google_account_id && activeAccountIds.has(cam.google_account_id)
+        && inSelectedSite(String(cam.campaign_id), cam.google_account_id)),
+      metrics: (m as DailyMetric[]).filter(met => met.google_account_id && activeAccountIds.has(met.google_account_id)
+        && inSelectedSite(String(met.campaign_id), met.google_account_id)),
       placements: p as Placement[],
       rules: (r.data as RulesConfig) ?? ({ ...RULES_DEFAULT, user_id: user.id } as RulesConfig),
       alerts: (a.data ?? []) as DomainAlert[],
       googleAccounts,
       gamAccounts: (gam.data ?? []) as GamAccount[],
-      sites: (s.data ?? []) as Site[],
-      links: (l.data ?? []) as AccountSiteLink[],
+      sites: allSites,
+      links: allLinks,
+      campaignSite: Object.fromEntries(campaignSiteMap),
       dataReadiness: computeReadiness((syncSt.data ?? []) as SyncStateRow[]),
       fetchedAt: Date.now(),
     };
@@ -698,22 +731,24 @@ export function useDashboardData(): DashboardData {
     await refresh();
   }, [user, refresh]);
 
-  const addLink = useCallback(async (googleAccountId: string, siteId: string) => {
+  // Uma conta pode ter vários sites: não apaga os outros vínculos. Quem troca o
+  // principal remove o vínculo antigo antes (índice único de 1 principal por conta).
+  const addLink = useCallback(async (googleAccountId: string, siteId: string, isPrimary = true) => {
     if (!user) {
       const store = loadGuestStore();
-      const filtered = store.links.filter((l) => l.google_account_id !== googleAccountId);
+      const filtered = store.links.filter((l) => !(l.google_account_id === googleAccountId && l.site_id === siteId));
       const created: AccountSiteLink = {
         id: uid(), user_id: GUEST_USER_ID,
-        google_account_id: googleAccountId, site_id: siteId,
+        google_account_id: googleAccountId, site_id: siteId, is_primary: isPrimary,
       };
       saveGuestStore({ ...store, links: [...filtered, created] });
       await refresh();
       return;
     }
-    await supabase.from("account_site_links").delete().eq("google_account_id", googleAccountId);
-    await supabase.from("account_site_links").insert({
-      user_id: user.id, google_account_id: googleAccountId, site_id: siteId,
+    const { error } = await (supabase as any).from("account_site_links").insert({
+      user_id: user.id, google_account_id: googleAccountId, site_id: siteId, is_primary: isPrimary,
     });
+    if (error) throw new Error(error.message);
     await refresh();
   }, [user, refresh]);
 
@@ -739,6 +774,7 @@ export function useDashboardData(): DashboardData {
       gamAccounts: snap.gamAccounts,
       sites: snap.sites,
       links: snap.links,
+      campaignSite: snap.campaignSite ?? {},
       loading: query.isLoading || query.isFetching,
       refresh,
       lastSyncedAt: snap.fetchedAt ? new Date(snap.fetchedAt) : null,
