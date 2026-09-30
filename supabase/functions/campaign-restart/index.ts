@@ -1,7 +1,7 @@
 // Esteira manual "Reiniciar campanha"
 // - actions: preview | init | tick | abort
 // - preview: retorna ROI/custo/receita por dia dos últimos 7 dias (sem hoje)
-// - init: registra campaign_restart_flow (active), aplica orçamento R$40/dia + Maximize Conversions (sem CPA), pausa orquestração padrão
+// - init: registra campaign_restart_flow (active), aplica orçamento R$10/dia + Maximize Conversions (sem CPA), pausa orquestração padrão
 // - tick: roda diariamente (cron) e avança/pausa cada fluxo ativo
 // - abort: encerra o fluxo manualmente
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
@@ -11,7 +11,7 @@ import { devTokenFor, getCreds } from "../_shared/google_api_set.ts";
 const NET_FACTOR = 0.935;
 
 // Parâmetros do fluxo
-const INITIAL_BUDGET_BRL = 40;
+const INITIAL_BUDGET_BRL = 10;
 const PHASE1_DAYS = 4;
 const PHASE1_MIN_ROI = -30;
 const PHASE2_DAYS = 2;

@@ -45,7 +45,7 @@ const DAY_PRESETS = [7, 15, 30];
 export function RestartCampaignButton({ campaignId, campaignName, googleAccountId, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState(7);
-  const [budgetBrl, setBudgetBrl] = useState<number>(40);
+  const [budgetBrl, setBudgetBrl] = useState<number>(10);
   const qc = useQueryClient();
 
   const previewQ = useQuery({
@@ -141,7 +141,7 @@ export function RestartCampaignButton({ campaignId, campaignName, googleAccountI
                 min={1}
                 step={1}
                 value={budgetBrl}
-                onChange={(e) => setBudgetBrl(Math.max(1, Number(e.target.value) || 40))}
+                onChange={(e) => setBudgetBrl(Math.max(1, Number(e.target.value) || 10))}
                 className="h-7 w-24 text-xs mt-1"
               />
             </div>

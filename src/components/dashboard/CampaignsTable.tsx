@@ -111,14 +111,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   const [busy, setBusy] = useState<string | null>(null);
   const restartFlows = useRestartFlows();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkBudget, setBulkBudget] = useState<number>(40);
+  const [bulkBudget, setBulkBudget] = useState<number>(10);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   // Padrão: ROI DESC. null = sem ordenação (ordem original)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "roi", dir: "desc" });
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>("7d");
   const [matchRateDebug, setMatchRateDebug] = useState<{ campaignId: string; campaignName?: string | null } | null>(null);
-  const [compactNameUrl, setCompactNameUrl] = useState(false);
+  const [compactNameUrl, setCompactNameUrl] = useState(() => typeof window !== "undefined" && window.innerWidth < 1400);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
