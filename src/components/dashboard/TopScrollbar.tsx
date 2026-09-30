@@ -24,14 +24,11 @@ export function TopScrollbar({ children }: { children: ReactNode }) {
     const table = scroller.firstElementChild;
     if (table) ro.observe(table);
 
-    let lock = false;
     const fromBody = () => {
-      if (lock) { lock = false; return; }
-      if (top.scrollLeft !== scroller.scrollLeft) { lock = true; top.scrollLeft = scroller.scrollLeft; }
+      if (top.scrollLeft !== scroller.scrollLeft) top.scrollLeft = scroller.scrollLeft;
     };
     const fromTop = () => {
-      if (lock) { lock = false; return; }
-      if (scroller.scrollLeft !== top.scrollLeft) { lock = true; scroller.scrollLeft = top.scrollLeft; }
+      if (scroller.scrollLeft !== top.scrollLeft) scroller.scrollLeft = top.scrollLeft;
     };
     scroller.addEventListener("scroll", fromBody, { passive: true });
     top.addEventListener("scroll", fromTop, { passive: true });
