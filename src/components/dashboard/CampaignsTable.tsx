@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { TopScrollbar } from "./TopScrollbar";
 import { Pause, Play, TrendingUp, ChevronDown, ChevronUp, ChevronsUpDown, ChevronsLeft, ChevronsRight, Loader2, ShieldX, ExternalLink, Copy, RotateCcw, Columns3, AlertTriangle, CheckCircle2, XCircle, ArrowUp, ArrowDown, Minus, Activity, Pencil, Tag, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -981,21 +982,21 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="overflow-x-auto [transform:rotateX(180deg)]">
-        <Table className="min-w-[1200px] text-xs [transform:rotateX(180deg)] [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
+      <TopScrollbar>
+        <Table className="min-w-[1200px] text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted/95 border-r border-border shadow-sm">
+              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm">
                 <Checkbox
                   checked={sortedCampaigns.length > 0 && selected.size === sortedCampaigns.length}
                   onCheckedChange={toggleAll}
                   aria-label="Selecionar todas"
                 />
               </TableHead>
-              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted/95 border-r border-border shadow-sm">Campaign ID</TableHead>
+              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted border-r border-border shadow-sm">Campaign ID</TableHead>
               <TableHead
                 style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
-                className="sticky z-30 bg-muted/95 border-r border-border shadow-sm"
+                className="sticky z-30 bg-muted border-r border-border shadow-sm"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span>Nome</span>
@@ -1729,7 +1730,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
             })}
           </TableBody>
         </Table>
-      </div>
+      </TopScrollbar>
     </div>
     {matchRateDebug && dateRange && (
       <MatchRateDebugDialog
