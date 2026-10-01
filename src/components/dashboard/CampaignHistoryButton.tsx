@@ -415,11 +415,12 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
       <Button
         size="sm"
         variant="outline"
-        className="h-8 px-2 text-xs gap-1"
+        className="h-8 px-2 text-xs gap-1 max-md:px-1.5"
         title="Ver histórico (somente análise)"
+        aria-label="Histórico"
         onClick={() => setOpen(true)}
       >
-        <History className="h-3.5 w-3.5" /> Histórico
+        <History className="h-3.5 w-3.5" /> <span className="max-md:hidden">Histórico</span>
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

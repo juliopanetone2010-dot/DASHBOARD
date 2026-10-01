@@ -125,7 +125,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   const [renaming, setRenaming] = useState(false);
   const isMobile = useIsMobile();
   // No celular: sem checkbox/ID fixos e nome estreito, pra sobrar área rolável e dar pra ver ROI/ações.
-  const NAME_W = isMobile ? 150 : compactNameUrl ? 220 : 560;
+  const NAME_W = isMobile ? 100 : compactNameUrl ? 220 : 560;
   const NAME_LEFT = isMobile ? 0 : 172;
 
   // ===== Customização de colunas (persistido em localStorage) =====
@@ -194,10 +194,12 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.order, visibleCols, isMobile]);
   const widthStyle = (k: ColKey): React.CSSProperties => {
-    const mobileW: Partial<Record<ColKey, number>> = { roi: 84, spend: 84, revenue: 84, act_pause: 48 };
+    const mobileW: Partial<Record<ColKey, number>> = { roi: 66, spend: 74, revenue: 74, act_pause: 38, act_history: 38 };
     const w = (isMobile && mobileW[k]) || layout.widths[k] || DEFAULT_WIDTHS[k];
     return { width: w, minWidth: w, maxWidth: w };
   };
+
+  const MOBILE_LABELS: Partial<Record<ColKey, string>> = { act_history: "Hist.", spend: "Gasto" };
 
   type HeadDef = { label: string; sortKey?: SortKey; align?: "left" | "right" };
   const HEAD_DEFS: Record<ColKey, HeadDef> = {
@@ -992,7 +994,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
         </DialogContent>
       </Dialog>
       <TopScrollbar>
-        <Table className="min-w-[1200px] text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
+        <Table className="min-w-[1200px] max-md:min-w-0 text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2 max-md:[&_td]:px-1 max-md:[&_th]:px-1">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm max-md:hidden">
@@ -1042,11 +1044,11 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                           active ? "text-foreground font-semibold" : "text-muted-foreground",
                         )}
                       >
-                        {def.label}
+                        {isMobile ? (MOBILE_LABELS[k] ?? def.label) : def.label}
                         <SortIcon k={def.sortKey} />
                       </button>
                     ) : (
-                      <span className={cn(def.align === "right" && "block text-right")}>{def.label}</span>
+                      <span className={cn(def.align === "right" && "block text-right")}>{isMobile ? (MOBILE_LABELS[k] ?? def.label) : def.label}</span>
                     )}
                     <div
                       onPointerDown={(e) => layout.startResize(k, e)}
@@ -1120,7 +1122,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                     className="sticky z-20 bg-card border-r border-border font-medium shadow-sm max-md:overflow-hidden"
                   >
-                    <div className={cn("flex items-center gap-2 max-md:w-[134px] max-md:overflow-hidden", compactNameUrl ? "whitespace-nowrap max-md:whitespace-normal" : "whitespace-normal")}>
+                    <div className={cn("flex items-center gap-2 max-md:w-[90px] max-md:overflow-hidden", compactNameUrl ? "whitespace-nowrap max-md:whitespace-normal" : "whitespace-normal")}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
