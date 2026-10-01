@@ -28,6 +28,7 @@ import type { CampaignAggregate } from "@/types/domain";
 import { RestartCampaignButton, RestartStatusBadge, useRestartFlows } from "./RestartCampaignButton";
 import { AttachHtml5Button } from "./AttachHtml5Button";
 import { CampaignHistoryButton } from "./CampaignHistoryButton";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { useColumnLayout } from "@/hooks/useColumnLayout";
 import { ColumnManagerDropdown } from "./ColumnManagerDropdown";
@@ -122,10 +123,10 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
-  const NAME_W = compactNameUrl ? 220 : 560;
-  const URL_W = compactNameUrl ? 220 : 560;
-  const NAME_LEFT = 172;
-  const URL_LEFT = NAME_LEFT + NAME_W;
+  const isMobile = useIsMobile();
+  // No celular: sem checkbox/ID fixos e nome estreito, pra sobrar área rolável e dar pra ver ROI/ações.
+  const NAME_W = isMobile ? 120 : compactNameUrl ? 220 : 560;
+  const NAME_LEFT = isMobile ? 0 : 172;
 
   // ===== Customização de colunas (persistido em localStorage) =====
   type ColKey =
@@ -184,7 +185,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   });
   const visibleCols = layout.visible as Set<ColKey>;
   const isVisible = (k: ColKey) => visibleCols.has(k);
-  const orderedVisible = (layout.order as ColKey[]).filter((k) => isVisible(k));
+  const orderedVisible = useMemo(() => {
+    const base = (layout.order as ColKey[]).filter((k) => isVisible(k));
+    if (!isMobile) return base;
+    // Celular: ROI + Pausa + Histórico logo ao lado do nome, depois o restante.
+    const first: ColKey[] = ["roi", "act_pause", "act_history", "spend", "profit"];
+    return [...first, ...base.filter((k) => !first.includes(k))];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout.order, visibleCols, isMobile]);
   const widthStyle = (k: ColKey): React.CSSProperties => {
     const w = layout.widths[k] ?? DEFAULT_WIDTHS[k];
     return { width: w, minWidth: w, maxWidth: w };
@@ -986,14 +994,14 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
         <Table className="min-w-[1200px] text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm">
+              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm max-md:hidden">
                 <Checkbox
                   checked={sortedCampaigns.length > 0 && selected.size === sortedCampaigns.length}
                   onCheckedChange={toggleAll}
                   aria-label="Selecionar todas"
                 />
               </TableHead>
-              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted border-r border-border shadow-sm">Campaign ID</TableHead>
+              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted border-r border-border shadow-sm max-md:hidden">Campaign ID</TableHead>
               <TableHead
                 style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                 className="sticky z-30 bg-muted border-r border-border shadow-sm"
@@ -1097,19 +1105,19 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
               const score = computeScore(c, d, trend);
               return (
                 <TableRow key={c.campaign_id} className={cn("group", accountDown && "bg-danger-soft/20", selected.has(c.campaign_id) && "bg-primary/5")}>
-                  <TableCell className="sticky left-0 z-20 w-[40px] min-w-[40px] bg-card border-r border-border shadow-sm">
+                  <TableCell className="sticky left-0 z-20 w-[40px] min-w-[40px] bg-card border-r border-border shadow-sm max-md:hidden">
                     <Checkbox
                       checked={selected.has(c.campaign_id)}
                       onCheckedChange={() => toggleOne(c.campaign_id)}
                       aria-label={`Selecionar ${c.name}`}
                     />
                   </TableCell>
-                  <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm">
+                  <TableCell className="sticky left-[40px] z-20 w-[132px] min-w-[132px] bg-card border-r border-border font-mono text-[11px] text-muted-foreground shadow-sm max-md:hidden">
                     {c.campaign_id}
                   </TableCell>
                   <TableCell
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
-                    className="sticky z-20 bg-card border-r border-border font-medium shadow-sm"
+                    className="sticky z-20 bg-card border-r border-border font-medium shadow-sm max-md:overflow-hidden"
                   >
                     <div className={cn("flex items-center gap-2", compactNameUrl ? "whitespace-nowrap" : "whitespace-normal")}>
                       <Tooltip>
