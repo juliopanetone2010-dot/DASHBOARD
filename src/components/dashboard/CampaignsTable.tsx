@@ -125,7 +125,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   const [renaming, setRenaming] = useState(false);
   const isMobile = useIsMobile();
   // No celular: sem checkbox/ID fixos e nome estreito, pra sobrar área rolável e dar pra ver ROI/ações.
-  const NAME_W = isMobile ? 120 : compactNameUrl ? 220 : 560;
+  const NAME_W = isMobile ? 150 : compactNameUrl ? 220 : 560;
   const NAME_LEFT = isMobile ? 0 : 172;
 
   // ===== Customização de colunas (persistido em localStorage) =====
@@ -1119,7 +1119,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                     className="sticky z-20 bg-card border-r border-border font-medium shadow-sm max-md:overflow-hidden"
                   >
-                    <div className={cn("flex items-center gap-2 max-md:w-[104px] max-md:overflow-hidden max-md:whitespace-nowrap", compactNameUrl ? "whitespace-nowrap" : "whitespace-normal")}>
+                    <div className={cn("flex items-center gap-2 max-md:w-[134px] max-md:overflow-hidden", compactNameUrl ? "whitespace-nowrap max-md:whitespace-normal" : "whitespace-normal")}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
@@ -1162,18 +1162,18 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                               href={finalUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={cn("min-w-0 flex-1 leading-snug text-primary hover:underline", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")}
+                              className={cn("min-w-0 flex-1 leading-snug text-primary hover:underline", compactNameUrl ? "truncate max-md:whitespace-normal max-md:break-words max-md:line-clamp-4" : "break-words", accountDown && "text-danger")}
                               title={finalUrl}
                             >
                               {c.name}
                             </a>
                           ) : (
-                            <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
+                            <span className={cn("min-w-0 flex-1 leading-snug", compactNameUrl ? "truncate max-md:whitespace-normal max-md:break-words max-md:line-clamp-4" : "break-words", accountDown && "text-danger")} title={c.name}>{c.name}</span>
                           )}
                           <button
                             type="button"
                             title="Editar nome no Google Ads"
-                            className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                            className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity max-md:hidden"
                             onClick={(e) => { e.stopPropagation(); startRename(c); }}
                           >
                             <Pencil className="h-3 w-3 text-muted-foreground" />
@@ -1185,6 +1185,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                           <ShieldX className="h-3 w-3" /> Conta suspensa
                         </Badge>
                       )}
+                      <div className="contents max-md:hidden">
                       <RestartStatusBadge flow={restartFlows.data?.get(c.campaign_id)} />
                       {(() => {
                         const op = opStatusQuery.data?.get(c.campaign_id);
@@ -1254,6 +1255,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                           </DropdownMenu>
                         );
                       })()}
+                      </div>
                     </div>
                   </TableCell>
 
