@@ -189,12 +189,13 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     const base = (layout.order as ColKey[]).filter((k) => isVisible(k));
     if (!isMobile) return base;
     // Celular: ROI + Pausa + Histórico logo ao lado do nome, depois o restante.
-    const first: ColKey[] = ["roi", "spend", "act_pause", "act_history", "profit"];
+    const first: ColKey[] = ["roi", "spend", "revenue", "act_pause", "act_history", "profit"];
     return [...first, ...base.filter((k) => !first.includes(k))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.order, visibleCols, isMobile]);
   const widthStyle = (k: ColKey): React.CSSProperties => {
-    const w = layout.widths[k] ?? DEFAULT_WIDTHS[k];
+    const mobileW: Partial<Record<ColKey, number>> = { roi: 84, spend: 84, revenue: 84, act_pause: 48 };
+    const w = (isMobile && mobileW[k]) || layout.widths[k] || DEFAULT_WIDTHS[k];
     return { width: w, minWidth: w, maxWidth: w };
   };
 
