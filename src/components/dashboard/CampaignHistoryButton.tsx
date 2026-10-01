@@ -424,9 +424,9 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-6xl">
+        <DialogContent className="max-w-6xl max-md:w-[calc(100vw-1rem)] max-md:max-h-[92vh] max-md:overflow-y-auto max-md:p-3 max-md:gap-3 max-md:[&_td]:px-1.5 max-md:[&_td]:py-1.5 max-md:[&_th]:px-1.5 max-md:[&_th]:h-8 max-md:[&_td]:text-[11px] max-md:[&_th]:text-[10px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 pr-6">
               <History className="h-4 w-4" /> Histórico da campanha
             </DialogTitle>
             <DialogDescription>
@@ -435,7 +435,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-1 border-b border-border pb-3">
+          <div className="flex flex-wrap items-center gap-1 border-b border-border pb-3">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-2">Período</span>
             {DAY_PRESETS.map((d) => (
               <Button
@@ -588,7 +588,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           )}
           {adUnitMatchQ.data && (
             <div className="rounded-md border border-border">
-              <div className="p-3 border-b border-border flex items-center justify-between">
+              <div className="p-3 border-b border-border flex items-center justify-between gap-2 max-md:flex-col max-md:items-start">
                 <div>
                   <div className="text-sm font-semibold">Melhor Match por Bloco (Ad Unit) — {AD_UNIT_WINDOW_DAYS} dias</div>
                   <div className="text-[11px] text-muted-foreground">
@@ -613,11 +613,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         <TableHead>Bloco (Ad Unit)</TableHead>
                         <TableHead className="text-right">Dias</TableHead>
                         <TableHead className="text-right">Match médio</TableHead>
-                        <TableHead className="text-right">Fill médio</TableHead>
-                        <TableHead className="text-right">eCPM médio</TableHead>
-                        <TableHead className="text-right">Receita/dia</TableHead>
+                        <TableHead className="text-right max-md:hidden">Fill médio</TableHead>
+                        <TableHead className="text-right max-md:hidden">eCPM médio</TableHead>
+                        <TableHead className="text-right max-md:hidden">Receita/dia</TableHead>
                         <TableHead className="text-right">ROI médio</TableHead>
-                        <TableHead>Melhores dias</TableHead>
+                        <TableHead className="max-md:hidden">Melhores dias</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -630,19 +630,19 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                           <TableCell className={cn("text-right tabular-nums font-semibold", matchRateColor(au.bestMatchAvg))}>
                             {au.bestMatchAvg != null ? `${au.bestMatchAvg.toFixed(2)}%` : "—"}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-xs">
+                          <TableCell className="text-right tabular-nums text-xs max-md:hidden">
                             {au.avgFillRate != null ? `${au.avgFillRate.toFixed(2)}%` : "—"}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-xs font-semibold">
+                          <TableCell className="text-right tabular-nums text-xs font-semibold max-md:hidden">
                             {au.avgEcpm != null ? `US$ ${au.avgEcpm.toFixed(2)}` : "—"}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-xs">
+                          <TableCell className="text-right tabular-nums text-xs max-md:hidden">
                             {au.avgRevenueUsd != null ? `US$ ${au.avgRevenueUsd.toFixed(2)}` : "—"}
                           </TableCell>
                           <TableCell className={cn("text-right tabular-nums", (au.avgRoi ?? 0) >= 0 ? "text-success" : "text-danger")}>
                             {au.avgRoi != null ? fmtPercent(au.avgRoi) : "—"}
                           </TableCell>
-                          <TableCell className="text-[11px] text-muted-foreground">
+                          <TableCell className="text-[11px] text-muted-foreground max-md:hidden">
                             {au.topDays.map((d) => (
                               <div key={d.date} className="tabular-nums">
                                 {formatBrDate(d.date)}: <span className="font-medium text-foreground">{d.matchRate.toFixed(1)}%</span>
@@ -681,13 +681,13 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                       <TableHead className="text-right">Receita</TableHead>
                       <TableHead className="text-right">Lucro</TableHead>
                       <TableHead className="text-right">ROI</TableHead>
-                      <TableHead className="text-right">Conv.</TableHead>
-                      <TableHead className="text-right">Impr.</TableHead>
-                      <TableHead className="text-right">Matched</TableHead>
-                      <TableHead className="text-right">Requests</TableHead>
-                      <TableHead className="text-right">Match Rate</TableHead>
-                      <TableHead className="text-right">eCPM</TableHead>
-                      <TableHead className="text-right">CPA</TableHead>
+                      <TableHead className="text-right max-md:hidden">Conv.</TableHead>
+                      <TableHead className="text-right max-md:hidden">Impr.</TableHead>
+                      <TableHead className="text-right max-md:hidden">Matched</TableHead>
+                      <TableHead className="text-right max-md:hidden">Requests</TableHead>
+                      <TableHead className="text-right">Match<span className="max-md:hidden"> Rate</span></TableHead>
+                      <TableHead className="text-right max-md:hidden">eCPM</TableHead>
+                      <TableHead className="text-right max-md:hidden">CPA</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -709,17 +709,17 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         <TableCell className={cn("text-right tabular-nums font-semibold", d.roi >= 0 ? "text-success" : "text-danger")}>
                           {fmtPercent(d.roi)}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtNumber(Math.round(d.conversions))}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtNumber(d.impressions)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{d.matchedRequests > 0 ? fmtNumber(d.matchedRequests) : "—"}</TableCell>
-                        <TableCell className={cn("text-right tabular-nums", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "GAM não retornou total_requests para esta data — estimado pelo total_requests do período" : undefined}>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{fmtNumber(Math.round(d.conversions))}</TableCell>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{fmtNumber(d.impressions)}</TableCell>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{d.matchedRequests > 0 ? fmtNumber(d.matchedRequests) : "—"}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums max-md:hidden", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "GAM não retornou total_requests para esta data — estimado pelo total_requests do período" : undefined}>
                           {d.totalRequests > 0 ? (d.matchRateEstimated ? `~${fmtNumber(d.totalRequests)}` : fmtNumber(d.totalRequests)) : "—"}
                         </TableCell>
                         <TableCell className={cn("text-right tabular-nums font-medium", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "Estimado (média ponderada dos dias com dados de match no período)" : undefined}>
                           {d.matchRate != null ? `${d.matchRateEstimated ? "~" : ""}${d.matchRate.toFixed(2)}%` : "—"}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

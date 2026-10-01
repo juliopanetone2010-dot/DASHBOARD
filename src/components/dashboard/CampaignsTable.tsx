@@ -125,7 +125,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
   const [renaming, setRenaming] = useState(false);
   const isMobile = useIsMobile();
   // No celular: sem checkbox/ID fixos e nome estreito, pra sobrar área rolável e dar pra ver ROI/ações.
-  const NAME_W = isMobile ? 88 : compactNameUrl ? 220 : 560;
+  const NAME_W = isMobile ? 128 : compactNameUrl ? 220 : 560;
   const NAME_LEFT = isMobile ? 0 : 172;
 
   // ===== Customização de colunas (persistido em localStorage) =====
@@ -194,7 +194,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.order, visibleCols, isMobile]);
   const widthStyle = (k: ColKey): React.CSSProperties => {
-    const mobileW: Partial<Record<ColKey, number>> = { roi: 62, spend: 66, revenue: 66, act_pause: 36, act_history: 36 };
+    const mobileW: Partial<Record<ColKey, number>> = { roi: 56, spend: 60, revenue: 60, act_pause: 34, act_history: 34 };
     const w = (isMobile && mobileW[k]) || layout.widths[k] || DEFAULT_WIDTHS[k];
     return { width: w, minWidth: w, maxWidth: w };
   };
@@ -1122,7 +1122,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                     className="sticky z-20 bg-card border-r border-border font-medium shadow-sm max-md:overflow-hidden"
                   >
-                    <div className={cn("flex items-center gap-2 max-md:w-[78px] max-md:overflow-hidden", compactNameUrl ? "whitespace-nowrap max-md:whitespace-normal" : "whitespace-normal")}>
+                    <div className={cn("flex items-center gap-2 max-md:w-[118px] max-md:overflow-hidden", compactNameUrl ? "whitespace-nowrap max-md:whitespace-normal" : "whitespace-normal")}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
