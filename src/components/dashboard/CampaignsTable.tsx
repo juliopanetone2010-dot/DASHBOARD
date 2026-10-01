@@ -1119,7 +1119,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                     style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
                     className="sticky z-20 bg-card border-r border-border font-medium shadow-sm max-md:overflow-hidden"
                   >
-                    <div className={cn("flex items-center gap-2", compactNameUrl ? "whitespace-nowrap" : "whitespace-normal")}>
+                    <div className={cn("flex items-center gap-2 max-md:w-[104px] max-md:overflow-hidden max-md:whitespace-nowrap", compactNameUrl ? "whitespace-nowrap" : "whitespace-normal")}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 cursor-help", score.color)} aria-label={score.label} />
