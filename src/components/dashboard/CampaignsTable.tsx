@@ -189,7 +189,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     const base = (layout.order as ColKey[]).filter((k) => isVisible(k));
     if (!isMobile) return base;
     // Celular: ROI + Pausa + Histórico logo ao lado do nome, depois o restante.
-    const first: ColKey[] = ["roi", "act_pause", "act_history", "spend", "profit"];
+    const first: ColKey[] = ["roi", "spend", "act_pause", "act_history", "profit"];
     return [...first, ...base.filter((k) => !first.includes(k))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.order, visibleCols, isMobile]);
