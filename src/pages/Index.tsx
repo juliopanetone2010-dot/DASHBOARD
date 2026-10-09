@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3, DollarSign, Plus, RefreshCw, TrendingDown,
-  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, History, UserCog, Menu,
+  TrendingUp, Wallet, Settings, Plug, LayoutDashboard, MapPin, Repeat, Globe, Bot, Sparkles, CalendarDays, Rocket, History, UserCog, Menu, Facebook,
 } from "lucide-react";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import { SmartFunnelPanel } from "@/components/dashboard/SmartFunnelPanel";
 import { RetentionTab } from "@/components/dashboard/RetentionTab";
 import { CountriesTab } from "@/components/dashboard/CountriesTab";
 import { CreativesTab } from "@/components/dashboard/CreativesTab";
+import { FacebookTab } from "@/components/dashboard/FacebookTab";
 import { AutomationTab } from "@/components/dashboard/AutomationTab";
 import { ScaleUnlockTab } from "@/components/dashboard/ScaleUnlockTab";
 import { MigrationTab } from "@/components/dashboard/MigrationTab";
@@ -985,6 +986,7 @@ const IndexInner = () => {
   const TABS: Array<{ value: string; label: string; icon: typeof BarChart3 }> = [
     { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { value: "calendar", label: "Calendário", icon: CalendarDays },
+    { value: "facebook", label: "Facebook", icon: Facebook },
     { value: "integrations", label: "Integrações", icon: Plug },
     { value: "placements", label: "Placements", icon: MapPin },
     { value: "funnel", label: "Funil", icon: BarChart3 },
@@ -1545,6 +1547,12 @@ const IndexInner = () => {
             <DashboardErrorBoundary tabName="Funil">
               <SmartFunnelPanel />
               <PlacementFunnelTab fxUsdBrl={usdBrl} />
+            </DashboardErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="facebook" className="mt-6">
+            <DashboardErrorBoundary tabName="Facebook">
+              <FacebookTab fxUsdBrl={usdBrl} />
             </DashboardErrorBoundary>
           </TabsContent>
 
