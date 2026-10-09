@@ -2222,7 +2222,9 @@ async function persistCampaignSourceRevenueFromUtm(
       b.match_rate_pct = req.match_rate_pct;
     }
   }
-  const arr = [...buckets.values()];
+  // total_requests é NOT NULL: no insert em lote o PostgREST manda NULL para a chave que falta em
+  // alguma linha, e aí o lote INTEIRO falhava calado (sumia a receita de facebook/push/agregados).
+  const arr = [...buckets.values()].map((b) => ({ ...b, total_requests: b.total_requests ?? 0, match_rate_pct: b.match_rate_pct ?? null }));
   if (arr.length === 0) {
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;
@@ -2231,7 +2233,8 @@ async function persistCampaignSourceRevenueFromUtm(
     .delete().eq("user_id", userId).in("site_id", siteIds).in("date", dates);
   const CHUNK = 500;
   for (let i = 0; i < arr.length; i += CHUNK) {
-    await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+    const { error } = await admin.from("gam_campaign_source_revenue").insert(arr.slice(i, i + CHUNK));
+    if (error) debug.push(`[gam_campaign_source_revenue] insert err=${error.message}`);
   }
   const sources = arr.reduce((acc: Record<string, number>, b) => {
     acc[b.utm_source] = (acc[b.utm_source] ?? 0) + b.revenue_usd; return acc;
