@@ -986,7 +986,7 @@ const IndexInner = () => {
   const TABS: Array<{ value: string; label: string; icon: typeof BarChart3 }> = [
     { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { value: "calendar", label: "Calendário", icon: CalendarDays },
-    { value: "facebook", label: "Facebook", icon: Facebook },
+    { value: "facebook", label: "DASH FACEBOOK", icon: Facebook },
     { value: "integrations", label: "Integrações", icon: Plug },
     { value: "placements", label: "Placements", icon: MapPin },
     { value: "funnel", label: "Funil", icon: BarChart3 },
