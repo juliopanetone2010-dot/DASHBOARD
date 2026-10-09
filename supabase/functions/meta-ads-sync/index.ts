@@ -1,7 +1,7 @@
 // Gasto do Facebook (Meta Ads) por anúncio e por dia → fb_ad_daily.
 // Chamado pelo cron (meta-ads-sync-hourly, bearer service_role: todas as contas ativas) e pelo botão
 // "Sincronizar" da aba Facebook (JWT do usuário: só as contas dele). Body opcional: { days?: number }.
-// Token: secret META_ADS_TOKEN (usuário do sistema da BM com ads_read nas contas). A receita não vem daqui:
+// Tokens: secrets META_ADS_TOKEN e META_ADS_TOKEN_<NOME>, um usuário do sistema por BM com ads_read. A receita não vem daqui:
 // fica em gam_campaign_source_revenue (utm_campaign = ID da campanha do Facebook), ver a migration 20261008120000.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -53,8 +53,13 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const token = Deno.env.get("META_ADS_TOKEN");
-    if (!token) return json({ error: "META_ADS_TOKEN não configurado (supabase secrets set META_ADS_TOKEN=...)" });
+    // Um token por BM: META_ADS_TOKEN (Zorvia) e META_ADS_TOKEN_<NOME> (ex.: META_ADS_TOKEN_ELISANDRA).
+    // Cada conta usa o primeiro token que tiver acesso a ela.
+    const tokens = Object.entries(Deno.env.toObject())
+      .filter(([k, v]) => /^META_ADS_TOKEN(_[A-Z0-9_]+)?$/.test(k) && v)
+      .sort(([a], [b]) => (a === "META_ADS_TOKEN" ? -1 : b === "META_ADS_TOKEN" ? 1 : a.localeCompare(b)))
+      .map(([, v]) => v);
+    if (!tokens.length) return json({ error: "META_ADS_TOKEN não configurado (supabase secrets set META_ADS_TOKEN=...)" });
 
     const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -82,8 +87,16 @@ Deno.serve(async (req) => {
     for (const acc of accounts ?? []) {
       try {
         // folga de 1 dia nas pontas: o dia da conta (fuso da Meta) pode não bater com o UTC daqui
-        const rows = await fetchInsights(acc.ad_account_id, token,
-          ymd(new Date(since.getTime() - 86_400_000)), ymd(new Date(until.getTime() + 86_400_000)));
+        let rows: InsightRow[] | null = null;
+        let lastErr: unknown = null;
+        for (const token of tokens) {
+          try {
+            rows = await fetchInsights(acc.ad_account_id, token,
+              ymd(new Date(since.getTime() - 86_400_000)), ymd(new Date(until.getTime() + 86_400_000)));
+            break;
+          } catch (e) { lastErr = e; }
+        }
+        if (!rows) throw lastErr;
         const records = rows.map((r) => ({
           user_id: acc.user_id,
           ad_account_id: acc.ad_account_id,
