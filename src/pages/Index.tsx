@@ -1552,7 +1552,7 @@ const IndexInner = () => {
 
           <TabsContent value="facebook" className="mt-6">
             <DashboardErrorBoundary tabName="Facebook">
-              <FacebookTab fxUsdBrl={usdBrl} />
+              <FacebookTab fxUsdBrl={usdBrl} siteId={filters.siteId} />
             </DashboardErrorBoundary>
           </TabsContent>
 

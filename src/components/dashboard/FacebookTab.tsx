@@ -1,6 +1,7 @@
 // Aba Facebook: gasto da Meta (fb_ad_daily, via meta-ads-sync) × receita do GAM (gam_campaign_source_revenue,
 // campaign_id = ID da campanha do Facebook vindo do utm_campaign) → lucro e ROI por campanha e por dia.
 // Tudo em USD: a Meta cobra em USD (C1) e o GAM grava revenue_usd. Conta em BRL é convertida com fxUsdBrl.
+// Com um site escolhido no topo, só entram as contas da Meta ligadas a ele (fb_ad_accounts.site_id) e a receita do GAM desse site.
 // A receita só existe por campanha (o gam-sync não lê utm_content), então os anúncios mostram só gasto/cliques.
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +28,7 @@ const roi = (a: Agg) => (a.spend > 0 ? ((a.revenue - a.spend) / a.spend) * 100 :
 
 const PRESET_KEYS: DatePresetKey[] = ["today", "yesterday", "yesterday_today", "last_3_days", "last_7_days", "last_30_days"];
 
-export function FacebookTab({ fxUsdBrl }: { fxUsdBrl: number }) {
+export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; siteId?: string }) {
   const qc = useQueryClient();
   const [preset, setPreset] = useState<DatePresetKey>("yesterday_today");
   const range = DATE_PRESETS.find((p) => p.key === preset)!.range();
@@ -35,13 +36,15 @@ export function FacebookTab({ fxUsdBrl }: { fxUsdBrl: number }) {
   const [syncing, setSyncing] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["facebook-tab", range.from, range.to],
+    queryKey: ["facebook-tab", range.from, range.to, siteId],
     queryFn: async () => {
       const sb = supabase as any; // tabelas novas, ainda fora dos tipos gerados
       const { data: accounts } = await sb.from("fb_ad_accounts").select("id,ad_account_id,name,currency,site_id,last_sync_at,last_sync_error").eq("active", true);
-      const accs = (accounts ?? []) as FbAccount[];
+      const accs = ((accounts ?? []) as FbAccount[]).filter((a) => siteId === "all" || a.site_id === siteId);
+      if (!accs.length) return { accs, fbRows: [] as FbRow[], rev: [] as RevRow[], netBySite: {} as Record<string, number> };
       const { data: rows } = await sb.from("fb_ad_daily")
         .select("ad_account_id,date,campaign_id,campaign_name,ad_id,ad_name,spend,impressions,link_clicks,landing_page_views")
+        .in("ad_account_id", accs.map((a) => a.ad_account_id))
         .gte("date", range.from).lte("date", range.to).limit(10000);
       const fbRows = (rows ?? []) as FbRow[];
       const siteIds = [...new Set(accs.map((a) => a.site_id).filter(Boolean))] as string[];
@@ -80,7 +83,7 @@ export function FacebookTab({ fxUsdBrl }: { fxUsdBrl: number }) {
     }
     for (const r of data.rev) {
       const c = camps.get(r.campaign_id);
-      if (!c) continue;
+      if (!c || (c.site && c.site !== r.site_id)) continue; // receita só do site dono da conta
       const v = Number(r.revenue_usd) * (data.netBySite[r.site_id] ?? 1);
       c.revenue += v; total.revenue += v;
       const d = days.get(r.date) ?? emptyAgg();
@@ -158,7 +161,7 @@ export function FacebookTab({ fxUsdBrl }: { fxUsdBrl: number }) {
             <TableBody>
               {isLoading && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               {!isLoading && !view?.camps.length && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Nenhum gasto do Facebook no período. Clique em Sincronizar.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
               {view?.camps.map(([cid, c]) => (
                 <Fragment key={cid}>
