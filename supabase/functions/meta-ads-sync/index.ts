@@ -25,6 +25,31 @@ interface InsightRow {
   impressions?: string;
   inline_link_clicks?: string;
   actions?: Array<{ action_type: string; value: string }>;
+  conversions?: Array<{ action_type: string; value: string }>;
+}
+
+// Resultado de cada conjunto = a conversão em que ele otimiza (promoted_object), igual à coluna Resultados do Gerenciador.
+async function fetchResultKeys(adAccountId: string, token: string): Promise<Map<string, { key: string; name: string }>> {
+  const out = new Map<string, { key: string; name: string }>();
+  const ccNames = new Map<string, string>();
+  try {
+    const r = await fetch(`${GRAPH}/act_${adAccountId}/customconversions?fields=id,name&limit=200&access_token=${token}`);
+    for (const c of ((await r.json()).data ?? [])) ccNames.set(String(c.id), c.name);
+  } catch { /* sem nomes */ }
+  let url: string | null = `${GRAPH}/act_${adAccountId}/adsets?fields=id,optimization_goal,promoted_object&limit=200&access_token=${token}`;
+  for (let page = 0; url && page < 20; page++) {
+    const body: any = await (await fetch(url)).json();
+    if (body.error) break;
+    for (const a of body.data ?? []) {
+      const po = a.promoted_object ?? {};
+      if (po.custom_conversion_id) out.set(String(a.id), { key: `offsite_conversion.custom.${po.custom_conversion_id}`, name: ccNames.get(String(po.custom_conversion_id)) ?? "conversão personalizada" });
+      else if (po.custom_event_str) out.set(String(a.id), { key: `offsite_conversion.fb_pixel_custom.${po.custom_event_str}`, name: po.custom_event_str });
+      else if (a.optimization_goal === "LANDING_PAGE_VIEWS") out.set(String(a.id), { key: "landing_page_view", name: "visualização da página" });
+      else if (a.optimization_goal === "LINK_CLICKS") out.set(String(a.id), { key: "link_click", name: "clique no link" });
+    }
+    url = body.paging?.next ?? null;
+  }
+  return out;
 }
 
 async function fetchInsights(adAccountId: string, token: string, since: string, until: string): Promise<InsightRow[]> {
@@ -32,7 +57,7 @@ async function fetchInsights(adAccountId: string, token: string, since: string, 
     level: "ad",
     time_increment: "1",
     time_range: JSON.stringify({ since, until }),
-    fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,inline_link_clicks,actions",
+    fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,inline_link_clicks,actions,conversions",
     limit: "500",
     access_token: token,
   });
@@ -88,11 +113,13 @@ Deno.serve(async (req) => {
       try {
         // folga de 1 dia nas pontas: o dia da conta (fuso da Meta) pode não bater com o UTC daqui
         let rows: InsightRow[] | null = null;
+        let keys = new Map<string, { key: string; name: string }>();
         let lastErr: unknown = null;
         for (const token of tokens) {
           try {
             rows = await fetchInsights(acc.ad_account_id, token,
               ymd(new Date(since.getTime() - 86_400_000)), ymd(new Date(until.getTime() + 86_400_000)));
+            keys = await fetchResultKeys(acc.ad_account_id, token);
             break;
           } catch (e) { lastErr = e; }
         }
@@ -111,6 +138,12 @@ Deno.serve(async (req) => {
           impressions: Number(r.impressions ?? 0),
           link_clicks: Number(r.inline_link_clicks ?? 0),
           landing_page_views: Number(r.actions?.find((a) => a.action_type === "landing_page_view")?.value ?? 0),
+          ...(() => {
+            const k = r.adset_id ? keys.get(String(r.adset_id)) : undefined;
+            if (!k) return { results: 0, result_name: null };
+            const v = [...(r.conversions ?? []), ...(r.actions ?? [])].find((a) => a.action_type === k.key)?.value;
+            return { results: Number(v ?? 0), result_name: k.name };
+          })(),
           updated_at: new Date().toISOString(),
         }));
         for (let i = 0; i < records.length; i += 500) {
