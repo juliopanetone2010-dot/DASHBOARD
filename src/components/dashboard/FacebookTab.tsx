@@ -2,12 +2,15 @@
 // campaign_id = ID da campanha do Facebook vindo do utm_campaign) → lucro e ROI por campanha e por dia.
 // Tudo em USD: a Meta cobra em USD (C1) e o GAM grava revenue_usd. Conta em BRL é convertida com fxUsdBrl.
 // Com um site escolhido no topo, só entram as contas da Meta ligadas a ele (fb_ad_accounts.site_id) e a receita do GAM desse site.
+// Dias = quantos dias a campanha já teve gasto (todo o histórico, não só o período). O botão liga/pausa a campanha na Meta
+// (função meta-campaign-status; conta com token só de leitura devolve erro).
 // A receita só existe por campanha (o gam-sync não lê utm_content), então os anúncios mostram só gasto/cliques.
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RefreshCw, Wallet, TrendingUp, DollarSign, Percent, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,7 +44,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       const sb = supabase as any; // tabelas novas, ainda fora dos tipos gerados
       const { data: accounts } = await sb.from("fb_ad_accounts").select("id,ad_account_id,name,currency,site_id,last_sync_at,last_sync_error").eq("active", true);
       const accs = ((accounts ?? []) as FbAccount[]).filter((a) => siteId === "all" || a.site_id === siteId);
-      if (!accs.length) return { accs, fbRows: [] as FbRow[], rev: [] as RevRow[], netBySite: {} as Record<string, number> };
+      if (!accs.length) return { accs, fbRows: [] as FbRow[], rev: [] as RevRow[], netBySite: {} as Record<string, number>, diasGasto: {} as Record<string, number> };
       const { data: rows } = await sb.from("fb_ad_daily")
         .select("ad_account_id,date,campaign_id,campaign_name,ad_id,ad_name,spend,impressions,link_clicks,landing_page_views")
         .in("ad_account_id", accs.map((a) => a.ad_account_id))
@@ -57,9 +60,17 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
           .gte("date", range.from).lte("date", range.to).limit(10000);
         rev = (r ?? []) as RevRow[];
       }
+      // Dias com gasto desde o início de cada campanha (fora do filtro de período).
+      const diasGasto: Record<string, number> = {};
+      if (campaignIds.length) {
+        const { data: h } = await sb.from("fb_ad_daily").select("campaign_id,date,spend").in("campaign_id", campaignIds).gt("spend", 0).limit(20000);
+        const set = new Map<string, Set<string>>();
+        for (const r of (h ?? []) as any[]) { const k = String(r.campaign_id); if (!set.has(k)) set.set(k, new Set()); set.get(k)!.add(r.date); }
+        for (const [k, v] of set) diasGasto[k] = v.size;
+      }
       const netBySite: Record<string, number> = {};
       for (const s of siteIds) netBySite[s] = 1 - (await getRevSharePct(s)) / 100;
-      return { accs, fbRows, rev, netBySite };
+      return { accs, fbRows, rev, netBySite, diasGasto };
     },
   });
 
@@ -95,6 +106,30 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       days: [...days.entries()].sort((a, b) => b[0].localeCompare(a[0])),
     };
   }, [data, fxUsdBrl]);
+
+  const campIds = view?.camps.map(([cid]) => cid) ?? [];
+  const { data: status } = useQuery({
+    queryKey: ["facebook-status", campIds.join(",")],
+    enabled: campIds.length > 0,
+    queryFn: async () => {
+      const { data: res } = await supabase.functions.invoke("meta-campaign-status", { body: { campaigns: campIds } });
+      return ((res as any)?.status ?? {}) as Record<string, string>;
+    },
+  });
+  const [mudando, setMudando] = useState<string | null>(null);
+  const alternar = async (cid: string, ligar: boolean) => {
+    setMudando(cid);
+    try {
+      const { data: res, error } = await supabase.functions.invoke("meta-campaign-status", { body: { campaign_id: cid, status: ligar ? "ACTIVE" : "PAUSED" } });
+      if (error || (res as any)?.error) throw new Error((res as any)?.error ?? error?.message);
+      toast({ title: ligar ? "Campanha ativada" : "Campanha pausada" });
+      await qc.invalidateQueries({ queryKey: ["facebook-status"] });
+    } catch (e) {
+      toast({ title: "Não deu para mudar a campanha", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setMudando(null);
+    }
+  };
 
   const sync = async () => {
     setSyncing(true);
@@ -144,10 +179,12 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Campanhas</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto p-0 sm:p-6 sm:pt-0">
-          <Table>
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Campanha / anúncio</TableHead>
+                <TableHead className="min-w-[200px]">Campanha / anúncio</TableHead>
+                <TableHead className="text-center">Ativa</TableHead>
+                <TableHead className="text-right">Dias</TableHead>
                 <TableHead className="text-right">Gasto</TableHead>
                 <TableHead className="text-right">Receita</TableHead>
                 <TableHead className="text-right">Lucro</TableHead>
@@ -159,19 +196,26 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               {!isLoading && !view?.camps.length && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
               {view?.camps.map(([cid, c]) => (
                 <Fragment key={cid}>
                   <TableRow className="cursor-pointer font-medium" onClick={() => setOpen((o) => ({ ...o, [cid]: !o[cid] }))}>
-                    <TableCell className="max-w-[320px]">
-                      <span className="inline-flex items-center gap-1">
-                        {open[cid] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        <span className="truncate">{c.name}</span>
+                    <TableCell className="min-w-[200px] max-w-[260px] whitespace-normal break-words align-top">
+                      <span className="flex items-start gap-1">
+                        {open[cid] ? <ChevronDown className="h-4 w-4 mt-0.5 shrink-0" /> : <ChevronRight className="h-4 w-4 mt-0.5 shrink-0" />}
+                        <span className="text-xs leading-snug sm:text-sm">{c.name}</span>
                       </span>
                     </TableCell>
+                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      {status?.[cid] ? (
+                        <Switch checked={status[cid] === "ACTIVE"} disabled={mudando === cid} onCheckedChange={(v) => alternar(cid, v)}
+                          title={status[cid]} />
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-right">{data?.diasGasto?.[cid] ?? 0}</TableCell>
                     <TableCell className="text-right">{fmtUSD(c.spend)}</TableCell>
                     <TableCell className="text-right">{fmtUSD(c.revenue)}</TableCell>
                     <TableCell className={cn("text-right", c.revenue - c.spend >= 0 ? "text-success" : "text-danger")}>{fmtUSD(c.revenue - c.spend)}</TableCell>
@@ -183,7 +227,9 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                   </TableRow>
                   {open[cid] && [...c.ads.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([aid, a]) => (
                     <TableRow key={aid} className="text-muted-foreground text-sm">
-                      <TableCell className="pl-9 truncate max-w-[320px]">{a.name}</TableCell>
+                      <TableCell className="pl-9 max-w-[260px] whitespace-normal break-words text-xs">{a.name}</TableCell>
+                      <TableCell />
+                      <TableCell />
                       <TableCell className="text-right">{fmtUSD(a.spend)}</TableCell>
                       <TableCell className="text-right" title="Receita só por campanha">—</TableCell>
                       <TableCell className="text-right">—</TableCell>
