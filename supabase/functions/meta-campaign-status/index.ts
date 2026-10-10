@@ -1,6 +1,8 @@
 // Liga/desliga campanhas do Facebook pela aba DASH FACEBOOK.
 // Body { campaigns: string[] } → { status: { [id]: "ACTIVE" | "PAUSED" | ... } } (lê o status atual de cada campanha).
 // Body { campaign_id, status: "ACTIVE" | "PAUSED" } → muda o status da campanha.
+// Body { campaign_id, daily_budget: 3.5 } → muda o orçamento diário (na moeda da conta): na campanha se ela for CBO,
+// senão no conjunto (só quando a campanha tem 1 conjunto ativo). A leitura devolve também budget { [id]: valor }.
 // Só mexe em campanha de conta que está em fb_ad_accounts do usuário logado. Tokens iguais aos do meta-ads-sync
 // (META_ADS_TOKEN e META_ADS_TOKEN_<NOME>): usa o primeiro que conseguir; conta com token só de leitura devolve erro.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
@@ -46,16 +48,43 @@ Deno.serve(async (req) => {
     if (Array.isArray(body.campaigns)) {
       const ids = body.campaigns.map(String).filter((s: string) => /^\d+$/.test(s)).slice(0, 50);
       const status: Record<string, string> = {};
+      const budget: Record<string, number> = {};
       for (const id of ids) {
         for (const token of tokens) {
           try {
-            const c = await graph(id, token, "GET", { fields: "account_id,effective_status,status" });
-            if (allowed.has(String(c.account_id))) status[id] = c.status === "ACTIVE" ? c.effective_status : c.status;
+            const c = await graph(id, token, "GET", { fields: "account_id,effective_status,status,daily_budget,adsets{daily_budget,status}" });
+            if (allowed.has(String(c.account_id))) {
+              status[id] = c.status === "ACTIVE" ? c.effective_status : c.status;
+              const cents = c.daily_budget ? Number(c.daily_budget)
+                : (c.adsets?.data ?? []).filter((a: any) => a.status === "ACTIVE" && a.daily_budget).reduce((t: number, a: any) => t + Number(a.daily_budget), 0);
+              if (cents) budget[id] = cents / 100;
+            }
             break;
           } catch { /* tenta o próximo token */ }
         }
       }
-      return json({ status });
+      return json({ status, budget });
+    }
+
+    // Troca de orçamento
+    if (body.daily_budget !== undefined) {
+      const id = String(body.campaign_id ?? "");
+      const val = Number(body.daily_budget);
+      if (!/^\d+$/.test(id) || !(val >= 1 && val <= 1000)) return json({ error: "orçamento inválido (1 a 1000)" }, 400);
+      const cents = String(Math.round(val * 100));
+      let err = "Campanha não encontrada";
+      for (const token of tokens) {
+        try {
+          const c = await graph(id, token, "GET", { fields: "account_id,daily_budget,adsets{id,status,daily_budget}" });
+          if (!allowed.has(String(c.account_id))) return json({ error: "Campanha de conta que não é sua" }, 403);
+          if (c.daily_budget) { await graph(id, token, "POST", { daily_budget: cents }); return json({ ok: true, daily_budget: val }); }
+          const ativos = (c.adsets?.data ?? []).filter((a: any) => a.status === "ACTIVE" && a.daily_budget);
+          if (ativos.length !== 1) return json({ error: "Orçamento é por conjunto e a campanha tem mais de um: mude no Gerenciador" });
+          await graph(ativos[0].id, token, "POST", { daily_budget: cents });
+          return json({ ok: true, daily_budget: val });
+        } catch (e) { err = e instanceof Error ? e.message : String(e); }
+      }
+      return json({ error: `A Meta recusou: ${err}` });
     }
 
     // Troca de status

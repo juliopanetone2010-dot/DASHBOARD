@@ -115,7 +115,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
     enabled: campIds.length > 0,
     queryFn: async () => {
       const { data: res } = await supabase.functions.invoke("meta-campaign-status", { body: { campaigns: campIds } });
-      return ((res as any)?.status ?? {}) as Record<string, string>;
+      return { ...((res as any)?.status ?? {}), __budget: (res as any)?.budget ?? {} } as Record<string, any>;
     },
   });
   const [mudando, setMudando] = useState<string | null>(null);
@@ -129,6 +129,24 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       await qc.invalidateQueries({ queryKey: ["facebook-status"] });
     } catch (e) {
       toast({ title: "Não deu para mudar a campanha", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setMudando(null);
+    }
+  };
+
+  const mudarOrcamento = async (cid: string, atual?: number) => {
+    const v = window.prompt("Novo orçamento diário (na moeda da conta, ex.: 3 ou 5.50):", atual ? String(atual) : "");
+    if (v === null) return;
+    const val = Number(v.replace(",", "."));
+    if (!(val >= 1)) { toast({ title: "Valor inválido", variant: "destructive" }); return; }
+    setMudando(cid);
+    try {
+      const { data: res, error } = await supabase.functions.invoke("meta-campaign-status", { body: { campaign_id: cid, daily_budget: val } });
+      if (error || (res as any)?.error) throw new Error((res as any)?.error ?? error?.message);
+      toast({ title: `Orçamento: ${val.toFixed(2)}/dia` });
+      await qc.invalidateQueries({ queryKey: ["facebook-status"] });
+    } catch (e) {
+      toast({ title: "Não deu para mudar o orçamento", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setMudando(null);
     }
@@ -187,6 +205,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               <TableRow>
                 <TableHead className="min-w-[200px]">Campanha / anúncio</TableHead>
                 <TableHead className="text-center">Ativa</TableHead>
+                <TableHead className="text-right">Orçam./dia</TableHead>
                 <TableHead className="text-right">Dias</TableHead>
                 <TableHead className="text-right">Gasto</TableHead>
                 <TableHead className="text-right">Receita</TableHead>
@@ -201,9 +220,9 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={13} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={14} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               {!isLoading && !view?.camps.length && (
-                <TableRow><TableCell colSpan={13} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={14} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
               {view?.camps.map(([cid, c]) => (
                 <Fragment key={cid}>
@@ -226,6 +245,12 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                           title={status[cid]} />
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant="outline" className="h-7 px-2" disabled={mudando === cid}
+                        onClick={() => mudarOrcamento(cid, status?.__budget?.[cid])}>
+                        {status?.__budget?.[cid] != null ? fmtUSD(status.__budget[cid]) : "—"}
+                      </Button>
+                    </TableCell>
                     <TableCell className="text-right">{data?.diasGasto?.[cid] ?? 0}</TableCell>
                     <TableCell className="text-right">{fmtUSD(c.spend)}</TableCell>
                     <TableCell className="text-right">{fmtUSD(c.revenue)}</TableCell>
@@ -241,6 +266,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                   {open[cid] && [...c.ads.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([aid, a]) => (
                     <TableRow key={aid} className="text-muted-foreground text-sm">
                       <TableCell className="pl-9 max-w-[260px] whitespace-normal break-words text-xs">{a.name}</TableCell>
+                      <TableCell />
                       <TableCell />
                       <TableCell />
                       <TableCell className="text-right">{fmtUSD(a.spend)}</TableCell>
