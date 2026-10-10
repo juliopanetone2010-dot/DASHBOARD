@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 
 interface FbAccount { id: string; ad_account_id: string; name: string | null; currency: string; site_id: string | null; last_sync_at: string | null; last_sync_error: string | null }
 interface FbRow { ad_account_id: string; date: string; campaign_id: string; campaign_name: string | null; ad_id: string; ad_name: string | null; spend: number; impressions: number; link_clicks: number; landing_page_views: number; results: number; result_name: string | null }
-interface RevRow { site_id: string; campaign_id: string; date: string; revenue_usd: number; impressions: number }
+interface RevRow { site_id: string; campaign_id: string; date: string; revenue_usd: number; impressions: number; ecpm_url_usd: number | null }
 
 interface Agg { spend: number; impressions: number; clicks: number; lpv: number; revenue: number; conv: number }
 const emptyAgg = (): Agg => ({ spend: 0, impressions: 0, clicks: 0, lpv: 0, revenue: 0, conv: 0 });
@@ -56,7 +56,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       let rev: RevRow[] = [];
       if (siteIds.length && campaignIds.length) {
         const { data: r } = await sb.from("gam_campaign_source_revenue")
-          .select("site_id,campaign_id,date,revenue_usd,impressions")
+          .select("site_id,campaign_id,date,revenue_usd,impressions,ecpm_url_usd")
           .in("site_id", siteIds).in("campaign_id", campaignIds)
           .gte("date", range.from).lte("date", range.to).limit(10000);
         rev = (r ?? []) as RevRow[];
@@ -80,11 +80,11 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
     const accById = new Map(data.accs.map((a) => [a.ad_account_id, a]));
     const toUsd = (v: number, accId: string) => (accById.get(accId)?.currency === "BRL" && fxUsdBrl > 0 ? v / fxUsdBrl : v);
     const total = emptyAgg();
-    const camps = new Map<string, Agg & { name: string; site: string | null; resultName: string | null; ads: Map<string, Agg & { name: string }> }>();
+    const camps = new Map<string, Agg & { name: string; site: string | null; resultName: string | null; ecpmUrl: number[]; ads: Map<string, Agg & { name: string }> }>();
     const days = new Map<string, Agg>();
     for (const r of data.fbRows) {
       const acc = accById.get(r.ad_account_id);
-      const c = camps.get(r.campaign_id) ?? { ...emptyAgg(), name: r.campaign_name ?? r.campaign_id, site: acc?.site_id ?? null, resultName: null, ads: new Map() };
+      const c = camps.get(r.campaign_id) ?? { ...emptyAgg(), name: r.campaign_name ?? r.campaign_id, site: acc?.site_id ?? null, resultName: null, ecpmUrl: [], ads: new Map() };
       if (r.result_name && Number(r.spend) > 0) c.resultName = r.result_name;
       const ad = c.ads.get(r.ad_id) ?? { ...emptyAgg(), name: r.ad_name ?? r.ad_id };
       const d = days.get(r.date) ?? emptyAgg();
@@ -99,6 +99,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       if (!c || (c.site && c.site !== r.site_id)) continue; // receita só do site dono da conta
       const v = Number(r.revenue_usd) * (data.netBySite[r.site_id] ?? 1);
       c.revenue += v; total.revenue += v;
+      if (r.ecpm_url_usd != null && Number(r.ecpm_url_usd) > 0) c.ecpmUrl.push(Number(r.ecpm_url_usd));
       const d = days.get(r.date) ?? emptyAgg();
       d.revenue += v; days.set(r.date, d);
     }
@@ -213,6 +214,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                 <TableHead className="text-right">ROI</TableHead>
                 <TableHead className="text-right">Conversões</TableHead>
                 <TableHead className="text-right">Custo/conv.</TableHead>
+                <TableHead className="text-right" title="eCPM da página de destino no GAM (todo o tráfego da URL), média dos dias do período">eCPM URL</TableHead>
                 <TableHead className="text-right">Cliques</TableHead>
                 <TableHead className="text-right">Visualiz. página</TableHead>
                 <TableHead className="text-right">CPC</TableHead>
@@ -220,9 +222,9 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={14} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={15} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               {!isLoading && !view?.camps.length && (
-                <TableRow><TableCell colSpan={14} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={15} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
               {view?.camps.map(([cid, c]) => (
                 <Fragment key={cid}>
@@ -258,6 +260,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                     <TableCell className="text-right"><Badge variant={roi(c) >= 0 ? "default" : "destructive"}>{fmtPercent(roi(c))}</Badge></TableCell>
                     <TableCell className="text-right" title={c.resultName ?? undefined}>{fmtNumber(c.conv)}</TableCell>
                     <TableCell className="text-right">{c.conv ? fmtUSD(c.spend / c.conv) : "—"}</TableCell>
+                    <TableCell className="text-right">{c.ecpmUrl.length ? fmtUSD(c.ecpmUrl.reduce((a, b) => a + b, 0) / c.ecpmUrl.length) : "—"}</TableCell>
                     <TableCell className="text-right">{fmtNumber(c.clicks)}</TableCell>
                     <TableCell className="text-right">{fmtNumber(c.lpv)}</TableCell>
                     <TableCell className="text-right">{c.clicks ? fmtUSD(c.spend / c.clicks) : "—"}</TableCell>
@@ -275,6 +278,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                       <TableCell className="text-right">—</TableCell>
                       <TableCell className="text-right">{fmtNumber(a.conv)}</TableCell>
                       <TableCell className="text-right">{a.conv ? fmtUSD(a.spend / a.conv) : "—"}</TableCell>
+                      <TableCell />
                       <TableCell className="text-right">{fmtNumber(a.clicks)}</TableCell>
                       <TableCell className="text-right">{fmtNumber(a.lpv)}</TableCell>
                       <TableCell className="text-right">{a.clicks ? fmtUSD(a.spend / a.clicks) : "—"}</TableCell>
@@ -333,10 +337,10 @@ function FbHistorico({ alvo, onClose, net }: { alvo: { cid: string; name: string
     queryFn: async () => {
       const sb = supabase as any;
       const { data: rows } = await sb.from("fb_ad_daily").select("date,spend,results,landing_page_views").eq("campaign_id", alvo!.cid).limit(5000);
-      let q = sb.from("gam_campaign_source_revenue").select("date,revenue_usd").eq("campaign_id", alvo!.cid);
+      let q = sb.from("gam_campaign_source_revenue").select("date,revenue_usd,ecpm_url_usd").eq("campaign_id", alvo!.cid);
       if (alvo!.site) q = q.eq("site_id", alvo!.site);
       const { data: rev } = await q.limit(5000);
-      const dias = new Map<string, { spend: number; rev: number; conv: number; lpv: number }>();
+      const dias = new Map<string, { spend: number; rev: number; conv: number; lpv: number; ecpm?: number }>();
       const pega = (d: string) => dias.get(d) ?? { spend: 0, rev: 0, conv: 0, lpv: 0 };
       for (const r of (rows ?? []) as any[]) {
         const d = pega(r.date);
@@ -344,7 +348,7 @@ function FbHistorico({ alvo, onClose, net }: { alvo: { cid: string; name: string
       }
       for (const r of (rev ?? []) as any[]) {
         const d = pega(r.date);
-        d.rev += Number(r.revenue_usd) * net; dias.set(r.date, d);
+        d.rev += Number(r.revenue_usd) * net; if (r.ecpm_url_usd != null) d.ecpm = Number(r.ecpm_url_usd); dias.set(r.date, d);
       }
       return [...dias.entries()].filter(([, d]) => d.spend > 0 || d.rev > 0).sort((a, b) => b[0].localeCompare(a[0]));
     },
@@ -370,6 +374,7 @@ function FbHistorico({ alvo, onClose, net }: { alvo: { cid: string; name: string
                   <TableHead className="text-right">Conv.</TableHead>
                   <TableHead className="text-right">Custo/conv.</TableHead>
                   <TableHead className="text-right">Visitas</TableHead>
+                  <TableHead className="text-right">eCPM URL</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -383,6 +388,7 @@ function FbHistorico({ alvo, onClose, net }: { alvo: { cid: string; name: string
                     <TableCell className="text-right">{fmtNumber(x.conv)}</TableCell>
                     <TableCell className="text-right">{x.conv ? fmtUSD(x.spend / x.conv) : "—"}</TableCell>
                     <TableCell className="text-right">{fmtNumber(x.lpv)}</TableCell>
+                    <TableCell className="text-right">{x.ecpm ? fmtUSD(x.ecpm) : "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

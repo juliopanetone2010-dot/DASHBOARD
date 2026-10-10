@@ -52,6 +52,25 @@ async function fetchResultKeys(adAccountId: string, token: string): Promise<Map<
   return out;
 }
 
+// Página de destino de cada campanha (link do 1º anúncio que tiver link), sem query string.
+async function fetchCampaignUrls(adAccountId: string, token: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  let url: string | null = `${GRAPH}/act_${adAccountId}/ads?fields=campaign_id,creative{object_story_spec,link_url}&limit=200&access_token=${token}`;
+  for (let page = 0; url && page < 20; page++) {
+    const body: any = await (await fetch(url)).json();
+    if (body.error) break;
+    for (const a of body.data ?? []) {
+      const cid = String(a.campaign_id ?? "");
+      if (!cid || out.has(cid)) continue;
+      const s = a.creative?.object_story_spec ?? {};
+      const link = s.video_data?.call_to_action?.value?.link ?? s.link_data?.link ?? s.link_data?.call_to_action?.value?.link ?? a.creative?.link_url;
+      if (link) out.set(cid, String(link).split("?")[0].split("#")[0]);
+    }
+    url = body.paging?.next ?? null;
+  }
+  return out;
+}
+
 async function fetchInsights(adAccountId: string, token: string, since: string, until: string): Promise<InsightRow[]> {
   const params = new URLSearchParams({
     level: "ad",
@@ -120,6 +139,9 @@ Deno.serve(async (req) => {
             rows = await fetchInsights(acc.ad_account_id, token,
               ymd(new Date(since.getTime() - 86_400_000)), ymd(new Date(until.getTime() + 86_400_000)));
             keys = await fetchResultKeys(acc.ad_account_id, token);
+            const urls = await fetchCampaignUrls(acc.ad_account_id, token);
+            if (urls.size) await admin.from("fb_campaign_urls").upsert([...urls].map(([campaign_id, u]) => ({
+              campaign_id, user_id: acc.user_id, ad_account_id: acc.ad_account_id, url: u, updated_at: new Date().toISOString() })), { onConflict: "campaign_id" });
             break;
           } catch (e) { lastErr = e; }
         }

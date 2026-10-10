@@ -1559,7 +1559,7 @@ async function fetchUrlEcpm(
         const impr = Number(r.impressions ?? 0);
         const revUsd = Number(r.revenue ?? 0) / ingestionDivisor;
         if (impr <= 0) continue;
-        const pathKey = urlPathOnly(r.dims[1] ?? "");
+        const pathKey = urlPathForEcpm(r.dims[1] ?? "");
         if (!pathKey) continue;
         const inner = out.get(pathKey) ?? new Map<string, { revenueUsd: number; impressions: number }>();
         const cur = inner.get(r.date) ?? { revenueUsd: 0, impressions: 0 };
@@ -1569,7 +1569,7 @@ async function fetchUrlEcpm(
         out.set(pathKey, inner);
         valid++;
       }
-      const line = `[${networkCode}/${dimName}/ECPM_URL] rows=${rows.length}; urls=${out.size}; linhas_validas=${valid}`;
+      const line = `[${networkCode}/${dimName}/ECPM_URL] rows=${rows.length}; urls=${out.size}; linhas_validas=${valid}; ex=${[...out.keys()].slice(0, 3).join(" , ")}`;
       debug.push(line); console.log(`[ATTR] ${line}`);
       if (out.size > 0) break;
     } catch (e) {
@@ -1706,6 +1706,13 @@ async function persistSiteMetricsForNetwork(args: {
     debug.push(`[${networkCode}/URL_HOST_SPLIT] site=${s.name} receita=${tot.toFixed(2)}`);
     await persistSiteMetricsDaily(admin, userId, s.id, siteCurrency, siteRows, debug, ranges, { preserveHigherExisting });
   }
+}
+
+// Só para o eCPM da URL (10/10/2026): o GAM (dimensão URL) devolve "dominio.com/caminho" sem protocolo e o
+// urlPathOnly deixava o host, então nenhuma campanha casava com a página e o ecpm_url_usd ficava sempre vazio.
+function urlPathForEcpm(raw: string): string {
+  const t = urlPathOnly(raw);
+  return t && !t.startsWith("/") && /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/.test(t) ? t.replace(/^[^/]+/, "") : t;
 }
 
 // Extrai só o path (sem host/protocolo/query/hash), pra casar PAGE_PATH (que já vem só
@@ -1924,6 +1931,15 @@ async function persistCampaignTotalRequests(args: {
       if (!cid || cidToPath.has(cid)) continue;
       const path = urlPathOnly(String(r.final_url ?? ""));
       if (path) cidToPath.set(cid, path);
+    }
+    // Campanhas do Facebook: a página vem do link dos anúncios (fb_campaign_urls, gravada pelo meta-ads-sync).
+    const faltam = cids.filter((c) => !cidToPath.has(String(c)));
+    if (faltam.length) {
+      const { data: fbUrls } = await admin.from("fb_campaign_urls").select("campaign_id, url").eq("user_id", userId).in("campaign_id", faltam);
+      for (const r of (fbUrls ?? []) as any[]) {
+        const path = urlPathOnly(String(r.url ?? ""));
+        if (path) cidToPath.set(String(r.campaign_id), path);
+      }
     }
   }
   const pickMatchRate = (cid: string, date: string): number | null => {
