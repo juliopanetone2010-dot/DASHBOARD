@@ -27,6 +27,7 @@ interface InsightRow {
   actions?: Array<{ action_type: string; value: string }>;
   conversions?: Array<{ action_type: string; value: string }>;
   results?: Array<{ indicator?: string; values?: Array<{ value: string }> }>;
+  hourly_stats_aggregated_by_advertiser_time_zone?: string; // "HH:00:00 - HH:59:59"
 }
 
 // Resultado de cada conjunto = a conversão em que ele otimiza (promoted_object), igual à coluna Resultados do Gerenciador.
@@ -72,18 +73,21 @@ async function fetchCampaignUrls(adAccountId: string, token: string): Promise<Ma
   return out;
 }
 
+// Por hora no fuso da conta (as contas ficam em America/Los_Angeles por causa do imposto), para remontar o dia no fuso
+// do GAM (Brasília). Sem isso o dia da Meta fecha 4–5 h depois do dia do GAM e o ROI diário fica torto.
 async function fetchInsights(adAccountId: string, token: string, since: string, until: string): Promise<InsightRow[]> {
   const params = new URLSearchParams({
     level: "ad",
     time_increment: "1",
     time_range: JSON.stringify({ since, until }),
+    breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
     fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,inline_link_clicks,actions,conversions,results",
     limit: "500",
     access_token: token,
   });
   let url: string | null = `${GRAPH}/act_${adAccountId}/insights?${params}`;
   const out: InsightRow[] = [];
-  for (let page = 0; url && page < 50; page++) {
+  for (let page = 0; url && page < 400; page++) {
     const res: Response = await fetch(url);
     const body: any = await res.json();
     if (!res.ok || body.error) throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
@@ -94,6 +98,31 @@ async function fetchInsights(adAccountId: string, token: string, since: string, 
 }
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+
+// Fuso do dia do painel = fuso das redes do GAM.
+const DASH_TZ = "America/Sao_Paulo";
+
+// Minutos que o fuso `tz` está à frente do UTC no instante `utcMs` (ex.: Los Angeles em outubro = -420).
+function tzOffsetMin(tz: string, utcMs: number): number {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(utcMs)).map((x) => [x.type, x.value]));
+  return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - utcMs) / 60_000;
+}
+
+// Data (YYYY-MM-DD) no fuso do painel de uma hora "date + HH" no fuso da conta.
+function dashDate(date: string, hour: number, accountTz: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const guess = Date.UTC(y, m - 1, d, hour);
+  const utc = guess - tzOffsetMin(accountTz, guess - tzOffsetMin(accountTz, guess) * 60_000) * 60_000;
+  return ymd(new Date(utc + tzOffsetMin(DASH_TZ, utc) * 60_000));
+}
+
+async function fetchAccountTz(adAccountId: string, token: string): Promise<string> {
+  const body: any = await (await fetch(`${GRAPH}/act_${adAccountId}?fields=timezone_name&access_token=${token}`)).json();
+  if (body.error) throw new Error(body.error.message);
+  return body.timezone_name || "America/Los_Angeles";
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -120,8 +149,13 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const days = Math.min(Math.max(Number((body as any)?.days) || 3, 1), 90);
-    const until = new Date();
-    const since = new Date(until.getTime() - (days - 1) * 86_400_000);
+    // Janela em dias do painel (Brasília). Só esses dias são regravados: eles ficam completos porque a consulta à Meta
+    // vai 1 dia antes e 1 depois no fuso da conta.
+    const now = Date.now();
+    const todayDash = ymd(new Date(now + tzOffsetMin(DASH_TZ, now) * 60_000));
+    const sinceDash = ymd(new Date(Date.parse(todayDash) - (days - 1) * 86_400_000));
+    const until = new Date(Date.parse(todayDash));
+    const since = new Date(Date.parse(sinceDash));
 
     let q = admin.from("fb_ad_accounts").select("id,user_id,ad_account_id,name").eq("active", true);
     if (userId) q = q.eq("user_id", userId);
@@ -131,12 +165,14 @@ Deno.serve(async (req) => {
     const result: Array<{ account: string; rows?: number; error?: string }> = [];
     for (const acc of accounts ?? []) {
       try {
-        // folga de 1 dia nas pontas: o dia da conta (fuso da Meta) pode não bater com o UTC daqui
+        // 1 dia a mais em cada ponta, no fuso da conta, para cobrir por inteiro os dias de Brasília da janela
         let rows: InsightRow[] | null = null;
         let keys = new Map<string, { key: string; name: string }>();
+        let accountTz = "America/Los_Angeles";
         let lastErr: unknown = null;
         for (const token of tokens) {
           try {
+            accountTz = await fetchAccountTz(acc.ad_account_id, token);
             rows = await fetchInsights(acc.ad_account_id, token,
               ymd(new Date(since.getTime() - 86_400_000)), ymd(new Date(until.getTime() + 86_400_000)));
             keys = await fetchResultKeys(acc.ad_account_id, token);
@@ -147,10 +183,10 @@ Deno.serve(async (req) => {
           } catch (e) { lastErr = e; }
         }
         if (!rows) throw lastErr;
-        const records = rows.map((r) => ({
+        const hourly = rows.map((r) => ({
           user_id: acc.user_id,
           ad_account_id: acc.ad_account_id,
-          date: r.date_start,
+          date: dashDate(r.date_start, Number((r.hourly_stats_aggregated_by_advertiser_time_zone ?? "00").slice(0, 2)), accountTz),
           campaign_id: r.campaign_id,
           campaign_name: r.campaign_name ?? null,
           adset_id: r.adset_id ?? null,
@@ -180,7 +216,22 @@ Deno.serve(async (req) => {
             return { results: Number(v ?? 0), result_name: k.name };
           })(),
           updated_at: new Date().toISOString(),
-        }));
+        })).filter((h) => h.date >= sinceDash && h.date <= todayDash);
+        // soma as horas de cada anúncio no dia do painel
+        const byAdDay = new Map<string, typeof hourly[number]>();
+        for (const h of hourly) {
+          const k = `${h.ad_id}|${h.date}`;
+          const a = byAdDay.get(k);
+          if (!a) { byAdDay.set(k, { ...h }); continue; }
+          a.spend += h.spend; a.impressions += h.impressions; a.link_clicks += h.link_clicks;
+          a.landing_page_views += h.landing_page_views; a.results += h.results;
+          a.result_name = a.result_name ?? h.result_name;
+        }
+        const records = [...byAdDay.values()].map((r) => ({ ...r, spend: Math.round(r.spend * 100) / 100 }));
+        // regrava a janela inteira: um anúncio que no fuso antigo tinha linha num dia pode não ter mais nenhuma hora nele
+        const { error: delErr } = await admin.from("fb_ad_daily").delete()
+          .eq("user_id", acc.user_id).eq("ad_account_id", acc.ad_account_id).gte("date", sinceDash).lte("date", todayDash);
+        if (delErr) throw new Error(delErr.message);
         for (let i = 0; i < records.length; i += 500) {
           const { error: upErr } = await admin.from("fb_ad_daily")
             .upsert(records.slice(i, i + 500), { onConflict: "user_id,ad_id,date" });
