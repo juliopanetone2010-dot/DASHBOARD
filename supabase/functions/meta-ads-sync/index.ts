@@ -26,6 +26,7 @@ interface InsightRow {
   inline_link_clicks?: string;
   actions?: Array<{ action_type: string; value: string }>;
   conversions?: Array<{ action_type: string; value: string }>;
+  results?: Array<{ indicator?: string; values?: Array<{ value: string }> }>;
 }
 
 // Resultado de cada conjunto = a conversão em que ele otimiza (promoted_object), igual à coluna Resultados do Gerenciador.
@@ -76,7 +77,7 @@ async function fetchInsights(adAccountId: string, token: string, since: string, 
     level: "ad",
     time_increment: "1",
     time_range: JSON.stringify({ since, until }),
-    fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,inline_link_clicks,actions,conversions",
+    fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,inline_link_clicks,actions,conversions,results",
     limit: "500",
     access_token: token,
   });
@@ -162,6 +163,18 @@ Deno.serve(async (req) => {
           landing_page_views: Number(r.actions?.find((a) => a.action_type === "landing_page_view")?.value ?? 0),
           ...(() => {
             const k = r.adset_id ? keys.get(String(r.adset_id)) : undefined;
+            // 1º: campo "results" do próprio insights (= coluna Resultados do Gerenciador). Não depende da consulta de
+            // conjuntos, que na C1 batia no limite de chamadas ("User request limit reached") e deixava tudo em 0.
+            const res = r.results?.[0];
+            if (res?.indicator) {
+              const ind = res.indicator.replace(/^[a-z_]+:/, "");
+              const nome = k?.name
+                ?? (ind.startsWith("offsite_conversion.fb_pixel_custom.") ? ind.slice("offsite_conversion.fb_pixel_custom.".length)
+                  : ind.startsWith("offsite_conversion.custom.") ? "conversão personalizada"
+                  : /landing_page_view/.test(ind) ? "visualização da página"
+                  : /link_click/.test(ind) ? "clique no link" : ind);
+              return { results: Number(res.values?.[0]?.value ?? 0), result_name: nome };
+            }
             if (!k) return { results: 0, result_name: null };
             const v = [...(r.conversions ?? []), ...(r.actions ?? [])].find((a) => a.action_type === k.key)?.value;
             return { results: Number(v ?? 0), result_name: k.name };

@@ -5,14 +5,14 @@
 // Dias = quantos dias a campanha já teve gasto (todo o histórico, não só o período). O botão liga/pausa a campanha na Meta
 // (função meta-campaign-status; conta com token só de leitura devolve erro).
 // A receita só existe por campanha (o gam-sync não lê utm_content), então os anúncios mostram só gasto/cliques.
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { RefreshCw, Wallet, TrendingUp, DollarSign, Percent, ChevronDown, ChevronRight, History } from "lucide-react";
+import { RefreshCw, Wallet, TrendingUp, DollarSign, Percent, ChevronDown, ChevronRight, History, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtUSD, fmtNumber, fmtPercent } from "@/lib/format";
@@ -27,6 +27,8 @@ interface FbRow { ad_account_id: string; date: string; campaign_id: string; camp
 interface RevRow { site_id: string; campaign_id: string; date: string; revenue_usd: number; impressions: number; ecpm_url_usd: number | null }
 
 interface Agg { spend: number; impressions: number; clicks: number; lpv: number; revenue: number; conv: number }
+// Ordenação da tabela de campanhas (11/10): clique no título da coluna; 2º clique inverte. Sem valor (—) vai sempre pro fim.
+type OrdKey = "orc" | "dias" | "spend" | "revenue" | "lucro" | "roi" | "conv" | "cpa" | "ecpm" | "clicks" | "lpv" | "cpc" | "rpv";
 const emptyAgg = (): Agg => ({ spend: 0, impressions: 0, clicks: 0, lpv: 0, revenue: 0, conv: 0 });
 const roi = (a: Agg) => (a.spend > 0 ? ((a.revenue - a.spend) / a.spend) * 100 : 0);
 
@@ -169,6 +171,40 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
   };
 
   const t = view?.total ?? emptyAgg();
+  const [ord, setOrd] = useState<{ k: OrdKey; asc: boolean }>({ k: "spend", asc: false });
+  const ecpmMedio = (c: { ecpmUrl: number[] }) => (c.ecpmUrl.length ? c.ecpmUrl.reduce((a, b) => a + b, 0) / c.ecpmUrl.length : null);
+  const valorOrd = (cid: string, c: Agg & { ecpmUrl: number[] }, k: OrdKey): number | null => {
+    switch (k) {
+      case "orc": return status?.__budget?.[cid] ?? null;
+      case "dias": return data?.diasGasto?.[cid] ?? 0;
+      case "spend": return c.spend;
+      case "revenue": return c.revenue;
+      case "lucro": return c.revenue - c.spend;
+      case "roi": return c.spend > 0 ? roi(c) : null;
+      case "conv": return c.conv;
+      case "cpa": return c.conv ? c.spend / c.conv : null;
+      case "ecpm": return ecpmMedio(c);
+      case "clicks": return c.clicks;
+      case "lpv": return c.lpv;
+      case "cpc": return c.clicks ? c.spend / c.clicks : null;
+      case "rpv": return c.lpv ? c.revenue / c.lpv : null;
+    }
+  };
+  const campsOrd = [...(view?.camps ?? [])].sort(([ia, a], [ib, b]) => {
+    const va = valorOrd(ia, a, ord.k), vb = valorOrd(ib, b, ord.k);
+    if (va == null && vb == null) return b.spend - a.spend;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return ord.asc ? va - vb : vb - va;
+  });
+  const Th = ({ k, children, title }: { k: OrdKey; children: ReactNode; title?: string }) => (
+    <TableHead className="text-right cursor-pointer select-none whitespace-nowrap hover:text-foreground" title={title ?? "Clique para ordenar"}
+      onClick={() => setOrd((o) => (o.k === k ? { k, asc: !o.asc } : { k, asc: false }))}>
+      <span className="inline-flex items-center gap-1">{children}
+        {ord.k === k ? (ord.asc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+      </span>
+    </TableHead>
+  );
   const lastSync = data?.accs.map((a) => a.last_sync_at).filter(Boolean).sort().pop();
   const syncErr = data?.accs.find((a) => a.last_sync_error)?.last_sync_error;
 
@@ -206,19 +242,19 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               <TableRow>
                 <TableHead className="min-w-[200px]">Campanha / anúncio</TableHead>
                 <TableHead className="text-center">Ativa</TableHead>
-                <TableHead className="text-right">Orçam./dia</TableHead>
-                <TableHead className="text-right">Dias</TableHead>
-                <TableHead className="text-right">Gasto</TableHead>
-                <TableHead className="text-right">Receita</TableHead>
-                <TableHead className="text-right">Lucro</TableHead>
-                <TableHead className="text-right">ROI</TableHead>
-                <TableHead className="text-right">Conversões</TableHead>
-                <TableHead className="text-right">Custo/conv.</TableHead>
-                <TableHead className="text-right" title="eCPM da página de destino no GAM (todo o tráfego da URL), média dos dias do período">eCPM URL</TableHead>
-                <TableHead className="text-right">Cliques</TableHead>
-                <TableHead className="text-right">Visualiz. página</TableHead>
-                <TableHead className="text-right">CPC</TableHead>
-                <TableHead className="text-right">Receita/visualiz.</TableHead>
+                <Th k="orc">Orçam./dia</Th>
+                <Th k="dias">Dias</Th>
+                <Th k="spend">Gasto</Th>
+                <Th k="revenue">Receita</Th>
+                <Th k="lucro">Lucro</Th>
+                <Th k="roi">ROI</Th>
+                <Th k="conv">Conversões</Th>
+                <Th k="cpa">Custo/conv.</Th>
+                <Th k="ecpm" title="eCPM da página de destino no GAM (todo o tráfego da URL), média dos dias do período">eCPM URL</Th>
+                <Th k="clicks">Cliques</Th>
+                <Th k="lpv">Visualiz. página</Th>
+                <Th k="cpc">CPC</Th>
+                <Th k="rpv">Receita/visualiz.</Th>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -226,7 +262,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               {!isLoading && !view?.camps.length && (
                 <TableRow><TableCell colSpan={15} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
-              {view?.camps.map(([cid, c]) => (
+              {campsOrd.map(([cid, c]) => (
                 <Fragment key={cid}>
                   <TableRow className="cursor-pointer font-medium" onClick={() => setOpen((o) => ({ ...o, [cid]: !o[cid] }))}>
                     <TableCell className="min-w-[200px] max-w-[260px] whitespace-normal break-words align-top">

@@ -1891,9 +1891,41 @@ async function persistCampaignTotalRequests(args: {
       if (siteRate && siteRate > 0) agg.set(key, { cid: p.cid, date: p.date, total_requests: Math.round(p.impressions / siteRate), source: "site_match_rate", impressions: p.impressions, revenue_usd: p.revenue_usd, match_rate_pct: siteRate * 100 });
     }
   }
+  // 11/10/2026 (DASH FACEBOOK): o eCPM da página só era gravado nas campanhas que vinham no relatório de
+  // AD_EXCHANGE_TOTAL_REQUESTS acima; campanhas do Facebook novas ficavam com "—". Aqui toda campanha que tem
+  // página em fb_campaign_urls (e está neste site) recebe o eCPM da URL em cada dia do período:
+  // atualiza a linha existente ou cria uma com receita 0 (não mexe em receita/impressões já gravadas).
+  const fillFbEcpm = async (doneKeys: Set<string>) => {
+  try {
+    const { data: fbu } = await admin.from("fb_campaign_urls").select("campaign_id,url").eq("user_id", userId);
+    const syncDates = datesFromRanges(ranges);
+    let upd = 0, ins = 0;
+    for (const f of (fbu ?? []) as any[]) {
+      const cid = String(f.campaign_id); const path = urlPathOnly(String(f.url ?? ""));
+      const site = siteFor(cid);
+      if (!path || !siteIds.includes(site)) continue;
+      const porDia = urlEcpmByDate.get(path);
+      if (!porDia) continue;
+      for (const date of syncDates) {
+        if (doneKeys.has(`${cid}|${date}`)) continue;
+        const v = porDia.get(date);
+        if (!v || v.impressions < 10) continue;
+        const ecpm = (v.revenueUsd / v.impressions) * 1000;
+        const { data: ex } = await admin.from("gam_campaign_source_revenue").select("id").eq("user_id", userId).eq("site_id", site)
+          .eq("campaign_id", cid).eq("date", date).eq("utm_source", "google").limit(1);
+        if (ex && ex.length) { await admin.from("gam_campaign_source_revenue").update({ ecpm_url_usd: ecpm }).eq("id", ex[0].id); upd++; }
+        else { await admin.from("gam_campaign_source_revenue").insert({ user_id: userId, site_id: site, campaign_id: cid, date, utm_source: "google", revenue_usd: 0, impressions: 0, ecpm_url_usd: ecpm }); ins++; }
+      }
+    }
+    debug.push(`[${networkCode}/ECPM_URL_FB] atualizadas=${upd} criadas=${ins}`);
+  } catch (e) {
+    debug.push(`[${networkCode}/ECPM_URL_FB] erro=${String(e).slice(0, 300)}`);
+  }
+  };
   if (agg.size === 0) {
     debug.push(`[${networkCode}/total_requests] nenhuma linha com utm_campaign no relatório AdX; recalculando match rate via cliques do Ads`);
     await recomputeCampaignMatchRateFromClicks({ admin, userId, siteId, siteIds, dates: datesFromRanges(ranges), debug, networkCode, siteMatchRateByDate, urlMatchRateByDate, overwriteStale: true });
+    await fillFbEcpm(new Set());
     return;
   }
   // Atualiza linhas existentes em gam_campaign_source_revenue para utm_source='google'.
@@ -1950,7 +1982,7 @@ async function persistCampaignTotalRequests(args: {
   };
   // eCPM da URL/página que essa campanha usa como landing (revenue/impressões da
   // página, não da campanha) — null se a página não tiver impressões suficientes.
-  const MIN_URL_ECPM_IMPRESSIONS = 20;
+  const MIN_URL_ECPM_IMPRESSIONS = 10; // 11/10: 20 deixava os testes do Facebook (pouco tráfego) sem eCPM
   const pickUrlEcpm = (cid: string, date: string): number | null => {
     const path = cidToPath.get(cid);
     if (!path) return null;
@@ -2069,6 +2101,8 @@ async function persistCampaignTotalRequests(args: {
     if (error) debug.push(`[${networkCode}/total_requests] upsert err=${error.message}`);
   }
   debug.push(`[${networkCode}/total_requests] ${rows.length} (cid,date) atualizados`);
+
+  await fillFbEcpm(new Set(rows.map((r: any) => `${r.campaign_id}|${r.date}`)));
 
   // Recalcula match_rate_pct para TODAS as linhas utm_source='google' com impressões no
   // período — inclusive as campanhas que o relatório AdX (AD_EXCHANGE_TOTAL_REQUESTS) não
