@@ -2279,6 +2279,24 @@ async function persistCampaignSourceRevenueFromUtm(
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;
   }
+  // 11/10/2026: o delete+insert abaixo apagava o ecpm_url_usd gravado antes nesta mesma sync (persistCampaignTotalRequests /
+  // eCPM das campanhas do Facebook). Guarda o eCPM das linhas atuais e devolve nas novas; linhas que só tinham eCPM
+  // (campanha sem receita atribuída no dia) voltam com receita 0.
+  const { data: ecpmAntes } = await admin.from("gam_campaign_source_revenue")
+    .select("campaign_id,date,utm_source,ecpm_url_usd").eq("user_id", userId).in("site_id", siteIds).in("date", dates)
+    .not("ecpm_url_usd", "is", null);
+  const ecpmPorChave = new Map<string, any>();
+  for (const r of (ecpmAntes ?? []) as any[]) ecpmPorChave.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, r);
+  for (const b of arr as any[]) {
+    const k = `${b.campaign_id}|${b.date}|${b.utm_source}`;
+    const ant = ecpmPorChave.get(k);
+    if (ant) { b.ecpm_url_usd = Number(ant.ecpm_url_usd); ecpmPorChave.delete(k); }
+  }
+  for (const r of ecpmPorChave.values()) {
+    if (r.campaign_id === "__aggregate__") continue;
+    (arr as any[]).push({ user_id: userId, site_id: siteFor(r.campaign_id), campaign_id: r.campaign_id, date: r.date, utm_source: r.utm_source,
+      revenue_usd: 0, impressions: 0, total_requests: 0, match_rate_pct: null, ecpm_url_usd: Number(r.ecpm_url_usd) });
+  }
   await admin.from("gam_campaign_source_revenue")
     .delete().eq("user_id", userId).in("site_id", siteIds).in("date", dates);
   const CHUNK = 500;
