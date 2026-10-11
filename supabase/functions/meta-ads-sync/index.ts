@@ -110,11 +110,16 @@ function tzOffsetMin(tz: string, utcMs: number): number {
   return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - utcMs) / 60_000;
 }
 
-// Data (YYYY-MM-DD) no fuso do painel de uma hora "date + HH" no fuso da conta.
-function dashDate(date: string, hour: number, accountTz: string): string {
+// Instante UTC (ms) do início da hora "date + HH" no fuso da conta.
+function hourUtcMs(date: string, hour: number, accountTz: string): number {
   const [y, m, d] = date.split("-").map(Number);
   const guess = Date.UTC(y, m - 1, d, hour);
-  const utc = guess - tzOffsetMin(accountTz, guess - tzOffsetMin(accountTz, guess) * 60_000) * 60_000;
+  return guess - tzOffsetMin(accountTz, guess - tzOffsetMin(accountTz, guess) * 60_000) * 60_000;
+}
+
+// Data (YYYY-MM-DD) no fuso do painel de uma hora "date + HH" no fuso da conta.
+function dashDate(date: string, hour: number, accountTz: string): string {
+  const utc = hourUtcMs(date, hour, accountTz);
   return ymd(new Date(utc + tzOffsetMin(DASH_TZ, utc) * 60_000));
 }
 
@@ -236,6 +241,22 @@ Deno.serve(async (req) => {
           const { error: upErr } = await admin.from("fb_ad_daily")
             .upsert(records.slice(i, i + 500), { onConflict: "user_id,ad_id,date" });
           if (upErr) throw new Error(upErr.message);
+        }
+        // Primeira hora com gasto de cada campanha (11/10): a aba Facebook mostra "Gastando há". Só recua no tempo,
+        // então uma campanha antiga fica com o início da janela até um sync com mais dias achar o gasto mais antigo.
+        const primeira = new Map<string, number>();
+        for (const r of rows) {
+          if (!(Number(r.spend ?? 0) > 0)) continue;
+          const t = hourUtcMs(r.date_start, Number((r.hourly_stats_aggregated_by_advertiser_time_zone ?? "00").slice(0, 2)), accountTz);
+          const cid = String(r.campaign_id);
+          if (!primeira.has(cid) || t < primeira.get(cid)!) primeira.set(cid, t);
+        }
+        if (primeira.size) {
+          const { data: atuais } = await admin.from("fb_campaign_first_spend").select("campaign_id,first_spend_at").in("campaign_id", [...primeira.keys()]);
+          const antes = new Map(((atuais ?? []) as any[]).map((x) => [String(x.campaign_id), Date.parse(x.first_spend_at)]));
+          const novos = [...primeira].filter(([cid, t]) => !(antes.get(cid)! <= t))
+            .map(([campaign_id, t]) => ({ campaign_id, user_id: acc.user_id, first_spend_at: new Date(t).toISOString(), updated_at: new Date().toISOString() }));
+          if (novos.length) await admin.from("fb_campaign_first_spend").upsert(novos, { onConflict: "campaign_id" });
         }
         await admin.from("fb_ad_accounts").update({ last_sync_at: new Date().toISOString(), last_sync_error: null }).eq("id", acc.id);
         result.push({ account: acc.name ?? acc.ad_account_id, rows: records.length });

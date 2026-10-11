@@ -5,7 +5,7 @@
 // Dias = quantos dias a campanha já teve gasto (todo o histórico, não só o período). O botão liga/pausa a campanha na Meta
 // (função meta-campaign-status; conta com token só de leitura devolve erro).
 // A receita só existe por campanha (o gam-sync não lê utm_content), então os anúncios mostram só gasto/cliques.
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,16 @@ interface RevRow { site_id: string; campaign_id: string; date: string; revenue_u
 
 interface Agg { spend: number; impressions: number; clicks: number; lpv: number; revenue: number; conv: number }
 // Ordenação da tabela de campanhas (11/10): clique no título da coluna; 2º clique inverte. Sem valor (—) vai sempre pro fim.
-type OrdKey = "orc" | "dias" | "spend" | "revenue" | "lucro" | "roi" | "conv" | "cpa" | "ecpm" | "clicks" | "lpv" | "cpc" | "rpv";
+type OrdKey = "orc" | "dias" | "gastando" | "atraso" | "spend" | "revenue" | "lucro" | "roi" | "conv" | "cpa" | "ecpm" | "clicks" | "lpv" | "cpc" | "rpv";
+// "4h10", "1d 3h": tempo desde um instante (ms). Usado em "Gastando há" e "Atraso".
+const fmtDur = (ms: number) => {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 48 ? `${h}h${String(min % 60).padStart(2, "0")}` : `${Math.floor(h / 24)}d ${h % 24}h`;
+};
+// Hoje no fuso do GAM (Brasília, UTC-3 o ano todo).
+const hojeBrt = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 const emptyAgg = (): Agg => ({ spend: 0, impressions: 0, clicks: 0, lpv: 0, revenue: 0, conv: 0 });
 const roi = (a: Agg) => (a.spend > 0 ? ((a.revenue - a.spend) / a.spend) * 100 : 0);
 
@@ -47,7 +56,7 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       const sb = supabase as any; // tabelas novas, ainda fora dos tipos gerados
       const { data: accounts } = await sb.from("fb_ad_accounts").select("id,ad_account_id,name,currency,site_id,last_sync_at,last_sync_error").eq("active", true);
       const accs = ((accounts ?? []) as FbAccount[]).filter((a) => siteId === "all" || a.site_id === siteId);
-      if (!accs.length) return { accs, fbRows: [] as FbRow[], rev: [] as RevRow[], netBySite: {} as Record<string, number>, diasGasto: {} as Record<string, number> };
+      if (!accs.length) return { accs, fbRows: [] as FbRow[], rev: [] as RevRow[], netBySite: {} as Record<string, number>, diasGasto: {} as Record<string, number>, primeiroGasto: {} as Record<string, number> };
       const { data: rows } = await sb.from("fb_ad_daily")
         .select("ad_account_id,date,campaign_id,campaign_name,ad_id,ad_name,spend,impressions,link_clicks,landing_page_views,results,result_name")
         .in("ad_account_id", accs.map((a) => a.ad_account_id))
@@ -71,9 +80,15 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
         for (const r of (h ?? []) as any[]) { const k = String(r.campaign_id); if (!set.has(k)) set.set(k, new Set()); set.get(k)!.add(r.date); }
         for (const [k, v] of set) diasGasto[k] = v.size;
       }
+      // Hora do primeiro gasto (meta-ads-sync, insights por hora) → coluna "Gastando há".
+      const primeiroGasto: Record<string, number> = {};
+      if (campaignIds.length) {
+        const { data: f } = await sb.from("fb_campaign_first_spend").select("campaign_id,first_spend_at").in("campaign_id", campaignIds);
+        for (const r of (f ?? []) as any[]) primeiroGasto[String(r.campaign_id)] = Date.parse(r.first_spend_at);
+      }
       const netBySite: Record<string, number> = {};
       for (const s of siteIds) netBySite[s] = 1 - (await getRevSharePct(s)) / 100;
-      return { accs, fbRows, rev, netBySite, diasGasto };
+      return { accs, fbRows, rev, netBySite, diasGasto, primeiroGasto };
     },
   });
 
@@ -121,6 +136,28 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
       return { ...((res as any)?.status ?? {}), __budget: (res as any)?.budget ?? {} } as Record<string, any>;
     },
   });
+  // Até que hora o GAM de cada site já tem dado hoje (gam-last-hour = mesma quebra por hora do painel do GAM).
+  // A receita de hoje só cobre até essa hora; o gasto da Meta vai até o último sync. Daí a coluna "Atraso".
+  const siteIdsAtivos = [...new Set((data?.accs ?? []).map((a) => a.site_id).filter(Boolean))] as string[];
+  const { data: gamHora } = useQuery({
+    queryKey: ["facebook-gam-hora", siteIdsAtivos.join(","), hojeBrt()],
+    enabled: siteIdsAtivos.length > 0,
+    refetchInterval: 5 * 60_000,
+    queryFn: async () => {
+      const out: Record<string, number | null> = {};
+      await Promise.all(siteIdsAtivos.map(async (s) => {
+        const { data: res } = await supabase.functions.invoke<any>("gam-last-hour", { body: { site_id: s, date: hojeBrt() } });
+        const h = res?.lastHour;
+        const [y, m, d] = hojeBrt().split("-").map(Number);
+        out[s] = typeof h === "number" ? Date.UTC(y, m - 1, d, h + 3) : null; // início da última hora com dado (BRT → UTC)
+      }));
+      return out;
+    },
+  });
+  const [agora, setAgora] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  const atrasoReceita = (site: string | null) => (site && gamHora?.[site] != null ? agora - gamHora[site]! : null);
+  const gastandoHa = (cid: string) => (data?.primeiroGasto?.[cid] ? agora - data.primeiroGasto[cid] : null);
   const [mudando, setMudando] = useState<string | null>(null);
   const [hist, setHist] = useState<{ cid: string; name: string; site: string | null } | null>(null);
   const alternar = async (cid: string, ligar: boolean) => {
@@ -173,10 +210,12 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
   const t = view?.total ?? emptyAgg();
   const [ord, setOrd] = useState<{ k: OrdKey; asc: boolean }>({ k: "spend", asc: false });
   const ecpmMedio = (c: { ecpmUrl: number[] }) => (c.ecpmUrl.length ? c.ecpmUrl.reduce((a, b) => a + b, 0) / c.ecpmUrl.length : null);
-  const valorOrd = (cid: string, c: Agg & { ecpmUrl: number[] }, k: OrdKey): number | null => {
+  const valorOrd = (cid: string, c: Agg & { ecpmUrl: number[]; site: string | null }, k: OrdKey): number | null => {
     switch (k) {
       case "orc": return status?.__budget?.[cid] ?? null;
       case "dias": return data?.diasGasto?.[cid] ?? 0;
+      case "gastando": return gastandoHa(cid);
+      case "atraso": return atrasoReceita(c.site);
       case "spend": return c.spend;
       case "revenue": return c.revenue;
       case "lucro": return c.revenue - c.spend;
@@ -244,6 +283,8 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                 <TableHead className="text-center">Ativa</TableHead>
                 <Th k="orc">Orçam./dia</Th>
                 <Th k="dias">Dias</Th>
+                <Th k="gastando" title="Tempo desde a primeira hora com gasto na Meta. Verde a partir de 8 h. Clique para ordenar">Gastando há</Th>
+                <Th k="atraso" title="Quanto a receita do GAM está atrasada: hoje ela só vai até a última hora que o GAM já liberou. Clique para ordenar">Atraso receita</Th>
                 <Th k="spend">Gasto</Th>
                 <Th k="revenue">Receita</Th>
                 <Th k="lucro">Lucro</Th>
@@ -258,9 +299,9 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={15} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={17} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               {!isLoading && !view?.camps.length && (
-                <TableRow><TableCell colSpan={15} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={17} className="text-center text-muted-foreground">{siteId !== "all" && !data?.accs.length ? "Nenhuma conta da Meta ligada a este site." : "Nenhum gasto do Facebook no período. Clique em Sincronizar."}</TableCell></TableRow>
               )}
               {campsOrd.map(([cid, c]) => (
                 <Fragment key={cid}>
@@ -290,6 +331,14 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">{data?.diasGasto?.[cid] ?? 0}</TableCell>
+                    <TableCell className={cn("text-right whitespace-nowrap", (gastandoHa(cid) ?? 0) >= 8 * 3600_000 ? "text-success font-semibold" : "text-muted-foreground")}
+                      title={data?.primeiroGasto?.[cid] ? `Primeiro gasto: ${new Date(data.primeiroGasto[cid]).toLocaleString("pt-BR")}` : "Ainda sem a hora do primeiro gasto (aparece no próximo sync)"}>
+                      {gastandoHa(cid) != null ? fmtDur(gastandoHa(cid)!) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right whitespace-nowrap"
+                      title={c.site && gamHora?.[c.site] != null ? `Receita do GAM de hoje até ${new Date(gamHora[c.site]!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} (a última hora pode estar incompleta)${lastSync ? ` · gasto da Meta atualizado há ${fmtDur(agora - Date.parse(lastSync))}` : ""}` : "Sem dado do GAM hoje"}>
+                      {atrasoReceita(c.site) != null ? fmtDur(atrasoReceita(c.site)!) : "—"}
+                    </TableCell>
                     <TableCell className="text-right">{fmtUSD(c.spend)}</TableCell>
                     <TableCell className="text-right">{fmtUSD(c.revenue)}</TableCell>
                     <TableCell className={cn("text-right", c.revenue - c.spend >= 0 ? "text-success" : "text-danger")}>{fmtUSD(c.revenue - c.spend)}</TableCell>
@@ -305,6 +354,8 @@ export function FacebookTab({ fxUsdBrl, siteId = "all" }: { fxUsdBrl: number; si
                   {open[cid] && [...c.ads.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([aid, a]) => (
                     <TableRow key={aid} className="text-muted-foreground text-sm">
                       <TableCell className="pl-9 max-w-[260px] whitespace-normal break-words text-xs">{a.name}</TableCell>
+                      <TableCell />
+                      <TableCell />
                       <TableCell />
                       <TableCell />
                       <TableCell />
