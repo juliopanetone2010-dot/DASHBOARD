@@ -645,6 +645,40 @@ Deno.serve(async (req) => {
               else debugLogs.push(`metrics upsert err ${leaf.customer_id}: ${mErr.message}`);
             }
 
+            // O upsert acima atualiza só o gasto. Lucro/ROI/ROAS eram gravados pelo gam-sync-revenue com o gasto
+            // daquela hora e ficavam congelados quando o dia não era re-sincronizado no GAM (o 1º dia de toda
+            // campanha nova aparecia com receita = lucro + gasto inflada). Aqui eles são recalculados com o gasto
+            // novo e a receita já gravada (mesma fórmula do gam-sync-revenue).
+            try {
+              const touched = [...new Set(metricRows.map((m) => m.date))];
+              if (touched.length > 0) {
+                const fx = await getUsdBrl(admin);
+                const { data: cur } = await admin
+                  .from("daily_metrics")
+                  .select("id, spend, revenue")
+                  .eq("user_id", userId)
+                  .eq("google_account_id", leaf.id)
+                  .in("date", touched);
+                const fixes = ((cur ?? []) as any[]).map((m) => {
+                  const spendBrl = Number(m.spend ?? 0);
+                  const revenueUsd = Number(m.revenue ?? 0);
+                  const revenueBrl = revenueUsd * fx;
+                  const profit = revenueBrl - spendBrl;
+                  const roi = spendBrl > 0 ? (revenueUsd > 0 ? (profit / spendBrl) * 100 : -100) : 0;
+                  const roas = spendBrl > 0 ? revenueBrl / spendBrl : 0;
+                  return { id: m.id, profit, roi, roas };
+                });
+                for (let i = 0; i < fixes.length; i += 25) {
+                  await Promise.all(fixes.slice(i, i + 25).map((u) =>
+                    admin.from("daily_metrics").update({ profit: u.profit, roi: u.roi, roas: u.roas }).eq("id", u.id)
+                  ));
+                }
+                debugLogs.push(`profit recalculado ${leaf.customer_id}: ${fixes.length} linhas (fx=${fx})`);
+              }
+            } catch (e) {
+              debugLogs.push(`profit recalc err ${leaf.customer_id}: ${String(e)}`);
+            }
+
             accountResults.push({
               customer_id: leaf.customer_id,
               name: leaf.name,
@@ -715,4 +749,22 @@ function json(payload: unknown) {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Cotação USD→BRL para recalcular lucro/ROI (mesma ordem de fontes do dash: tabela exchange_rates do fx-sync,
+// depois open.er-api; por último o mesmo fallback do gam-sync-revenue). Cacheada por execução.
+let _usdBrl: number | null = null;
+async function getUsdBrl(admin: any): Promise<number> {
+  if (_usdBrl) return _usdBrl;
+  try {
+    const { data } = await admin.from("exchange_rates").select("rate").eq("from_currency", "USD").eq("to_currency", "BRL").maybeSingle();
+    const r = Number((data as any)?.rate);
+    if (Number.isFinite(r) && r > 0) return (_usdBrl = r);
+  } catch { /* segue */ }
+  try {
+    const data = await (await fetch("https://open.er-api.com/v6/latest/USD")).json();
+    const r = Number(data?.rates?.BRL);
+    if (Number.isFinite(r) && r > 0) return (_usdBrl = r);
+  } catch { /* segue */ }
+  return (_usdBrl = 4.97);
 }
