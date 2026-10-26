@@ -1,85 +1,114 @@
+// Atualiza tabela exchange_rates com cotações para BRL.
+// Estratégia: tenta awesomeapi (Banco Central BR) primeiro, fallback open.er-api.
+// Pode ser invocada manualmente (botão "Atualizar" da dash) OU agendada via pg_cron.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
-const GAM_BASE = "https://admanager.googleapis.com/v1";
-const SCOPE = "https://www.googleapis.com/auth/admanager";
+const PAIRS: Array<{ from: string; to: string }> = [
+  { from: "USD", to: "BRL" },
+  { from: "EUR", to: "BRL" },
+  { from: "GBP", to: "BRL" },
+];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  
+  const debug: string[] = [];
   try {
-    const networkCode = "21683973686"; // Universo Dos Cartoes
-    const sa = JSON.parse(Deno.env.get("GAM_SERVICE_ACCOUNT_JSON")!);
-    const accessToken = await getAccessToken(sa);
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
-    // 1) Audit utm_campaign key
-    const keysUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys`);
-    keysUrl.searchParams.set("pageSize", "500");
-    const kr = await fetch(keysUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const kj = await kr.json();
-    const keys = kj.customTargetingKeys ?? [];
-
-    const campKey = keys.find((k: any) => String(k.adTagName).toLowerCase() === "utm_campaign");
-    let valuesSummary: any = null;
-    const lookFor = ["23207554976", "23309079322", "22923001384"];
-
-    if (campKey) {
-      // Fetch values with large page size
-      const vUrl = new URL(`${GAM_BASE}/networks/${networkCode}/customTargetingKeys/${campKey.customTargetingKeyId}/customTargetingValues`);
-      vUrl.searchParams.set("pageSize", "1000");
-      const vr = await fetch(vUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const vj = await vr.json();
-      
-      const rawValues = vj.customTargetingValues ?? [];
-      const vals = rawValues.map((v: any) => String(v.name.split("/").pop()));
-      const names = rawValues.map((v: any) => String(v.displayName));
-
-      valuesSummary = {
-        key_id: campKey.customTargetingKeyId,
-        type: campKey.type || campKey.customTargetingKeyType,
-        reportable: campKey.reportableType,
-        status: campKey.status,
-        total_in_page: rawValues.length,
-        found_ids: lookFor.filter(c => vals.includes(c)),
-        missing_ids: lookFor.filter(c => !vals.includes(c)),
-        samples: names.slice(0, 50)
-      };
+    // A dash (navegador) consegue a cotação ao vivo da awesomeapi, que bloqueia os IPs do Supabase.
+    // Aceita só de usuário logado e só se estiver perto da cotação já salva.
+    let usdOverride: number | null = null;
+    const body = await req.json().catch(() => ({}));
+    const sent = Number((body as any)?.usd_brl);
+    if (Number.isFinite(sent) && sent > 0) {
+      const authHeader = req.headers.get("Authorization");
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data: claims } = authHeader?.startsWith("Bearer ")
+        ? await userClient.auth.getClaims(authHeader.replace("Bearer ", ""))
+        : { data: null };
+      const { data: cur } = await admin.from("exchange_rates").select("rate").eq("from_currency", "USD").eq("to_currency", "BRL").maybeSingle();
+      const curRate = Number((cur as any)?.rate);
+      const near = !Number.isFinite(curRate) || curRate <= 0 || Math.abs(sent / curRate - 1) <= 0.25;
+      if (claims?.claims?.sub && sent > 2 && sent < 12 && near) usdOverride = sent;
+      else debug.push(`[fx] usd_brl=${sent} ignorado (sem login ou fora da faixa)`);
     }
 
-    return new Response(JSON.stringify({ 
-      ok: true, 
-      identity: "FORCED_AUDIT_VIA_FX_SYNC",
-      utm_campaign: valuesSummary,
-      keys: keys.map((k: any) => k.adTagName)
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
+    const results: Array<{ from: string; to: string; rate: number; source: string }> = [];
+    for (const p of PAIRS) {
+      const r = p.from === "USD" && usdOverride ? { rate: usdOverride, source: "awesomeapi" } : await fetchPair(p.from, p.to, debug);
+      if (r) {
+        const { error } = await admin.from("exchange_rates").upsert({
+          from_currency: p.from, to_currency: p.to, rate: r.rate, source: r.source,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "from_currency,to_currency" });
+        if (error) debug.push(`[fx] upsert ${p.from}->${p.to} falhou: ${error.message}`);
+        else results.push({ from: p.from, to: p.to, ...r });
+      }
+    }
+    return json({ ok: true, results, debug });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e), stack: e.stack }), { 
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
+    return json({ error: String(e), debug }, 500);
   }
 });
 
-async function getAccessToken(sa: any) {
-  const now = Math.floor(Date.now() / 1000);
-  const enc = (o: any) => btoa(JSON.stringify(o)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-  const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({
-    iss: sa.client_email, scope: SCOPE, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
-  })}`;
-  const pem = sa.private_key.replace(/\\n/g, "\n");
-  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
-  const bin = atob(b64);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  const key = await crypto.subtle.importKey("pkcs8", buf.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-  const r = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sigB64}` }),
+async function fetchPair(from: string, to: string, debug: string[]): Promise<{ rate: number; source: string } | null> {
+  if (to === "BRL") {
+    try {
+      const token = Deno.env.get("AWESOMEAPI_TOKEN");
+      const res = await fetch(`https://economia.awesomeapi.com.br/json/last/${from}-${to}${token ? `?token=${token}` : ""}`);
+      const text = await res.text();
+      const data = JSON.parse(text);
+      const rate = Number(data?.[`${from}${to}`]?.bid);
+      if (Number.isFinite(rate) && rate > 0) {
+        debug.push(`[fx] ${from}->${to} ${rate} (awesomeapi)`);
+        return { rate, source: "awesomeapi" };
+      }
+      debug.push(`[fx] awesomeapi ${from}->${to} sem cotação: HTTP ${res.status} ${text.slice(0, 200)}`);
+    } catch (e) {
+      debug.push(`[fx] awesomeapi ${from}->${to} falhou: ${String(e)}`);
+    }
+  }
+  // PTAX do Banco Central: boletim mais recente (atualiza várias vezes ao dia), sem chave e sem cota.
+  // A awesomeapi devolve 429 pra IPs do Supabase e a open.er-api só atualiza 1x/dia (fica velha).
+  if (from === "USD" && to === "BRL") {
+    try {
+      const fmt = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}-${d.getUTCFullYear()}`;
+      const end = new Date();
+      const start = new Date(Date.now() - 7 * 86400_000);
+      const url = `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)?@dataInicial='${fmt(start)}'&@dataFinalCotacao='${fmt(end)}'&$orderby=dataHoraCotacao%20desc&$top=1&$format=json`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const row = data?.value?.[0];
+      const rate = Number(row?.cotacaoVenda);
+      if (Number.isFinite(rate) && rate > 0) {
+        debug.push(`[fx] ${from}->${to} ${rate} (bcb-ptax ${row.dataHoraCotacao})`);
+        return { rate, source: "bcb-ptax" };
+      }
+      debug.push(`[fx] bcb-ptax sem cotação: HTTP ${res.status}`);
+    } catch (e) {
+      debug.push(`[fx] bcb-ptax falhou: ${String(e)}`);
+    }
+  }
+  try {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${from}`);
+    const data = await res.json();
+    const rate = Number(data?.rates?.[to]);
+    if (Number.isFinite(rate) && rate > 0) {
+      debug.push(`[fx] ${from}->${to} ${rate} (open.er-api)`);
+      return { rate, source: "open.er-api" };
+    }
+  } catch (e) {
+    debug.push(`[fx] open.er-api ${from}->${to} falhou: ${String(e)}`);
+  }
+  return null;
+}
+
+function json(p: unknown, status = 200) {
+  return new Response(JSON.stringify(p), {
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-  const j = await r.json();
-  return j.access_token;
 }

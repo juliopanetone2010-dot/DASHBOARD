@@ -123,7 +123,18 @@ const IndexInner = () => {
   const fxQuery = useQuery<{ rate: number; updatedAt: string | null; source: string | null }>({
     queryKey: ["fx-usd-brl"],
     queryFn: async () => {
-      // 1) Tenta a tabela exchange_rates (atualizada 1x/dia via fx-sync)
+      // 0) Cotação ao vivo direto do navegador (a awesomeapi bloqueia os IPs do servidor, e a tabela
+      // exchange_rates ficava com cotação do dia anterior). Grava na tabela pra os cálculos do servidor.
+      try {
+        const r = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+        const j = await r.json();
+        const live = Number(j?.USDBRL?.bid);
+        if (Number.isFinite(live) && live > 0) {
+          try { await supabase.functions.invoke("fx-sync", { body: { usd_brl: live } }); } catch {}
+          return { rate: live, updatedAt: new Date().toISOString(), source: "awesomeapi" };
+        }
+      } catch {}
+      // 1) Tenta a tabela exchange_rates (atualizada via fx-sync)
       try {
         const { data } = await supabase
           .from("exchange_rates")
@@ -170,8 +181,8 @@ const IndexInner = () => {
       } catch {}
       return { rate: 5, updatedAt: null, source: "fallback" };
     },
-    staleTime: 30 * 60 * 1000,
-    refetchInterval: 60 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    refetchInterval: 10 * 60 * 1000,
   });
 
   // Receita extra (push + outras origens) vinda do GAM por UTM, para somar ao ROI/ROAS.
