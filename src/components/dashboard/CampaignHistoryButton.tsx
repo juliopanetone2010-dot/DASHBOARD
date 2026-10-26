@@ -7,7 +7,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtCurrency, fmtPercent, fmtNumber } from "@/lib/format";
+import { fmtCurrency, fmtPercent, fmtNumber, fmtUSD } from "@/lib/format";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { cn } from "@/lib/utils";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
@@ -73,7 +73,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .limit(20000),
         supabase
           .from("gam_campaign_source_revenue")
-          .select("date, impressions, total_requests, match_rate_pct")
+          .select("date, impressions, total_requests, match_rate_pct, revenue_usd")
           .eq("campaign_id", campaignId)
           .eq("utm_source", "google")
           .gte("date", from)
@@ -108,11 +108,12 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
       }
 
       // GAM campaign source (match rate) aggregated by day
-      const gamSourceByDay = new Map<string, { impressions: number; totalRequests: number; matchRatePct: number | null }>();
+      const gamSourceByDay = new Map<string, { impressions: number; totalRequests: number; matchRatePct: number | null; revenue: number }>();
       for (const r of gamSource.data ?? []) {
         const k = String((r as any).date);
-        const cur = gamSourceByDay.get(k) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
+        const cur = gamSourceByDay.get(k) ?? { impressions: 0, totalRequests: 0, matchRatePct: null, revenue: 0 };
         cur.impressions += Number((r as any).impressions ?? 0);
+        cur.revenue += Number((r as any).revenue_usd ?? 0);
         cur.totalRequests += Number((r as any).total_requests ?? 0);
         const pct = (r as any).match_rate_pct;
         if (pct != null) {
@@ -138,8 +139,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
 
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
         const g = gamByDay.get(String(d.date)) ?? { revenue: 0, impressions: 0 };
-        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null };
-        const ecpm = calculateCampaignEcpm(g.revenue, g.impressions).ecpm;
+        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null, revenue: 0 };
+        // Sem linha em gam_placement_revenue (ex.: Zay Viral), usa receita/impressões da campanha em gam_campaign_source_revenue.
+        const ecpm = g.impressions > 0
+          ? calculateCampaignEcpm(g.revenue, g.impressions).ecpm
+          : calculateCampaignEcpm(gs.revenue, gs.impressions).ecpm;
         const conv = Number(d.conversions) || 0;
         const cost = Number(d.spend) || 0;
         const grossProfitBrl = Number(d.profit) || 0;
@@ -718,7 +722,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
                         <TableCell className={cn("text-right tabular-nums font-medium", d.matchRateEstimated && "text-muted-foreground italic")} title={d.matchRateEstimated ? "Estimado (média ponderada dos dias com dados de match no período)" : undefined}>
                           {d.matchRate != null ? `${d.matchRateEstimated ? "~" : ""}${d.matchRate.toFixed(2)}%` : "—"}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums max-md:hidden">{d.ecpm > 0 ? fmtCurrency(d.ecpm) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums max-md:hidden">{d.ecpm > 0 ? fmtUSD(d.ecpm) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums max-md:hidden">{d.cpa > 0 ? fmtCurrency(d.cpa) : "—"}</TableCell>
                       </TableRow>
                     ))}
