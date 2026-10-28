@@ -2823,19 +2823,46 @@ async function persistSiteMetricsDaily(
   // gam_campaign_source_revenue, atualiza receita/impressões do dia mesmo assim.
   // Isso evita o dashboard travar quando o budget do sync apertar.
   let usedFallback = false;
+  // revenue_usd está em USD e revenue_native na moeda do site: em site BRL o fallback gravaria USD
+  // como se fosse BRL (~5× menor). Nesses sites mantém o que já está salvo.
+  if (byDate.size === 0 && fallbackRanges && fallbackRanges.length > 0 && String(currency || "USD").toUpperCase() !== "USD") {
+    debug.push(`[site_metrics_daily] site=${siteId} fallback pulado: moeda ${currency} (gam_campaign_source_revenue é USD)`);
+    return;
+  }
   if (byDate.size === 0 && fallbackRanges && fallbackRanges.length > 0) {
     const dateList = datesFromRanges(fallbackRanges);
     if (dateList.length > 0) {
       const { data: revRows } = await admin
         .from("gam_campaign_source_revenue")
-        .select("date, revenue_usd, impressions")
+        .select("date, campaign_id, utm_source, revenue_usd, impressions")
+        .eq("user_id", userId)
         .eq("site_id", siteId)
         .in("date", dateList);
+      // 28/10/2026: a tabela tem a linha __aggregate__ (total do utm_source) E a quebra por campanha do
+      // MESMO source. Somar as duas dobrava a receita do site (diario 27/10 e 28/10: $2.142 com GAM $1.075).
+      // Por (data, source): usa o agregado quando existe; se não houver (ex.: campanha de FR Job gravada
+      // no site extra, agregado ficou no principal), usa a soma das campanhas.
+      const bySrc = new Map<string, { agg: { impr: number; rev: number } | null; camp: { impr: number; rev: number } }>();
       for (const r of (revRows ?? []) as any[]) {
-        const cur = byDate.get(r.date) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
-        cur.impr += Number(r.impressions || 0);
-        cur.rev += Number(r.revenue_usd || 0);
-        byDate.set(r.date, cur);
+        const k = `${r.date}|${String(r.utm_source ?? "").toLowerCase()}`;
+        const cur = bySrc.get(k) ?? { agg: null, camp: { impr: 0, rev: 0 } };
+        const impr = Number(r.impressions || 0);
+        const rev = Number(r.revenue_usd || 0);
+        if (r.campaign_id === "__aggregate__") {
+          cur.agg = cur.agg ?? { impr: 0, rev: 0 };
+          cur.agg.impr += impr; cur.agg.rev += rev;
+        } else {
+          cur.camp.impr += impr; cur.camp.rev += rev;
+        }
+        bySrc.set(k, cur);
+      }
+      for (const [k, v] of bySrc.entries()) {
+        const date = k.slice(0, k.indexOf("|"));
+        const pick = v.agg ?? v.camp;
+        const cur = byDate.get(date) ?? { impr: 0, meas: 0, view: 0, rev: 0 };
+        cur.impr += pick.impr;
+        cur.rev += pick.rev;
+        byDate.set(date, cur);
       }
       usedFallback = byDate.size > 0;
     }
