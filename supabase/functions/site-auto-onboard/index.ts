@@ -86,6 +86,35 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     gamChunks: [] as Array<{ from: string; to: string; status: number; ok: boolean }>,
     errors: [] as string[],
   };
+  // 29/10/2026: registra cada etapa da rodada em sync_state (source site-auto-onboard) — sem acesso fácil
+  // aos logs da edge function, era impossível saber se os chunks/dia do GAM rodaram ou se o worker morreu.
+  let stateId: string | null = null;
+  const saveState = async (status: string, meta: Record<string, unknown>) => {
+    try {
+      const patch = {
+        last_status: status,
+        last_started_at: new Date(startedAt).toISOString(),
+        last_finished_at: status === "running" ? null : new Date().toISOString(),
+        last_error: syncLog.errors.join("\n").slice(0, 1000) || null,
+        metadata: { ...meta, ms: Date.now() - startedAt, quick: !!opts?.quickOnly, gamChunks: syncLog.gamChunks },
+      };
+      if (!stateId) {
+        const { data: st } = await admin.from("sync_state").select("id").eq("user_id", userId).eq("source", "site-auto-onboard").eq("site_id", siteId).limit(1);
+        stateId = st?.[0]?.id ?? null;
+      }
+      if (stateId) {
+        const { error } = await admin.from("sync_state").update(patch).eq("id", stateId);
+        if (error) console.warn("[auto-onboard] sync_state update", error.message);
+      } else {
+        const { data, error } = await admin.from("sync_state").insert({ source: "site-auto-onboard", site_id: siteId, user_id: userId, ...patch }).select("id").maybeSingle();
+        if (error) console.warn("[auto-onboard] sync_state insert", error.message);
+        stateId = data?.id ?? null;
+      }
+    } catch (e) {
+      console.warn("[auto-onboard] sync_state log falhou", e);
+    }
+  };
+  await saveState("running", { step: "start" });
 
   try {
     // contas Ads vinculadas ao site
@@ -192,7 +221,8 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         .update({
           sync_status: hasErrors ? "failed" : "completed",
           sync_error: hasErrors ? syncLog.errors.join("\n").slice(0, 1500) : null,
-          last_full_sync_at: hasErrors ? undefined : new Date().toISOString(),
+          // 29/10/2026: o quick (só total do site) não marca last_full_sync_at — senão a dash aberta
+          // fazia o sites-sync-cron pular o sync completo (receita por campanha) daquele site.
         })
         .eq("id", siteId)
         .eq("user_id", userId);
@@ -218,7 +248,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // gam-sync-revenue (background:true, 1 dia, sem viewability — o quick revenue acima já grava o
     // total do site); o loop de chunks fica só com os dias anteriores.
     let chunkEnd = effectiveTo;
-    if (incremental && !requestedTo) {
+    if (incremental && effectiveTo === to) {
       const brtHour = new Date(Date.now() - 3 * 3600_000).getUTCHours();
       const bgDays = [effectiveTo];
       const yesterday = isoAddDays(effectiveTo, -1);
@@ -242,6 +272,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       }
       chunkEnd = isoAddDays(bgDays[bgDays.length - 1], -1);
     }
+    await saveState("running", { step: "after_ads_and_bg", window: { from, to: effectiveTo, chunkEnd }, ads: ads.status });
 
     const chunkDays = incremental ? 3 : 7;
     const fromDate = new Date(from + "T00:00:00Z");
@@ -317,17 +348,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     syncLog.placementsTotal = campaigns?.length ?? 0;
     console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
     console.log("[auto-onboard] sync log", syncLog);
-    // 29/10/2026: guarda o resumo da última rodada em sync_state (source site-auto-onboard) — sem acesso
-    // fácil aos logs da edge function, era impossível saber se os chunks do GAM rodaram.
-    try {
-      const meta = { window: { from, to: effectiveTo, chunkEnd }, ms: Date.now() - startedAt, gamChunks: syncLog.gamChunks, placements: `${syncLog.placementsOk}/${syncLog.placementsTotal}` };
-      const { data: st } = await admin.from("sync_state").select("id").eq("source", "site-auto-onboard").eq("site_id", siteId).limit(1);
-      const patch = { last_status: syncLog.errors.length ? "error" : "success", last_finished_at: new Date().toISOString(), last_started_at: new Date(startedAt).toISOString(), last_error: syncLog.errors.join("\n").slice(0, 1000) || null, metadata: meta };
-      if (st?.[0]?.id) await admin.from("sync_state").update(patch).eq("id", st[0].id);
-      else await admin.from("sync_state").insert({ source: "site-auto-onboard", site_id: siteId, user_id: userId, ...patch });
-    } catch (e) {
-      console.warn("[auto-onboard] sync_state log falhou", e);
-    }
+    await saveState(syncLog.errors.length ? "error" : "success", { step: "done", window: { from, to: effectiveTo, chunkEnd }, placements: `${syncLog.placementsOk}/${syncLog.placementsTotal}` });
 
     const hasErrors = syncLog.errors.length > 0;
     await admin
