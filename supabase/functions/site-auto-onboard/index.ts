@@ -223,7 +223,14 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       const bgDays = [effectiveTo];
       const yesterday = isoAddDays(effectiveTo, -1);
       if (brtHour < 12 && yesterday >= from) bgDays.push(yesterday);
-      for (const d of bgDays) {
+      // Rede com vários sites (diario + FR Diario + FR Job): o gam-sync-revenue sincroniza a rede inteira,
+      // então só o site principal (o mais antigo) dispara; os irmãos não repetem o mesmo dia em paralelo.
+      const { data: me } = await admin.from("sites").select("network_code").eq("id", siteId).maybeSingle();
+      const { data: sib } = me?.network_code
+        ? await admin.from("sites").select("id").eq("user_id", userId).eq("network_code", me.network_code).order("created_at", { ascending: true }).limit(1)
+        : { data: null };
+      const isNetworkPrimary = !(sib?.[0]?.id && sib[0].id !== siteId);
+      for (const d of isNetworkPrimary ? bgDays : []) {
         const bg = await callFn(
           "gam-sync-revenue",
           { from: d, to: d, site_id: siteId, account_ids: accountIds, user_id: userId, revenue_only: true, background: true, skip_viewability: true, skip_snapshot_regen: true },
