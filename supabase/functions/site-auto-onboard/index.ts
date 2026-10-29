@@ -191,6 +191,40 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
 
     console.log("[auto-onboard] window", { siteId, from, to: effectiveTo });
 
+    // 29/10/2026: no zay o sync de Ads come o orçamento de 110 s e o loop abaixo parava calado antes do
+    // 1º chunk (3 dias com viewability nem cabe num worker): a receita por campanha de hoje ficou parada
+    // desde 09:16 enquanto o gasto subia de hora em hora (ROI da dash bem pior que o real). No refresh
+    // do cron, hoje (e ontem até 12h BRT, quando o GAM ainda fecha o dia) vai num worker próprio do
+    // gam-sync-revenue (background:true, 1 dia, sem viewability — o quick revenue logo abaixo grava o
+    // total do site); o loop de chunks fica só com os dias anteriores. Disparado antes do quick e do sync de Ads:
+    // no diario o worker morria nessas etapas (>150 s) e o dia de hoje nunca era disparado.
+    let chunkEnd = effectiveTo;
+    if (incremental && effectiveTo === to && !opts?.quickOnly) {
+      const brtHour = new Date(Date.now() - 3 * 3600_000).getUTCHours();
+      const bgDays = [effectiveTo];
+      const yesterday = isoAddDays(effectiveTo, -1);
+      if (brtHour < 12 && yesterday >= from) bgDays.push(yesterday);
+      // Rede com vários sites (diario + FR Diario + FR Job): o gam-sync-revenue sincroniza a rede inteira,
+      // então só o site principal (o mais antigo) dispara; os irmãos não repetem o mesmo dia em paralelo.
+      const { data: me } = await admin.from("sites").select("network_code").eq("id", siteId).maybeSingle();
+      const { data: sib } = me?.network_code
+        ? await admin.from("sites").select("id").eq("user_id", userId).eq("network_code", me.network_code).order("created_at", { ascending: true }).limit(1)
+        : { data: null };
+      const isNetworkPrimary = !(sib?.[0]?.id && sib[0].id !== siteId);
+      for (const d of isNetworkPrimary ? bgDays : []) {
+        const bg = await callFn(
+          "gam-sync-revenue",
+          { from: d, to: d, site_id: siteId, account_ids: accountIds, user_id: userId, revenue_only: true, background: true, skip_viewability: true, skip_snapshot_regen: true },
+          authHeader,
+        );
+        console.log("[auto-onboard] gam background day", { siteId, date: d, status: bg.status });
+        syncLog.gamChunks.push({ from: d, to: d, status: bg.status, ok: bg.ok });
+        if (!bg.ok) syncLog.errors.push(`gam bg ${d} ${bg.status}: ${JSON.stringify(bg.body).slice(0, 300)}`);
+      }
+      chunkEnd = isoAddDays(bgDays[bgDays.length - 1], -1);
+    }
+    await saveState("running", { step: "bg_dispatched", window: { from, to: effectiveTo, chunkEnd } });
+
     // Atualização rápida da receita do card/calendário antes dos relatórios pesados.
     // O relatório por DATE do GAM é leve e evita a dashboard ficar presa em valor antigo
     // quando o sync completo estoura quota/tempo em UTM, campanhas ou placements.
@@ -241,38 +275,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     // 2. receita GAM em chunks pequenos e aguardando concluir.
     // Sem `sync:true`, a função retorna "started" imediatamente, os chunks rodam em paralelo
     // e o GAM devolve 429; a Retenção fica parecendo concluída sem atualizar.
-    // 29/10/2026: no zay o sync de Ads come o orçamento de 110 s e o loop abaixo parava calado antes do
-    // 1º chunk (3 dias com viewability nem cabe num worker): a receita por campanha de hoje ficou parada
-    // desde 09:16 enquanto o gasto subia de hora em hora (ROI da dash bem pior que o real). No refresh
-    // do cron, hoje (e ontem até 12h BRT, quando o GAM ainda fecha o dia) vai num worker próprio do
-    // gam-sync-revenue (background:true, 1 dia, sem viewability — o quick revenue acima já grava o
-    // total do site); o loop de chunks fica só com os dias anteriores.
-    let chunkEnd = effectiveTo;
-    if (incremental && effectiveTo === to) {
-      const brtHour = new Date(Date.now() - 3 * 3600_000).getUTCHours();
-      const bgDays = [effectiveTo];
-      const yesterday = isoAddDays(effectiveTo, -1);
-      if (brtHour < 12 && yesterday >= from) bgDays.push(yesterday);
-      // Rede com vários sites (diario + FR Diario + FR Job): o gam-sync-revenue sincroniza a rede inteira,
-      // então só o site principal (o mais antigo) dispara; os irmãos não repetem o mesmo dia em paralelo.
-      const { data: me } = await admin.from("sites").select("network_code").eq("id", siteId).maybeSingle();
-      const { data: sib } = me?.network_code
-        ? await admin.from("sites").select("id").eq("user_id", userId).eq("network_code", me.network_code).order("created_at", { ascending: true }).limit(1)
-        : { data: null };
-      const isNetworkPrimary = !(sib?.[0]?.id && sib[0].id !== siteId);
-      for (const d of isNetworkPrimary ? bgDays : []) {
-        const bg = await callFn(
-          "gam-sync-revenue",
-          { from: d, to: d, site_id: siteId, account_ids: accountIds, user_id: userId, revenue_only: true, background: true, skip_viewability: true, skip_snapshot_regen: true },
-          authHeader,
-        );
-        console.log("[auto-onboard] gam background day", { siteId, date: d, status: bg.status });
-        syncLog.gamChunks.push({ from: d, to: d, status: bg.status, ok: bg.ok });
-        if (!bg.ok) syncLog.errors.push(`gam bg ${d} ${bg.status}: ${JSON.stringify(bg.body).slice(0, 300)}`);
-      }
-      chunkEnd = isoAddDays(bgDays[bgDays.length - 1], -1);
-    }
-    await saveState("running", { step: "after_ads_and_bg", window: { from, to: effectiveTo, chunkEnd }, ads: ads.status });
+    await saveState("running", { step: "after_ads", ads: ads.status });
 
     const chunkDays = incremental ? 3 : 7;
     const fromDate = new Date(from + "T00:00:00Z");
