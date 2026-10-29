@@ -67,7 +67,9 @@ Deno.serve(async (req) => {
   
   console.log(`[gam-sync-revenue] AUTH CHECK - isServiceRole=${!!isServiceRole} wait=${body?.wait} sync=${body?.sync}`);
   
-  if (body?.sync === true || body?.wait === true || isServiceRole) {
+  // background:true roda em segundo plano mesmo com service role (site-auto-onboard dispara o dia
+  // de hoje num worker próprio, sem gastar o tempo do sync do site).
+  if (body?.background !== true && (body?.sync === true || body?.wait === true || isServiceRole)) {
     console.log(`[gam-sync-revenue] RUNNING SYNC DIRECTLY`);
     return await runSync(body, req.headers);
   }
@@ -2018,8 +2020,15 @@ async function persistCampaignTotalRequests(args: {
     cur.impressions += Number(r.impressions || 0);
     placementTotalsForExisting.set(key, cur);
   }
+  // 29/10/2026: a soma dos placements é escalada com teto 25× e fica abaixo do total do utm_campaign
+  // (ex.: zay 28/10, 24377230460: placements $2,02 vs campanha $16,68). Antes ela sempre substituía a
+  // receita já gravada pelo applyGoogleUtmRevenue e devolvia o valor cortado à tabela (eCPM, share por site).
+  // Agora só substitui quando é maior.
   for (const [key, placement] of placementTotalsForExisting) {
-    if (placement.impressions > 0) existingMap.set(key, { ...placement, match_rate_pct: existingMap.get(key)?.match_rate_pct ?? null });
+    if (placement.impressions <= 0) continue;
+    const cur = existingMap.get(key);
+    if (cur && cur.revenue_usd >= placement.revenue_usd) continue;
+    existingMap.set(key, { ...placement, match_rate_pct: cur?.match_rate_pct ?? null });
   }
   // 1ª passada: monta as linhas. Para o match rate:
   //   a) taxa REAL por campanha (b.match_rate_pct sem rate_is_proxy) — usa direto;
@@ -2893,7 +2902,10 @@ async function persistSiteMetricsDaily(
         .maybeSingle();
       let nextImpr = v.impr;
       let nextRev = v.rev;
-      if (opts?.preserveHigherExisting && exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
+      // 29/10/2026: o fallback soma só a receita com utm (agregado), menor que o total do site gravado pelo
+      // relatório por DATE (quick revenue). Nunca rebaixa o valor existente — senão cada sync com
+      // skip_viewability derrubava o card de Receita do diario (866 → 805 em 29/10).
+      if (exists && Number(exists.revenue_native ?? 0) > v.rev + 1) {
         nextRev = Number(exists.revenue_native ?? 0);
         nextImpr = Math.max(Number(exists.impressions ?? 0), v.impr);
         debug.push(`[site_metrics_daily] fallback preserved higher existing site=${siteId} date=${date} existing=${nextRev} incoming=${v.rev}`);

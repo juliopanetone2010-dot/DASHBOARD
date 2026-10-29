@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.guest-login]
 verify_jwt = false
+
+[functions.site-auto-onboard]
+verify_jwt = true
