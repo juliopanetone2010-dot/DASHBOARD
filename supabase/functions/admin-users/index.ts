@@ -190,7 +190,11 @@ async function updateProfile(admin: any, body: any, callerId: string) {
 async function resetPassword(admin: any, body: any) {
   const email = String(body.email ?? "");
   if (!email) return jsonResp({ error: "email obrigatório" }, 400);
-  const { error } = await admin.auth.admin.generateLink({ type: "recovery", email });
+  // generateLink só gera o link, não manda email. resetPasswordForEmail dispara o email pelo SMTP do Supabase Auth.
+  const anon = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+  const { error } = await anon.auth.resetPasswordForEmail(email, {
+    redirectTo: "https://dashboard-nu-two-88.vercel.app/",
+  });
   if (error) return jsonResp({ error: error.message }, 400);
   return jsonResp({ ok: true });
 }

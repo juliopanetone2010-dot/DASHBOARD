@@ -246,25 +246,39 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       await delay(1_000);
     }
 
-    // 3. placements por campanha do site
+    // 3. placements por campanha do site (só contas com sync ligado)
+    const { data: liveAccs } = await admin
+      .from("google_accounts")
+      .select("id")
+      .in("id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"])
+      .or("sync_enabled.is.null,sync_enabled.eq.true");
+    const liveAccountIds = (liveAccs ?? []).map((a: { id: string }) => a.id);
     const { data: campaigns } = await admin
       .from("campaigns")
       .select("campaign_id, google_account_id")
       .eq("user_id", userId)
-      .in("google_account_id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"])
+      .in("google_account_id", liveAccountIds.length ? liveAccountIds : ["00000000-0000-0000-0000-000000000000"])
       .limit(50);
     syncLog.campaignRows = campaigns?.length ?? 0;
 
     let placementsOk = 0;
     const camps = campaigns ?? [];
+    // Conta que saiu da MCC / perdeu acesso: pula as campanhas dela em vez de marcar o site como falho.
+    const deniedAccounts = new Set<string>();
     for (const c of camps) {
       if (!hasBudget(12_000)) {
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
+      if (deniedAccounts.has(c.google_account_id)) continue;
       const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to: effectiveTo, user_id: userId }, authHeader);
-      if (placement.ok) placementsOk += 1;
-      else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${JSON.stringify(placement.body).slice(0, 200)}`);
+      const bodyText = JSON.stringify(placement.body);
+      if (placement.ok && !bodyText.includes("USER_PERMISSION_DENIED")) placementsOk += 1;
+      else if (bodyText.includes("USER_PERMISSION_DENIED")) {
+        deniedAccounts.add(c.google_account_id);
+        console.warn("[auto-onboard] conta sem permissão, pulando placements", { account: c.google_account_id, campaign: c.campaign_id });
+      }
+      else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${bodyText.slice(0, 200)}`);
       await delay(1_000);
     }
     syncLog.placementsOk = placementsOk;

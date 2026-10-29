@@ -100,7 +100,8 @@ Deno.serve(async (req) => {
       .from("google_accounts")
       .select("id, customer_id, refresh_token, is_mcc, account_name, descriptive_name, currency, login_customer_id, api_set, status")
       .eq("user_id", userId)
-      .not("refresh_token", "is", null);
+      .not("refresh_token", "is", null)
+      .or("sync_enabled.is.null,sync_enabled.eq.true"); // contas desligadas (canceladas / fora da MCC)
 
     if (accErr) return json({ error: accErr.message });
     if (!accounts || accounts.length === 0) {
