@@ -317,6 +317,17 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
     syncLog.placementsTotal = campaigns?.length ?? 0;
     console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
     console.log("[auto-onboard] sync log", syncLog);
+    // 29/10/2026: guarda o resumo da última rodada em sync_state (source site-auto-onboard) — sem acesso
+    // fácil aos logs da edge function, era impossível saber se os chunks do GAM rodaram.
+    try {
+      const meta = { window: { from, to: effectiveTo, chunkEnd }, ms: Date.now() - startedAt, gamChunks: syncLog.gamChunks, placements: `${syncLog.placementsOk}/${syncLog.placementsTotal}` };
+      const { data: st } = await admin.from("sync_state").select("id").eq("source", "site-auto-onboard").eq("site_id", siteId).limit(1);
+      const patch = { last_status: syncLog.errors.length ? "error" : "success", last_finished_at: new Date().toISOString(), last_started_at: new Date(startedAt).toISOString(), last_error: syncLog.errors.join("\n").slice(0, 1000) || null, metadata: meta };
+      if (st?.[0]?.id) await admin.from("sync_state").update(patch).eq("id", st[0].id);
+      else await admin.from("sync_state").insert({ source: "site-auto-onboard", site_id: siteId, user_id: userId, ...patch });
+    } catch (e) {
+      console.warn("[auto-onboard] sync_state log falhou", e);
+    }
 
     const hasErrors = syncLog.errors.length > 0;
     await admin

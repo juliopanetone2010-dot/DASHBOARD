@@ -75,7 +75,19 @@ Deno.serve(async (req) => {
   }
 
   console.log(`[gam-sync-revenue] RUNNING SYNC IN BACKGROUND`);
-  const work = runSync(body, req.headers).catch((e) => console.error("[gam-sync-revenue] background error", e));
+  // Disparo do cron (background:true): registra início/fim em sync_state (source gam-sync-revenue-bg)
+  // pra dar pra ver sem log se o worker terminou ("running" parado = worker morto no meio).
+  const bgLog = body?.background === true && body?.site_id ? logBackgroundRun(body) : null;
+  const work = (async () => {
+    await bgLog?.start();
+    try {
+      const res = await runSync(body, req.headers);
+      await bgLog?.finish(await res.clone().text(), null);
+    } catch (e) {
+      console.error("[gam-sync-revenue] background error", e);
+      await bgLog?.finish(null, String(e));
+    }
+  })();
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(work);
   }
@@ -84,6 +96,47 @@ Deno.serve(async (req) => {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
+
+function logBackgroundRun(body: any) {
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const source = "gam-sync-revenue-bg";
+  const siteId = String(body.site_id);
+  const userId = body.user_id ?? null;
+  const startedAt = new Date().toISOString();
+  const range = `${body.from ?? body.date_from ?? "?"}..${body.to ?? body.date_to ?? "?"}`;
+  let rowId: string | null = null;
+  const save = async (patch: Record<string, unknown>) => {
+    try {
+      if (!rowId) {
+        const { data } = await admin.from("sync_state").select("id").eq("source", source).eq("site_id", siteId).limit(1);
+        rowId = data?.[0]?.id ?? null;
+      }
+      if (rowId) await admin.from("sync_state").update(patch).eq("id", rowId);
+      else {
+        const { data } = await admin.from("sync_state").insert({ source, site_id: siteId, user_id: userId, ...patch }).select("id").maybeSingle();
+        rowId = data?.id ?? null;
+      }
+    } catch (e) {
+      console.warn("[gam-sync-revenue] sync_state log falhou", e);
+    }
+  };
+  return {
+    start: () => save({ last_status: "running", last_started_at: startedAt, last_finished_at: null, last_error: null, metadata: { range } }),
+    finish: async (text: string | null, err: string | null) => {
+      let parsed: any = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* ignore */ }
+      const lines = ((parsed?.debug ?? []) as string[])
+        .filter((l) => /\[daily_metrics\] 20|SKIP|WORKER|aborted|err/i.test(l)).slice(0, 8).map((l) => String(l).slice(0, 240));
+      const error = err ?? (parsed?.error ? String(parsed.error) : null);
+      await save({
+        last_status: error ? "error" : "success",
+        last_finished_at: new Date().toISOString(),
+        last_error: error ? error.slice(0, 500) : null,
+        metadata: { range, ms: Date.now() - new Date(startedAt).getTime(), lines },
+      });
+    },
+  };
+}
 
 async function runSync(body: any, headers: Headers): Promise<Response> {
   const debug: string[] = [];
