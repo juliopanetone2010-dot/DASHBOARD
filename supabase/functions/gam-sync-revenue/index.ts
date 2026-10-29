@@ -2410,6 +2410,19 @@ async function applyGoogleUtmRevenue(
       cur.impressions += Number(p.impressions || 0);
       sourceByCampaign.set(key, cur);
     }
+    // O total da campanha é o OVERLAP (utm_campaign), não a soma dos placements. O fator de
+    // escala dos placements é limitado a 25×; campanha com 1 placement minúsculo (ex.: 0,43 de
+    // 89 no zay em 28/10) ficava com 25× o placement e perdia o resto da receita.
+    let overlapFixed = 0;
+    for (const cur of sourceByCampaign.values()) {
+      const overlap = directByDateCid.get(cur.date)?.get(cur.campaign_id);
+      if (overlap && overlap.revenue > cur.revenue_usd + 0.0001) {
+        cur.revenue_usd = overlap.revenue;
+        cur.impressions = Math.max(cur.impressions, overlap.impressions);
+        overlapFixed++;
+      }
+    }
+    if (overlapFixed > 0) debug.push(`[gam_campaign_source_revenue/google] ${overlapFixed} campanha(s) com total do utm_campaign maior que os placements (teto 25×) — usado o utm_campaign`);
     const cids = [...new Set([...sourceByCampaign.values()].map((r) => r.campaign_id))];
     const { data: existingSourceRequests } = cids.length ? await admin.from("gam_campaign_source_revenue")
       .select("campaign_id,date,total_requests,match_rate_pct")
