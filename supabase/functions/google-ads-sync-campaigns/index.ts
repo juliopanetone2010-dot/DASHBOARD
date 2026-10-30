@@ -527,6 +527,34 @@ Deno.serve(async (req) => {
               else debugLogs.push(`campaigns upsert err ${leaf.customer_id}: ${campErr.message}`);
             }
 
+            // Bulk upsert métricas diárias (apenas campos de spend; preserva revenue existente).
+            // Vem ANTES das Final URLs / PMax: contas grandes (40+ campanhas) estouravam o tempo da função
+            // nessas consultas e o gasto do dia nunca era gravado.
+            const metricRows = results.map((r) => {
+              const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
+              return {
+                user_id: userId,
+                google_account_id: leaf.id,
+                campaign_id: r.campaign.id,
+                date: r.segments.date,
+                spend,
+                clicks: Number(r.metrics.clicks ?? 0),
+                impressions: Number(r.metrics.impressions ?? 0),
+                conversions: Number(r.metrics.conversions ?? 0),
+              };
+            });
+
+            // chunk to avoid huge payloads
+            const CHUNK = 500;
+            for (let i = 0; i < metricRows.length; i += CHUNK) {
+              const slice = metricRows.slice(i, i + CHUNK);
+              const { error: mErr } = await admin
+                .from("daily_metrics")
+                .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id,date" });
+              if (!mErr) totalMetrics += slice.length;
+              else debugLogs.push(`metrics upsert err ${leaf.customer_id}: ${mErr.message}`);
+            }
+
             // ===== SYNC FINAL URLS (ad_group_ad.final_urls) =====
             // Garante que toda campanha (inclusive novas) tenha seu link visível na UI.
             try {
@@ -620,33 +648,8 @@ Deno.serve(async (req) => {
               debugLogs.push(`final_urls(pmax) exception ${leaf.customer_id}: ${String(e)}`);
             }
 
-            // Bulk upsert métricas diárias (apenas campos de spend; preserva revenue existente)
-            const metricRows = results.map((r) => {
-              const spend = Number(r.metrics.costMicros ?? 0) / 1_000_000;
-              return {
-                user_id: userId,
-                google_account_id: leaf.id,
-                campaign_id: r.campaign.id,
-                date: r.segments.date,
-                spend,
-                clicks: Number(r.metrics.clicks ?? 0),
-                impressions: Number(r.metrics.impressions ?? 0),
-                conversions: Number(r.metrics.conversions ?? 0),
-              };
-            });
-
-            // chunk to avoid huge payloads
-            const CHUNK = 500;
-            for (let i = 0; i < metricRows.length; i += CHUNK) {
-              const slice = metricRows.slice(i, i + CHUNK);
-              const { error: mErr } = await admin
-                .from("daily_metrics")
-                .upsert(slice, { onConflict: "user_id,google_account_id,campaign_id,date" });
-              if (!mErr) totalMetrics += slice.length;
-              else debugLogs.push(`metrics upsert err ${leaf.customer_id}: ${mErr.message}`);
-            }
-
-            // O upsert acima atualiza só o gasto. Lucro/ROI/ROAS eram gravados pelo gam-sync-revenue com o gasto
+            // (o upsert das métricas diárias foi movido para logo depois do upsert de campanhas, acima)
+            // O upsert das métricas atualiza só o gasto. Lucro/ROI/ROAS eram gravados pelo gam-sync-revenue com o gasto
             // daquela hora e ficavam congelados quando o dia não era re-sincronizado no GAM (o 1º dia de toda
             // campanha nova aparecia com receita = lucro + gasto inflada). Aqui eles são recalculados com o gasto
             // novo e a receita já gravada (mesma fórmula do gam-sync-revenue).
