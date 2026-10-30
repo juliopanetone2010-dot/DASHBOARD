@@ -429,7 +429,7 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     const { data: site } = await admin
       .from("sites")
-      .select("id, sync_status, sync_started_at, last_full_sync_at")
+      .select("id, sync_status, sync_started_at, last_full_sync_at, sync_lock")
       .eq("id", site_id)
       .eq("user_id", ownerUserId)
       .maybeSingle();
@@ -443,6 +443,14 @@ Deno.serve(async (req) => {
     // Se já está rodando há menos de 5 min, devolve idempotente
     const startedAt = site.sync_started_at ? new Date(site.sync_started_at).getTime() : 0;
     const ageMin = (Date.now() - startedAt) / 60000;
+    // O google-ads-sync-campaigns liga sync_lock no início e só desliga no fim. Se a função é
+    // cortada por tempo no meio, o lock fica ligado para sempre e todo sync seguinte do site
+    // responde "Sincronização já em andamento" (o site ficava sem gasto/receita do dia).
+    // Passou de 10 min desde o início: é lock órfão, libera.
+    if (site.sync_lock && ageMin > 10) {
+      await admin.from("sites").update({ sync_lock: false }).eq("id", site_id);
+      console.warn("[auto-onboard] sync_lock órfão liberado", { site_id, ageMin: Math.round(ageMin) });
+    }
     if (!force && site.sync_status === "processing" && ageMin < 5) {
       return new Response(JSON.stringify({ status: "processing", message: "already running" }), {
         status: 202,
