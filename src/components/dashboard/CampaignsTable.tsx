@@ -676,7 +676,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     setBusy(key);
     const { data, error } = await supabase.functions.invoke<{
       ok?: boolean; error?: string; ad_groups_updated?: number; new_status?: string;
-      budget_from?: number; budget_to?: number;
+      budget_from?: number; budget_to?: number; level?: string; target_cpa?: number;
     }>("google-ads-mutate", { body });
     const errMsg = data?.error ?? error?.message;
     // Conta com pelo menos uma campanha sem a declaração de publicidade política da
@@ -709,7 +709,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
       return;
     }
     let description = `${data?.ad_groups_updated ?? 0} ad group(s) atualizados`;
-    if (data?.new_status) description = `Status alterado para ${data.new_status}`;
+    if (data?.level === "campaign" && data?.target_cpa != null) description = `CPA da campanha no Google = ${Number(data.target_cpa).toFixed(2)}${data.ad_groups_updated ? ` (+${data.ad_groups_updated} ad group(s) igualados)` : ""}`;
+    else if (data?.new_status) description = `Status alterado para ${data.new_status}`;
     else if (data?.budget_to != null) description = `Orçamento: ${data.budget_from?.toFixed(2)} → ${data.budget_to.toFixed(2)}`;
     toast({ title: label, description });
     await onRefresh?.();

@@ -236,10 +236,69 @@ Deno.serve(async (req) => {
       return json({ ok: true, action, new_name: newName });
     }
 
+    // 31/10/2026: CPA da campanha. O campo "CPA ✎" da tabela mostra o target CPA da CAMPANHA
+    // (target_cpa ou maximize_conversions.target_cpa), mas a edição gravava só nos ad groups —
+    // a coluna continuava com o valor antigo e o Google seguia com o da campanha. Agora grava na
+    // campanha (no campo da estratégia vigente), iguala os ad groups que tinham CPA próprio
+    // (senão eles sobrepõem o da campanha) e atualiza campaigns.target_cpa_micros.
+    const roundMicros = (v: number) => Math.max(10_000, Math.round(v / 10_000) * 10_000);
+    const readCampaignCpa = async (): Promise<{ strategy: string; micros: number; error?: string }> => {
+      const q = `SELECT campaign.id, campaign.bidding_strategy_type, campaign.target_cpa.target_cpa_micros, campaign.maximize_conversions.target_cpa_micros FROM campaign WHERE campaign.id = ${camp.campaign_id}`;
+      const r = await fetch(`${apiBase}/googleAds:search`, { method: "POST", headers, body: JSON.stringify({ query: q }) });
+      const j = await r.json();
+      if (!r.ok) return { strategy: "", micros: 0, error: extractGoogleAdsErrorDetail(j) };
+      const c = (j.results ?? [])[0]?.campaign ?? {};
+      const strategy = String(c.biddingStrategyType ?? "");
+      const micros = strategy === "MAXIMIZE_CONVERSIONS"
+        ? Number(c.maximizeConversions?.targetCpaMicros ?? 0)
+        : Number(c.targetCpa?.targetCpaMicros ?? 0);
+      return { strategy, micros };
+    };
+    const applyCampaignCpa = async (targetMicros: number, strategy: string): Promise<{ ok: boolean; error?: string; ad_groups: any[] }> => {
+      const isMc = strategy === "MAXIMIZE_CONVERSIONS";
+      const upd: Record<string, unknown> = { resourceName: `customers/${acc.customer_id}/campaigns/${camp.campaign_id}` };
+      if (isMc) upd.maximizeConversions = { targetCpaMicros: String(targetMicros) };
+      else upd.targetCpa = { targetCpaMicros: String(targetMicros) };
+      const body = { operations: [{ update: upd, updateMask: isMc ? "maximize_conversions.target_cpa_micros" : "target_cpa.target_cpa_micros" }] };
+      const r = await fetch(`${apiBase}/campaigns:mutate`, { method: "POST", headers, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) {
+        await logAction("failed", body, JSON.stringify(j));
+        return { ok: false, error: extractGoogleAdsErrorDetail(j), ad_groups: [] };
+      }
+      // Ad groups com CPA próprio sobrepõem o da campanha → iguala ao novo valor.
+      const agQ = `SELECT ad_group.id, ad_group.name, ad_group.target_cpa_micros FROM ad_group WHERE ad_group.campaign = 'customers/${acc.customer_id}/campaigns/${camp.campaign_id}' AND ad_group.status != 'REMOVED'`;
+      const agR = await fetch(`${apiBase}/googleAds:search`, { method: "POST", headers, body: JSON.stringify({ query: agQ }) });
+      const agJ = await agR.json();
+      const agRows = (agR.ok ? (agJ.results ?? []) : []) as Array<{ adGroup: { id: string; name: string; targetCpaMicros?: string } }>;
+      const ags = agRows.filter((x) => Number(x.adGroup.targetCpaMicros ?? 0) > 0 && Number(x.adGroup.targetCpaMicros) !== targetMicros);
+      const agMeta = ags.map((x) => ({ ad_group_id: x.adGroup.id, name: x.adGroup.name, from: Number(x.adGroup.targetCpaMicros), to: targetMicros }));
+      if (ags.length) {
+        const mb = { operations: ags.map((x) => ({ update: { resourceName: `customers/${acc.customer_id}/adGroups/${x.adGroup.id}`, targetCpaMicros: String(targetMicros) }, updateMask: "target_cpa_micros" })) };
+        const mr = await fetch(`${apiBase}/adGroups:mutate`, { method: "POST", headers, body: JSON.stringify(mb) });
+        if (!mr.ok) {
+          const mj = await mr.json();
+          await logAction("failed", { stage: "ad_groups", meta: agMeta }, JSON.stringify(mj));
+          return { ok: false, error: `CPA da campanha aplicado, mas falhou nos ad groups: ${extractGoogleAdsErrorDetail(mj)}`, ad_groups: [] };
+        }
+      }
+      await admin.from("campaigns").update({ target_cpa_micros: targetMicros }).eq("id", camp.id);
+      return { ok: true, ad_groups: agMeta };
+    };
+
     // adjust_cpa: busca ad_groups com target_cpa_micros definido e atualiza
     if (action === "adjust_cpa") {
       if (!Number.isFinite(deltaPct) || deltaPct === 0) {
         return json({ error: "delta_pct inválido" });
+      }
+      // CPA na campanha (caso normal: TARGET_CPA / MAXIMIZE_CONVERSIONS com alvo) → ajusta lá.
+      const cur = await readCampaignCpa();
+      if (!cur.error && cur.micros > 0) {
+        const next = roundMicros(cur.micros * (1 + deltaPct / 100));
+        const res = await applyCampaignCpa(next, cur.strategy);
+        if (!res.ok) return json({ error: res.error });
+        await logAction("executed", { delta_pct: deltaPct, level: "campaign", strategy: cur.strategy, from: cur.micros, to: next, ad_groups: res.ad_groups });
+        return json({ ok: true, action, delta_pct: deltaPct, level: "campaign", target_cpa: next / 1_000_000, ad_groups_updated: res.ad_groups.length });
       }
       const query = `
         SELECT ad_group.id, ad_group.name, ad_group.target_cpa_micros, ad_group.status
@@ -586,6 +645,16 @@ Deno.serve(async (req) => {
         return json({ error: "target_cpa inválido" });
       }
       const targetMicros = Math.max(10_000, Math.round((targetCpa * 1_000_000) / 10000) * 10000);
+      // Sem ad_group_id (campo "CPA ✎" da tabela): grava na CAMPANHA quando ela tem CPA alvo.
+      if (!onlyAdGroupId) {
+        const cur = await readCampaignCpa();
+        if (!cur.error && (cur.micros > 0 || cur.strategy === "TARGET_CPA")) {
+          const res = await applyCampaignCpa(targetMicros, cur.strategy);
+          if (!res.ok) return json({ error: res.error });
+          await logAction("executed", { target_cpa: targetCpa, level: "campaign", strategy: cur.strategy, from: cur.micros, to: targetMicros, ad_groups: res.ad_groups });
+          return json({ ok: true, action, level: "campaign", target_cpa: targetCpa, ad_groups_updated: res.ad_groups.length });
+        }
+      }
       const query = `
         SELECT ad_group.id, ad_group.name, ad_group.target_cpa_micros, ad_group.status
         FROM ad_group
