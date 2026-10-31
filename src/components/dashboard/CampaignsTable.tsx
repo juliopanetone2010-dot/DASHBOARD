@@ -1433,7 +1433,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                         );
                       case "matchRate": {
                         const mr = campaignMatchRates?.get(c.campaign_id);
-                        const has = !!mr && (mr.totalRequests > 0 || mr.matchRate > 0);
+                        const has = !!mr && mr.matchRate > 0; // só taxa real da utm (AD_EXCHANGE_MATCH_RATE)
                         const pct = mr?.matchRate ?? 0;
                         const color = !has ? "text-muted-foreground" : pct >= 90 ? "text-success" : pct >= 75 ? "text-warning" : "text-danger";
                         // Origem do valor — pra saber na hora se é a taxa REAL do GAM por
@@ -1476,7 +1476,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                               <TooltipContent side="left" className="text-xs font-mono whitespace-pre leading-relaxed">
                                 {has
                                   ? `Taxa de Correspondência: ${pct.toFixed(2)}%\nMatched requests ≈ ${Math.round(mr!.totalRequests * pct / 100).toLocaleString()}\nTotal requests: ${mr!.totalRequests.toLocaleString()}\nImpressões GAM: ${mr!.impressions.toLocaleString()}\nOrigem: ${srcText ?? "?"} (${src ?? "sem info"})\n\nClique para abrir debug detalhado`
-                                  : "Sem dados de requests para esta campanha no período. Clique para abrir debug."}
+                                  : "Sem match rate do AdX para esta utm_campaign no período. Clique para abrir debug."}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>

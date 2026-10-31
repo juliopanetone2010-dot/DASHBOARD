@@ -5,8 +5,8 @@ export const BEST_MATCH_WINDOW_DAYS = 10;
 
 export type DailyMatchRow = {
   date: string;               // YYYY-MM-DD
-  matched: number;            // impressions
-  requests: number;           // total_requests (0 quando indisponível)
+  matched: number;            // matched requests AdX (requests × taxa)
+  requests: number;           // AD_EXCHANGE_TOTAL_REQUESTS (0 quando indisponível)
   matchRate: number;          // percent 0..100
 };
 
@@ -42,40 +42,47 @@ export function formatBrDate(iso: string): string {
   return `${d}/${m}`;
 }
 
+// Match rate = AD_EXCHANGE_MATCH_RATE do GAM da própria utm_campaign (matched requests ÷
+// total requests AdX), gravado pelo sync com match_rate_source='campaign_real'.
+// Qualquer outra origem (impressões/cliques, URL, site, proxy) NÃO é match rate → null ("—").
+export function realMatchRatePct(row: { match_rate_pct: number | null | undefined; match_rate_source?: string | null }): number | null {
+  if (row.match_rate_pct == null) return null;
+  if (row.match_rate_source !== "campaign_real") return null;
+  const v = Number(row.match_rate_pct);
+  return Number.isFinite(v) && v > 0 ? Math.min(100, v) : null;
+}
+
+// Média do match rate ponderada por requests (Σ requests×taxa / Σ requests). Linhas sem
+// requests entram com peso 1 só se nenhuma linha tiver requests.
+export function aggregateMatchRate(rows: Array<{ total_requests: number; match_rate_pct: number | null; match_rate_source?: string | null }>): { rate: number | null; requests: number; matched: number } {
+  let req = 0, matched = 0, n = 0, sumRate = 0;
+  for (const r of rows) {
+    const rate = realMatchRatePct(r);
+    if (rate == null) continue;
+    const q = Number(r.total_requests || 0);
+    n++; sumRate += rate;
+    if (q > 0) { req += q; matched += q * rate / 100; }
+  }
+  if (n === 0) return { rate: null, requests: 0, matched: 0 };
+  if (req > 0) return { rate: (matched / req) * 100, requests: req, matched: Math.round(matched) };
+  return { rate: sumRate / n, requests: 0, matched: 0 };
+}
+
 // Agrega linhas cruas (uma por dia por linha) do gam_campaign_source_revenue já filtradas por campaign_id/site.
-export function buildBestMatch(rawRows: Array<{ date: string; impressions: number; total_requests: number; match_rate_pct: number | null }>): BestMatchInfo {
-  // Agrega por dia
-  const byDate = new Map<string, { imp: number; req: number; weighted: number; ratedImp: number }>();
+export function buildBestMatch(rawRows: Array<{ date: string; impressions: number; total_requests: number; match_rate_pct: number | null; match_rate_source?: string | null }>): BestMatchInfo {
+  const byDate = new Map<string, typeof rawRows>();
   for (const r of rawRows) {
     const k = String(r.date);
-    const cur = byDate.get(k) ?? { imp: 0, req: 0, weighted: 0, ratedImp: 0 };
-    const imp = Number(r.impressions ?? 0);
-    const req = Number(r.total_requests ?? 0);
-    const pct = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
-    cur.imp += imp;
-    cur.req += req;
-    if (pct != null && pct > 0 && imp > 0) {
-      cur.weighted += pct * imp;
-      cur.ratedImp += imp;
-    }
-    byDate.set(k, cur);
+    const arr = byDate.get(k) ?? [];
+    arr.push(r);
+    byDate.set(k, arr);
   }
 
   const days: DailyMatchRow[] = [];
-  for (const [date, v] of byDate) {
-    let rate: number | null = null;
-    if (v.ratedImp > 0) rate = v.weighted / v.ratedImp;
-    else if (v.req > 0) rate = (v.imp / v.req) * 100;
-    // Regras: ignorar dias inválidos (requests=0 & rate null, ou matched=0)
-    if (v.imp <= 0) continue;
-    if (rate == null) continue;
-    if (v.req <= 0 && v.ratedImp <= 0) continue;
-    days.push({
-      date,
-      matched: v.imp,
-      requests: v.req > 0 ? v.req : Math.round(v.imp / (rate / 100)),
-      matchRate: rate,
-    });
+  for (const [date, arr] of byDate) {
+    const agg = aggregateMatchRate(arr);
+    if (agg.rate == null) continue; // sem taxa real da utm nesse dia → fora
+    days.push({ date, matched: agg.matched, requests: agg.requests, matchRate: agg.rate });
   }
   days.sort((a, b) => (a.date < b.date ? 1 : -1)); // desc
 

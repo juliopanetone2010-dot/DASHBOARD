@@ -64,12 +64,16 @@ export function buildAdUnitBestMatches(
 
   const out: AdUnitBestMatch[] = [];
   for (const [adUnitName, arr] of byAdUnit) {
-    const byDate = new Map<string, { ad_requests: number; matched: number; revenue: number }>();
+    const byDate = new Map<string, { ad_requests: number; matched: number; revenue: number; ratedReq: number; matchedReq: number }>();
     for (const r of arr) {
-      const cur = byDate.get(r.date) ?? { ad_requests: 0, matched: 0, revenue: 0 };
+      const cur = byDate.get(r.date) ?? { ad_requests: 0, matched: 0, revenue: 0, ratedReq: 0, matchedReq: 0 };
       cur.ad_requests += r.ad_requests;
       cur.matched += r.matched_impressions;
       cur.revenue += r.revenue_usd;
+      if (r.match_rate_pct != null && r.ad_requests > 0) {
+        cur.ratedReq += r.ad_requests;
+        cur.matchedReq += r.ad_requests * (r.match_rate_pct / 100);
+      }
       byDate.set(r.date, cur);
     }
 
@@ -78,7 +82,10 @@ export function buildAdUnitBestMatches(
       const camp = roiByDate.get(date);
       if (!camp || camp.cost <= 0) continue;               // isolamento por campanha
       if (v.ad_requests < AD_UNIT_MIN_REQUESTS) continue;  // filtro de volume
-      const matchRate = v.ad_requests > 0 ? (v.matched / v.ad_requests) * 100 : 0;
+      // Match rate = AD_EXCHANGE_MATCH_RATE do GAM (match_rate_pct). Sem ele o dia fica fora —
+      // impressões ÷ requests é taxa de preenchimento (fillRate), não match rate.
+      if (v.ratedReq <= 0) continue;
+      const matchRate = (v.matchedReq / v.ratedReq) * 100;
       const fillRate = v.ad_requests > 0 ? (v.matched / v.ad_requests) * 100 : 0;
       const ecpm = v.matched > 0 ? (v.revenue / v.matched) * 1000 : 0;
       eligible.push({

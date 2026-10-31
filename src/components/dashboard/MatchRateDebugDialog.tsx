@@ -11,6 +11,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNumber } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
+import { aggregateMatchRate, realMatchRatePct } from "@/lib/bestMatch";
 
 interface Props {
   open: boolean;
@@ -30,6 +31,7 @@ type Row = {
   impressions: number;
   total_requests: number;
   match_rate_pct: number | null;
+  match_rate_source: string | null;
   source: string;
 };
 
@@ -44,7 +46,7 @@ export function MatchRateDebugDialog({
     queryFn: async (): Promise<Row[]> => {
       const { data, error } = await supabase
         .from("gam_campaign_source_revenue")
-        .select("date, impressions, total_requests, match_rate_pct")
+        .select("date, impressions, total_requests, match_rate_pct, match_rate_source")
         .eq("campaign_id", campaignId)
         .eq("utm_source", "google")
         .gte("date", from)
@@ -56,37 +58,26 @@ export function MatchRateDebugDialog({
         impressions: Number(r.impressions ?? 0),
         total_requests: Number(r.total_requests ?? 0),
         match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
-        source: r.match_rate_pct != null ? "match_rate" : r.total_requests > 0 ? "ad_requests" : "—",
+        match_rate_source: r.match_rate_source ?? null,
+        source: r.match_rate_source ?? "—",
       }));
     },
     enabled: open && !!campaignId,
     staleTime: 5_000,
   });
 
+  // Só a taxa real da utm_campaign (campaign_real), ponderada por requests — mesma regra da tabela/modal.
   const consolidated = useMemo(() => {
     const rows = q.data ?? [];
-    let impSum = 0;
-    let reqSum = 0;
-    let ratedImp = 0;
-    let weighted = 0;
-    for (const r of rows) {
-      impSum += r.impressions;
-      reqSum += r.total_requests;
-      if (r.match_rate_pct != null && r.match_rate_pct > 0 && r.impressions > 0) {
-        ratedImp += r.impressions;
-        weighted += r.match_rate_pct * r.impressions;
-      }
-    }
-    const rateRatio = reqSum > 0 ? (impSum / reqSum) * 100 : null;
-    const rateWeighted = ratedImp > 0 ? weighted / ratedImp : null;
-    return { impSum, reqSum, ratedImp, weighted, rateRatio, rateWeighted };
+    const agg = aggregateMatchRate(rows);
+    return { matchedSum: agg.matched, reqSum: agg.requests, rateWeighted: agg.rate };
   }, [q.data]);
 
-  const expectedDashRate = consolidated.rateWeighted ?? consolidated.rateRatio;
+  const expectedDashRate = consolidated.rateWeighted;
   const diff = expectedDashRate != null && dashboardRate != null
     ? Math.abs(expectedDashRate - dashboardRate)
     : null;
-  const matches = diff != null ? diff < 0.1 : null;
+  const matches = diff != null ? diff < 0.1 : (expectedDashRate == null && dashboardRate == null ? true : null);
 
   async function handleResync() {
     setSyncing(true);
@@ -134,7 +125,7 @@ export function MatchRateDebugDialog({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Data</TableHead>
-                      <TableHead className="text-right">Matched (impr.)</TableHead>
+                      <TableHead className="text-right">Impressões</TableHead>
                       <TableHead className="text-right">Total requests</TableHead>
                       <TableHead className="text-right">Match Rate</TableHead>
                       <TableHead>Fonte</TableHead>
@@ -154,11 +145,7 @@ export function MatchRateDebugDialog({
                         <TableCell className="text-right tabular-nums">{fmtNumber(r.impressions)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.total_requests > 0 ? fmtNumber(r.total_requests) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums font-medium">
-                          {r.match_rate_pct != null
-                            ? `${r.match_rate_pct.toFixed(2)}%`
-                            : r.total_requests > 0
-                              ? `${((r.impressions / r.total_requests) * 100).toFixed(2)}%`
-                              : "—"}
+                          {(() => { const v = realMatchRatePct(r); return v != null ? `${v.toFixed(2)}%` : "—"; })()}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{r.source}</TableCell>
                       </TableRow>
@@ -171,16 +158,15 @@ export function MatchRateDebugDialog({
                 <div className="rounded border p-3 space-y-1">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">Consolidado · Banco (GAM)</div>
                   <div className="font-mono">
-                    Matched: <span className="font-semibold">{fmtNumber(consolidated.impSum)}</span><br />
-                    Total: <span className="font-semibold">{consolidated.reqSum > 0 ? fmtNumber(consolidated.reqSum) : "—"}</span><br />
-                    Rate (Σ/Σ): <span className="font-semibold">{consolidated.rateRatio != null ? `${consolidated.rateRatio.toFixed(2)}%` : "—"}</span><br />
-                    Rate (ponderado): <span className="font-semibold">{consolidated.rateWeighted != null ? `${consolidated.rateWeighted.toFixed(2)}%` : "—"}</span>
+                    Matched requests: <span className="font-semibold">{consolidated.reqSum > 0 ? fmtNumber(consolidated.matchedSum) : "—"}</span><br />
+                    Total requests: <span className="font-semibold">{consolidated.reqSum > 0 ? fmtNumber(consolidated.reqSum) : "—"}</span><br />
+                    Match rate (ponderado por requests): <span className="font-semibold">{consolidated.rateWeighted != null ? `${consolidated.rateWeighted.toFixed(2)}%` : "—"}</span>
                   </div>
                 </div>
                 <div className="rounded border p-3 space-y-1">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">Dashboard (frontend)</div>
                   <div className="font-mono">
-                    Matched: <span className="font-semibold">{dashboardImpressions != null ? fmtNumber(dashboardImpressions) : "—"}</span><br />
+                    Impressões: <span className="font-semibold">{dashboardImpressions != null ? fmtNumber(dashboardImpressions) : "—"}</span><br />
                     Total: <span className="font-semibold">{dashboardTotalRequests != null ? fmtNumber(dashboardTotalRequests) : "—"}</span><br />
                     Rate exibido: <span className="font-semibold">{dashboardRate != null ? `${dashboardRate.toFixed(2)}%` : "—"}</span><br />
                     {matches === true && (

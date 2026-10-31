@@ -1990,7 +1990,7 @@ async function persistCampaignTotalRequests(args: {
   const dates = [...new Set([...agg.values()].map((b) => b.date))];
   const { data: existing } = await admin
     .from("gam_campaign_source_revenue")
-    .select("campaign_id,date,revenue_usd,impressions,match_rate_pct")
+    .select("campaign_id,date,revenue_usd,impressions,match_rate_pct,match_rate_source")
     .eq("user_id", userId)
     .in("site_id", siteIds)
     .eq("utm_source", "google")
@@ -2046,24 +2046,11 @@ async function persistCampaignTotalRequests(args: {
     return (v.revenueUsd / v.impressions) * 1000;
   };
 
-  // "Taxa de correspondência" no modelo de arbitragem = impressões monetizadas no
-  // GAM / cliques comprados no Google Ads. O AD_EXCHANGE_TOTAL_REQUESTS infla
-  // (várias chamadas de leilão por slot), então usamos os cliques do Google Ads
-  // como denominador. Fallback: o request count do AdX.
-  const { data: adsClicksRows } = await admin
-    .from("daily_metrics")
-    .select("campaign_id,date,clicks")
-    .eq("user_id", userId)
-    .in("campaign_id", cids)
-    .in("date", dates);
-  const adsClicksByKey = new Map<string, number>();
-  for (const r of (adsClicksRows ?? []) as any[]) {
-    const k = `${r.campaign_id}|${r.date}`;
-    adsClicksByKey.set(k, (adsClicksByKey.get(k) ?? 0) + Number(r.clicks || 0));
-  }
-  const existingMap = new Map<string, { revenue_usd: number; impressions: number; match_rate_pct: number | null }>();
+  const existingMap = new Map<string, { revenue_usd: number; impressions: number; match_rate_pct: number | null; match_rate_source?: string | null }>();
   for (const r of (existing ?? []) as any[]) {
-    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0), match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
+    // Taxa antiga vinda do fallback impressões/cliques não é match rate — não preserva.
+    const wasClicks = r.match_rate_source === "clicks";
+    existingMap.set(`${r.campaign_id}|${r.date}`, { revenue_usd: Number(r.revenue_usd || 0), impressions: Number(r.impressions || 0), match_rate_pct: wasClicks || r.match_rate_pct == null ? null : Number(r.match_rate_pct), match_rate_source: wasClicks ? null : (r.match_rate_source ?? null) });
   }
   const placementTotalsForExisting = new Map<string, { revenue_usd: number; impressions: number }>();
   for (const r of (placementExisting ?? []) as any[]) {
@@ -2081,18 +2068,19 @@ async function persistCampaignTotalRequests(args: {
     if (placement.impressions <= 0) continue;
     const cur = existingMap.get(key);
     if (cur && cur.revenue_usd >= placement.revenue_usd) continue;
-    existingMap.set(key, { ...placement, match_rate_pct: cur?.match_rate_pct ?? null });
+    existingMap.set(key, { ...placement, match_rate_pct: cur?.match_rate_pct ?? null, match_rate_source: cur?.match_rate_source ?? null });
   }
   // 1ª passada: monta as linhas. Para o match rate:
   //   a) taxa REAL por campanha (b.match_rate_pct sem rate_is_proxy) — usa direto;
   //   b) proxy impressões/requests por campanha (b.rate_is_proxy) — guarda p/ calibrar;
-  //   c) sem nada disso → taxa por URL/site; senão impressões/cliques; senão preserva.
+  //   c) sem nada disso → taxa por URL/site; senão preserva (NUNCA impressões/cliques nem
+  //      impressões/requests: isso é preenchimento, não match rate — 31/10/2026).
   const proxyByDate = new Map<string, { sumReq: number; sumMatchedProxy: number }>();
   const draft = [...agg.values()].map((b) => {
-    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null };
-    const adsClicks = adsClicksByKey.get(`${b.cid}|${b.date}`) ?? 0;
+    const prev = existingMap.get(`${b.cid}|${b.date}`) ?? { revenue_usd: 0, impressions: 0, match_rate_pct: null, match_rate_source: null };
     const gamRequests = Number(b.total_requests || 0);
-    const denom = gamRequests > 0 ? gamRequests : (adsClicks > 0 ? adsClicks : 0);
+    // total_requests = AD_EXCHANGE_TOTAL_REQUESTS da campanha (não cliques do Ads).
+    const denom = gamRequests;
     const bRate = Number(b.match_rate_pct || 0) > 0 ? Number(b.match_rate_pct) : null;
     const isProxy = b.rate_is_proxy === true && bRate != null;
     let rate: number | null;
@@ -2110,18 +2098,14 @@ async function persistCampaignTotalRequests(args: {
       acc.sumMatchedProxy += gamRequests * (bRate! / 100);
       proxyByDate.set(b.date, acc);
     } else {
-      const path = cidToPath.get(b.cid);
-      const urlRate = path ? urlMatchRateByDate.get(path)?.get(b.date) : undefined;
-      const realRate = urlRate ?? siteMatchRateByDate.get(b.date) ?? null;
-      if (realRate != null) {
-        rate = realRate;
-        source = urlRate != null ? "url" : "site";
-      } else if (adsClicks > 0 && prev.impressions > 0) {
-        rate = Math.min(100, (prev.impressions / adsClicks) * 100);
-        source = "clicks";
+      // Sem taxa da própria utm_campaign: só mantém um valor REAL anterior da campanha.
+      // Taxa da URL/site não entra (Julio, 31/10: "se não houver dado da utm, mostrar —").
+      if (prev.match_rate_source === "campaign_real" && prev.match_rate_pct != null) {
+        rate = prev.match_rate_pct;
+        source = "campaign_real";
       } else {
-        rate = prev.match_rate_pct ?? null;
-        source = "preserved";
+        rate = null;
+        source = "none";
       }
     }
     return {
@@ -2151,6 +2135,13 @@ async function persistCampaignTotalRequests(args: {
       const siteRatePct = siteRate01 > 1 ? siteRate01 : siteRate01 * 100;
       const factor = avgProxy > 0 ? siteRatePct / avgProxy : 1;
       row.match_rate_pct = Math.min(100, row._proxyRate * factor);
+    } else {
+      // Sem taxa do site p/ calibrar: o proxy cru é impressões/requests (preenchimento).
+      // Não grava isso como match rate — mantém o valor anterior (ou "—").
+      const prev = existingMap.get(`${row.campaign_id}|${row.date}`);
+      const keep = prev?.match_rate_source === "campaign_real" && prev.match_rate_pct != null;
+      row.match_rate_pct = keep ? prev!.match_rate_pct : null;
+      row.match_rate_source = keep ? "campaign_real" : "none";
     }
   }
   const rows = draft.map(({ _isProxy, _proxyRate, ...r }) => r);
@@ -2198,7 +2189,7 @@ async function recomputeCampaignMatchRateFromClicks(args: {
 
   const { data: rows, error: rowsErr } = await admin
     .from("gam_campaign_source_revenue")
-    .select("id,campaign_id,date,impressions,total_requests,match_rate_pct")
+    .select("id,campaign_id,date,impressions,total_requests,match_rate_pct,match_rate_source")
     .eq("user_id", userId)
     .in("site_id", args.siteIds ?? [siteId])
     .eq("utm_source", "google")
@@ -2206,74 +2197,19 @@ async function recomputeCampaignMatchRateFromClicks(args: {
   if (rowsErr) { debug.push(`[${tag}] select err=${rowsErr.message}`); return; }
   if (!rows || rows.length === 0) return;
 
-  const cids = [...new Set((rows as any[])
-    .map((r) => String(r.campaign_id))
-    .filter((c) => c && c !== "__aggregate__"))];
-  if (cids.length === 0) return;
-
-  const { data: clicksRows } = await admin
-    .from("daily_metrics")
-    .select("campaign_id,date,clicks")
-    .eq("user_id", userId)
-    .in("campaign_id", cids)
-    .in("date", dates);
-  const clicksByKey = new Map<string, number>();
-  for (const r of (clicksRows ?? []) as any[]) {
-    const k = `${r.campaign_id}|${r.date}`;
-    clicksByKey.set(k, (clicksByKey.get(k) ?? 0) + Number(r.clicks || 0));
-  }
-
-  const cidToPath = new Map<string, string>();
-  if (urlMatchRateByDate && urlMatchRateByDate.size > 0) {
-    const { data: finalUrlRows } = await admin
-      .from("campaign_final_urls")
-      .select("campaign_id, final_url")
-      .eq("user_id", userId)
-      .in("campaign_id", cids)
-      .not("final_url", "is", null);
-    for (const r of (finalUrlRows ?? []) as any[]) {
-      const cid = String(r.campaign_id ?? "");
-      if (!cid || cidToPath.has(cid)) continue;
-      const path = urlPathOnly(String(r.final_url ?? ""));
-      if (path) cidToPath.set(cid, path);
-    }
-  }
-
-  const updates: Array<{ id: any; match_rate_pct: number; total_requests: number; match_rate_source: string }> = [];
+  // 31/10/2026: match rate só vem da própria utm_campaign (AD_EXCHANGE_MATCH_RATE por
+  // KEY_VALUES_NAME, ponderado por requests). Aqui só LIMPA taxas gravadas por fallback
+  // (impressões/cliques, URL, site, proxy, "preserved") → "—" na dash. A taxa real
+  // (campaign_real) nunca é tocada. Nome da função mantido por compatibilidade.
+  void siteMatchRateByDate; void urlMatchRateByDate; void overwriteStale;
+  const FALLBACK_SOURCES = new Set(["clicks", "url", "site", "campaign_proxy", "preserved"]);
+  const updates: Array<{ id: any; match_rate_pct: number | null; total_requests: number; match_rate_source: string | null }> = [];
   for (const r of rows as any[]) {
     const cid = String(r.campaign_id);
     if (!cid || cid === "__aggregate__") continue;
-    const impressions = Number(r.impressions || 0);
-    if (impressions <= 0) continue;
-    // Se persistCampaignTotalRequests já pôs uma taxa por campanha (> 0), NÃO sobrescreve
-    // com o número do site — era isso que deixava todas as campanhas iguais.
-    const already = r.match_rate_pct == null ? 0 : Number(r.match_rate_pct);
-    if (already > 0 && !overwriteStale) continue;
-    const clicks = clicksByKey.get(`${cid}|${r.date}`) ?? 0;
-    const path = cidToPath.get(cid);
-    const urlRate = path ? urlMatchRateByDate?.get(path)?.get(r.date) : undefined;
-    const urlOrSiteRate = urlRate ?? siteMatchRateByDate?.get(r.date);
-    // Prioriza o AD_EXCHANGE_MATCH_RATE real do GAM (por URL da landing, senão por
-    // site). Só sem ele cai no proxy impressões/cliques — e só se tiver cliques,
-    // senão preserva o valor atual. NUNCA usa impressões/requests (é fill rate).
-    let rate: number;
-    let denom: number;
-    let source: string;
-    if (urlOrSiteRate != null) {
-      rate = urlOrSiteRate;
-      denom = clicks > 0 ? clicks : Number(r.total_requests || 0);
-      source = urlRate != null ? "url" : "site";
-    } else if (clicks > 0) {
-      rate = Math.min(100, (impressions / clicks) * 100);
-      denom = clicks;
-      source = "clicks";
-    } else {
-      continue; // sem taxa real nem cliques — preserva o valor atual
-    }
-    const prevRate = r.match_rate_pct == null ? null : Number(r.match_rate_pct);
-    const prevDenom = Number(r.total_requests || 0);
-    if (prevRate != null && Math.abs(prevRate - rate) < 0.01 && prevDenom === denom) continue;
-    updates.push({ id: r.id, match_rate_pct: rate, total_requests: denom, match_rate_source: source });
+    if (r.match_rate_pct == null) continue;
+    if (!FALLBACK_SOURCES.has(String(r.match_rate_source ?? ""))) continue;
+    updates.push({ id: r.id, match_rate_pct: null, total_requests: Number(r.total_requests || 0), match_rate_source: "none" });
   }
   if (updates.length === 0) {
     debug.push(`[${tag}] ${rows.length} linha(s) verificadas, nada a recalcular`);
@@ -2287,7 +2223,7 @@ async function recomputeCampaignMatchRateFromClicks(args: {
         .eq("id", u.id)
     ));
   }
-  debug.push(`[${tag}] ${updates.length}/${rows.length} linha(s) recalculadas (impressões/cliques, cap 100%)`);
+  debug.push(`[${tag}] ${updates.length}/${rows.length} linha(s) com taxa de fallback limpas (sem dado da utm → "—")`);
 }
 
 async function persistCampaignSourceRevenueFromUtm(
@@ -2304,7 +2240,7 @@ async function persistCampaignSourceRevenueFromUtm(
   const siteIds = scope?.siteIds ?? [siteId];
   const siteFor = scope?.siteFor ?? (() => siteId);
   const today = new Date().toISOString().slice(0, 10);
-  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null }>();
+  const buckets = new Map<string, { user_id: string; site_id: string; campaign_id: string; date: string; utm_source: string; revenue_usd: number; impressions: number; total_requests?: number; match_rate_pct?: number | null; match_rate_source?: string | null }>();
   for (const r of rows) {
     const date = r.date ?? today;
     const source = (r.source || "unknown").toLowerCase();
@@ -2320,23 +2256,25 @@ async function persistCampaignSourceRevenueFromUtm(
   const dates = [...new Set([...syncDates, ...[...buckets.values()].map((b) => b.date)])];
   if (dates.length === 0) return;
   const { data: existingRequests } = await admin.from("gam_campaign_source_revenue")
-    .select("campaign_id,date,utm_source,total_requests,match_rate_pct")
+    .select("campaign_id,date,utm_source,total_requests,match_rate_pct,match_rate_source")
     .eq("user_id", userId).in("site_id", siteIds).in("date", dates);
-  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null }>();
+  const requestsByKey = new Map<string, { total_requests: number; match_rate_pct: number | null; match_rate_source: string | null }>();
   for (const r of (existingRequests ?? []) as any[]) {
     const req = Number(r.total_requests ?? 0);
-    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct) });
+    const wasClicks = r.match_rate_source === "clicks"; // fallback antigo impressões/cliques — não é match rate
+    if (req > 0) requestsByKey.set(`${r.campaign_id}|${r.date}|${String(r.utm_source ?? "").toLowerCase()}`, { total_requests: req, match_rate_pct: wasClicks || r.match_rate_pct == null ? null : Number(r.match_rate_pct), match_rate_source: wasClicks ? null : (r.match_rate_source ?? null) });
   }
   for (const b of buckets.values()) {
     const req = requestsByKey.get(`${b.campaign_id}|${b.date}|${b.utm_source}`);
     if (req && req.total_requests > 0) {
       b.total_requests = req.total_requests;
       b.match_rate_pct = req.match_rate_pct;
+      b.match_rate_source = req.match_rate_source;
     }
   }
   // total_requests é NOT NULL: no insert em lote o PostgREST manda NULL para a chave que falta em
   // alguma linha, e aí o lote INTEIRO falhava calado (sumia a receita de facebook/push/agregados).
-  const arr = [...buckets.values()].map((b) => ({ ...b, total_requests: b.total_requests ?? 0, match_rate_pct: b.match_rate_pct ?? null }));
+  const arr = [...buckets.values()].map((b) => ({ ...b, total_requests: b.total_requests ?? 0, match_rate_pct: b.match_rate_pct ?? null, match_rate_source: b.match_rate_source ?? null }));
   if (arr.length === 0) {
     debug.push(`[gam_campaign_source_revenue] SKIP delete/insert: nenhum UTM/campaign retornado pelo GAM. Mantendo snapshot anterior.`);
     return;

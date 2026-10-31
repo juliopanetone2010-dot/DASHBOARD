@@ -120,6 +120,7 @@ async function runSync(req: Request): Promise<Response> {
         const agg = new Map<string, {
           date: string; campaign_id: string; ad_unit_name: string;
           ad_requests: number; matched_impressions: number; revenue_usd: number;
+          matched_requests: number; rated_requests: number;
         }>();
         let noCampaign = 0;
         for (const r of rows) {
@@ -130,8 +131,13 @@ async function runSync(req: Request): Promise<Response> {
           const cur = agg.get(key) ?? {
             date: r.date, campaign_id: cid, ad_unit_name: r.ad_unit_name,
             ad_requests: 0, matched_impressions: 0, revenue_usd: 0,
+            matched_requests: 0, rated_requests: 0,
           };
           cur.ad_requests += r.ad_requests;
+          if (r.match_rate01 != null && r.ad_requests > 0) {
+            cur.matched_requests += r.ad_requests * r.match_rate01;
+            cur.rated_requests += r.ad_requests;
+          }
           cur.matched_impressions += r.matched_impressions;
           cur.revenue_usd += r.revenue_usd;
           agg.set(key, cur);
@@ -151,7 +157,9 @@ async function runSync(req: Request): Promise<Response> {
           ad_requests: v.ad_requests,
           matched_impressions: v.matched_impressions,
           revenue_usd: v.revenue_usd,
-          match_rate_pct: v.ad_requests > 0 ? (v.matched_impressions / v.ad_requests) * 100 : null,
+          // 31/10/2026: match rate = AD_EXCHANGE_MATCH_RATE do GAM (matched requests ÷ total
+          // requests AdX), ponderado por requests. Impressões ÷ requests é preenchimento — não grava.
+          match_rate_pct: v.rated_requests > 0 ? Math.min(100, (v.matched_requests / v.rated_requests) * 100) : null,
         }));
 
         // Upsert em lotes
@@ -182,12 +190,13 @@ async function runSync(req: Request): Promise<Response> {
 type ReportOut = {
   date: string; ad_unit_name: string; key_values_raw: string;
   ad_requests: number; matched_impressions: number; revenue_usd: number;
+  match_rate01: number | null;
 };
 
 async function runReportSafe(networkCode: string, accessToken: string, range: any, debug: string[]): Promise<ReportOut[]> {
-  const metricSets: Array<{ metrics: string[]; kind: "ad_requests" | "match_rate" }> = [
-    { metrics: ["AD_REQUESTS", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], kind: "ad_requests" },
-    { metrics: ["AD_EXCHANGE_MATCH_RATE", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], kind: "match_rate" },
+  const metricSets: Array<{ metrics: string[]; kind: "adx_rate" | "ad_requests" }> = [
+    { metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE", "AD_EXCHANGE_MATCH_RATE"], kind: "adx_rate" },
+    { metrics: ["AD_EXCHANGE_TOTAL_REQUESTS", "AD_EXCHANGE_IMPRESSIONS", "AD_EXCHANGE_REVENUE"], kind: "ad_requests" },
   ];
   let lastErr: unknown = null;
   for (const set of metricSets) {
@@ -200,10 +209,13 @@ async function runReportSafe(networkCode: string, accessToken: string, range: an
         const m0 = r.metrics[0] ?? 0;
         const impressions = r.metrics[1] ?? 0;
         const revenue = r.metrics[2] ?? 0;
-        let ad_requests = 0;
-        if (set.kind === "ad_requests") ad_requests = Math.round(m0);
-        else ad_requests = m0 > 0 ? Math.round(impressions / m0) : 0;
-        return { date: date ?? "", ad_unit_name, key_values_raw, ad_requests, matched_impressions: Math.round(impressions), revenue_usd: revenue };
+        const ad_requests = Math.round(m0);
+        let match_rate01: number | null = null;
+        if (set.kind === "adx_rate") {
+          const raw = r.metrics[3] ?? 0;
+          if (raw > 0) match_rate01 = Math.min(1, raw > 1 ? raw / 100 : raw);
+        }
+        return { date: date ?? "", ad_unit_name, key_values_raw, ad_requests, matched_impressions: Math.round(impressions), revenue_usd: revenue, match_rate01 };
       }).filter((r) => r.date && r.ad_unit_name);
       debug.push(`[${networkCode}] usou métricas: ${set.kind}`);
       return out;

@@ -534,7 +534,7 @@ const IndexInner = () => {
   }, [siteEcpmMapQuery.data, data.links]);
 
   // Taxa de correspondência (Match Rate) por campanha:
-  //   AD_SERVER_IMPRESSIONS / AD_SERVER_TOTAL_REQUESTS, ambos filtrados por utm_campaign=cid.
+  //   AD_EXCHANGE_MATCH_RATE da utm_campaign=cid, ponderado por AD_EXCHANGE_TOTAL_REQUESTS.
   // Fonte: gam_campaign_source_revenue (linhas utm_source='google') no período exato.
   const campaignMatchRateQuery = useQuery({
     queryKey: ["campaign-match-rate", filters.siteId, range.from, range.to, filters.googleAccountIds.join("|")],
@@ -555,61 +555,29 @@ const IndexInner = () => {
           .filter((c) => c.google_account_id && selectedAccountIds.has(c.google_account_id))
           .map((c) => c.campaign_id))
         : null;
-      // Agregação por campanha usando média ponderada do match_rate_pct canônico do GAM:
-      //   rate = Σ(rate_i * impressions_i) / Σ(impressions_i)
-      // Quando match_rate_pct não está disponível, fallback para Σ impr / Σ requests.
-      const map = new Map<string, {
-        impressions: number;
-        totalRequests: number;
-        ratedImpressions: number;
-        weightedRateSum: number;
-        sourceCounts: Map<string, number>;
-      }>();
+      // Match rate por campanha = AD_EXCHANGE_MATCH_RATE do GAM da utm_campaign (só linhas
+      // match_rate_source='campaign_real'), média ponderada por requests no período.
+      // Sem dado da utm → não entra no mapa (coluna mostra "—"). Nada de impressões/cliques,
+      // impressões/requests, nem taxa da URL/site (31/10/2026).
+      const { aggregateMatchRate } = await import("@/lib/bestMatch");
+      const map = new Map<string, { impressions: number; raw: Array<{ total_requests: number; match_rate_pct: number | null; match_rate_source: string | null }> }>();
       for (const r of rows) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid || allowedCampaignIds && !allowedCampaignIds.has(cid)) continue;
-        const impressions = Number((r as any).impressions ?? 0);
-        const totalRequests = Number((r as any).total_requests ?? 0);
-        const exactRatePct = Number((r as any).match_rate_pct ?? 0);
-        const cur = map.get(cid) ?? { impressions: 0, totalRequests: 0, ratedImpressions: 0, weightedRateSum: 0, sourceCounts: new Map<string, number>() };
-        cur.impressions += impressions;
-        cur.totalRequests += totalRequests;
-        if (impressions > 0 && exactRatePct > 0) {
-          cur.ratedImpressions += impressions;
-          cur.weightedRateSum += exactRatePct * impressions;
-          const src = String((r as any).match_rate_source ?? "");
-          if (src) cur.sourceCounts.set(src, (cur.sourceCounts.get(src) ?? 0) + 1);
-        }
+        const cur = map.get(cid) ?? { impressions: 0, raw: [] };
+        cur.impressions += Number((r as any).impressions ?? 0);
+        cur.raw.push({
+          total_requests: Number((r as any).total_requests ?? 0),
+          match_rate_pct: (r as any).match_rate_pct == null ? null : Number((r as any).match_rate_pct),
+          match_rate_source: (r as any).match_rate_source ?? null,
+        });
         map.set(cid, cur);
       }
-      // Fonte predominante do período (a que apareceu em mais dias) — exibida como
-      // badge no CampaignsTable pra dizer se é a taxa REAL do GAM por campanha ou
-      // um dos fallbacks, sem precisar olhar log.
-      const dominantSource = (counts: Map<string, number>): string | null => {
-        let best: string | null = null, bestN = 0;
-        for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
-        return best;
-      };
       const out = new Map<string, { matchRate: number; impressions: number; totalRequests: number; matchRateSource: string | null }>();
       for (const [cid, v] of map) {
-        if (v.ratedImpressions > 0) {
-          const rate = v.weightedRateSum / v.ratedImpressions;
-          out.set(cid, {
-            matchRate: rate,
-            impressions: v.impressions,
-            totalRequests: v.totalRequests > 0 ? v.totalRequests : Math.round(v.ratedImpressions / (rate / 100)),
-            matchRateSource: dominantSource(v.sourceCounts),
-          });
-        } else if (v.totalRequests > 0) {
-          out.set(cid, {
-            matchRate: (v.impressions / v.totalRequests) * 100,
-            impressions: v.impressions,
-            totalRequests: v.totalRequests,
-            matchRateSource: null,
-          });
-        } else {
-          out.set(cid, { matchRate: 0, impressions: v.impressions, totalRequests: 0, matchRateSource: null });
-        }
+        const agg = aggregateMatchRate(v.raw);
+        if (agg.rate == null) continue;
+        out.set(cid, { matchRate: agg.rate, impressions: v.impressions, totalRequests: agg.requests, matchRateSource: "campaign_real" });
       }
       return out;
     },
@@ -681,7 +649,7 @@ const IndexInner = () => {
       const to = toDate.toISOString().slice(0, 10);
       let q = supabase
         .from("gam_campaign_source_revenue")
-        .select("campaign_id, date, impressions, total_requests, match_rate_pct, site_id")
+        .select("campaign_id, date, impressions, total_requests, match_rate_pct, match_rate_source, site_id")
         .eq("utm_source", "google")
         .gte("date", from)
         .lte("date", to)
@@ -697,7 +665,7 @@ const IndexInner = () => {
           .map((c) => c.campaign_id))
         : null;
 
-      const byCampaign = new Map<string, Array<{ date: string; impressions: number; total_requests: number; match_rate_pct: number | null }>>();
+      const byCampaign = new Map<string, Array<{ date: string; impressions: number; total_requests: number; match_rate_pct: number | null; match_rate_source: string | null }>>();
       for (const r of rows ?? []) {
         const cid = String((r as any).campaign_id ?? "");
         if (!cid) continue;
@@ -708,6 +676,7 @@ const IndexInner = () => {
           impressions: Number((r as any).impressions ?? 0),
           total_requests: Number((r as any).total_requests ?? 0),
           match_rate_pct: (r as any).match_rate_pct == null ? null : Number((r as any).match_rate_pct),
+          match_rate_source: (r as any).match_rate_source ?? null,
         });
         byCampaign.set(cid, arr);
       }

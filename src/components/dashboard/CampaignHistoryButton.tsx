@@ -11,7 +11,7 @@ import { fmtCurrency, fmtPercent, fmtNumber, fmtUSD } from "@/lib/format";
 import { calculateCampaignEcpm } from "@/lib/campaignEcpm";
 import { cn } from "@/lib/utils";
 import { REV_SHARE_PCT, NET_FACTOR } from "@/engine/rules";
-import { buildBestMatch, matchRateColor, stabilityLabel, formatBrDate, BEST_MATCH_WINDOW_DAYS } from "@/lib/bestMatch";
+import { buildBestMatch, aggregateMatchRate, matchRateColor, stabilityLabel, formatBrDate, BEST_MATCH_WINDOW_DAYS } from "@/lib/bestMatch";
 import { buildAdUnitBestMatches, AD_UNIT_MIN_REQUESTS, AD_UNIT_TOP_N } from "@/lib/adUnitMatch";
 
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, ReferenceLine } from "recharts";
@@ -73,7 +73,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .limit(20000),
         supabase
           .from("gam_campaign_source_revenue")
-          .select("date, impressions, total_requests, match_rate_pct, revenue_usd")
+          .select("date, impressions, total_requests, match_rate_pct, match_rate_source, revenue_usd")
           .eq("campaign_id", campaignId)
           .eq("utm_source", "google")
           .gte("date", from)
@@ -107,39 +107,25 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         gamByDay.set(k, cur);
       }
 
-      // GAM campaign source (match rate) aggregated by day
-      const gamSourceByDay = new Map<string, { impressions: number; totalRequests: number; matchRatePct: number | null; revenue: number }>();
+      // GAM campaign source aggregated by day. Match rate = AD_EXCHANGE_MATCH_RATE da utm_campaign
+      // (só match_rate_source='campaign_real'), ponderado por requests. Sem isso → "—".
+      const gamSourceByDay = new Map<string, { impressions: number; revenue: number; raw: Array<{ total_requests: number; match_rate_pct: number | null; match_rate_source: string | null }> }>();
       for (const r of gamSource.data ?? []) {
         const k = String((r as any).date);
-        const cur = gamSourceByDay.get(k) ?? { impressions: 0, totalRequests: 0, matchRatePct: null, revenue: 0 };
+        const cur = gamSourceByDay.get(k) ?? { impressions: 0, revenue: 0, raw: [] };
         cur.impressions += Number((r as any).impressions ?? 0);
         cur.revenue += Number((r as any).revenue_usd ?? 0);
-        cur.totalRequests += Number((r as any).total_requests ?? 0);
-        const pct = (r as any).match_rate_pct;
-        if (pct != null) {
-          // keep the latest non-null match_rate_pct for the day (they should be identical per day)
-          cur.matchRatePct = Number(pct);
-        }
+        cur.raw.push({
+          total_requests: Number((r as any).total_requests ?? 0),
+          match_rate_pct: (r as any).match_rate_pct == null ? null : Number((r as any).match_rate_pct),
+          match_rate_source: (r as any).match_rate_source ?? null,
+        });
         gamSourceByDay.set(k, cur);
       }
 
-      // Fallback rate: weighted avg of days that DO have match data — used to estimate match rate on days where GAM didn't return total_requests.
-      let fbWeighted = 0;
-      let fbImp = 0;
-      for (const [, v] of gamSourceByDay) {
-        if (v.matchRatePct != null && v.impressions > 0) {
-          fbWeighted += v.matchRatePct * v.impressions;
-          fbImp += v.impressions;
-        } else if (v.totalRequests > 0 && v.impressions > 0) {
-          fbWeighted += (v.impressions / v.totalRequests) * 100 * v.impressions;
-          fbImp += v.impressions;
-        }
-      }
-      const fallbackRate = fbImp > 0 ? fbWeighted / fbImp : null;
-
       const rows: DailyRow[] = (dm.data ?? []).map((d: any) => {
         const g = gamByDay.get(String(d.date)) ?? { revenue: 0, impressions: 0 };
-        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, totalRequests: 0, matchRatePct: null, revenue: 0 };
+        const gs = gamSourceByDay.get(String(d.date)) ?? { impressions: 0, revenue: 0, raw: [] };
         // Sem linha em gam_placement_revenue (ex.: Zay Viral), usa receita/impressões da campanha em gam_campaign_source_revenue.
         const ecpm = g.impressions > 0
           ? calculateCampaignEcpm(g.revenue, g.impressions).ecpm
@@ -152,19 +138,11 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         const netRevBrl = grossRevBrl * NET_FACTOR;
         const netProfit = grossProfitBrl - shareBrl;
         const netRoi = cost > 0 ? (netProfit / cost) * 100 : 0;
-        const matchedRequests = gs.impressions;
-        let totalRequests = gs.totalRequests;
-        let matchRate: number | null = gs.matchRatePct != null
-          ? gs.matchRatePct
-          : totalRequests > 0
-            ? (matchedRequests / totalRequests) * 100
-            : null;
-        let matchRateEstimated = false;
-        if (matchRate == null && matchedRequests > 0 && fallbackRate != null && fallbackRate > 0) {
-          matchRate = fallbackRate;
-          matchRateEstimated = true;
-          if (totalRequests <= 0) totalRequests = Math.round(matchedRequests / (fallbackRate / 100));
-        }
+        const m = aggregateMatchRate(gs.raw);
+        const matchRate = m.rate;
+        const totalRequests = m.requests;
+        const matchedRequests = m.matched;
+        const matchRateEstimated = false;
         return {
           date: String(d.date),
           cost,
@@ -218,7 +196,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
           .lte("date", toD),
         supabase
           .from("gam_campaign_source_revenue")
-          .select("date, impressions, total_requests, match_rate_pct")
+          .select("date, impressions, total_requests, match_rate_pct, match_rate_source")
           .eq("campaign_id", campaignId)
           .eq("utm_source", "google")
           .gte("date", fromD)
@@ -231,6 +209,7 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
         impressions: Number(r.impressions ?? 0),
         total_requests: Number(r.total_requests ?? 0),
         match_rate_pct: r.match_rate_pct == null ? null : Number(r.match_rate_pct),
+        match_rate_source: r.match_rate_source ?? null,
       })));
 
       // Financial per day (net, applying rev share) — mesma fórmula do restante do modal
@@ -386,17 +365,13 @@ export function CampaignHistoryButton({ campaignId, campaignName }: Props) {
     const imp = r.reduce((a, x) => a + x.impressions, 0);
     const profit = rev - cost;
     const roi = cost > 0 ? (profit / cost) * 100 : 0;
-    const matched = r.reduce((a, x) => a + x.matchedRequests, 0);
-    const requests = r.reduce((a, x) => a + x.totalRequests, 0);
-    let weightedRate = 0;
-    let ratedImp = 0;
-    for (const x of r) {
-      if (x.matchRate != null && x.matchedRequests > 0) {
-        weightedRate += x.matchRate * x.matchedRequests;
-        ratedImp += x.matchedRequests;
-      }
-    }
-    const matchRate = ratedImp > 0 ? weightedRate / ratedImp : (requests > 0 ? (matched / requests) * 100 : null);
+    // Só dias com taxa real da utm; média ponderada por requests.
+    const rated = r.filter((x) => x.matchRate != null);
+    const matched = rated.reduce((a, x) => a + x.matchedRequests, 0);
+    const requests = rated.reduce((a, x) => a + x.totalRequests, 0);
+    const matchRate = requests > 0
+      ? (matched / requests) * 100
+      : rated.length ? rated.reduce((a, x) => a + (x.matchRate as number), 0) / rated.length : null;
     return { cost, rev, conv, imp, profit, roi, matched, requests, matchRate };
   }, [histQ.data]);
 
