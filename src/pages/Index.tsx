@@ -917,9 +917,9 @@ const IndexInner = () => {
   const hasRealGam = realGamRevenueGrossBrl > 0;
   // Se temos receita real do GAM, usamos ela como base do ROI/lucro após aplicar -6,5%.
   // Caso contrário, fallback para receita atribuída via UTM (Google) + push/outras.
-  // Lucro/ROI/ROAS usam só a receita das campanhas (mesma da tabela de campanhas), pra casar com o
-  // gasto do Google Ads. A receita total do site no GAM (sem UTM, push, outras) fica só no card de Receita.
-  const totalProfitBrl = baseTotals.profit;
+  // 31/10/2026 Julio: Lucro/ROI/ROAS dos cards usam a receita LÍQUIDA TOTAL do GAM (a mesma do card de Receita:
+  // campanhas + push + outras + sem UTM) contra o gasto do Google Ads. Sem GAM real, cai na receita das campanhas.
+  const totalProfitBrl = hasRealGam ? realGamRevenueNetBrl - baseTotals.spend : baseTotals.profit;
   const totalRevenueUsd = hasRealGam
     ? realGamRevenueNetBrl / usdBrl
     : baseTotals.revenue + extraNetUsd;
@@ -1354,14 +1354,14 @@ const IndexInner = () => {
                   value={fmtCurrency(totals.profit)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
-                  hint="BRL · só receita das campanhas (sem tráfego sem UTM)"
+                  hint="BRL · receita líquida total do GAM − gasto Google Ads"
                 />
                 <MetricCard
                   label={false ? "ROI ESTIMADO / ROAS" : "ROI / ROAS"}
                   value={fmtPercent(totals.roi)}
                   icon={profitPositive ? TrendingUp : TrendingDown}
                   variant={profitPositive ? "success" : "danger"}
-                  hint={`ROAS ${totals.roas.toFixed(2)}x · só campanhas`}
+                  hint={`ROAS ${totals.roas.toFixed(2)}x · receita total do GAM`}
                 />
               </div>
 
