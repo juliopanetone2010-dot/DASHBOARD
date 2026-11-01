@@ -125,16 +125,26 @@ Deno.serve(async (req) => {
     // 01/11/2026: o site pode ficar dias sem receita por placement no GAM (zay: utm_placement só de 28/10 em diante,
     // e um buraco de 20 a 27/10). Esses dias têm gasto mas nunca terão receita por placement → o ROI do placement sai
     // artificialmente negativo. Custo e receita passam a ser comparados SÓ nos dias "cheios" de gam_placement_revenue
-    // do site (≥ 30% da média diária dos dias com dado); os outros dias saem do custo, da receita e da trava.
+    // do site (receita ≥ 30% da média diária dos dias com dado); os outros dias saem do custo, da receita e da trava.
+    // Dia com linhas mas receita muito abaixo do normal também conta como incompleto (zay 10–19/10: ~US$30/dia
+    // contra ~US$330/dia depois que a utm_placement foi corrigida).
     const requestedFrom = from;
     let goodDays: Set<string> | null = null;
     if (siteId) {
+      const usdByDay = new Map<string, number>();
+      for (let start = 0; ; start += 1000) {
+        const { data } = await admin.from("gam_placement_revenue").select("date, revenue_usd")
+          .eq("user_id", userId).eq("site_id", siteId).gte("date", from).lte("date", to).range(start, start + 999);
+        for (const r of (data ?? []) as Array<{ date: string; revenue_usd: number }>) {
+          const d = String(r.date).slice(0, 10);
+          usdByDay.set(d, (usdByDay.get(d) ?? 0) + (Number(r.revenue_usd) || 0));
+        }
+        if (!data || data.length < 1000) break;
+      }
       const counts: Array<[string, number]> = [];
       for (let t = Date.parse(from); t <= Date.parse(to); t += msDay) {
         const d = iso(new Date(t));
-        const { count } = await admin.from("gam_placement_revenue").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).eq("site_id", siteId).eq("date", d);
-        counts.push([d, count ?? 0]);
+        counts.push([d, usdByDay.get(d) ?? 0]);
       }
       const withData = counts.filter(([, n]) => n > 0);
       const avg = withData.length ? withData.reduce((a, [, n]) => a + n, 0) / withData.length : 0;
