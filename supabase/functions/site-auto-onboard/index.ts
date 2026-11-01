@@ -89,14 +89,21 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
   // 29/10/2026: registra cada etapa da rodada em sync_state (source site-auto-onboard) — sem acesso fácil
   // aos logs da edge function, era impossível saber se os chunks/dia do GAM rodaram ou se o worker morreu.
   let stateId: string | null = null;
-  const saveState = async (status: string, meta: Record<string, unknown>) => {
+  // 01/11/2026: cursor do rodízio de placements (passo 3), lido da rodada anterior antes de sobrescrever o metadata.
+  let placementCursor = 0;
+  try {
+    const { data: st } = await admin.from("sync_state").select("id, metadata").eq("user_id", userId).eq("source", "site-auto-onboard").eq("site_id", siteId).limit(1);
+    stateId = st?.[0]?.id ?? null;
+    placementCursor = Number((st?.[0]?.metadata as { placementCursor?: number } | null)?.placementCursor ?? 0) || 0;
+  } catch { /* primeira rodada */ }
+  const saveState =async (status: string, meta: Record<string, unknown>) => {
     try {
       const patch = {
         last_status: status,
         last_started_at: new Date(startedAt).toISOString(),
         last_finished_at: status === "running" ? null : new Date().toISOString(),
         last_error: syncLog.errors.join("\n").slice(0, 1000) || null,
-        metadata: { ...meta, ms: Date.now() - startedAt, quick: !!opts?.quickOnly, gamChunks: syncLog.gamChunks },
+        metadata: { ...meta, ms: Date.now() - startedAt, quick: !!opts?.quickOnly, gamChunks: syncLog.gamChunks, placementCursor },
       };
       if (!stateId) {
         const { data: st } = await admin.from("sync_state").select("id").eq("user_id", userId).eq("source", "site-auto-onboard").eq("site_id", siteId).limit(1);
@@ -319,16 +326,38 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
       .in("id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"])
       .or("sync_enabled.is.null,sync_enabled.eq.true");
     const liveAccountIds = (liveAccs ?? []).map((a: { id: string }) => a.id);
-    const { data: campaigns } = await admin
-      .from("campaigns")
-      .select("campaign_id, google_account_id")
-      .eq("user_id", userId)
-      .in("google_account_id", liveAccountIds.length ? liveAccountIds : ["00000000-0000-0000-0000-000000000000"])
-      .limit(50);
-    syncLog.campaignRows = campaigns?.length ?? 0;
+    // 01/11/2026: antes era campaigns.limit(50) sem ordem — nas contas com centenas de campanhas (diario CONTA 1/2)
+    // pegava pausadas/antigas, e só 0–6 por rodada cabiam no prazo; as ativas ficavam sem custo por placement e a
+    // trava do placements-cleanup caía no custo rateado e recusava as exclusões. Agora: só campanhas com gasto na
+    // janela, da maior para a menor, em rodízio (cursor em sync_state) para todas passarem ao longo das rodadas.
+    const spendByCamp = new Map<string, { google_account_id: string; spend: number }>();
+    for (let offset = 0; liveAccountIds.length; offset += 1000) {
+      const { data: dm } = await admin
+        .from("daily_metrics")
+        .select("campaign_id, google_account_id, spend")
+        .eq("user_id", userId)
+        .in("google_account_id", liveAccountIds)
+        .gte("date", from)
+        .lte("date", effectiveTo)
+        .gt("spend", 0)
+        .range(offset, offset + 999);
+      for (const r of (dm ?? []) as Array<{ campaign_id: string; google_account_id: string; spend: number }>) {
+        const cur = spendByCamp.get(r.campaign_id) ?? { google_account_id: r.google_account_id, spend: 0 };
+        cur.spend += Number(r.spend) || 0;
+        spendByCamp.set(r.campaign_id, cur);
+      }
+      if (!dm || dm.length < 1000) break;
+    }
+    const ranked = [...spendByCamp.entries()]
+      .sort((a, b) => b[1].spend - a[1].spend || a[0].localeCompare(b[0]))
+      .map(([campaign_id, v]) => ({ campaign_id, google_account_id: v.google_account_id }));
+    const start = ranked.length ? placementCursor % ranked.length : 0;
+    const campaigns = [...ranked.slice(start), ...ranked.slice(0, start)];
+    syncLog.campaignRows = campaigns.length;
 
     let placementsOk = 0;
-    const camps = campaigns ?? [];
+    let placementsTried = 0;
+    const camps = campaigns;
     // Conta que saiu da MCC / perdeu acesso: pula as campanhas dela em vez de marcar o site como falho.
     const deniedAccounts = new Set<string>();
     for (const c of camps) {
@@ -336,6 +365,7 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] stopping placements due deadline", { siteId });
         break;
       }
+      placementsTried += 1;
       if (deniedAccounts.has(c.google_account_id)) continue;
       const placement = await callFn("google-ads-sync-placements", { campaign_id: c.campaign_id, from, to: effectiveTo, user_id: userId }, authHeader);
       const bodyText = JSON.stringify(placement.body);
@@ -345,13 +375,14 @@ async function runBackground(siteId: string, userId: string, authHeader: string,
         console.warn("[auto-onboard] conta sem permissão, pulando placements", { account: c.google_account_id, campaign: c.campaign_id });
       }
       else syncLog.errors.push(`placement ${c.campaign_id} ${placement.status}: ${bodyText.slice(0, 200)}`);
-      await delay(1_000);
+      await delay(300);
     }
+    placementCursor = ranked.length ? (start + placementsTried) % ranked.length : 0;
     syncLog.placementsOk = placementsOk;
     syncLog.placementsTotal = campaigns?.length ?? 0;
     console.log("[auto-onboard] placements synced", { siteId, ok: placementsOk, total: campaigns?.length ?? 0 });
     console.log("[auto-onboard] sync log", syncLog);
-    await saveState(syncLog.errors.length ? "error" : "success", { step: "done", window: { from, to: effectiveTo, chunkEnd }, placements: `${syncLog.placementsOk}/${syncLog.placementsTotal}` });
+    await saveState(syncLog.errors.length ? "error" : "success", { step: "done", window: { from, to: effectiveTo, chunkEnd }, placements: `${syncLog.placementsOk}/${placementsTried} de ${syncLog.placementsTotal}` });
 
     const hasErrors = syncLog.errors.length > 0;
     await admin
