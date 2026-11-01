@@ -122,6 +122,28 @@ Deno.serve(async (req) => {
     const cutoff = iso(new Date(Date.parse(to) - minDays * msDay));
     console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias) · cutoff elegibilidade ≤ ${cutoff} (minDays=${minDays})`);
 
+    // 01/11/2026: a receita por placement (utm_placement no GAM) só existe a partir do dia em que o site passou a
+    // mandar utm_placement (zay: 28/10). Dias antes disso têm gasto mas nunca terão receita por placement → o ROI do
+    // placement sai artificialmente negativo e a trava bloqueia tudo. A janela passa a começar no 1º dia "cheio" de
+    // gam_placement_revenue do site (≥ 30% da média diária dos dias com dado).
+    const requestedFrom = from;
+    if (siteId) {
+      const counts: Array<[string, number]> = [];
+      for (let t = Date.parse(from); t <= Date.parse(to); t += msDay) {
+        const d = iso(new Date(t));
+        const { count } = await admin.from("gam_placement_revenue").select("id", { count: "exact", head: true })
+          .eq("user_id", userId).eq("site_id", siteId).eq("date", d);
+        counts.push([d, count ?? 0]);
+      }
+      const withData = counts.filter(([, n]) => n > 0);
+      const avg = withData.length ? withData.reduce((a, [, n]) => a + n, 0) / withData.length : 0;
+      const firstFull = counts.find(([, n]) => avg > 0 && n >= avg * 0.3)?.[0];
+      if (firstFull && firstFull > from) {
+        console.log(`[placements-cleanup] sem receita por placement antes de ${firstFull} — janela ajustada de ${from} para ${firstFull}`);
+        from = firstFull;
+      }
+    }
+
 
     // Restringe contas Ads ao escopo do site selecionado.
     let allowedAccountIds: string[] | null = null;
@@ -702,7 +724,7 @@ Deno.serve(async (req) => {
       gam_total_usd: round(totalGamUsd),
       gam_attributed_usd: round(attributedGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
-      period: { from, to },
+      period: { from, to, requested_from: requestedFrom },
       analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
