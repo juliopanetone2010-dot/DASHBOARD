@@ -122,11 +122,12 @@ Deno.serve(async (req) => {
     const cutoff = iso(new Date(Date.parse(to) - minDays * msDay));
     console.log(`[placements-cleanup] Analisando de ${from} até ${to} (${analysisWindowDays} dias) · cutoff elegibilidade ≤ ${cutoff} (minDays=${minDays})`);
 
-    // 01/11/2026: a receita por placement (utm_placement no GAM) só existe a partir do dia em que o site passou a
-    // mandar utm_placement (zay: 28/10). Dias antes disso têm gasto mas nunca terão receita por placement → o ROI do
-    // placement sai artificialmente negativo e a trava bloqueia tudo. A janela passa a começar no 1º dia "cheio" de
-    // gam_placement_revenue do site (≥ 30% da média diária dos dias com dado).
+    // 01/11/2026: o site pode ficar dias sem receita por placement no GAM (zay: utm_placement só de 28/10 em diante,
+    // e um buraco de 20 a 27/10). Esses dias têm gasto mas nunca terão receita por placement → o ROI do placement sai
+    // artificialmente negativo. Custo e receita passam a ser comparados SÓ nos dias "cheios" de gam_placement_revenue
+    // do site (≥ 30% da média diária dos dias com dado); os outros dias saem do custo, da receita e da trava.
     const requestedFrom = from;
+    let goodDays: Set<string> | null = null;
     if (siteId) {
       const counts: Array<[string, number]> = [];
       for (let t = Date.parse(from); t <= Date.parse(to); t += msDay) {
@@ -137,12 +138,13 @@ Deno.serve(async (req) => {
       }
       const withData = counts.filter(([, n]) => n > 0);
       const avg = withData.length ? withData.reduce((a, [, n]) => a + n, 0) / withData.length : 0;
-      const firstFull = counts.find(([, n]) => avg > 0 && n >= avg * 0.3)?.[0];
-      if (firstFull && firstFull > from) {
-        console.log(`[placements-cleanup] sem receita por placement antes de ${firstFull} — janela ajustada de ${from} para ${firstFull}`);
-        from = firstFull;
+      const full = counts.filter(([, n]) => avg > 0 && n >= avg * 0.3).map(([d]) => d);
+      if (full.length && full.length < counts.length) {
+        goodDays = new Set(full);
+        console.log(`[placements-cleanup] dias sem receita por placement fora do cálculo: ${counts.filter(([d]) => !goodDays!.has(d)).map(([d]) => d).join(",")}`);
       }
     }
+    const inGood = (d: string) => !goodDays || goodDays.has(String(d).slice(0, 10));
 
 
     // Restringe contas Ads ao escopo do site selecionado.
@@ -265,6 +267,7 @@ Deno.serve(async (req) => {
         .limit(50000);
       if (error) return json({ error: error.message });
       for (const r of data ?? []) {
+        if (!inGood(String(r.date))) continue;
         const cid = String(r.campaign_id);
         const spend = Number(r.spend) || 0;
         if (spend > 0) {
@@ -284,7 +287,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const ads = await fetchLiveAdsPlacements(admin, userId, eligibleIds, campMap, from, to);
+    const ads = await fetchLiveAdsPlacements(admin, userId, eligibleIds, campMap, from, to, goodDays);
 
     type GamRow = { campaign_id: string; placement: string; revenue_usd: number; date: string };
     const gam: GamRow[] = [];
@@ -304,7 +307,8 @@ Deno.serve(async (req) => {
         if (siteId) gamQuery = gamQuery.eq("site_id", siteId);
         const { data, error } = await gamQuery.range(start, start + 999);
         if (error) return json({ error: error.message });
-        const rows = (data ?? []) as GamRow[];
+        const all = (data ?? []) as GamRow[];
+        const rows = all.filter((r) => inGood(r.date));
         gam.push(...rows);
         for (const r of rows) {
           const cid = String(r.campaign_id);
@@ -312,7 +316,7 @@ Deno.serve(async (req) => {
           set.add(String(r.date));
           gamDaysByCampaign.set(cid, set);
         }
-        if (rows.length < 1000) break;
+        if (all.length < 1000) break;
         start += 1000;
       }
     }
@@ -724,7 +728,7 @@ Deno.serve(async (req) => {
       gam_total_usd: round(totalGamUsd),
       gam_attributed_usd: round(attributedGamUsd),
       gam_attributed_pct: totalGamUsd > 0 ? round((attributedGamUsd / totalGamUsd) * 100) : 0,
-      period: { from, to, requested_from: requestedFrom },
+      period: { from, to, requested_from: requestedFrom, dias_sem_receita_placement_fora: goodDays ? (() => { const out: string[] = []; for (let t = Date.parse(from); t <= Date.parse(to); t += msDay) { const d = iso(new Date(t)); if (!goodDays!.has(d)) out.push(d); } return out; })() : [] },
       analysis_window_days: analysisWindowDays,
       source: "google_ads_api_live",
       thresholds: { min_days: minDays, min_cost_brl: minCostBrl, max_roi_pct: maxRoiPct },
@@ -817,15 +821,16 @@ Deno.serve(async (req) => {
       const safetyResults = await Promise.all(selected.map(async (it) => {
         const checks = await Promise.all(it.campaigns.map(async (c) => {
           const root = rootDomain(it.placement);
-          const { data: costRows } = await admin
+          let costQ = admin
             .from("ads_placements")
             .select("cost, placement, placement_clean")
             .eq("user_id", userId)
             .eq("campaign_id", c.campaign_id)
             .gte("date", from)
             .lte("date", to)
-            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`)
-            .limit(5000);
+            .or(`placement.ilike.%${root}%,placement_clean.ilike.%${root}%`);
+          if (goodDays) costQ = costQ.in("date", [...goodDays]); // só dias com receita por placement no GAM
+          const { data: costRows } = await costQ.limit(5000);
           let costBrl = (costRows ?? []).reduce((a: number, r: any) => a + (Number(r.cost) || 0), 0);
           let costSource: "placement" | "prorated_campaign" | "none" = (costRows ?? []).length > 0 ? "placement" : "none";
 
@@ -838,6 +843,7 @@ Deno.serve(async (req) => {
             .lte("date", to)
             .ilike("placement", `%${root}%`);
           if (siteId) gamQ = gamQ.eq("site_id", siteId);
+          if (goodDays) gamQ = gamQ.in("date", [...goodDays]);
           const { data: revRows } = await gamQ.limit(5000);
           const revUsd = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.revenue_usd) || 0), 0);
           const placementImpr = (revRows ?? []).reduce((a: number, r: any) => a + (Number(r.impressions) || 0), 0);
@@ -846,13 +852,15 @@ Deno.serve(async (req) => {
           // Rateia o custo total da campanha (daily_metrics) pela fatia de impressões
           // GAM deste placement vs total de impressões GAM da campanha no período.
           if (costBrl === 0) {
-            const { data: dmRows } = await admin
+            let dmQ = admin
               .from("daily_metrics")
               .select("spend")
               .eq("user_id", userId)
               .eq("campaign_id", c.campaign_id)
               .gte("date", from)
               .lte("date", to);
+            if (goodDays) dmQ = dmQ.in("date", [...goodDays]);
+            const { data: dmRows } = await dmQ;
             const campaignSpend = (dmRows ?? []).reduce((a: number, r: any) => a + (Number(r.spend) || 0), 0);
 
             if (campaignSpend > 0 && placementImpr > 0) {
@@ -864,6 +872,7 @@ Deno.serve(async (req) => {
                 .gte("date", from)
                 .lte("date", to);
               if (siteId) totalImprQ = totalImprQ.eq("site_id", siteId);
+              if (goodDays) totalImprQ = totalImprQ.in("date", [...goodDays]);
               const { data: totImprRows } = await totalImprQ.limit(10000);
               const totalImpr = (totImprRows ?? []).reduce((a: number, r: any) => a + (Number(r.impressions) || 0), 0);
               if (totalImpr > 0) {
@@ -1001,6 +1010,7 @@ async function fetchLiveAdsPlacements(
   campMap: Map<string, CampMeta>,
   from: string,
   to: string,
+  goodDays: Set<string> | null = null,
 ): Promise<LiveAdsRow[]> {
   const byAccount = new Map<string, string[]>();
   for (const cid of eligibleIds) {
@@ -1057,7 +1067,7 @@ async function fetchLiveAdsPlacements(
           campaign.name,
           metrics.clicks,
           metrics.impressions,
-          metrics.cost_micros
+          metrics.cost_micros${goodDays ? ", segments.date" : ""}
         FROM detail_placement_view
         WHERE segments.date BETWEEN '${from}' AND '${to}'
           AND campaign.id IN (${idList})
@@ -1076,6 +1086,7 @@ async function fetchLiveAdsPlacements(
           throw new Error(data?.error?.message ?? "Erro ao buscar placements no Google Ads");
         }
         for (const r of data.results ?? []) {
+          if (goodDays && !goodDays.has(String(r.segments?.date ?? ""))) continue; // dia sem receita por placement no GAM
           const placementRaw = String(r.detailPlacementView?.placement ?? r.detailPlacementView?.displayName ?? "unknown");
           const targetUrl = r.detailPlacementView?.targetUrl ?? r.detailPlacementView?.groupPlacementTargetUrl ?? null;
           const type = r.detailPlacementView?.placementType ?? null;
