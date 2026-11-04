@@ -81,9 +81,14 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
   const linkedAccountIdsForSite = filters.siteId === "all"
     ? null
     : new Set(links.filter((l) => l.site_id === filters.siteId).map((l) => l.google_account_id));
-  const visibleAccounts = linkedAccountIdsForSite
+  // MCC nunca tem gasto próprio; conta sem sync há 3+ dias é antiga/parada → vai para o fim, apagada
+  const isStale = (a: GoogleAccount) =>
+    !a.last_synced_at || Date.now() - new Date(a.last_synced_at).getTime() > 3 * 86400e3;
+  const visibleAccounts = (linkedAccountIdsForSite
     ? googleAccounts.filter((a) => linkedAccountIdsForSite.has(a.id))
-    : googleAccounts;
+    : googleAccounts
+  ).filter((a) => !a.is_mcc || filters.googleAccountIds.includes(a.id))
+    .sort((x, y) => Number(isStale(x)) - Number(isStale(y)));
 
   const selectedAccountIds = filters.googleAccountIds;
   const allAccountsSelected = selectedAccountIds.length === 0;
@@ -179,14 +184,14 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
               {visibleAccounts.map((a) => (
                 <DropdownMenuCheckboxItem
                   key={a.id}
-                  className={cn(a.status === "suspended" || a.status === "canceled" ? "opacity-60 italic" : "")}
+                  className={cn(a.status === "suspended" || a.status === "canceled" || isStale(a) ? "opacity-60 italic" : "")}
                   checked={allAccountsSelected || selectedAccountIds.includes(a.id)}
                   onCheckedChange={() => toggleAccount(a.id)}
                   onSelect={(event) => event.preventDefault()}
                 >
                   <span className="truncate flex-1">
                     {a.account_name ?? a.customer_id}
-                    {(a.status === "suspended" || a.status === "canceled") && " (Inativa)"}
+                    {(a.status === "suspended" || a.status === "canceled") ? " (Inativa)" : isStale(a) && " (parada)"}
                   </span>
                   {/* "só" = filtra só esta conta, sem precisar desmarcar as outras */}
                   <button
