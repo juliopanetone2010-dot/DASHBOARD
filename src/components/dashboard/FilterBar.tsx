@@ -184,10 +184,19 @@ export function FilterBar({ filters, onChange, googleAccounts, sites, campaigns,
                   onCheckedChange={() => toggleAccount(a.id)}
                   onSelect={(event) => event.preventDefault()}
                 >
-                  <span className="truncate">
+                  <span className="truncate flex-1">
                     {a.account_name ?? a.customer_id}
                     {(a.status === "suspended" || a.status === "canceled") && " (Inativa)"}
                   </span>
+                  {/* "só" = filtra só esta conta, sem precisar desmarcar as outras */}
+                  <button
+                    type="button"
+                    className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/10"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); set("googleAccountIds", [a.id]); }}
+                  >
+                    só
+                  </button>
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
