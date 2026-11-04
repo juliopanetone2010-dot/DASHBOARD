@@ -37,11 +37,16 @@ export function useColumnLayout({
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(storageKeyOrder) : null;
       if (raw) {
         const parsed = JSON.parse(raw) as string[];
-        // Merge: keep persisted order, append any new keys at the end, drop unknown
+        // Merge: keep persisted order, drop unknown; a new key goes right after the key that
+        // precedes it in allKeys (or at the end if there is none), not always at the end.
         const known = new Set(allKeys);
-        const persisted = parsed.filter((k) => known.has(k));
-        const missing = allKeys.filter((k) => !persisted.includes(k));
-        return [...persisted, ...missing];
+        const merged = parsed.filter((k) => known.has(k));
+        allKeys.forEach((k, i) => {
+          if (merged.includes(k)) return;
+          const prev = allKeys.slice(0, i).reverse().find((p) => merged.includes(p));
+          merged.splice(prev ? merged.indexOf(prev) + 1 : merged.length, 0, k);
+        });
+        return merged;
       }
     } catch { /* ignore */ }
     return [...allKeys];

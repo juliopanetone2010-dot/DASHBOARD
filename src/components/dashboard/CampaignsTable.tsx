@@ -36,7 +36,7 @@ import { MatchRateDebugDialog } from "./MatchRateDebugDialog";
 import { type BestMatchInfo, matchRateColor, formatBrDate } from "@/lib/bestMatch";
 import { normalizePushUrl } from "@/lib/normalizePushUrl";
 
-type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "impressions" | "age" | "trend" | "roiDay" | "score";
+type SortKey = "spend" | "revenue" | "profit" | "roi" | "roas" | "ecpm" | "clicks" | "conversions" | "ctr" | "convRate" | "cpa" | "cpc" | "impressions" | "age" | "trend" | "roiDay" | "score";
 type SortDir = "desc" | "asc";
 type TrendPeriod = "today" | "yesterday" | "7d" | "15d" | "30d";
 const TREND_PERIODS: Array<{ key: TrendPeriod; label: string; days: number }> = [
@@ -133,7 +133,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     | "score" | "startDate" | "age" | "lastAction"
     | "spend" | "revenue" | "profit" | "roi" | "roiDay" | "trend" | "roas"
     | "ecpm" | "matchRate" | "bestMatch" | "deltaMatch" | "impressions" | "clicks" | "ctr"
-    | "conversions" | "convRate" | "cpa" | "finalUrl"
+    | "conversions" | "convRate" | "cpa" | "cpc" | "finalUrl"
     | "act_pause" | "act_cpa" | "act_budget" | "act_history" | "act_restart" | "act_html5";
   // Ordem padrão: métricas principais → Taxa Corresp. → ações Pause / CPA logo ao lado →
   // demais métricas. Colunas em DEFAULT_HIDDEN existem mas começam ocultas (reativáveis no
@@ -155,6 +155,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     { key: "bestMatch", label: "Melhor Match", width: 160 },
     { key: "impressions", label: "Impr.", width: 100 },
     { key: "clicks", label: "Cliques", width: 80 },
+    { key: "cpc", label: "CPC", width: 80 },
     { key: "ctr", label: "CTR", width: 70 },
     { key: "conversions", label: "Conv.", width: 80 },
     { key: "convRate", label: "Tx. Conv.", width: 90 },
@@ -220,6 +221,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
     deltaMatch: { label: "Δ Match", align: "right" },
     impressions: { label: "Impr.", sortKey: "impressions", align: "right" },
     clicks: { label: "Cliques", sortKey: "clicks", align: "right" },
+    cpc: { label: "CPC", sortKey: "cpc", align: "right" },
     ctr: { label: "CTR", sortKey: "ctr", align: "right" },
     conversions: { label: "Conv.", sortKey: "conversions", align: "right" },
     convRate: { label: "Tx. Conv.", sortKey: "convRate", align: "right" },
@@ -576,6 +578,7 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
         case "ctr": return d?.ctr ?? 0;
         case "convRate": return d?.convRate ?? 0;
         case "cpa": return d?.cpa ?? 0;
+        case "cpc": return c.clicks > 0 ? Number(c.spend) / c.clicks : 0;
         case "ecpm": return campaignGamMetrics?.get(c.campaign_id)?.ecpm ?? Number(c.ecpm ?? 0);
         case "impressions": return campaignGamMetrics?.get(c.campaign_id)?.impressions ?? Number(c.impressions ?? 0);
         case "age": return ageInDays(firstSpendQuery.data?.get(c.campaign_id)) ?? -1;
@@ -994,21 +997,22 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <TopScrollbar>
+      {/* Altura limitada à tela: assim o cabeçalho (sticky top) acompanha a rolagem da lista. */}
+      <TopScrollbar bodyClassName="[&>div]:max-h-[calc(100vh-120px)]">
         <Table className="min-w-[1200px] max-md:min-w-0 text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:h-9 [&_th]:px-2 max-md:[&_td]:px-1 max-md:[&_th]:px-1">
-          <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="sticky left-0 z-30 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm max-md:hidden">
+          <TableHeader className="sticky top-0 z-40 [&_th]:bg-muted">
+            <TableRow className="bg-muted hover:bg-muted">
+              <TableHead className="sticky left-0 z-50 w-[40px] min-w-[40px] bg-muted border-r border-border shadow-sm max-md:hidden">
                 <Checkbox
                   checked={sortedCampaigns.length > 0 && selected.size === sortedCampaigns.length}
                   onCheckedChange={toggleAll}
                   aria-label="Selecionar todas"
                 />
               </TableHead>
-              <TableHead className="sticky left-[40px] z-30 w-[132px] min-w-[132px] bg-muted border-r border-border shadow-sm max-md:hidden">Campaign ID</TableHead>
+              <TableHead className="sticky left-[40px] z-50 w-[132px] min-w-[132px] bg-muted border-r border-border shadow-sm max-md:hidden">Campaign ID</TableHead>
               <TableHead
                 style={{ left: `${NAME_LEFT}px`, width: `${NAME_W}px`, minWidth: `${NAME_W}px` }}
-                className="sticky z-30 bg-muted border-r border-border shadow-sm"
+                className="sticky z-50 bg-muted border-r border-border shadow-sm"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span>Nome</span>
@@ -1541,6 +1545,8 @@ export function CampaignsTable({ campaigns, campaignGamMetrics, siteEcpmByAccoun
                         );
                       case "clicks":
                         return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{fmtNumber(c.clicks)}</TableCell>;
+                      case "cpc":
+                        return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{c.clicks > 0 ? fmtCurrency(Number(c.spend) / c.clicks) : "—"}</TableCell>;
                       case "ctr":
                         return <TableCell key={k} style={ws} className="text-right tabular-nums text-muted-foreground">{(d?.ctr ?? 0).toFixed(2)}%</TableCell>;
                       case "conversions":

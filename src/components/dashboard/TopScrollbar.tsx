@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 // Barra de rolagem horizontal no topo, sincronizada com a da tabela (sem transform 3D,
 // que trava o scroll e quebra colunas sticky no Safari/Mac).
-export function TopScrollbar({ children }: { children: ReactNode }) {
+export function TopScrollbar({ children, bodyClassName }: { children: ReactNode; bodyClassName?: string }) {
   const topRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -69,7 +69,7 @@ export function TopScrollbar({ children }: { children: ReactNode }) {
       >
         <div style={{ width, height: 12 }} />
       </div>
-      <div ref={bodyRef}>{children}</div>
+      <div ref={bodyRef} className={bodyClassName}>{children}</div>
     </div>
   );
 }
